@@ -1,5 +1,5 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        dbt-deps dbt-build dbt-test dbt-clean lint test clean
+        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean
 
 PY := uv run
 DBT_DIR := dbt
@@ -26,11 +26,17 @@ ingest-bcb-currency:
 ingest-all:
 	$(PY) embrapa ingest all
 
+ingest-ibge-historical:    ## Ingest IBGE in safe 5-year chunks (for large historical windows)
+	$(PY) embrapa ingest ibge-batch --chunk-years 5
+
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps
 
-dbt-build: dbt-deps    ## Run + test silver and gold
+dbt-build: dbt-deps    ## Dev: silver+gold in dbt_dev_silver / dbt_dev_gold
 	cd $(DBT_DIR) && $(PY) dbt build
+
+dbt-build-prod: dbt-deps    ## Prod: silver+gold in silver / gold (real datasets)
+	cd $(DBT_DIR) && $(PY) dbt build --target prod --full-refresh
 
 dbt-test:
 	cd $(DBT_DIR) && $(PY) dbt test

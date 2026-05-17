@@ -16,8 +16,19 @@ logger = logging.getLogger(__name__)
 def ensure_bucket(client: storage.Client, bucket_name: str, location: str) -> storage.Bucket:
     bucket = client.bucket(bucket_name)
     if not bucket.exists():
-        logger.info("Creating GCS bucket gs://%s (%s)", bucket_name, location)
-        bucket = client.create_bucket(bucket_name, location=location)
+        logger.info("Creating GCS bucket gs://%s (%s, uniform IAM)", bucket_name, location)
+        new_bucket = storage.Bucket(client, name=bucket_name)
+        new_bucket.iam_configuration.uniform_bucket_level_access_enabled = True
+        return client.create_bucket(new_bucket, location=location)
+
+    # Bucket already exists — ensure uniform bucket-level access is on.
+    bucket.reload()
+    if not bucket.iam_configuration.uniform_bucket_level_access_enabled:
+        logger.info(
+            "Upgrading gs://%s to uniform bucket-level access (IAM only).", bucket_name
+        )
+        bucket.iam_configuration.uniform_bucket_level_access_enabled = True
+        bucket.patch()
     return bucket
 
 

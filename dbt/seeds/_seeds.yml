@@ -22,3 +22,31 @@ seeds:
         tests: [not_null, unique]
       - name: product_description
         tests: [not_null, unique]
+
+  - name: historical_currency_factors
+    description: |
+      Multiplier to convert each historical Brazilian currency unit reported
+      by IBGE PEVS to present-day BRL. The factor includes both:
+        (a) the "Mil" multiplier (since IBGE reports values in thousands), and
+        (b) the cumulative currency reform divisions (Cruzado→...→Real).
+
+      IPCA chain absorbs price inflation but NOT currency redenominations
+      (each reform divided the currency by 1000 or 2750 without changing
+      purchasing power — invisible to the IPCA monthly variation series).
+
+      Reform timeline:
+        Cz$  → NCz$  on 1989-01-16 (÷1000)
+        NCz$ → Cr$   on 1990-03-15 (÷1)
+        Cr$  → CR$   on 1993-08-01 (÷1000)
+        CR$  → R$    on 1994-07-01 (÷2750)
+
+      Net factor 1 Cz$ → 1/(1000·1·1000·2750) R$ = 1/2.75e9 R$.
+    config:
+      column_types:
+        unit_of_measure: string
+        brl_factor: float64
+    columns:
+      - name: unit_of_measure
+        tests: [not_null, unique]
+      - name: brl_factor
+        tests: [not_null]

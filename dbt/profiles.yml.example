@@ -1,6 +1,16 @@
 # Copy to ~/.dbt/profiles.yml (do NOT commit the real one — it lives outside the repo).
-# Authentication uses Application Default Credentials, so run once:
+# Authentication uses Application Default Credentials — run once:
 #   gcloud auth application-default login
+#
+# Targets:
+#   dev  (default) — writes to dbt_dev_silver, dbt_dev_gold.  Safe to iterate.
+#   prod           — writes to silver, gold directly. Run only after full validation.
+#
+# Usage:
+#   dbt build                      # uses dev
+#   dbt build --target prod        # uses prod
+#   make dbt-build                 # uses dev
+#   make dbt-build-prod            # uses prod
 
 embrapa_commodities:
   target: dev
@@ -9,9 +19,20 @@ embrapa_commodities:
       type: bigquery
       method: oauth
       project: embrapa-dashboard-commodities   # override per environment
-      dataset: dbt_dev                          # default schema for ad-hoc runs
-      location: US
+      dataset: dbt_dev                          # sandboxed: dbt_dev_silver, dbt_dev_gold
+      location: us-central1
       threads: 4
       job_execution_timeout_seconds: 600
       job_retries: 1
       priority: interactive
+
+    prod:
+      type: bigquery
+      method: oauth
+      project: embrapa-dashboard-commodities   # override per environment
+      dataset: prod                             # ignored for models with custom schema
+      location: us-central1
+      threads: 8
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+      priority: batch

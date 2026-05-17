@@ -31,11 +31,13 @@ parsed as (
 )
 
 -- Chain-link the monthly % changes into a 100-base number index.
--- This single column absorbs both inflation AND every Brazilian monetary
--- reform (cuts of zeros, currency renames) because the SGS variation series
--- is constructed by the BCB to be continuous across those events. As a
--- result, a value of 500 Cruzeiros in 1989 multiplied by
--- (index_value_2025 / index_value_1989) yields the correct R$ value in 2025.
+-- This index captures pure REAL inflation only — it does NOT absorb the
+-- Brazilian currency reforms (Cz$→NCz$→Cr$→CR$→R$) because those reforms
+-- divided the currency without changing purchasing power, so the SGS 433
+-- monthly variation series shows no spike at reform dates. Nominal historical
+-- values therefore must be converted to BRL via the
+-- `historical_currency_factors` seed BEFORE this index is applied for
+-- inflation correction in Gold.
 select
     series_code,
     series_name,

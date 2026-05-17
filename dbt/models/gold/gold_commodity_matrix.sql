@@ -15,21 +15,28 @@
 -- ────────────────────────────────────────────────────────────────────────────
 -- Conventions
 --
---  • val_nominal_*  = the raw IBGE amount in the currency of its own year,
---                     converted to USD/EUR/CNY using FX rates of THAT year.
---                     For BRL: kept as reported (Cruzeiros, Cruzados, Reais...).
---                     Use this for historical auditing only.
+--  Silver already converts every historical-currency value to present BRL via
+--  the `historical_currency_factors` seed (so val_raw is in R$ regardless of
+--  the year). Gold only applies FX and inflation deflation on top.
 --
---  • val_real_ipca_* = raw amount projected to today via the IPCA chain-link
---                     (which absorbs both inflation and every Brazilian
---                     currency reform), then optionally converted to
---                     foreign currency at TODAY's FX rates.
---                     This is the column for cross-year economic comparison.
+--  • val_nominal_*  = val_raw (BRL) converted to USD/EUR/CNY at the FX rate
+--                     of THAT year. Use this for historical auditing — note
+--                     pre-1994 BRL is purchasing-power-equivalent today, but
+--                     the FX rate of the year is in the currency of the year
+--                     (Cz$/USD, Cr$/USD, etc.), giving a USD value at the
+--                     time the transaction happened.
+--
+--  • val_real_ipca_* = val_raw projected to today via the IPCA chain (real
+--                     inflation only — currency reforms already absorbed in
+--                     Silver), then optionally converted to foreign currency
+--                     at TODAY's FX rates. This is the column for cross-year
+--                     economic comparison.
 --
 --  • val_real_igpm_* = identical logic to IPCA, using IGP-M.
 --
 --  NULL semantics:
 --    - placeholders (-, ..., *) in the source → NULL in the Silver layer;
+--    - missing currency factor for unit_of_measure → NULL val_raw → NULL all monetary;
 --    - missing IPCA / IGP-M index for that year → NULL real_* columns;
 --    - missing FX rate for that year (e.g. EUR pre-1999) → NULL nominal_FX.
 -- ────────────────────────────────────────────────────────────────────────────
@@ -135,7 +142,9 @@ enriched as (
         fxl.brl_per_eur_current,
         fxl.brl_per_cny_current,
 
-        -- Real-IPCA BRL: chain-linked deflator absorbs inflation + monetary reforms.
+        -- Real-IPCA BRL: val_raw is already in present-day BRL (Silver applied
+        -- the historical_currency_factors seed); we now apply the IPCA chain
+        -- ratio to bring the year-of-record purchasing power up to today.
         b.val_raw * safe_divide(il.ipca_current, iy.ipca_year_end) as val_real_ipca_brl,
         -- Real-IGPM BRL: same logic with the alternative series.
         b.val_raw * safe_divide(il.igpm_current, iy.igpm_year_end) as val_real_igpm_brl

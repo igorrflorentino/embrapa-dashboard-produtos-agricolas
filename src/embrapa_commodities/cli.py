@@ -16,6 +16,7 @@ from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
+from embrapa_commodities.ibge.client import recommended_chunk_years
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +57,64 @@ def ingest_bcb_currency() -> None:
     """Ingest configured BCB SGS FX series."""
     destination = bcb_currency.run(get_settings())
     console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
+
+
+@ingest_app.command("ibge-batch")
+def ingest_ibge_batch(
+    chunk_years: int | None = typer.Option(
+        None,
+        "--chunk-years",
+        "-c",
+        help=(
+            "Years per batch. If omitted, auto-computed from the number of "
+            "products in IBGE_PRODUCT_CODES so every state response stays "
+            "under SIDRA's cell limit with a safety margin."
+        ),
+    ),
+) -> None:
+    """Ingest IBGE PEVS in year-chunked batches to avoid IBGE connection drops.
+
+    For historical windows (>10 years), the IBGE API occasionally closes
+    large connections mid-transfer. This command splits the full window
+    defined by IBGE_START_YEAR / IBGE_END_YEAR into chunks and runs them
+    sequentially, each as a separate Bronze load (WRITE_APPEND).
+
+    Chunk size auto-scales with the number of products: more products means
+    smaller chunks (since SIDRA's cell limit is fixed per request).
+    """
+    settings = get_settings()
+    if settings.ibge_start_year is None:
+        raise typer.BadParameter("Set IBGE_START_YEAR in .env before running batch ingest.")
+
+    n_products = len(settings.product_codes)
+    if chunk_years is None:
+        chunk_years = recommended_chunk_years(n_products)
+        chunk_source = f"auto (for {n_products} product(s))"
+    else:
+        chunk_source = "manual override"
+
+    # Snapshot originals before the loop — we mutate settings each iteration.
+    range_start = settings.ibge_start_year
+    range_end = settings.ibge_end_year
+
+    chunks = list(range(range_start, range_end + 1, chunk_years))
+    total = len(chunks)
+    console.print(
+        f"[bold]IBGE batch ingest:[/bold] {range_start}-{range_end} "
+        f"in {total} chunk(s) of {chunk_years} year(s) [dim]({chunk_source})[/dim]"
+    )
+
+    for i, chunk_start in enumerate(chunks, 1):
+        chunk_end = min(chunk_start + chunk_years - 1, range_end)
+        settings.ibge_start_year = chunk_start
+        settings.ibge_end_year = chunk_end
+        console.print(
+            f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_start}-{chunk_end}[/bold]"
+        )
+        destination = ibge_pipeline.run(settings)
+        console.print(f"  [green]✓[/green] loaded → {destination}")
+
+    console.print(f"\n[green bold]✓ All {total} batches complete[/green bold]")
 
 
 @ingest_app.command("all")

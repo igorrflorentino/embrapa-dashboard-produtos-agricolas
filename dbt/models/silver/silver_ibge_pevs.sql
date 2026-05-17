@@ -59,16 +59,21 @@ select
     p.variable_name,
     p.unit_of_measure,
 
+    -- Monetary values: apply the currency seed factor (which embeds both the
+    -- "Mil" multiplier AND the cumulative reform divisions Cz$→...→R$). The
+    -- IPCA chain index only captures inflation, NOT currency reforms — without
+    -- this factor, pre-1994 values come out 10^6 to 10^9 times too large.
+    -- Non-monetary (quantity) values keep the simple "x1000 if mil" path,
+    -- though current PEVS units (Toneladas, Metros cúbicos) never trigger it.
     case
-        when lower(p.unit_of_measure) like '%mil%' then p.raw_numeric_value * 1000.0
-        else p.raw_numeric_value
+        when p.variable_code = '{{ var("ibge_variable_value") }}' then
+            p.raw_numeric_value * fx.brl_factor
+        when lower(p.unit_of_measure) like '%mil%' then
+            p.raw_numeric_value * 1000.0
+        else
+            p.raw_numeric_value
     end as numeric_value,
 
-    -- Boolean unit flags so the Gold pivot becomes unambiguous. Note: there is
-    -- NO is_value_in_brl flag — historical Brazilian currencies (Cr$, Cz$,
-    -- NCz$, CR$) are preserved as raw values and reconciled by the IPCA-chained
-    -- index in Gold (the chained series absorbs both inflation and monetary
-    -- reforms by construction).
     case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
               and regexp_contains(lower(p.unit_of_measure), r'tonelada') then true else false end as is_quantity_tons,
     case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
@@ -79,3 +84,5 @@ select
 from parsed p
 left join {{ ref('ibge_product_codes') }} seed
     on p.product_description = seed.product_description
+left join {{ ref('historical_currency_factors') }} fx
+    on p.unit_of_measure = fx.unit_of_measure

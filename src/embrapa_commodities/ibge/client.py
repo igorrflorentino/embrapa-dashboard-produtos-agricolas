@@ -26,15 +26,41 @@ BRAZIL_STATES: tuple[int, ...] = (
 
 SIDRA_VALUES_URL = "https://apisidra.ibge.gov.br/values/t/{table_id}/p/{periods}/v/all/{geo_level}/{geo_filter}/c{classification}/{products}"
 
-# (connect_timeout, read_timeout). `read_timeout` is per-chunk, not total —
-# but with SIDRA's chunked responses for large payloads, 180s is enough margin.
-# Observed: a 2-year, 3-product, all-municipalities payload (~17 MB) takes
-# ~60s on a typical connection.
-REQUEST_TIMEOUT: tuple[float, float] = (10.0, 180.0)
+# SIDRA returns at most this many cells per HTTP response. Going over triggers
+# a 400 with "Limite de valores excedido".
+SIDRA_CELL_LIMIT_PER_REQUEST = 100_000
 
-# Concurrent state-level requests. 4 workers is the sweet spot for SIDRA: 8+
-# can deadlock urllib3's internal connection pool when SIDRA closes idle
-# sockets server-side, while 4 still cuts wall-clock ~5x vs serial.
+# Minas Gerais has the most municipalities (853). Used as the worst-case denominator
+# when sizing chunks — if MG fits under the cell limit, every other state does too.
+LARGEST_STATE_MUNICIPALITY_COUNT = 853
+
+# PEVS table 289 publishes 3 variables (`v/all` returns all): 144 (quantity),
+# 145 (value), 1000145 (value as % of total).
+SIDRA_T289_VARIABLES = 3
+
+
+def recommended_chunk_years(n_products: int, safety: float = 0.7) -> int:
+    """Compute the largest year-chunk that keeps every state response under
+    SIDRA's per-request cell limit, with a 30% safety margin to absorb future
+    municipality growth and per-request variability.
+
+    cells_per_request = chunk_years * MG_municipalities * n_products * n_variables
+    """
+    if n_products <= 0:
+        raise ValueError("n_products must be positive")
+    safe_cells = int(SIDRA_CELL_LIMIT_PER_REQUEST * safety)
+    denom = LARGEST_STATE_MUNICIPALITY_COUNT * SIDRA_T289_VARIABLES * n_products
+    return max(1, safe_cells // denom)
+
+
+# (connect_timeout, read_timeout). 60s read fails fast on hung sockets so
+# tenacity can retry sooner; chunked Bronze loads keep each response <5 MB.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 60.0)
+
+# Empirical sweet spot: 4 workers with `Connection: close` avoids the urllib3
+# pool deadlocks observed at 8 workers AND the connection-staleness hangs
+# observed when reusing Keep-Alive sockets against SIDRA (which closes idle
+# server-side connections aggressively).
 MAX_PARALLEL_STATE_FETCHES = 4
 
 
@@ -72,10 +98,9 @@ def _clean_column_name(name: str) -> str:
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )
 def _http_get(url: str) -> requests.Response:
-    # `Connection: close` disables HTTP keep-alive so each request opens (and
-    # closes) its own TCP socket. This avoids urllib3 connection-pool deadlocks
-    # observed when SIDRA closes idle sockets server-side faster than the
-    # client notices, leaving threads waiting forever on dead pool entries.
+    # `Connection: close` forces a new TCP socket per request. Slower handshake
+    # (~200ms) but avoids both urllib3 pool deadlocks AND server-side connection
+    # staleness — both observed in benchmarks against SIDRA.
     response = requests.get(
         url,
         timeout=REQUEST_TIMEOUT,

@@ -120,6 +120,32 @@ def test_search_ibge_products_returns_keyword_matches() -> None:
     assert all(m.classification_id == "193" for m in matches)
 
 
+@pytest.mark.parametrize(
+    ("n_products", "expected_min"),
+    [
+        (1, 27),   # 100k * 0.7 / (853 * 3 * 1) = ~27
+        (3, 9),    # 100k * 0.7 / (853 * 3 * 3) = ~9
+        (6, 4),    # 100k * 0.7 / (853 * 3 * 6) = ~4
+        (9, 3),    # 100k * 0.7 / (853 * 3 * 9) = ~3
+        (50, 1),   # never goes below 1
+    ],
+)
+def test_recommended_chunk_years_scales_inversely_with_product_count(
+    n_products: int, expected_min: int
+) -> None:
+    """As products grow, the safe chunk shrinks proportionally."""
+    chunk = client.recommended_chunk_years(n_products)
+    assert chunk >= 1
+    assert chunk == expected_min, f"n_products={n_products} → got {chunk}, expected {expected_min}"
+
+
+def test_recommended_chunk_years_rejects_zero_or_negative() -> None:
+    with pytest.raises(ValueError):
+        client.recommended_chunk_years(0)
+    with pytest.raises(ValueError):
+        client.recommended_chunk_years(-1)
+
+
 @responses.activate
 def test_list_ibge_periods_sorts_and_dedups() -> None:
     responses.add(
