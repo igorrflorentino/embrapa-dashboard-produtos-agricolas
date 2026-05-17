@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime
 
 import pandas as pd
 from google.cloud import bigquery, storage
 
+from embrapa_commodities import observability
 from embrapa_commodities.config import Settings
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
 from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_parquet
@@ -23,14 +25,21 @@ def _bronze_schema(columns: list[str]) -> list[bigquery.SchemaField]:
         for col in columns
         if col != "ingestion_timestamp"
     ]
-    schema.append(
-        bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP", mode="REQUIRED")
-    )
+    schema.append(bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP", mode="REQUIRED"))
     return schema
 
 
-def run(settings: Settings) -> str:
-    """Extract → land in GCS → load into BigQuery Bronze. Returns destination table id."""
+def run(
+    settings: Settings,
+    *,
+    storage_client: storage.Client | None = None,
+    bq_client: bigquery.Client | None = None,
+) -> str:
+    """Extract → land in GCS → load into BigQuery Bronze. Returns destination table id.
+
+    Optional `storage_client` / `bq_client` let callers (e.g. the batch CLI)
+    reuse a single client across many chunks instead of re-authenticating per run.
+    """
     if settings.ibge_start_year is None:
         raise RuntimeError(
             "IBGE_START_YEAR is empty. Run `embrapa discover ibge-periods "
@@ -47,6 +56,7 @@ def run(settings: Settings) -> str:
         settings.ibge_end_year,
     )
 
+    started = time.monotonic()
     df = fetch_sidra_dataframe(
         table_id=settings.ibge_table_id,
         start_year=settings.ibge_start_year,
@@ -56,12 +66,15 @@ def run(settings: Settings) -> str:
         geo_level="n6",
     )
 
+    # One timestamp for both the column and the GCS run_id — they should
+    # describe the same instant so reconciliation is unambiguous.
+    now = datetime.now(UTC)
     df = df.astype(str)
-    df["ingestion_timestamp"] = pd.Timestamp.now(tz=UTC)
+    df["ingestion_timestamp"] = pd.Timestamp(now)
 
-    storage_client = storage.Client(project=settings.gcp_project_id)
+    storage_client = storage_client or storage.Client(project=settings.gcp_project_id)
     ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
-    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    run_id = now.strftime("%Y%m%dT%H%M%SZ")
     object_name = (
         f"{settings.gcs_landing_prefix}/ibge/{settings.bq_bronze_ibge_table}/run={run_id}/"
         f"products_{'_'.join(product_codes)}_"
@@ -69,9 +82,29 @@ def run(settings: Settings) -> str:
     )
     upload_dataframe_as_parquet(storage_client, settings.gcs_bucket, object_name, df)
 
-    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+    bq_client = bq_client or bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location
+    )
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
     destination = f"{dataset_id}.{settings.bq_bronze_ibge_table}"
-    load_dataframe(bq_client, df, destination, _bronze_schema(list(df.columns)))
+    load_dataframe(
+        bq_client,
+        df,
+        destination,
+        _bronze_schema(list(df.columns)),
+        time_partitioning_field="ingestion_timestamp",
+        # Match Silver's dedupe partition keys so qualify-row_number scans
+        # only relevant blocks instead of the full Bronze history.
+        clustering_fields=["municipio_codigo", "ano", "variavel_codigo"],
+    )
+    observability.emit(
+        "ingest_loaded",
+        pipeline="ibge",
+        rows=len(df),
+        duration_s=round(time.monotonic() - started, 2),
+        start_year=settings.ibge_start_year,
+        end_year=settings.ibge_end_year,
+        destination=destination,
+    )
     return destination

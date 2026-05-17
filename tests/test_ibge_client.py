@@ -31,13 +31,18 @@ def sidra_payload() -> list[dict]:
             "AN": "Ano",
         },
         {
-            "NC": "6", "NN": "Município",
-            "MC": "1100015", "MN": "Alta Floresta D'Oeste - RO",
+            "NC": "6",
+            "NN": "Município",
+            "MC": "1100015",
+            "MN": "Alta Floresta D'Oeste - RO",
             "V": "10",
-            "D2C": "144", "D2N": "Quantidade produzida",
-            "D4C": "3405", "D4N": "3405 - Castanha-do-pará",
+            "D2C": "144",
+            "D2N": "Quantidade produzida",
+            "D4C": "3405",
+            "D4N": "3405 - Castanha-do-pará",
             "MD": "Toneladas",
-            "AC": "1990", "AN": "1990",
+            "AC": "1990",
+            "AN": "1990",
         },
     ]
 
@@ -123,11 +128,11 @@ def test_search_ibge_products_returns_keyword_matches() -> None:
 @pytest.mark.parametrize(
     ("n_products", "expected_min"),
     [
-        (1, 27),   # 100k * 0.7 / (853 * 3 * 1) = ~27
-        (3, 9),    # 100k * 0.7 / (853 * 3 * 3) = ~9
-        (6, 4),    # 100k * 0.7 / (853 * 3 * 6) = ~4
-        (9, 3),    # 100k * 0.7 / (853 * 3 * 9) = ~3
-        (50, 1),   # never goes below 1
+        (1, 27),  # 100k * 0.7 / (853 * 3 * 1) = ~27
+        (3, 9),  # 100k * 0.7 / (853 * 3 * 3) = ~9
+        (6, 4),  # 100k * 0.7 / (853 * 3 * 6) = ~4
+        (9, 3),  # 100k * 0.7 / (853 * 3 * 9) = ~3
+        (50, 1),  # never goes below 1
     ],
 )
 def test_recommended_chunk_years_scales_inversely_with_product_count(

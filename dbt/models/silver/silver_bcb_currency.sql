@@ -15,15 +15,27 @@ with deduplicated as (
         order by ingestion_timestamp desc
     ) = 1
 
+),
+
+parsed as (
+
+    select
+        series_code,
+        currency,
+        safe.parse_date('%d/%m/%Y', reference_date_str)  as reference_date,
+        {{ safe_numeric('value_str') }}                  as brl_per_foreign_unit,
+        ingestion_timestamp
+    from deduplicated
+
 )
 
 select
     series_code,
     currency,
-    safe.parse_date('%d/%m/%Y', reference_date_str)                       as reference_date,
-    extract(year  from safe.parse_date('%d/%m/%Y', reference_date_str))   as reference_year,
-    extract(month from safe.parse_date('%d/%m/%Y', reference_date_str))   as reference_month,
-    {{ safe_numeric('value_str') }}                                       as brl_per_foreign_unit,
+    reference_date,
+    extract(year  from reference_date) as reference_year,
+    extract(month from reference_date) as reference_month,
+    brl_per_foreign_unit,
     ingestion_timestamp
-from deduplicated
-where safe.parse_date('%d/%m/%Y', reference_date_str) is not null
+from parsed
+where reference_date is not null

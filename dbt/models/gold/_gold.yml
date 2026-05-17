@@ -4,21 +4,59 @@ models:
   - name: gold_commodity_matrix
     description: |
       Wide, partitioned, clustered fact table feeding the Looker Studio dashboard.
-      Exactly 22 columns matching the user's spec; one row per
-      (reference_year, state_acronym, city_name, product_code).
-      Pre-aggregated and physical (not a view) so BI Engine can cache it.
+      One row per (reference_year, state_acronym, city_name, product_code).
+      Physical table (not a view) so BI Engine can cache it.
     columns:
       - name: reference_year
         tests: [not_null]
+      - name: reference_date
+        description: "December 31 of reference_year. Use as DATE dimension in Looker Studio."
+        tests: [not_null]
       - name: state_acronym
+        tests: [not_null]
+      - name: state_name
+        description: "Full state name (e.g. 'Bahia') derived from state_acronym."
+        tests: [not_null]
+      - name: region
+        description: "One of: Norte, Nordeste, Centro-Oeste, Sudeste, Sul."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: city_code
+        description: "IBGE 7-digit municipal code. Required for Looker Studio municipality geo charts."
         tests: [not_null]
       - name: city_name
         tests: [not_null]
       - name: product_code
         tests: [not_null]
-      - name: dataquality_flag
+      - name: last_refresh
+        description: "Max ingestion_timestamp across the rows aggregated into this record."
+        tests: [not_null]
+      - name: data_quality_flag
         tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
+
+  - name: gold_commodity_state_year
+    description: |
+      State-level pre-aggregate of gold_commodity_matrix. ~10× smaller than
+      the municipal table — ideal for executive Looker pages that filter by
+      state / region / year / product. Page-level drill-down should use
+      gold_commodity_matrix for municipal detail.
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: region
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: product_code
+        tests: [not_null]

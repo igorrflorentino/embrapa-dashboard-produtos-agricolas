@@ -80,13 +80,13 @@ Os comandos `discover` são **auxiliares e não fazem parte do pipeline em produ
 
 | Coluna | Significado | Quando é NULL |
 |---|---|---|
-| `valnominal*` | Valor da época, convertido por **FX médio do mesmo ano**. Pré-1994 vem em moeda da época (Cruzeiros etc.) — útil só para auditoria histórica. | FX do ano indisponível (ex.: EUR < 1999). |
-| `valrealipca*` | Valor projetado para hoje pela **cadeia IPCA** (absorve inflação + reformas monetárias) e convertido para FX corrente. **Use esta coluna para comparações entre anos.** | IPCA do ano-base indisponível. |
-| `valrealigpm*` | Idem, usando IGP-M. | IGP-M do ano-base indisponível. |
+| `val_nominal_*` | Valor da época, convertido por **FX médio do mesmo ano**. Colunas em moeda estrangeira são `NULL` pré-1994 para não misturar Cruzeiros antigos com valores atuais. | FX do ano indisponível (ex.: EUR < 1999); ou `reference_year < 1994` para USD/EUR/CNY. |
+| `val_real_ipca_*` | Valor projetado para hoje pela **cadeia IPCA** (absorve inflação + reformas monetárias) e convertido para FX corrente. **Use esta coluna para comparações entre anos.** | IPCA do ano-base indisponível. |
+| `val_real_igpm_*` | Idem, usando IGP-M. | IGP-M do ano-base indisponível. |
 
 > A série IPCA do BCB (SGS 433) é variação mensal. A camada Silver encadeia esse percentual em um número-índice de base 100, tornando matematicamente válido o produto `valor_em_cruzeiros * (IPCA_atual / IPCA_ano)` para chegar a Reais atuais — sem necessidade de tabela de conversão histórica de moedas.
 
-## `dataquality_flag`
+## `data_quality_flag`
 
 | Valor | Significado |
 |---|---|
@@ -99,20 +99,31 @@ Placeholders do IBGE (`-`, `...`, `..`, `*`, `X`) são convertidos para `NULL` n
 
 ## Saída final — `gold.gold_commodity_matrix`
 
-22 colunas, uma linha por `(reference_year, state_acronym, city_name, product_code)`:
+Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Colunas:
 
-`reference_year`, `state_acronym`, `city_name`, `product_description`, `product_code`,
-`quantitykg`, `quantitytons`, `quantitym3`, `quantityliters`,
-`valnominalbrl`, `valnominalusd`, `valnominaleur`, `valnominalcny`,
-`valrealipcabrl`, `valrealipcausd`, `valrealipcaeur`, `valrealipcacny`,
-`valrealigpmbrl`, `valrealigpmusd`, `valrealigpmeur`, `valrealigpmcny`,
-`dataquality_flag`.
+**Tempo / geografia / produto**
+`reference_year`, `reference_date`, `state_acronym`, `state_name`, `region`, `city_code`, `city_name`, `product_code`, `product_description`.
+
+**Quantidades**
+`quantity_kg`, `quantity_tons`, `quantity_m3`, `quantity_liters`.
+
+**Valores nominais (FX do ano; foreign zerado pré-1994)**
+`val_nominal_brl`, `val_nominal_usd`, `val_nominal_eur`, `val_nominal_cny`.
+
+**Valores reais via IPCA**
+`val_real_ipca_brl`, `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny`.
+
+**Valores reais via IGP-M**
+`val_real_igpm_brl`, `val_real_igpm_usd`, `val_real_igpm_eur`, `val_real_igpm_cny`.
+
+**Qualidade / proveniência**
+`data_quality_flag`, `last_refresh`.
 
 ## Looker Studio — recomendações
 
 - Conectar **diretamente** na tabela `${BQ_GOLD_DATASET}.gold_commodity_matrix` (não em views nem em "custom query").
 - Habilite **BI Engine** com 1–2 GB cobrindo o dataset Gold — corta latência e custos de queries repetitivas.
-- Filtro padrão sugerido para o dashboard executivo: `dataquality_flag = 'OK'`.
+- Filtro padrão sugerido para o dashboard executivo: `data_quality_flag = 'OK'`.
 
 ## Estrutura
 

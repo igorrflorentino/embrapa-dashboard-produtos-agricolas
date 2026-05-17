@@ -1,8 +1,6 @@
 {{
     config(
-        materialized='incremental',
-        incremental_strategy='insert_overwrite',
-        unique_key=['reference_year', 'state_acronym', 'city_name', 'product_code'],
+        materialized='table',
         partition_by={
             'field': 'reference_year',
             'data_type': 'int64',
@@ -47,11 +45,13 @@ with base_pevs as (
         reference_year,
         state_acronym,
         city_name,
+        any_value(city_code)            as city_code,
         product_code,
-        any_value(product_description) as product_description,
+        any_value(product_description)  as product_description,
         max(case when is_quantity_tons  then numeric_value end) as qty_tons,
         max(case when is_quantity_m3    then numeric_value end) as qty_m3,
-        max(case when is_monetary_value then numeric_value end) as val_raw
+        max(case when is_monetary_value then numeric_value end) as val_raw,
+        max(ingestion_timestamp)        as last_refresh
     from {{ ref('silver_ibge_pevs') }}
     group by reference_year, state_acronym, city_name, product_code
     having qty_tons   is not null
@@ -158,46 +158,60 @@ enriched as (
 )
 
 select
+    -- ── Time ─────────────────────────────────────────────────────────────────
     reference_year,
+    date(reference_year, 12, 31)                             as reference_date,
+
+    -- ── Geography ────────────────────────────────────────────────────────────
     state_acronym,
+    {{ state_name('state_acronym') }}                        as state_name,
+    {{ state_region('state_acronym') }}                      as region,
+    city_code,
     city_name,
-    product_description,
+
+    -- ── Product ──────────────────────────────────────────────────────────────
     product_code,
+    product_description,
 
-    -- ── Quantities ────────────────────────────────────────────────────────────
-    qty_tons * 1000.0                                       as quantitykg,
-    qty_tons                                                 as quantitytons,
-    qty_m3                                                   as quantitym3,
-    qty_m3   * 1000.0                                       as quantityliters,
+    -- ── Quantities ───────────────────────────────────────────────────────────
+    qty_tons * 1000.0                                        as quantity_kg,
+    qty_tons                                                 as quantity_tons,
+    qty_m3                                                   as quantity_m3,
+    qty_m3   * 1000.0                                        as quantity_liters,
 
-    -- ── Nominal: value as reported, converted via FX of THAT year ───────────
-    val_raw                                                  as valnominalbrl,
-    safe_divide(val_raw, brl_per_usd_avg)                    as valnominalusd,
-    safe_divide(val_raw, brl_per_eur_avg)                    as valnominaleur,
-    safe_divide(val_raw, brl_per_cny_avg)                    as valnominalcny,
+    -- ── Nominal: value as reported, converted via FX of THAT year ────────────
+    -- Foreign-currency nominal columns are NULL pre-1994: the FX rate of the
+    -- year is in the currency-of-the-year (Cz$/USD etc.), which would mix
+    -- units of mass-different scale with current values and confuse readers.
+    -- Use val_real_* for cross-year comparisons.
+    val_raw                                                  as val_nominal_brl,
+    case when reference_year >= 1994
+        then safe_divide(val_raw, brl_per_usd_avg) end       as val_nominal_usd,
+    case when reference_year >= 1994
+        then safe_divide(val_raw, brl_per_eur_avg) end       as val_nominal_eur,
+    case when reference_year >= 1994
+        then safe_divide(val_raw, brl_per_cny_avg) end       as val_nominal_cny,
 
-    -- ── Real via IPCA: comparable across years, expressed in current units ─
-    val_real_ipca_brl                                        as valrealipcabrl,
-    safe_divide(val_real_ipca_brl, brl_per_usd_current)      as valrealipcausd,
-    safe_divide(val_real_ipca_brl, brl_per_eur_current)      as valrealipcaeur,
-    safe_divide(val_real_ipca_brl, brl_per_cny_current)      as valrealipcacny,
+    -- ── Real via IPCA: comparable across years, expressed in current units ──
+    val_real_ipca_brl                                        as val_real_ipca_brl,
+    safe_divide(val_real_ipca_brl, brl_per_usd_current)      as val_real_ipca_usd,
+    safe_divide(val_real_ipca_brl, brl_per_eur_current)      as val_real_ipca_eur,
+    safe_divide(val_real_ipca_brl, brl_per_cny_current)      as val_real_ipca_cny,
 
-    -- ── Real via IGP-M ─────────────────────────────────────────────────────
-    val_real_igpm_brl                                        as valrealigpmbrl,
-    safe_divide(val_real_igpm_brl, brl_per_usd_current)      as valrealigpmusd,
-    safe_divide(val_real_igpm_brl, brl_per_eur_current)      as valrealigpmeur,
-    safe_divide(val_real_igpm_brl, brl_per_cny_current)      as valrealigpmcny,
+    -- ── Real via IGP-M ───────────────────────────────────────────────────────
+    val_real_igpm_brl                                        as val_real_igpm_brl,
+    safe_divide(val_real_igpm_brl, brl_per_usd_current)      as val_real_igpm_usd,
+    safe_divide(val_real_igpm_brl, brl_per_eur_current)      as val_real_igpm_eur,
+    safe_divide(val_real_igpm_brl, brl_per_cny_current)      as val_real_igpm_cny,
 
+    -- ── Quality + provenance ─────────────────────────────────────────────────
     {{ data_quality_flag(
         'qty_tons * 1000.0',
         'qty_tons',
         'qty_m3',
         'qty_m3 * 1000.0',
         'val_raw'
-    ) }} as dataquality_flag
+    ) }} as data_quality_flag,
+    last_refresh
 
 from enriched
-
-{% if is_incremental() %}
-    where reference_year in (select distinct reference_year from {{ ref('silver_ibge_pevs') }})
-{% endif %}

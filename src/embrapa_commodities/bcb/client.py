@@ -21,16 +21,24 @@ SGS_URL = (
 )
 REQUEST_TIMEOUT = 60
 
+# Status codes worth retrying — transient/server-side or rate limits.
+# 4xx other than these (400, 401, 403, 404...) won't recover by retrying.
+RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+
 
 class BcbRequestError(Exception):
-    """Non-200 (and non-empty) response from the BCB SGS API."""
+    """Non-200 response from the BCB SGS API (base class)."""
+
+
+class BcbTransientError(BcbRequestError):
+    """Transient (retryable) response from the BCB SGS API."""
 
 
 @retry(
     reraise=True,
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type((requests.RequestException, BcbRequestError)),
+    retry=retry_if_exception_type((requests.RequestException, BcbTransientError)),
 )
 def fetch_series(code: str, start_year: int, end_year: int) -> pd.DataFrame:
     """Fetch one SGS series as a raw DataFrame with columns [data, valor]."""
@@ -41,10 +49,14 @@ def fetch_series(code: str, start_year: int, end_year: int) -> pd.DataFrame:
     )
     logger.info("BCB SGS fetch code=%s window=%d-%d", code, start_year, end_year)
     response = requests.get(url, timeout=REQUEST_TIMEOUT)
-    if response.status_code != 200:
-        raise BcbRequestError(f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}")
-    payload = response.json()
-    if not payload:
-        logger.warning("BCB SGS %s returned no rows for %d-%d", code, start_year, end_year)
-        return pd.DataFrame(columns=["data", "valor"])
-    return pd.DataFrame(payload)
+    if response.status_code == 200:
+        payload = response.json()
+        if not payload:
+            logger.warning("BCB SGS %s returned no rows for %d-%d", code, start_year, end_year)
+            return pd.DataFrame(columns=["data", "valor"])
+        return pd.DataFrame(payload)
+
+    msg = f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}"
+    if response.status_code in RETRYABLE_STATUS_CODES:
+        raise BcbTransientError(msg)
+    raise BcbRequestError(msg)

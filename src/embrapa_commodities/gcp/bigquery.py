@@ -23,7 +23,8 @@ def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> N
         client.create_dataset(dataset, timeout=30)
         return
 
-    if existing.location.upper() != location.upper():
+    existing_location = (existing.location or "").upper()
+    if existing_location and existing_location != location.upper():
         raise RuntimeError(
             f"Dataset {dataset_id} exists in location {existing.location!r}, "
             f"but BQ_LOCATION is {location!r}. Cross-region loads are not allowed — "
@@ -38,16 +39,30 @@ def load_dataframe(
     destination: str,
     schema: list[bigquery.SchemaField],
     write_disposition: str = "WRITE_APPEND",
+    time_partitioning_field: str | None = None,
+    clustering_fields: list[str] | None = None,
 ) -> None:
     """Append a DataFrame to a Bronze table with an explicit schema.
 
     Explicit schema is intentional: autodetect causes silent drift across runs.
+
+    `time_partitioning_field` and `clustering_fields` are applied only on
+    initial table creation — BigQuery does not allow changing them later. If
+    the table already exists without partitioning, drop it before re-running.
     """
     job_config = bigquery.LoadJobConfig(
         write_disposition=write_disposition,
         schema=schema,
         source_format=bigquery.SourceFormat.PARQUET,
     )
+    if time_partitioning_field:
+        job_config.time_partitioning = bigquery.TimePartitioning(
+            type_=bigquery.TimePartitioningType.DAY,
+            field=time_partitioning_field,
+        )
+    if clustering_fields:
+        job_config.clustering_fields = clustering_fields
+
     logger.info("Loading %d rows into %s", len(df), destination)
     job = client.load_table_from_dataframe(df, destination, job_config=job_config)
     job.result()

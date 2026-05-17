@@ -86,7 +86,10 @@ select
     p.ingestion_timestamp
 from parsed p
 left join {{ ref('ibge_product_codes') }} seed
-    on p.product_description = seed.product_description
+    -- Normalize whitespace + case so trivial label drift in SIDRA (e.g.
+    -- "Pinheiro brasileiro (em tora)" vs the seed's "(madeira em tora)")
+    -- doesn't silently NULL out product_code.
+    on lower(trim(p.product_description)) = lower(trim(seed.product_description))
 left join {{ ref('historical_currency_factors') }} fx
-    on p.unit_of_measure = fx.unit_of_measure
+    on lower(trim(p.unit_of_measure)) = lower(trim(fx.unit_of_measure))
     and p.reference_year between fx.year_from and fx.year_to

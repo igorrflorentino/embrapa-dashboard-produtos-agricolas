@@ -61,5 +61,12 @@ def run(settings: Settings) -> str:
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_bcb_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
     destination = f"{dataset_id}.{settings.bq_bronze_bcb_inflation_table}"
-    load_dataframe(bq_client, df, destination, BRONZE_SCHEMA)
+    load_dataframe(
+        bq_client,
+        df,
+        destination,
+        BRONZE_SCHEMA,
+        time_partitioning_field="ingestion_timestamp",
+        clustering_fields=["series_code", "reference_date_str"],
+    )
     return destination

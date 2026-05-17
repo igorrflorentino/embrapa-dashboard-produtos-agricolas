@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _current_year() -> int:
+    return datetime.now(UTC).year
 
 
 def _parse_code_label(raw: str) -> dict[str, str]:
@@ -59,13 +65,13 @@ class Settings(BaseSettings):
         default=None,
         description="None requires user to run `embrapa discover ibge-periods` first.",
     )
-    ibge_end_year: int = Field(default=2026)
+    ibge_end_year: int = Field(default_factory=_current_year)
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
     bcb_currency_series: str = Field(default="3694:USD,4393:EUR,20542:CNY")
     bcb_start_year: int = Field(default=1980)
-    bcb_end_year: int = Field(default=2026)
+    bcb_end_year: int = Field(default_factory=_current_year)
 
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:

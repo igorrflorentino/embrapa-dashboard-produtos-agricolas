@@ -36,7 +36,7 @@ dbt-build: dbt-deps    ## Dev: silver+gold in dbt_dev_silver / dbt_dev_gold
 	cd $(DBT_DIR) && $(PY) dbt build
 
 dbt-build-prod: dbt-deps    ## Prod: silver+gold in silver / gold (real datasets)
-	cd $(DBT_DIR) && $(PY) dbt build --target prod --full-refresh
+	cd $(DBT_DIR) && $(PY) dbt build --target prod
 
 dbt-test:
 	cd $(DBT_DIR) && $(PY) dbt test

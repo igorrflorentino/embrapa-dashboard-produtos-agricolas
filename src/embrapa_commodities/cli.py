@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import typer
+from google.cloud import bigquery, storage
 from rich.console import Console
 from rich.table import Table
 
-from embrapa_commodities import discover
+from embrapa_commodities import discover, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.config import get_settings
@@ -41,8 +44,49 @@ app.add_typer(discover_app, name="discover")
 @ingest_app.command("ibge")
 def ingest_ibge() -> None:
     """Ingest IBGE PEVS into the configured Bronze table."""
-    destination = ibge_pipeline.run(get_settings())
-    console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
+    settings = get_settings()
+    run_id, log_path = observability.init_run("ibge")
+    console.print(f"[dim]event log:[/dim] {log_path}")
+    observability.emit(
+        "pipeline_start",
+        pipeline="ibge",
+        run_id=run_id,
+        chunks_total=1,
+        params={
+            "start_year": settings.ibge_start_year,
+            "end_year": settings.ibge_end_year,
+            "products": settings.product_codes,
+        },
+    )
+    observability.emit(
+        "chunk_start",
+        chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
+        chunk_n=1,
+        chunk_total=1,
+    )
+    started = time.monotonic()
+    try:
+        destination = ibge_pipeline.run(settings)
+        observability.emit(
+            "chunk_end",
+            chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
+            duration_s=round(time.monotonic() - started, 2),
+        )
+        observability.emit(
+            "pipeline_end",
+            duration_s=round(time.monotonic() - started, 2),
+            chunks_ok=1,
+            chunks_failed=0,
+        )
+        console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
+    except Exception as exc:
+        observability.emit(
+            "chunk_error",
+            chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
+            error=str(exc)[:300],
+        )
+        observability.emit("pipeline_end", chunks_ok=0, chunks_failed=1)
+        raise
 
 
 @ingest_app.command("bcb-inflation")
@@ -104,16 +148,94 @@ def ingest_ibge_batch(
         f"in {total} chunk(s) of {chunk_years} year(s) [dim]({chunk_source})[/dim]"
     )
 
+    run_id, log_path = observability.init_run("ibge-batch")
+    console.print(f"[dim]event log:[/dim] {log_path}")
+    console.print(
+        "[dim]tip:[/dim] run [bold]uv run embrapa monitor[/bold] in another terminal "
+        "to watch progress live"
+    )
+    observability.emit(
+        "pipeline_start",
+        pipeline="ibge-batch",
+        run_id=run_id,
+        chunks_total=total,
+        params={
+            "start_year": range_start,
+            "end_year": range_end,
+            "chunk_years": chunk_years,
+            "products": settings.product_codes,
+        },
+    )
+
+    # Build clients once; reuse across all chunks to avoid repeated auth.
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+
+    pipeline_started = time.monotonic()
+    chunks_ok: list[str] = []
+    chunks_failed: list[tuple[str, str]] = []
+
     for i, chunk_start in enumerate(chunks, 1):
         chunk_end = min(chunk_start + chunk_years - 1, range_end)
-        settings.ibge_start_year = chunk_start
-        settings.ibge_end_year = chunk_end
-        console.print(
-            f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_start}-{chunk_end}[/bold]"
+        chunk_id = f"{chunk_start}-{chunk_end}"
+        chunk_settings = settings.model_copy(
+            update={"ibge_start_year": chunk_start, "ibge_end_year": chunk_end}
         )
-        destination = ibge_pipeline.run(settings)
-        console.print(f"  [green]✓[/green] loaded → {destination}")
+        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
+        chunk_started = time.monotonic()
+        console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
+        try:
+            destination = ibge_pipeline.run(
+                chunk_settings,
+                storage_client=storage_client,
+                bq_client=bq_client,
+            )
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_end",
+                chunk_id=chunk_id,
+                chunk_n=i,
+                chunk_total=total,
+                duration_s=duration,
+                destination=destination,
+            )
+            chunks_ok.append(chunk_id)
+            console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
+        except Exception as exc:
+            # Continue-on-failure: a single hung chunk should not strand the rest.
+            # The chunk_error event in the log + the summary below tell the user
+            # exactly which year ranges need a re-run.
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_error",
+                chunk_id=chunk_id,
+                chunk_n=i,
+                chunk_total=total,
+                duration_s=duration,
+                error=str(exc)[:300],
+            )
+            chunks_failed.append((chunk_id, str(exc)[:200]))
+            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:200]}")
 
+    observability.emit(
+        "pipeline_end",
+        duration_s=round(time.monotonic() - pipeline_started, 2),
+        chunks_ok=len(chunks_ok),
+        chunks_failed=len(chunks_failed),
+    )
+
+    if chunks_failed:
+        console.print(
+            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed; "
+            f"{len(chunks_ok)} succeeded[/yellow bold]"
+        )
+        for chunk_id, err in chunks_failed:
+            console.print(f"  [red]✗[/red] {chunk_id} — {err}")
+        console.print(
+            "\n[dim]Re-run failed chunks individually with:[/dim]\n"
+            "  IBGE_START_YEAR=<start> IBGE_END_YEAR=<end> uv run embrapa ingest ibge"
+        )
+        raise typer.Exit(code=1)
     console.print(f"\n[green bold]✓ All {total} batches complete[/green bold]")
 
 
@@ -151,8 +273,7 @@ def discover_ibge_products(
         table.add_row(m.classification_id, m.code, m.name)
     console.print(table)
     console.print(
-        f"\n[dim]Suggested .env value:[/dim] "
-        f"IBGE_PRODUCT_CODES={','.join(m.code for m in matches)}"
+        f"\n[dim]Suggested .env value:[/dim] IBGE_PRODUCT_CODES={','.join(m.code for m in matches)}"
     )
 
 
@@ -168,8 +289,7 @@ def discover_ibge_periods(
     console.print(f"[bold]Table {table_id}[/bold] — {len(years)} years available")
     console.print(f"  First: [green]{years[0]}[/green]   Last: [green]{years[-1]}[/green]")
     console.print(
-        f"[dim]Suggested .env:[/dim] "
-        f"IBGE_START_YEAR={years[0]} IBGE_END_YEAR={years[-1]}"
+        f"[dim]Suggested .env:[/dim] IBGE_START_YEAR={years[0]} IBGE_END_YEAR={years[-1]}"
     )
 
 
@@ -187,6 +307,62 @@ def discover_bcb_series(
     console.print(json.dumps(sample.sample, indent=2, ensure_ascii=False))
 
 
+# ─── monitor ──────────────────────────────────────────────────────────────────
+@app.command("monitor")
+def monitor_cmd(
+    log_path: Path | None = typer.Argument(  # noqa: B008
+        None,
+        help="Path to a JSONL event log. Defaults to the most recent one.",
+    ),
+    pipeline: str | None = typer.Option(
+        None,
+        "--pipeline",
+        "-p",
+        help="Filter latest-log lookup to a pipeline name (e.g. 'ibge', 'ibge-batch').",
+    ),
+    no_follow: bool = typer.Option(
+        False, "--no-follow", help="Render once over a finished log and exit."
+    ),
+    list_logs: bool = typer.Option(
+        False, "--list", help="List available run logs sorted newest first, then exit."
+    ),
+) -> None:
+    """Live progress dashboard for an ongoing or finished ingest run.
+
+    Examples:
+        embrapa monitor                              # tail latest run
+        embrapa monitor --pipeline ibge-batch        # tail latest batch run
+        embrapa monitor ~/.embrapa/logs/ibge-XXX.jsonl
+        embrapa monitor --list                       # show available runs
+    """
+    if list_logs:
+        paths = observability.list_log_paths()
+        if not paths:
+            console.print(f"[dim]No event logs in {observability.log_dir()}[/dim]")
+            return
+        table = Table(title="Run logs (newest first)")
+        table.add_column("Modified", style="dim")
+        table.add_column("Size", justify="right", style="dim")
+        table.add_column("Path")
+        for p in paths[:30]:
+            stat = p.stat()
+            mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime))
+            size_kb = f"{stat.st_size / 1024:.1f} KB"
+            table.add_row(mtime, size_kb, str(p))
+        console.print(table)
+        return
+
+    target = log_path or observability.latest_log_path(pipeline)
+    if target is None:
+        console.print(
+            f"[yellow]No event logs found in {observability.log_dir()}.[/yellow]\n"
+            "[dim]Run an ingest first, or pass a path explicitly.[/dim]"
+        )
+        raise typer.Exit(code=1)
+    console.print(f"[dim]Watching:[/dim] {target}")
+    monitor.run(target, follow=not no_follow, console=console)
+
+
 # ─── dbt passthrough ──────────────────────────────────────────────────────────
 @app.command("dbt")
 def dbt_passthrough(
@@ -194,7 +370,9 @@ def dbt_passthrough(
 ) -> None:
     """Forward arbitrary args to `dbt` from inside the dbt/ project dir."""
     dbt_dir = Path(__file__).resolve().parents[2] / "dbt"
-    cmd = ["dbt", *(args or ["--help"])]
+    # Use the venv's interpreter so we never resolve a system `dbt` that
+    # might be on PATH with a different version.
+    cmd = [sys.executable, "-m", "dbt.cli.main", *(args or ["--help"])]
     console.print(f"[dim]$ {' '.join(cmd)} (cwd={dbt_dir})[/dim]")
     result = subprocess.run(cmd, cwd=dbt_dir, check=False)
     raise typer.Exit(result.returncode)

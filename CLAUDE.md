@@ -67,8 +67,8 @@ BCB SGS     ─┼─► Python (src/embrapa_commodities) → GCS Parquet (landi
 
 **Gold (dbt, materialized=incremental, insert_overwrite partitioned by reference_year).** Single model `gold_commodity_matrix` produces 22 columns per `(reference_year, state_acronym, city_name, product_code)`. Two monetary conventions matter:
 
-- `valnominal*` — value of the year converted at that year's FX rate. Historical auditing only.
-- `valreal{ipca,igpm}*` — value projected to today via the chain-linked IPCA/IGP-M index, then optionally converted at today's FX. **Use this column for cross-year comparison.**
+- `val_nominal_*` — value of the year converted at that year's FX rate. Foreign-currency columns are NULL pre-1994 to avoid mixing old Cruzeiros with current USD/EUR/CNY. Historical auditing only.
+- `val_real_{ipca,igpm}_*` — value projected to today via the chain-linked IPCA/IGP-M index, then optionally converted at today's FX. **Use this column for cross-year comparison.**
 
 The IPCA chain (in `silver_bcb_inflation.sql`) compounds SGS 433's monthly percent change into a 100-base index via `100 * exp(sum(log(1 + pct/100)) over (...))`. SGS 433 shows no spike at reform dates — that's why the currency factor seed must be applied in Silver *before* the chain index is used in Gold.
 
@@ -85,6 +85,17 @@ Nothing is hardcoded — bucket, prefixes, dataset names, table names, IBGE prod
 - `target=prod` → `silver`, `gold` (no prefix)
 
 Always iterate on `make dbt-build` (dev). `make dbt-build-prod` does a `--full-refresh` against the real datasets — only run after dev validation.
+
+## Migration notes (one-time)
+
+- **Bronze re-partitioning:** Bronze tables are now partitioned by `DATE(ingestion_timestamp)` and clustered (IBGE: `municipio_codigo, ano, variavel_codigo`; BCB: `series_code, reference_date_str`). BigQuery cannot retrofit partitioning on existing tables — if you have pre-existing Bronze tables from before this change, drop them before the next `embrapa ingest *` run, otherwise the load job fails with a partition mismatch:
+  ```bash
+  bq rm -f -t "${GCP_PROJECT_ID}:bronze_ibge.sidra_t289_raw"
+  bq rm -f -t "${GCP_PROJECT_ID}:bronze_bcb.inflation_series_raw"
+  bq rm -f -t "${GCP_PROJECT_ID}:bronze_bcb.currency_series_raw"
+  ```
+- **Gold materialization:** changed from `incremental` to `table`. No action required — `dbt build` will recreate it cleanly. The Gold model now also has new columns (`reference_date`, `state_name`, `region`, `city_code`, `last_refresh`) and renamed columns (snake_case throughout). Looker Studio reports must rebind any deleted column names (`valnominalbrl` → `val_nominal_brl`, etc.).
+- **GCS bucket protections:** versioning and lifecycle rules are now applied idempotently on `ensure_bucket` — existing buckets are upgraded on the next run.
 
 ## Notes for changes
 

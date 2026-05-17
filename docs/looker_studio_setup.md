@@ -53,27 +53,32 @@ Na tela de configuração da fonte de dados, ajuste:
 | Campo | Tipo sugerido | Agregação padrão |
 |---|---|---|
 | `reference_year` | Número (ano) | — |
+| `reference_date` | Data (YYYY-MM-DD) | — |
 | `state_acronym` | Texto | — |
+| `state_name` | Texto | — |
+| `region` | Texto | — |
+| `city_code` | Texto / Geo → "Brazilian Municipality" | — |
 | `city_name` | Texto | — |
 | `product_code` | Texto | — |
 | `product_description` | Texto | — |
-| `quantitykg` | Número | Soma |
-| `quantitytons` | Número | Soma |
-| `quantitym3` | Número | Soma |
-| `quantityliters` | Número | Soma |
-| `valnominalbrl` | Número (moeda BRL) | Soma |
-| `valnominalusd` | Número (moeda USD) | Soma |
-| `valnominaleur` | Número (moeda EUR) | Soma |
-| `valnominalcny` | Número (moeda CNY) | Soma |
-| `valrealipcabrl` | Número (moeda BRL) | Soma |
-| `valrealipcausd` | Número (moeda USD) | Soma |
-| `valrealipcaeur` | Número (moeda EUR) | Soma |
-| `valrealipcacny` | Número (moeda CNY) | Soma |
-| `valrealigpmbrl` | Número (moeda BRL) | Soma |
-| `valrealigpmusd` | Número (moeda USD) | Soma |
-| `valrealigpmeur` | Número (moeda EUR) | Soma |
-| `valrealigpmcny` | Número (moeda CNY) | Soma |
-| `dataquality_flag` | Texto | — |
+| `quantity_kg` | Número | Soma |
+| `quantity_tons` | Número | Soma |
+| `quantity_m3` | Número | Soma |
+| `quantity_liters` | Número | Soma |
+| `val_nominal_brl` | Número (moeda BRL) | Soma |
+| `val_nominal_usd` | Número (moeda USD) | Soma |
+| `val_nominal_eur` | Número (moeda EUR) | Soma |
+| `val_nominal_cny` | Número (moeda CNY) | Soma |
+| `val_real_ipca_brl` | Número (moeda BRL) | Soma |
+| `val_real_ipca_usd` | Número (moeda USD) | Soma |
+| `val_real_ipca_eur` | Número (moeda EUR) | Soma |
+| `val_real_ipca_cny` | Número (moeda CNY) | Soma |
+| `val_real_igpm_brl` | Número (moeda BRL) | Soma |
+| `val_real_igpm_usd` | Número (moeda USD) | Soma |
+| `val_real_igpm_eur` | Número (moeda EUR) | Soma |
+| `val_real_igpm_cny` | Número (moeda CNY) | Soma |
+| `data_quality_flag` | Texto | — |
+| `last_refresh` | Data e hora | Máximo |
 
 ---
 
@@ -81,7 +86,7 @@ Na tela de configuração da fonte de dados, ajuste:
 
 Adicione um **filtro de relatório** para o dashboard executivo:
 
-- Campo: `dataquality_flag`
+- Campo: `data_quality_flag`
 - Condição: **Igual a** `OK`
 
 Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro brasileiro).
@@ -94,10 +99,10 @@ Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro bra
 
 | Gráfico | Configuração |
 |---|---|
-| Scorecard — Valor Real IPCA Total (BRL) | `valrealipcabrl` Soma |
-| Scorecard — Volume Total (Toneladas) | `quantitytons` Soma |
-| Gráfico de linhas — Série histórica | Dimensão: `reference_year` · Métrica: `valrealipcabrl` |
-| Gráfico de barras — Por produto | Dimensão: `product_description` · Métrica: `valrealipcabrl` |
+| Scorecard — Valor Real IPCA Total (BRL) | `val_real_ipca_brl` Soma |
+| Scorecard — Volume Total (Toneladas) | `quantity_tons` Soma |
+| Gráfico de linhas — Série histórica | Dimensão: `reference_year` · Métrica: `val_real_ipca_brl` |
+| Gráfico de barras — Por produto | Dimensão: `product_description` · Métrica: `val_real_ipca_brl` |
 | Filtro — Ano | Controle deslizante em `reference_year` |
 | Filtro — Estado | Seletor em `state_acronym` |
 | Filtro — Produto | Seletor em `product_description` |
@@ -106,15 +111,15 @@ Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro bra
 
 | Gráfico | Configuração |
 |---|---|
-| Mapa coroplético (Brasil) | Geo: `state_acronym` · Cor: `valrealipcabrl` |
-| Tabela detalhada — Top municípios | Dimensões: `city_name`, `state_acronym` · Métricas: `quantitytons`, `valnominalbrl`, `valrealipcabrl` |
+| Mapa coroplético (Brasil) | Geo: `state_acronym` · Cor: `val_real_ipca_brl` |
+| Tabela detalhada — Top municípios | Dimensões: `city_name`, `state_acronym` · Métricas: `quantity_tons`, `val_nominal_brl`, `val_real_ipca_brl` |
 
 ### Página 3 — Análise monetária comparada
 
 | Gráfico | Configuração |
 |---|---|
-| Gráfico de linhas — Valores nominais vs reais | Série 1: `valnominalbrl` · Série 2: `valrealipcabrl` · Série 3: `valrealigpmbrl` |
-| Gráfico de barras — Por moeda | Métricas: `valrealipcausd`, `valrealipcaeur`, `valrealipcacny` |
+| Gráfico de linhas — Valores nominais vs reais | Série 1: `val_nominal_brl` · Série 2: `val_real_ipca_brl` · Série 3: `val_real_igpm_brl` |
+| Gráfico de barras — Por moeda | Métricas: `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny` |
 
 ---
 

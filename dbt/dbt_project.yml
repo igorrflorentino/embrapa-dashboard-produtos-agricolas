@@ -24,9 +24,8 @@ models:
       +materialized: table
       +schema: "{{ env_var('BQ_SILVER_DATASET', 'silver') }}"
     gold:
-      +materialized: incremental
+      +materialized: table
       +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
-      +incremental_strategy: insert_overwrite
 
 seeds:
   embrapa_commodities:
