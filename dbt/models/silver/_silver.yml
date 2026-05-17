@@ -9,13 +9,8 @@ models:
       - name: state_acronym
         tests: [not_null]
       - name: product_code
-        description: "Classification-193 code (e.g. 3405), pulled from the ibge_product_codes seed."
-        tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('ibge_product_codes')
-                field: classification_code
+        description: "Classification-193 code (e.g. 3405), taken directly from SIDRA's tipo_de_produto_extrativo_codigo."
+        tests: [not_null]
       - name: variable_code
         tests:
           - not_null

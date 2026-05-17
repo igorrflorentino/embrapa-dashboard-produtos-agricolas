@@ -60,10 +60,11 @@ BCB SGS     ─┼─► Python (src/embrapa_commodities) → GCS Parquet (landi
 
 **Bronze (Python).** `src/embrapa_commodities/cli.py` is the single Typer entry point. Each pipeline (`ibge/pipeline.py`, `bcb/inflation.py`, `bcb/currency.py`) fetches → writes Parquet to `gs://${GCS_BUCKET}/${GCS_LANDING_PREFIX}/...` → loads with `WRITE_APPEND` into BigQuery. **Bronze is append-only**; every Silver model dedupes on the natural key ordered by `ingestion_timestamp desc`. All Bronze columns are `STRING` except `ingestion_timestamp`. `gcp/bigquery.py` and `gcp/storage.py` auto-create datasets and the bucket on first run, so no infra is provisioned outside the code.
 
-**Silver (dbt, materialized=table).** Three models in `dbt/models/silver/`. Two reference seeds in `dbt/seeds/` carry domain knowledge that cannot be derived from source data:
+**Silver (dbt, materialized=table).** Three models in `dbt/models/silver/`. One reference seed in `dbt/seeds/` carries domain knowledge that cannot be derived from source data:
 
-- `ibge_product_codes` — maps IBGE classification-193 codes (from `.env`) to the product_description string SIDRA returns. **When you add/remove a product code in `.env`, this seed must be updated.**
 - `historical_currency_factors` — date-aware multiplier that absorbs both the "Mil" multiplier and cumulative Brazilian currency reforms (Cz$ → NCz$ → Cr$ → CR$ → R$). The name "Mil Cruzeiros" was reused for three distinct currencies (1942, 1970, 1990), so the seed joins on `(unit_of_measure, reference_year BETWEEN year_from AND year_to)`. **Without this factor, pre-1994 values are 10⁶–10⁹× too large** because the IPCA chain captures inflation only, not reform divisions.
+
+Product codes are taken directly from SIDRA's `tipo_de_produto_extrativo_codigo` column — no mapping seed is required.
 
 **Gold (dbt, materialized=incremental, insert_overwrite partitioned by reference_year).** Single model `gold_commodity_matrix` produces 22 columns per `(reference_year, state_acronym, city_name, product_code)`. Two monetary conventions matter:
 
@@ -99,7 +100,7 @@ Always iterate on `make dbt-build` (dev). `make dbt-build-prod` does a `--full-r
 
 ## Notes for changes
 
-- Adding an IBGE product: update `IBGE_PRODUCT_CODES` in `.env` *and* `dbt/seeds/ibge_product_codes.csv`. A `not_null` test on Gold `product_code` will fail loudly if the seed is out of sync.
+- Adding an IBGE product: just update `IBGE_PRODUCT_CODES` in `.env`. The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_codigo`.
 - Adding a new historical-currency unit string (e.g. older IBGE labels): add a row to `dbt/seeds/historical_currency_factors.csv` with a non-overlapping `[year_from, year_to]` range.
 - IBGE SIDRA has a per-request cell limit. For windows >10 years use `ingest ibge-batch`; chunk size auto-scales with number of products (`recommended_chunk_years` in `ibge/client.py`).
 - Tests mock HTTP clients via `responses` — see `tests/test_ibge_client.py` and `tests/test_bcb_client.py` for the pattern.

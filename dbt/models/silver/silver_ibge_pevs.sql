@@ -34,10 +34,10 @@ parsed as (
         municipio_codigo                                                            as city_code,
         regexp_replace(municipio, r'\s-\s[A-Z]{2}$', '')                            as city_name,
         regexp_extract(municipio, r'\s-\s([A-Z]{2})$')                              as state_acronym,
-        -- The SIDRA values endpoint exposes a display id (e.g. "1.3") in the
-        -- prefix of `tipo_de_produto_extrativo`. We don't keep it — the
-        -- canonical product code comes from the `ibge_product_codes` seed
-        -- (e.g. "3405", the classification-193 category id from .env).
+        -- Product code comes directly from SIDRA (the classification-193
+        -- category id, e.g. "3405"). The product_description is also taken
+        -- from SIDRA — the leading display id (e.g. "1.3 - ") is stripped.
+        tipo_de_produto_extrativo_codigo                                            as product_code,
         trim(regexp_replace(tipo_de_produto_extrativo, r'^([^-]+)\s-\s', ''))       as product_description,
         variavel_codigo                                                             as variable_code,
         variavel                                                                    as variable_name,
@@ -53,7 +53,7 @@ select
     p.city_code,
     p.city_name,
     p.state_acronym,
-    seed.classification_code                                                        as product_code,
+    p.product_code,
     p.product_description,
     p.variable_code,
     p.variable_name,
@@ -85,11 +85,6 @@ select
 
     p.ingestion_timestamp
 from parsed p
-left join {{ ref('ibge_product_codes') }} seed
-    -- Normalize whitespace + case so trivial label drift in SIDRA (e.g.
-    -- "Pinheiro brasileiro (em tora)" vs the seed's "(madeira em tora)")
-    -- doesn't silently NULL out product_code.
-    on lower(trim(p.product_description)) = lower(trim(seed.product_description))
 left join {{ ref('historical_currency_factors') }} fx
     on lower(trim(p.unit_of_measure)) = lower(trim(fx.unit_of_measure))
     and p.reference_year between fx.year_from and fx.year_to
