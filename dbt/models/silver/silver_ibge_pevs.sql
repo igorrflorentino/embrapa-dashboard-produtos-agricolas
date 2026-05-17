@@ -61,8 +61,11 @@ select
 
     -- Monetary values: apply the currency seed factor (which embeds both the
     -- "Mil" multiplier AND the cumulative reform divisions Cz$→...→R$). The
-    -- IPCA chain index only captures inflation, NOT currency reforms — without
-    -- this factor, pre-1994 values come out 10^6 to 10^9 times too large.
+    -- seed join is date-aware because the name "Mil Cruzeiros" was used for
+    -- three distinct currencies (1942 Cr$, 1970 Cr$, 1990 Cr$) with different
+    -- factors; the year range disambiguates. The IPCA chain index only
+    -- captures inflation, NOT currency reforms — without this factor,
+    -- pre-1994 values come out 10^6 to 10^9 times too large.
     -- Non-monetary (quantity) values keep the simple "x1000 if mil" path,
     -- though current PEVS units (Toneladas, Metros cúbicos) never trigger it.
     case
@@ -86,3 +89,4 @@ left join {{ ref('ibge_product_codes') }} seed
     on p.product_description = seed.product_description
 left join {{ ref('historical_currency_factors') }} fx
     on p.unit_of_measure = fx.unit_of_measure
+    and p.reference_year between fx.year_from and fx.year_to
