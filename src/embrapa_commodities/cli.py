@@ -78,7 +78,14 @@ def ingest_ibge() -> None:
             chunks_ok=1,
             chunks_failed=0,
         )
-        console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
+        if destination:
+            console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
+        else:
+            console.print(
+                f"[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no rows for "
+                f"{settings.ibge_start_year}-{settings.ibge_end_year}. "
+                "Lower IBGE_END_YEAR in .env to the latest published year."
+            )
     except Exception as exc:
         observability.emit(
             "chunk_error",
@@ -200,7 +207,15 @@ def ingest_ibge_batch(
                 destination=destination,
             )
             chunks_ok.append(chunk_id)
-            console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
+            if destination:
+                console.print(
+                    f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]"
+                )
+            else:
+                console.print(
+                    f"  [yellow]⚠[/yellow] {chunk_id} — SIDRA returned no rows "
+                    f"[dim](skipped, {duration}s)[/dim]"
+                )
         except Exception as exc:
             # Continue-on-failure: a single hung chunk should not strand the rest.
             # The chunk_error event in the log + the summary below tell the user

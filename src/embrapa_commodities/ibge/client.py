@@ -362,7 +362,18 @@ def fetch_sidra_dataframe(
         frames.append(df)
 
     if not frames:
-        raise RuntimeError("SIDRA returned no rows for the requested slice.")
+        # SIDRA replied OK to every state but no rows came back — most often
+        # because the requested year window is not yet published (PEVS has a
+        # ~1-year publication lag). Return an empty DataFrame so the caller
+        # can skip the GCS/BQ load instead of poisoning Bronze with junk.
+        logger.warning(
+            "SIDRA returned no rows for periods %d-%d. "
+            "Check `embrapa discover ibge-periods --table-id %s` and adjust IBGE_END_YEAR.",
+            start_year,
+            end_year,
+            table_id,
+        )
+        return pd.DataFrame()
 
     combined = pd.concat(frames, ignore_index=True)
     combined.columns = [_clean_column_name(c) for c in combined.columns]

@@ -66,6 +66,25 @@ def run(
         geo_level="n6",
     )
 
+    if df.empty:
+        # SIDRA had nothing to give us — almost always because IBGE_END_YEAR
+        # is set to a year that hasn't been published yet. Skip upload/load
+        # so Bronze doesn't accumulate empty Parquet files, and tell the user.
+        observability.emit(
+            "ingest_empty",
+            pipeline="ibge",
+            start_year=settings.ibge_start_year,
+            end_year=settings.ibge_end_year,
+            duration_s=round(time.monotonic() - started, 2),
+        )
+        logger.warning(
+            "IBGE ingest skipped: SIDRA returned no rows for %d-%d. "
+            "Lower IBGE_END_YEAR in .env to the latest published year.",
+            settings.ibge_start_year,
+            settings.ibge_end_year,
+        )
+        return ""
+
     # One timestamp for both the column and the GCS run_id — they should
     # describe the same instant so reconciliation is unambiguous.
     now = datetime.now(UTC)
