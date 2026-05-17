@@ -1,0 +1,17 @@
+# Copy to ~/.dbt/profiles.yml (do NOT commit the real one — it lives outside the repo).
+# Authentication uses Application Default Credentials, so run once:
+#   gcloud auth application-default login
+
+embrapa_commodities:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: embrapa-dashboard-commodities   # override per environment
+      dataset: dbt_dev                          # default schema for ad-hoc runs
+      location: US
+      threads: 4
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+      priority: interactive

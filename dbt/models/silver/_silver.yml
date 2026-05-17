@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: silver_ibge_pevs
+    description: "PEVS extractive production cleaned, typed, deduplicated, with per-unit flags."
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: product_code
+        description: "Classification-193 code (e.g. 3405), pulled from the ibge_product_codes seed."
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ibge_product_codes')
+                field: classification_code
+      - name: variable_code
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["144", "145"]
+
+  - name: silver_bcb_inflation
+    description: |
+      Monthly inflation series with chain-linked 100-base index_value, so any
+      historical Brazilian-currency amount can be deflated correctly.
+    columns:
+      - name: reference_date
+        tests: [not_null]
+      - name: series_code
+        tests: [not_null]
+      - name: monthly_pct_change
+        description: "Variation % as published by BCB SGS (e.g. series 433, 189, 190)."
+
+  - name: silver_bcb_currency
+    description: "Daily FX rates: BRL per foreign currency unit."
+    columns:
+      - name: reference_date
+        tests: [not_null]
+      - name: currency
+        tests: [not_null]

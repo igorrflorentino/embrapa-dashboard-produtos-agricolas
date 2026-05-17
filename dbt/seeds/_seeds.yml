@@ -1,0 +1,24 @@
+version: 2
+
+seeds:
+  - name: ibge_product_codes
+    description: |
+      Mapping from IBGE classification 193 category code (the code declared in
+      IBGE_PRODUCT_CODES on .env) to the product description as it appears in
+      the SIDRA values payload. The Silver model joins on `product_description`
+      to expose the classification_code as the canonical `product_code` in
+      downstream Gold.
+
+      Maintenance: when you add or remove a product from IBGE_PRODUCT_CODES,
+      update this file accordingly (one row per product). `dbt build` re-seeds
+      automatically and a not_null test on the Gold `product_code` will fail
+      if a description appears in Silver without a corresponding seed entry.
+    config:
+      column_types:
+        classification_code: string
+        product_description: string
+    columns:
+      - name: classification_code
+        tests: [not_null, unique]
+      - name: product_description
+        tests: [not_null, unique]

@@ -1,0 +1,38 @@
+name: embrapa_commodities
+version: "0.1.0"
+config-version: 2
+
+profile: embrapa_commodities
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  embrapa_commodities:
+    +persist_docs:
+      relation: true
+      columns: true
+    silver:
+      +materialized: table
+      +schema: "{{ env_var('BQ_SILVER_DATASET', 'silver') }}"
+    gold:
+      +materialized: incremental
+      +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
+      +incremental_strategy: insert_overwrite
+
+vars:
+  ibge_variable_quantity: "144"
+  ibge_variable_value: "145"
+
+  # Codes consumed by the Gold deflation logic. Override per environment if
+  # you change the keys in BCB_INFLATION_SERIES.
+  inflation_series_ipca: "433"
+  inflation_series_igpm: "189"

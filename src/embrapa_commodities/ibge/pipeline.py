@@ -1,0 +1,77 @@
+"""Bronze-layer pipeline for IBGE PEVS."""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+
+import pandas as pd
+from google.cloud import bigquery, storage
+
+from embrapa_commodities.config import Settings
+from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
+from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_parquet
+from embrapa_commodities.ibge.client import fetch_sidra_dataframe
+
+logger = logging.getLogger(__name__)
+
+
+def _bronze_schema(columns: list[str]) -> list[bigquery.SchemaField]:
+    """All raw SIDRA columns are STRING; only ingestion_timestamp is typed."""
+    schema = [
+        bigquery.SchemaField(col, "STRING", mode="NULLABLE")
+        for col in columns
+        if col != "ingestion_timestamp"
+    ]
+    schema.append(
+        bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP", mode="REQUIRED")
+    )
+    return schema
+
+
+def run(settings: Settings) -> str:
+    """Extract → land in GCS → load into BigQuery Bronze. Returns destination table id."""
+    if settings.ibge_start_year is None:
+        raise RuntimeError(
+            "IBGE_START_YEAR is empty. Run `embrapa discover ibge-periods "
+            f"--table-id {settings.ibge_table_id}` to find the first available year."
+        )
+
+    product_codes = settings.product_codes
+    logger.info(
+        "Ingesting PEVS table=%s classification=%s products=%s years=%d-%d",
+        settings.ibge_table_id,
+        settings.ibge_classification_id,
+        product_codes,
+        settings.ibge_start_year,
+        settings.ibge_end_year,
+    )
+
+    df = fetch_sidra_dataframe(
+        table_id=settings.ibge_table_id,
+        start_year=settings.ibge_start_year,
+        end_year=settings.ibge_end_year,
+        classification=settings.ibge_classification_id,
+        products=product_codes,
+        geo_level="n6",
+    )
+
+    df = df.astype(str)
+    df["ingestion_timestamp"] = pd.Timestamp.now(tz=UTC)
+
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    object_name = (
+        f"{settings.gcs_landing_prefix}/ibge/{settings.bq_bronze_ibge_table}/run={run_id}/"
+        f"products_{'_'.join(product_codes)}_"
+        f"{settings.ibge_start_year}_{settings.ibge_end_year}.parquet"
+    )
+    upload_dataframe_as_parquet(storage_client, settings.gcs_bucket, object_name, df)
+
+    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+    dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
+    ensure_dataset(bq_client, dataset_id, settings.bq_location)
+    destination = f"{dataset_id}.{settings.bq_bronze_ibge_table}"
+    load_dataframe(bq_client, df, destination, _bronze_schema(list(df.columns)))
+    return destination

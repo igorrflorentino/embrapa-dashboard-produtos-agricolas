@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: gold_commodity_matrix
+    description: |
+      Wide, partitioned, clustered fact table feeding the Looker Studio dashboard.
+      Exactly 22 columns matching the user's spec; one row per
+      (reference_year, state_acronym, city_name, product_code).
+      Pre-aggregated and physical (not a view) so BI Engine can cache it.
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: city_name
+        tests: [not_null]
+      - name: product_code
+        tests: [not_null]
+      - name: dataquality_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
