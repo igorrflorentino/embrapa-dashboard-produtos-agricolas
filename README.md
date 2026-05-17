@@ -105,7 +105,7 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 `reference_year`, `reference_date`, `state_acronym`, `state_name`, `region`, `city_code`, `city_name`, `product_code`, `product_description`.
 
 **Quantidades**
-`quantity_kg`, `quantity_tons`, `quantity_m3`, `quantity_liters`.
+`quantity_tons`, `quantity_m3`.
 
 **Valores nominais (FX do ano; foreign zerado pré-1994)**
 `val_nominal_brl`, `val_nominal_usd`, `val_nominal_eur`, `val_nominal_cny`.

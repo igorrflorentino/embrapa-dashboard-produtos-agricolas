@@ -25,10 +25,8 @@ select
     any_value(product_description) as product_description,
 
     -- ── Quantities (sums across municipalities) ───────────────────────────
-    sum(quantity_kg)       as quantity_kg,
     sum(quantity_tons)     as quantity_tons,
     sum(quantity_m3)       as quantity_m3,
-    sum(quantity_liters)   as quantity_liters,
 
     -- ── Nominal (foreign columns SUM to NULL pre-1994 because each row is NULL) ──
     sum(val_nominal_brl)   as val_nominal_brl,

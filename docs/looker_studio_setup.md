@@ -61,10 +61,8 @@ Na tela de configuração da fonte de dados, ajuste:
 | `city_name` | Texto | — |
 | `product_code` | Texto | — |
 | `product_description` | Texto | — |
-| `quantity_kg` | Número | Soma |
 | `quantity_tons` | Número | Soma |
 | `quantity_m3` | Número | Soma |
-| `quantity_liters` | Número | Soma |
 | `val_nominal_brl` | Número (moeda BRL) | Soma |
 | `val_nominal_usd` | Número (moeda USD) | Soma |
 | `val_nominal_eur` | Número (moeda EUR) | Soma |
@@ -101,6 +99,7 @@ Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro bra
 |---|---|
 | Scorecard — Valor Real IPCA Total (BRL) | `val_real_ipca_brl` Soma |
 | Scorecard — Volume Total (Toneladas) | `quantity_tons` Soma |
+| Scorecard — Volume Total (m³) | `quantity_m3` Soma |
 | Gráfico de linhas — Série histórica | Dimensão: `reference_year` · Métrica: `val_real_ipca_brl` |
 | Gráfico de barras — Por produto | Dimensão: `product_description` · Métrica: `val_real_ipca_brl` |
 | Filtro — Ano | Controle deslizante em `reference_year` |

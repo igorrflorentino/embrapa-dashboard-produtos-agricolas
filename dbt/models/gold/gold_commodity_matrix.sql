@@ -174,10 +174,8 @@ select
     product_description,
 
     -- ── Quantities ───────────────────────────────────────────────────────────
-    qty_tons * 1000.0                                        as quantity_kg,
     qty_tons                                                 as quantity_tons,
     qty_m3                                                   as quantity_m3,
-    qty_m3   * 1000.0                                        as quantity_liters,
 
     -- ── Nominal: value as reported, converted via FX of THAT year ────────────
     -- Foreign-currency nominal columns are NULL pre-1994: the FX rate of the
@@ -205,13 +203,7 @@ select
     safe_divide(val_real_igpm_brl, brl_per_cny_current)      as val_real_igpm_cny,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
-    {{ data_quality_flag(
-        'qty_tons * 1000.0',
-        'qty_tons',
-        'qty_m3',
-        'qty_m3 * 1000.0',
-        'val_raw'
-    ) }} as data_quality_flag,
+    {{ data_quality_flag('qty_tons', 'qty_m3', 'val_raw') }} as data_quality_flag,
     last_refresh
 
 from enriched
