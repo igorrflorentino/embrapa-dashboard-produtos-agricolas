@@ -22,10 +22,15 @@ Antes de criar o dashboard, ative o BI Engine para evitar cobranças por bytes e
 3. Configurações:
    - **Project**: `embrapa-dashboard-commodities`
    - **Location**: `us-central1` (mesmo da sua BQ_LOCATION)
-   - **Capacity**: `1 GiB` (suficiente para cobrir a Gold com ~3–30k rows)
+   - **Capacity**: `512 MiB` (cobre as 3 tabelas Gold com folga — `_matrix`
+     pesa só ~10 MB)
 4. Clique em **Create**
 
-Custo estimado: ~U$ 25–30/mês. Elimina quase todo billing por query no dashboard.
+Custo estimado: ~U$ 12–15/mês com 512 MiB. Elimina quase todo billing por query no dashboard.
+
+> Antes de habilitar BI Engine, configure o budget e a quota em
+> [cost_safety.md](cost_safety.md) — assim qualquer custo inesperado dispara
+> alerta automático.
 
 ---
 
