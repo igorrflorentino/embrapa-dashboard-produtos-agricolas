@@ -14,7 +14,7 @@ from google.cloud import bigquery, storage
 from rich.console import Console
 from rich.table import Table
 
-from embrapa_commodities import discover, doctor, monitor, observability
+from embrapa_commodities import backup, discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.config import get_settings
@@ -426,6 +426,26 @@ def doctor_cmd() -> None:
         console.print(f"[red bold]{failed} check(s) failed[/red bold]")
         raise typer.Exit(code=1)
     console.print("[green bold]All checks passed[/green bold]")
+
+
+# ─── backup ───────────────────────────────────────────────────────────────────
+@app.command("backup-gold")
+def backup_gold() -> None:
+    """Snapshot prod Gold tables to GCS as Parquet (manual cold-storage).
+
+    Lands at ``gs://${GCS_BUCKET}/backups/run=<ts>/<table>/<table>-*.parquet``.
+    GCS lifecycle (versioning + Nearline/Coldline/Archive transitions) handles
+    long-term retention without extra config.
+
+    Run after a successful ``make dbt-build-prod`` you want to preserve.
+    """
+    settings = get_settings()
+    run_id, uris = backup.run(settings)
+    console.print(
+        f"[green]✓[/green] Gold backup complete  [dim]run_id={run_id}[/dim]"
+    )
+    for uri in uris:
+        console.print(f"  → {uri}")
 
 
 # ─── dbt passthrough ──────────────────────────────────────────────────────────

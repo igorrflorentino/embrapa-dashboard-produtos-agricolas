@@ -28,6 +28,12 @@ forward (12 months for inflation, 30 days for FX) — this absorbs BCB
 revisions of preliminary readings without re-pulling the whole history.
 Use `--full` after schema changes or to backfill a new series.
 
+Cold-storage backup of the prod Gold tables (manual, run after each
+`make dbt-build-prod` you want to preserve):
+```bash
+uv run embrapa backup-gold      # → gs://${GCS_BUCKET}/backups/run=<ts>/...
+```
+
 dbt transforms (run from repo root via Makefile, or `cd dbt` to call dbt directly):
 ```bash
 make dbt-build           # dev target — writes to dbt_dev_silver, dbt_dev_gold
