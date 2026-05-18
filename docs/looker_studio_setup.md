@@ -36,11 +36,22 @@ Custo estimado: ~U$ 25–30/mês. Elimina quase todo billing por query no dashbo
 1. Vá para [lookerstudio.google.com](https://lookerstudio.google.com)
 2. Clique em **+ Criar → Relatório**
 
-### 2b. Conectar à tabela Gold
+### 2b. Conectar à(s) tabela(s) Gold
+
+Há **três Gold físicas**, cada uma otimizada para uma granularidade. Conecte
+a que servir cada página do dashboard (Looker permite múltiplas fontes):
+
+| Tabela | Linhas (aprox.) | Use para |
+|---|---|---|
+| `gold_commodity_year_product` | ~400 | Brasil-total por produto/ano (página executiva, scorecards, linhas históricas) |
+| `gold_commodity_state_year` | ~3 mil | Comparação por estado/região (mapa coroplético do Brasil, drill-down por UF) |
+| `gold_commodity_matrix` | ~95 mil | Drill-down municipal (tabelas detalhadas, top municípios) |
+
+Para cada fonte:
 
 1. Em "Adicionar dados ao relatório", selecione **BigQuery**
 2. Faça login com a conta que tem acesso ao projeto
-3. Navegue: **Meus projetos → embrapa-dashboard-commodities → gold → gold_commodity_matrix**
+3. Navegue: **Meus projetos → embrapa-dashboard-commodities → gold → <tabela>**
 4. Clique em **Adicionar** → **Adicionar ao relatório**
 
 > **Importante:** conecte diretamente à tabela, não via "Custom Query".

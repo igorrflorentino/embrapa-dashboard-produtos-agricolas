@@ -49,6 +49,27 @@ models:
               arguments:
                 values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
 
+  - name: gold_commodity_year_product
+    description: |
+      National roll-up of gold_commodity_matrix, aggregated to
+      (reference_year, product_code). ~10× smaller than gold_commodity_state_year
+      — ideal for "Brasil total by product over time" Looker pages (line charts,
+      scorecards). Drill-down by state uses gold_commodity_state_year; by
+      municipality uses gold_commodity_matrix.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - product_code
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: product_code
+        tests: [not_null]
+      - name: last_refresh
+        tests: [not_null]
+
   - name: gold_commodity_state_year
     description: |
       State-level pre-aggregate of gold_commodity_matrix. ~10× smaller than
