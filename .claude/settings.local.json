@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv --version)",
+      "Bash(git --version)",
+      "Bash(gcloud --version)",
+      "Bash(where pyenv *)",
+      "Bash(where python3 *)",
+      "Bash(where pip *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\")",
+      "PowerShell(uv *)",
+      "PowerShell(uv python *)",
+      "PowerShell(uv sync *)",
+      "PowerShell(uv run *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(New-Item *)",
+      "PowerShell([System.Environment]::SetEnvironmentVariable\\(\"PYTHONUTF8\", \"1\", \"User\"\\); Write-Host \"PYTHONUTF8=1 adicionado às variáveis de ambiente do usuário\")",
+      "PowerShell(gcloud info *)",
+      "PowerShell([System.Environment]::GetEnvironmentVariable\\(\"PYTHONUTF8\", \"User\"\\); [System.Environment]::GetEnvironmentVariable\\(\"PYTHONUTF8\", \"Machine\"\\); $env:PYTHONUTF8)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(uv run *)",
+      "Bash(python -c \"import sys; print\\(sys.platform\\)\")",
+      "Bash(where gcloud *)",
+      "Bash(where make *)",
+      "Bash(Test-Path *)",
+      "Bash(grep -rn \"os\\\\.path\\\\|pathlib\\\\|Path\\\\|open\\(\\\\|\\\\\\\\\\\\\\\\n\\\\|/tmp\\\\|os\\\\.sep\" src/embrapa_commodities/ --include=\"*.py\")"
+    ]
+  }
+}
