@@ -441,9 +441,7 @@ def backup_gold() -> None:
     """
     settings = get_settings()
     run_id, uris = backup.run(settings)
-    console.print(
-        f"[green]✓[/green] Gold backup complete  [dim]run_id={run_id}[/dim]"
-    )
+    console.print(f"[green]✓[/green] Gold backup complete  [dim]run_id={run_id}[/dim]")
     for uri in uris:
         console.print(f"  → {uri}")
 

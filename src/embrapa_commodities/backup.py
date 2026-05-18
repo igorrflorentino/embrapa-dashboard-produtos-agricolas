@@ -84,8 +84,6 @@ def run(settings: Settings) -> tuple[str, list[str]]:
         uris.append(destination_uri)
 
     if not uris:
-        raise RuntimeError(
-            "No Gold tables found to back up. Run `make dbt-build-prod` first."
-        )
+        raise RuntimeError("No Gold tables found to back up. Run `make dbt-build-prod` first.")
 
     return run_id, uris
