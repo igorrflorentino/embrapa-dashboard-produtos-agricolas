@@ -25,7 +25,9 @@
       "Bash(where gcloud *)",
       "Bash(where make *)",
       "Bash(Test-Path *)",
-      "Bash(grep -rn \"os\\\\.path\\\\|pathlib\\\\|Path\\\\|open\\(\\\\|\\\\\\\\\\\\\\\\n\\\\|/tmp\\\\|os\\\\.sep\" src/embrapa_commodities/ --include=\"*.py\")"
+      "Bash(grep -rn \"os\\\\.path\\\\|pathlib\\\\|Path\\\\|open\\(\\\\|\\\\\\\\\\\\\\\\n\\\\|/tmp\\\\|os\\\\.sep\" src/embrapa_commodities/ --include=\"*.py\")",
+      "Bash(gcloud auth *)",
+      "PowerShell(gcloud auth application-default print-access-token *)"
     ]
   }
 }
