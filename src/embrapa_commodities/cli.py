@@ -27,7 +27,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-console = Console()
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+console = Console(legacy_windows=False)
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Embrapa commodities pipeline")
 
 ingest_app = typer.Typer(no_args_is_help=True, help="Bronze-layer ingestion commands")

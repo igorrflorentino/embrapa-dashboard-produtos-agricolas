@@ -520,7 +520,7 @@ def run(
     The loop re-renders every ``tick_seconds`` regardless of new events so
     elapsed durations and ETAs keep advancing while SIDRA stalls.
     """
-    console = console or Console()
+    console = console or Console(legacy_windows=False)
     if not log_path.exists():
         console.print(f"[red]Log not found:[/red] {log_path}")
         return
