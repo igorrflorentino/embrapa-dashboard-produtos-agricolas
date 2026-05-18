@@ -1,5 +1,6 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean
+        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean \
+        precommit-install precommit-run
 
 PY := uv run
 DBT_DIR := dbt
@@ -50,6 +51,12 @@ lint:
 
 test:
 	$(PY) pytest
+
+precommit-install:    ## Install git hooks defined in .pre-commit-config.yaml
+	$(PY) pre-commit install
+
+precommit-run:        ## Run all hooks against every file (not just staged)
+	$(PY) pre-commit run --all-files
 
 clean:
 	rm -rf .pytest_cache .ruff_cache $(DBT_DIR)/target $(DBT_DIR)/dbt_packages $(DBT_DIR)/logs

@@ -10,6 +10,7 @@ pyenv local 3.12.11 && uv sync
 gcloud auth application-default login
 cp .env.example .env                          # then edit GCP_PROJECT_ID etc.
 cp dbt/profiles.yml.example ~/.dbt/profiles.yml
+make precommit-install                        # optional: ruff + file-hygiene on every commit
 ```
 
 Ingestion (Python → GCS Parquet → BigQuery Bronze):

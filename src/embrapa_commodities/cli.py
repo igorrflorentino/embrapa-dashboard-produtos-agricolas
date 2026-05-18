@@ -226,9 +226,7 @@ def ingest_ibge_batch(
             )
             chunks_ok.append(chunk_id)
             if destination:
-                console.print(
-                    f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]"
-                )
+                console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
             else:
                 console.print(
                     f"  [yellow]⚠[/yellow] {chunk_id} — SIDRA returned no rows "
