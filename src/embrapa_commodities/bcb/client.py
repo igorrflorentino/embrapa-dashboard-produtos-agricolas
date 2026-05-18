@@ -10,6 +10,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
+    stop_after_delay,
     wait_exponential,
 )
 
@@ -19,7 +20,12 @@ SGS_URL = (
     "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
     "?formato=json&dataInicial={start}&dataFinal={end}"
 )
-REQUEST_TIMEOUT = 60
+# (connect_timeout, read_timeout). Same byte-idle deadline as the IBGE client:
+# 30s without any bytes from BCB and the request fails fast for tenacity to retry.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+# Hard ceiling across all retries for one series window — prevents a single
+# stalled series from blocking the whole inflation/currency ingest.
+PER_SERIES_DEADLINE_S: float = 120.0
 
 # Status codes worth retrying — transient/server-side or rate limits.
 # 4xx other than these (400, 401, 403, 404...) won't recover by retrying.
@@ -41,7 +47,8 @@ MAX_YEARS_PER_REQUEST = 10
 
 @retry(
     reraise=True,
-    stop=stop_after_attempt(5),
+    # Stop on either attempt count OR cumulative time — same pattern as IBGE.
+    stop=stop_after_attempt(5) | stop_after_delay(PER_SERIES_DEADLINE_S),
     wait=wait_exponential(multiplier=1, min=2, max=30),
     retry=retry_if_exception_type((requests.RequestException, BcbTransientError)),
 )
@@ -53,7 +60,14 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
         end=f"31/12/{end_year}",
     )
     logger.info("BCB SGS fetch code=%s window=%d-%d", code, start_year, end_year)
-    response = requests.get(url, timeout=REQUEST_TIMEOUT)
+    # `Connection: close` forces a fresh TCP socket per request — same reasoning
+    # as in the IBGE client: avoids urllib3 pool deadlocks and server-side
+    # keep-alive staleness against BCB.
+    response = requests.get(
+        url,
+        timeout=REQUEST_TIMEOUT,
+        headers={"Connection": "close", "User-Agent": "embrapa-commodities/0.1"},
+    )
     if response.status_code == 200:
         payload = response.json()
         if not payload:
