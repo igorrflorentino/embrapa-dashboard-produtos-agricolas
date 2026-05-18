@@ -63,10 +63,10 @@ Na tela de configuração da fonte de dados, ajuste:
 | `product_description` | Texto | — |
 | `quantity_tons` | Número | Soma |
 | `quantity_m3` | Número | Soma |
-| `val_nominal_brl` | Número (moeda BRL) | Soma |
-| `val_nominal_usd` | Número (moeda USD) | Soma |
-| `val_nominal_eur` | Número (moeda EUR) | Soma |
-| `val_nominal_cny` | Número (moeda CNY) | Soma |
+| `val_yearfx_brl` | Número (moeda BRL) | Soma |
+| `val_yearfx_usd` | Número (moeda USD) | Soma |
+| `val_yearfx_eur` | Número (moeda EUR) | Soma |
+| `val_yearfx_cny` | Número (moeda CNY) | Soma |
 | `val_real_ipca_brl` | Número (moeda BRL) | Soma |
 | `val_real_ipca_usd` | Número (moeda USD) | Soma |
 | `val_real_ipca_eur` | Número (moeda EUR) | Soma |
@@ -111,13 +111,13 @@ Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro bra
 | Gráfico | Configuração |
 |---|---|
 | Mapa coroplético (Brasil) | Geo: `state_acronym` · Cor: `val_real_ipca_brl` |
-| Tabela detalhada — Top municípios | Dimensões: `city_name`, `state_acronym` · Métricas: `quantity_tons`, `val_nominal_brl`, `val_real_ipca_brl` |
+| Tabela detalhada — Top municípios | Dimensões: `city_name`, `state_acronym` · Métricas: `quantity_tons`, `val_yearfx_brl`, `val_real_ipca_brl` |
 
 ### Página 3 — Análise monetária comparada
 
 | Gráfico | Configuração |
 |---|---|
-| Gráfico de linhas — Valores nominais vs reais | Série 1: `val_nominal_brl` · Série 2: `val_real_ipca_brl` · Série 3: `val_real_igpm_brl` |
+| Gráfico de linhas — Valores nominais vs reais | Série 1: `val_yearfx_brl` · Série 2: `val_real_ipca_brl` · Série 3: `val_real_igpm_brl` |
 | Gráfico de barras — Por moeda | Métricas: `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny` |
 
 ---

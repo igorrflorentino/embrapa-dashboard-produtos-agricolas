@@ -17,7 +17,7 @@
 --  the `historical_currency_factors` seed (so val_raw is in R$ regardless of
 --  the year). Gold only applies FX and inflation deflation on top.
 --
---  • val_nominal_*  = val_raw (BRL) converted to USD/EUR/CNY at the FX rate
+--  • val_yearfx_*  = val_raw (BRL) converted to USD/EUR/CNY at the FX rate
 --                     of THAT year. Use this for historical auditing — note
 --                     pre-1994 BRL is purchasing-power-equivalent today, but
 --                     the FX rate of the year is in the currency of the year
@@ -36,7 +36,7 @@
 --    - placeholders (-, ..., *) in the source → NULL in the Silver layer;
 --    - missing currency factor for unit_of_measure → NULL val_raw → NULL all monetary;
 --    - missing IPCA / IGP-M index for that year → NULL real_* columns;
---    - missing FX rate for that year (e.g. EUR pre-1999) → NULL nominal_FX.
+--    - missing FX rate for that year (e.g. EUR pre-1999) → NULL val_yearfx_FX.
 -- ────────────────────────────────────────────────────────────────────────────
 
 with base_pevs as (
@@ -177,18 +177,20 @@ select
     qty_tons                                                 as quantity_tons,
     qty_m3                                                   as quantity_m3,
 
-    -- ── Nominal: value as reported, converted via FX of THAT year ────────────
-    -- Foreign-currency nominal columns are NULL pre-1994: the FX rate of the
-    -- year is in the currency-of-the-year (Cz$/USD etc.), which would mix
-    -- units of mass-different scale with current values and confuse readers.
+    -- ── Year-FX: val_raw converted via FX of THAT year ──────────────────────
+    -- val_raw is already in current BRL numerary (Silver applied the currency
+    -- reform seed), but it carries NO inflation correction — so it equals
+    -- "what the value was, restated in today's R$ symbols". Foreign-FX
+    -- columns are NULL pre-1994: the FX rate of the year is in the currency-
+    -- of-the-year (Cz$/USD etc.), which would mix scales and confuse readers.
     -- Use val_real_* for cross-year comparisons.
-    val_raw                                                  as val_nominal_brl,
+    val_raw                                                  as val_yearfx_brl,
     case when reference_year >= 1994
-        then safe_divide(val_raw, brl_per_usd_avg) end       as val_nominal_usd,
+        then safe_divide(val_raw, brl_per_usd_avg) end       as val_yearfx_usd,
     case when reference_year >= 1994
-        then safe_divide(val_raw, brl_per_eur_avg) end       as val_nominal_eur,
+        then safe_divide(val_raw, brl_per_eur_avg) end       as val_yearfx_eur,
     case when reference_year >= 1994
-        then safe_divide(val_raw, brl_per_cny_avg) end       as val_nominal_cny,
+        then safe_divide(val_raw, brl_per_cny_avg) end       as val_yearfx_cny,
 
     -- ── Real via IPCA: comparable across years, expressed in current units ──
     val_real_ipca_brl                                        as val_real_ipca_brl,

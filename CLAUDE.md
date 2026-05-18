@@ -84,7 +84,7 @@ Product codes are taken directly from SIDRA's `tipo_de_produto_extrativo_codigo`
 
 **Gold (dbt, materialized=incremental, insert_overwrite partitioned by reference_year).** Single model `gold_commodity_matrix` produces 22 columns per `(reference_year, state_acronym, city_name, product_code)`. Two monetary conventions matter:
 
-- `val_nominal_*` — value of the year converted at that year's FX rate. Foreign-currency columns are NULL pre-1994 to avoid mixing old Cruzeiros with current USD/EUR/CNY. Historical auditing only.
+- `val_yearfx_*` — `val_raw` (in current BRL numerary, no inflation correction) divided by that year's average FX rate. Foreign-currency columns are NULL pre-1994 to avoid mixing old Cruzeiros with current USD/EUR/CNY. Historical auditing only.
 - `val_real_{ipca,igpm}_*` — value projected to today via the chain-linked IPCA/IGP-M index, then optionally converted at today's FX. **Use this column for cross-year comparison.**
 
 The IPCA chain (in `silver_bcb_inflation.sql`) compounds SGS 433's monthly percent change into a 100-base index via `100 * exp(sum(log(1 + pct/100)) over (...))`. SGS 433 shows no spike at reform dates — that's why the currency factor seed must be applied in Silver *before* the chain index is used in Gold.
@@ -113,6 +113,7 @@ Always iterate on `make dbt-build` (dev). `make dbt-build-prod` does a `--full-r
   ```
 - **Gold materialization:** changed from `incremental` to `table`. No action required — `dbt build` will recreate it cleanly. The Gold model now also has new columns (`reference_date`, `state_name`, `region`, `city_code`, `last_refresh`) and renamed columns (snake_case throughout). Looker Studio reports must rebind any deleted column names (`valnominalbrl` → `val_nominal_brl`, etc.).
 - **GCS bucket protections:** versioning and lifecycle rules are now applied idempotently on `ensure_bucket` — existing buckets are upgraded on the next run.
+- **`val_nominal_*` → `val_yearfx_*`:** the 4 BRL/USD/EUR/CNY columns were renamed because "nominal" was misleading (Silver already converts everything to current BRL numerary via the currency reform seed). Looker Studio reports need to rebind the 4 metrics — see `docs/looker_studio_setup.md`.
 
 ## Notes for changes
 

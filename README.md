@@ -80,7 +80,7 @@ Os comandos `discover` são **auxiliares e não fazem parte do pipeline em produ
 
 | Coluna | Significado | Quando é NULL |
 |---|---|---|
-| `val_nominal_*` | Valor da época, convertido por **FX médio do mesmo ano**. Colunas em moeda estrangeira são `NULL` pré-1994 para não misturar Cruzeiros antigos com valores atuais. | FX do ano indisponível (ex.: EUR < 1999); ou `reference_year < 1994` para USD/EUR/CNY. |
+| `val_yearfx_*` | `val_raw` (já em numerário R$ atual, sem correção inflacionária) convertido pelo **FX médio do mesmo ano**. Colunas em moeda estrangeira são `NULL` pré-1994 para não misturar Cruzeiros antigos com valores atuais. | FX do ano indisponível (ex.: EUR < 1999); ou `reference_year < 1994` para USD/EUR/CNY. |
 | `val_real_ipca_*` | Valor projetado para hoje pela **cadeia IPCA** (absorve inflação + reformas monetárias) e convertido para FX corrente. **Use esta coluna para comparações entre anos.** | IPCA do ano-base indisponível. |
 | `val_real_igpm_*` | Idem, usando IGP-M. | IGP-M do ano-base indisponível. |
 
@@ -107,8 +107,8 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 **Quantidades**
 `quantity_tons`, `quantity_m3`.
 
-**Valores nominais (FX do ano; foreign zerado pré-1994)**
-`val_nominal_brl`, `val_nominal_usd`, `val_nominal_eur`, `val_nominal_cny`.
+**Valores por FX do ano (foreign zerado pré-1994)**
+`val_yearfx_brl`, `val_yearfx_usd`, `val_yearfx_eur`, `val_yearfx_cny`.
 
 **Valores reais via IPCA**
 `val_real_ipca_brl`, `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny`.

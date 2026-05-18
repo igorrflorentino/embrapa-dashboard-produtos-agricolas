@@ -28,11 +28,11 @@ select
     sum(quantity_tons)     as quantity_tons,
     sum(quantity_m3)       as quantity_m3,
 
-    -- ── Nominal (foreign columns SUM to NULL pre-1994 because each row is NULL) ──
-    sum(val_nominal_brl)   as val_nominal_brl,
-    sum(val_nominal_usd)   as val_nominal_usd,
-    sum(val_nominal_eur)   as val_nominal_eur,
-    sum(val_nominal_cny)   as val_nominal_cny,
+    -- ── Year-FX (foreign columns SUM to NULL pre-1994 because each row is NULL) ──
+    sum(val_yearfx_brl)   as val_yearfx_brl,
+    sum(val_yearfx_usd)   as val_yearfx_usd,
+    sum(val_yearfx_eur)   as val_yearfx_eur,
+    sum(val_yearfx_cny)   as val_yearfx_cny,
 
     -- ── Real via IPCA ─────────────────────────────────────────────────────
     sum(val_real_ipca_brl) as val_real_ipca_brl,
