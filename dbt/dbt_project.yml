@@ -15,6 +15,11 @@ clean-targets:
   - target
   - dbt_packages
 
+# Apply a 7-day default_table_expiration to dev_silver / dev_gold AFTER dbt
+# has created them. Prod is a no-op (production tables never expire).
+on-run-end:
+  - "{{ apply_dev_ttl(days=7) }}"
+
 models:
   embrapa_commodities:
     +persist_docs:

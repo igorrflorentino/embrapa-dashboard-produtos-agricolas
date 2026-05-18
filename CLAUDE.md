@@ -104,6 +104,8 @@ Nothing is hardcoded — bucket, prefixes, dataset names, table names, IBGE prod
 
 Always iterate on `make dbt-build` (dev). `make dbt-build-prod` does a `--full-refresh` against the real datasets — only run after dev validation.
 
+**Dev schemas auto-expire after 7 days.** The `apply_dev_ttl` macro runs as an `on-run-end` hook only when `target.name == 'dev'`, setting `default_table_expiration_days = 7` on `dbt_dev_silver` and `dbt_dev_gold`. Abandoned experimentation tables self-clean instead of accumulating in the project.
+
 ## Migration notes (one-time)
 
 - **Bronze re-partitioning:** Bronze tables are now partitioned by `DATE(ingestion_timestamp)` and clustered (IBGE: `municipio_codigo, ano, variavel_codigo`; BCB: `series_code, reference_date_str`). BigQuery cannot retrofit partitioning on existing tables — if you have pre-existing Bronze tables from before this change, drop them before the next `embrapa ingest *` run, otherwise the load job fails with a partition mismatch:
