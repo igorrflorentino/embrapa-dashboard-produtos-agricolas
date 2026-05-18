@@ -93,7 +93,7 @@ The IPCA chain (in `silver_bcb_inflation.sql`) compounds SGS 433's monthly perce
 
 Nothing is hardcoded — bucket, prefixes, dataset names, table names, IBGE product codes, BCB series codes all flow through `src/embrapa_commodities/config.py` (pydantic-settings reading `.env`). This is intentional for ownership transfer (see `docs/ownership_transfer.md`): copying `.env.example` to a new GCP project and running `embrapa ingest all` rebuilds the entire infrastructure.
 
-`BCB_INFLATION_SERIES` and `BCB_CURRENCY_SERIES` use `CODE:LABEL,CODE:LABEL` format. If you change these keys, also override the `inflation_series_ipca` / `inflation_series_igpm` vars in `dbt/dbt_project.yml`, which the Gold model uses to pick the right series.
+`BCB_INFLATION_SERIES` and `BCB_CURRENCY_SERIES` use `CODE:LABEL,CODE:LABEL` format. If you change these keys, also update `BCB_INFLATION_SERIES_IPCA_CODE` and `BCB_INFLATION_SERIES_IGPM_CODE` in `.env` — `dbt_project.yml` reads them via `env_var()` and the Gold model uses them to pick the right series for the `val_real_*` projections.
 
 ## dev / prod schema separation
 

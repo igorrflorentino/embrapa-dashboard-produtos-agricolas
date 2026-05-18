@@ -37,7 +37,8 @@ vars:
   ibge_variable_quantity: "144"
   ibge_variable_value: "145"
 
-  # Codes consumed by the Gold deflation logic. Override per environment if
-  # you change the keys in BCB_INFLATION_SERIES.
-  inflation_series_ipca: "433"
-  inflation_series_igpm: "189"
+  # Codes consumed by the Gold deflation logic. If you change the keys in
+  # BCB_INFLATION_SERIES (.env), set the matching env vars below so dbt picks
+  # the right series for IPCA/IGP-M projections.
+  inflation_series_ipca: "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE', '433') }}"
+  inflation_series_igpm: "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE', '189') }}"
