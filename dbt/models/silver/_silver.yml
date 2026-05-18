@@ -14,7 +14,11 @@ models:
               - unit_of_measure
     columns:
       - name: reference_year
-        tests: [not_null]
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1986 and extract(year from current_date()) + 1"
       - name: state_acronym
         tests: [not_null]
       - name: product_code
@@ -26,6 +30,11 @@ models:
           - accepted_values:
               arguments:
                 values: ["144", "145"]
+      - name: numeric_value
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or numeric_value >= 0"
 
   - name: silver_bcb_inflation
     description: |
@@ -38,6 +47,13 @@ models:
         tests: [not_null]
       - name: monthly_pct_change
         description: "Variation % as published by BCB SGS (e.g. series 433, 189, 190)."
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                # Brazilian monthly inflation has never exceeded ±100% in any month;
+                # a wider range than necessary catches parse errors without
+                # rejecting legitimate hyperinflation-era spikes.
+                expression: "is null or monthly_pct_change between -100 and 100"
 
   - name: silver_bcb_currency
     description: "Daily FX rates: BRL per foreign currency unit."
@@ -46,3 +62,8 @@ models:
         tests: [not_null]
       - name: currency
         tests: [not_null]
+      - name: brl_per_foreign_unit
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or brl_per_foreign_unit > 0"

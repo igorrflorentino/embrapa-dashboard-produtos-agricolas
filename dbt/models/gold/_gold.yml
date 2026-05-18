@@ -16,7 +16,11 @@ models:
               - product_code
     columns:
       - name: reference_year
-        tests: [not_null]
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1986 and extract(year from current_date()) + 1"
       - name: reference_date
         description: "December 31 of reference_year. Use as DATE dimension in Looker Studio."
         tests: [not_null]
