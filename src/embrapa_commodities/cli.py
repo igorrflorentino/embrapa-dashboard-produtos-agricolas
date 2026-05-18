@@ -14,7 +14,7 @@ from google.cloud import bigquery, storage
 from rich.console import Console
 from rich.table import Table
 
-from embrapa_commodities import discover, monitor, observability
+from embrapa_commodities import discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.config import get_settings
@@ -400,6 +400,34 @@ def monitor_cmd(
         raise typer.Exit(code=1)
     console.print(f"[dim]Watching:[/dim] {target}")
     monitor.run(target, follow=not no_follow, console=console)
+
+
+# ─── doctor ───────────────────────────────────────────────────────────────────
+@app.command("doctor")
+def doctor_cmd() -> None:
+    """Quick health-check before running an ingest. ~10 seconds.
+
+    Validates: .env parsing, ADC credentials, BigQuery / GCS reachability,
+    IBGE SIDRA + BCB SGS connectivity, and whether Bronze tables exist yet.
+
+    Exits 1 if any check fails (Bronze-tables check is informational).
+    """
+    results = doctor.run_all()
+    table = Table(title="embrapa doctor", show_lines=False)
+    table.add_column("", width=3)
+    table.add_column("Check", style="bold")
+    table.add_column("Detail")
+    failed = 0
+    for r in results:
+        mark = "[green]✓[/green]" if r.ok else "[red]✗[/red]"
+        if not r.ok:
+            failed += 1
+        table.add_row(mark, r.name, r.detail)
+    console.print(table)
+    if failed:
+        console.print(f"[red bold]{failed} check(s) failed[/red bold]")
+        raise typer.Exit(code=1)
+    console.print("[green bold]All checks passed[/green bold]")
 
 
 # ─── dbt passthrough ──────────────────────────────────────────────────────────
