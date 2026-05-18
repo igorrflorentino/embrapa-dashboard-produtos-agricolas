@@ -143,3 +143,7 @@ docs/ownership_transfer.md  # checklist para migrar para a empresa
 ## Transferência futura para a empresa
 
 Veja [docs/ownership_transfer.md](docs/ownership_transfer.md). Nada está hardcoded — basta um novo `.env` e a primeira execução de `uv run embrapa ingest all` recria toda a infraestrutura (bucket, datasets, tabelas) no novo projeto GCP.
+
+## Cost safety
+
+Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que protegem contra cobrança inesperada estão em [docs/cost_safety.md](docs/cost_safety.md). Recomendado fazer **antes** de habilitar BI Engine.
