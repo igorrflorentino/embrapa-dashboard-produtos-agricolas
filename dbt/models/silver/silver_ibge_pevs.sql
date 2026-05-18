@@ -1,15 +1,54 @@
 {{
     config(
-        materialized='table',
+        materialized='incremental',
+        incremental_strategy='insert_overwrite',
         partition_by={
             'field': 'reference_year',
             'data_type': 'int64',
             'range': {'start': 1970, 'end': 2050, 'interval': 1}
         },
-        cluster_by=['state_acronym', 'product_code', 'variable_code']
+        cluster_by=['state_acronym', 'product_code', 'variable_code'],
+        on_schema_change='append_new_columns'
     )
 }}
 
+{#-
+    Incremental strategy:
+      1. Find which years got new Bronze rows since the last Silver build.
+      2. Pull every Bronze row for those years (not just the new ones — the
+         dedupe `qualify` needs the full natural-key partition to pick the
+         latest ingestion_timestamp).
+      3. insert_overwrite replaces only the affected reference_year partitions.
+    On `--full-refresh` (or first build), the {% if is_incremental() %} block
+    is skipped and we scan all of Bronze.
+-#}
+
+{% if is_incremental() %}
+with affected_years as (
+
+    select distinct ano
+    from {{ source('bronze_ibge', 'sidra_raw') }}
+    where ingestion_timestamp > (select coalesce(max(ingestion_timestamp), timestamp '1970-01-01') from {{ this }})
+
+),
+
+deduplicated as (
+
+    select b.*
+    from {{ source('bronze_ibge', 'sidra_raw') }} b
+    inner join affected_years ay on b.ano = ay.ano
+    where b.variavel_codigo in (
+              '{{ var("ibge_variable_quantity") }}',
+              '{{ var("ibge_variable_value") }}'
+          )
+      and b.nivel_territorial = 'Município'
+    qualify row_number() over (
+        partition by b.ano, b.municipio_codigo, b.tipo_de_produto_extrativo_codigo, b.variavel_codigo, b.unidade_de_medida
+        order by b.ingestion_timestamp desc
+    ) = 1
+
+),
+{% else %}
 with deduplicated as (
 
     -- Bronze is append-only; keep only the latest ingestion per natural key.
@@ -26,6 +65,7 @@ with deduplicated as (
     ) = 1
 
 ),
+{% endif %}
 
 parsed as (
 

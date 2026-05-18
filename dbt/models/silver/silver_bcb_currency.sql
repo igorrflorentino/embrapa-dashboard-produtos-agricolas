@@ -6,6 +6,13 @@
     )
 }}
 
+{#-
+    Stays materialized=table (not incremental) for symmetry with
+    silver_bcb_inflation. The table is small (~20k rows for daily FX 1980-now
+    across 3 currencies) so the rebuild cost is negligible — the real win
+    against API/Bronze growth comes from BCB delta-ingest (see bcb pipelines).
+-#}
+
 with deduplicated as (
 
     select *

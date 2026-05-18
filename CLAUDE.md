@@ -27,7 +27,16 @@ make dbt-build-prod      # prod target — writes to silver, gold (full-refresh)
 make dbt-test
 cd dbt && uv run dbt run --select silver_ibge_pevs+    # single model + downstream
 cd dbt && uv run dbt test --select gold_commodity_matrix
+cd dbt && uv run dbt build --full-refresh              # force rebuild incremental models
 ```
+
+**`silver_ibge_pevs` is incremental** (insert_overwrite by `reference_year`).
+Each `dbt build` scans only Bronze partitions for years with new ingestions —
+the dedup `qualify` no longer pulls the whole Bronze history. Use
+`--full-refresh` after schema changes, after dropping the table, or when
+re-anchoring to a different `ingestion_timestamp` baseline. `silver_bcb_*`
+remain `materialized=table` (small tables; the IPCA chain index requires a
+full-series window).
 
 Discovery helpers (auxiliary — for filling in `.env`, not part of the pipeline):
 ```bash

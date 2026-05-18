@@ -6,6 +6,14 @@
     )
 }}
 
+{#-
+    Stays materialized=table (not incremental) because the chain-linked
+    `index_value` uses `sum(log(1+x/100)) over (... rows unbounded preceding)`,
+    which is only correct when the window scans the full series. A partition-
+    overwrite incremental would silently break the chain for unaffected months.
+    The table is small (~2k rows) so the full rebuild cost is negligible.
+-#}
+
 with deduplicated as (
 
     select *
