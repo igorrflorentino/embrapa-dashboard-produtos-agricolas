@@ -152,6 +152,36 @@ def test_recommended_chunk_years_rejects_zero_or_negative() -> None:
 
 
 @responses.activate
+def test_http_get_aborts_on_total_request_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A slow-byte response that exceeds REQUEST_TOTAL_DEADLINE_S must raise
+    SidraTransientError (which tenacity retries) instead of hanging."""
+    responses.add(
+        method=responses.GET,
+        url=re.compile(r"https://apisidra\.ibge\.gov\.br/.*"),
+        body=b"x" * (200 * 1024),  # 200 KiB, so iter_content actually iterates
+        status=200,
+        content_type="application/json",
+    )
+    # Force the deadline to fire on the very first iter_content chunk: zero
+    # the budget and have each time.monotonic() call jump 100s.
+    monkeypatch.setattr(client, "REQUEST_TOTAL_DEADLINE_S", 0.0)
+    counter = [0.0]
+
+    def fake_monotonic() -> float:
+        counter[0] += 100.0
+        return counter[0]
+
+    monkeypatch.setattr(client.time, "monotonic", fake_monotonic)
+
+    # Skip the tenacity wrapper so the test exits in milliseconds; we only care
+    # that the deadline branch raises.
+    with pytest.raises(client.SidraTransientError, match="slow-byte hang"):
+        client._http_get.__wrapped__(  # type: ignore[attr-defined]
+            "https://apisidra.ibge.gov.br/values/t/289/p/2020/v/all/n6/all/c193/3405"
+        )
+
+
+@responses.activate
 def test_list_ibge_periods_sorts_and_dedups() -> None:
     responses.add(
         method=responses.GET,

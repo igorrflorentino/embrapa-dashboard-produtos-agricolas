@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from typing import cast
 
 import pandas as pd
 import requests
@@ -20,9 +22,13 @@ SGS_URL = (
     "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
     "?formato=json&dataInicial={start}&dataFinal={end}"
 )
-# (connect_timeout, read_timeout). Same byte-idle deadline as the IBGE client:
-# 30s without any bytes from BCB and the request fails fast for tenacity to retry.
+# (connect_timeout, read_timeout). Same per-chunk byte-idle deadline as IBGE.
 REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+# Hard wall-clock ceiling for one HTTP request. Mirrors the IBGE client: the
+# per-read timeout only fires on full byte-idle gaps, so a server that trickles
+# 1 byte every ~29s could bypass it forever. We drain the body manually with
+# this deadline to escape that pathology.
+REQUEST_TOTAL_DEADLINE_S: float = 60.0
 # Hard ceiling across all retries for one series window — prevents a single
 # stalled series from blocking the whole inflation/currency ingest.
 PER_SERIES_DEADLINE_S: float = 120.0
@@ -60,25 +66,42 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
         end=f"31/12/{end_year}",
     )
     logger.info("BCB SGS fetch code=%s window=%d-%d", code, start_year, end_year)
-    # `Connection: close` forces a fresh TCP socket per request — same reasoning
-    # as in the IBGE client: avoids urllib3 pool deadlocks and server-side
-    # keep-alive staleness against BCB.
+    # stream=True + manual drain enforces a total wall-clock budget on the body
+    # read — same slow-byte defense as in the IBGE client.
+    deadline = time.monotonic() + REQUEST_TOTAL_DEADLINE_S
     response = requests.get(
         url,
         timeout=REQUEST_TIMEOUT,
         headers={"Connection": "close", "User-Agent": "embrapa-commodities/0.1"},
+        stream=True,
     )
-    if response.status_code == 200:
+    try:
+        buf = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if time.monotonic() > deadline:
+                raise BcbTransientError(
+                    f"HTTP request exceeded {REQUEST_TOTAL_DEADLINE_S}s total budget "
+                    f"(slow-byte hang) for SGS {code} {start_year}-{end_year}"
+                )
+            if chunk:
+                buf.extend(chunk)
+        response._content = bytes(buf)  # type: ignore[attr-defined]
+        response._content_consumed = True  # type: ignore[attr-defined]
+
+        if response.status_code != 200:
+            msg = f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}"
+            if response.status_code in RETRYABLE_STATUS_CODES:
+                raise BcbTransientError(msg)
+            raise BcbRequestError(msg)
+
         payload = response.json()
         if not payload:
             logger.warning("BCB SGS %s returned no rows for %d-%d", code, start_year, end_year)
             return pd.DataFrame(columns=["data", "valor"])
         return pd.DataFrame(payload)
-
-    msg = f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}"
-    if response.status_code in RETRYABLE_STATUS_CODES:
-        raise BcbTransientError(msg)
-    raise BcbRequestError(msg)
+    except BaseException:
+        cast("requests.Response", response).close()
+        raise
 
 
 def fetch_series(code: str, start_year: int, end_year: int) -> pd.DataFrame:

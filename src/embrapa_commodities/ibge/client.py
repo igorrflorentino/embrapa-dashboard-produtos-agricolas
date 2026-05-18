@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import cast
 
 import pandas as pd
 import requests
@@ -97,11 +98,16 @@ def recommended_chunk_years(n_products: int, safety: float = 0.7) -> int:
     return max(1, safe_cells // denom)
 
 
-# (connect_timeout, read_timeout). 30s read is the byte-idle deadline; if SIDRA
-# stops sending bytes for that long, the request fails fast and tenacity retries.
-# Combined with stop_after_delay below this caps total time spent on a single
-# state, so a slow-byte hang can't strand the whole batch.
+# (connect_timeout, read_timeout). 30s read is the per-chunk byte-idle deadline.
+# Combined with REQUEST_TOTAL_DEADLINE_S below this caps total time spent on a
+# single HTTP request — slow-byte hangs (server trickles 1 byte per ~29s to keep
+# the read timer alive forever) can't strand a worker thread.
 REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+
+# Hard wall-clock ceiling for one HTTP request, enforced by manually iterating
+# response.iter_content() with a deadline check. Without this, slow-byte
+# pathologies bypass requests' per-read timeout indefinitely.
+REQUEST_TOTAL_DEADLINE_S: float = 75.0
 
 # Hard ceiling per state — after this many seconds across all retries, give up.
 PER_STATE_DEADLINE_S: float = 180.0
@@ -184,21 +190,52 @@ def _http_get(url: str) -> requests.Response:
     # `Connection: close` forces a new TCP socket per request. Slower handshake
     # (~200ms) but avoids both urllib3 pool deadlocks AND server-side connection
     # staleness — both observed in benchmarks against SIDRA.
+    #
+    # stream=True defers the body read so we can drain it manually under a
+    # wall-clock deadline. Without this, `requests` would happily drain a
+    # trickle-byte response for hours since the per-read timeout (30s) only
+    # fires on full byte-idle gaps.
+    deadline = time.monotonic() + REQUEST_TOTAL_DEADLINE_S
     response = requests.get(
         url,
         timeout=REQUEST_TIMEOUT,
         headers={"Connection": "close", "User-Agent": "embrapa-commodities/0.1"},
+        stream=True,
     )
-    if response.status_code == 200:
-        return response
-    if response.status_code in (400, 403):
-        body = response.text.lower()
-        if "limite" in body or "valores" in body:
-            raise SidraLimitExceeded(body[:200])
-    msg = f"HTTP {response.status_code} for {url}: {response.text[:200]}"
-    if response.status_code in RETRYABLE_STATUS_CODES:
-        raise SidraTransientError(msg)
-    raise SidraRequestError(msg)
+    try:
+        # Drain the body manually so we can enforce a total wall-clock budget.
+        # Done for both happy and error paths so the same slow-byte defense
+        # applies to error responses (BCB/SIDRA sometimes trickle error bodies).
+        buf = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if time.monotonic() > deadline:
+                raise SidraTransientError(
+                    f"HTTP request exceeded {REQUEST_TOTAL_DEADLINE_S}s total budget "
+                    f"(slow-byte hang) for {url[:200]}"
+                )
+            if chunk:
+                buf.extend(chunk)
+        # Stash the drained body so the caller's response.json() and
+        # response.text work without re-reading from the network. Private attrs
+        # of requests.Response, but the names are stable.
+        response._content = bytes(buf)  # type: ignore[attr-defined]
+        response._content_consumed = True  # type: ignore[attr-defined]
+
+        if response.status_code == 200:
+            return response
+        if response.status_code in (400, 403):
+            body = response.text.lower()
+            if "limite" in body or "valores" in body:
+                raise SidraLimitExceeded(body[:200])
+        msg = f"HTTP {response.status_code} for {url}: {response.text[:200]}"
+        if response.status_code in RETRYABLE_STATUS_CODES:
+            raise SidraTransientError(msg)
+        raise SidraRequestError(msg)
+    except BaseException:
+        # Ensure the underlying socket is released on any exit other than the
+        # happy-path return above.
+        cast("requests.Response", response).close()
+        raise
 
 
 def _periods_string(periods: list[int]) -> str:
