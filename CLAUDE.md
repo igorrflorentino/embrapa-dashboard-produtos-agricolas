@@ -14,11 +14,18 @@ cp dbt/profiles.yml.example ~/.dbt/profiles.yml
 
 Ingestion (Python → GCS Parquet → BigQuery Bronze):
 ```bash
-make ingest-all                               # IBGE + both BCB series
+make ingest-all                               # IBGE + both BCB series (BCB = delta)
 make ingest-ibge-historical                   # auto-chunked for large year windows
 uv run embrapa ingest {ibge|bcb-inflation|bcb-currency|all}
+uv run embrapa ingest bcb-inflation --full    # force refetch from BCB_START_YEAR
 uv run embrapa ingest ibge-batch --chunk-years 5
 ```
+
+**BCB pipelines are delta by default**: they query `max(reference_date_str)`
+already in Bronze for each series and only fetch from a small overlap window
+forward (12 months for inflation, 30 days for FX) — this absorbs BCB
+revisions of preliminary readings without re-pulling the whole history.
+Use `--full` after schema changes or to backfill a new series.
 
 dbt transforms (run from repo root via Makefile, or `cd dbt` to call dbt directly):
 ```bash

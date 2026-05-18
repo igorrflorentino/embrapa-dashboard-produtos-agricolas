@@ -97,17 +97,35 @@ def ingest_ibge() -> None:
 
 
 @ingest_app.command("bcb-inflation")
-def ingest_bcb_inflation() -> None:
+def ingest_bcb_inflation(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
+    ),
+) -> None:
     """Ingest configured BCB SGS inflation series."""
-    destination = bcb_inflation.run(get_settings())
-    console.print(f"[green]✓[/green] BCB inflation bronze loaded → {destination}")
+    destination = bcb_inflation.run(get_settings(), full=full)
+    if destination:
+        console.print(f"[green]✓[/green] BCB inflation bronze loaded → {destination}")
+    else:
+        console.print("[dim]BCB inflation: nothing new since last ingest.[/dim]")
 
 
 @ingest_app.command("bcb-currency")
-def ingest_bcb_currency() -> None:
+def ingest_bcb_currency(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
+    ),
+) -> None:
     """Ingest configured BCB SGS FX series."""
-    destination = bcb_currency.run(get_settings())
-    console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
+    destination = bcb_currency.run(get_settings(), full=full)
+    if destination:
+        console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
+    else:
+        console.print("[dim]BCB currency: nothing new since last ingest.[/dim]")
 
 
 @ingest_app.command("ibge-batch")
@@ -255,15 +273,21 @@ def ingest_ibge_batch(
 
 
 @ingest_app.command("all")
-def ingest_all() -> None:
+def ingest_all(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Force full refetch on the BCB pipelines (IBGE always fetches its full window).",
+    ),
+) -> None:
     """Run all three Bronze pipelines sequentially."""
     settings = get_settings()
     console.print("[bold]→ IBGE PEVS[/bold]")
     ibge_pipeline.run(settings)
     console.print("[bold]→ BCB inflation[/bold]")
-    bcb_inflation.run(settings)
+    bcb_inflation.run(settings, full=full)
     console.print("[bold]→ BCB currency[/bold]")
-    bcb_currency.run(settings)
+    bcb_currency.run(settings, full=full)
     console.print("[green bold]✓ All Bronze pipelines completed[/green bold]")
 
 

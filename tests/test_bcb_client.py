@@ -57,6 +57,24 @@ def test_fetch_series_raises_on_http_error() -> None:
 
 
 @responses.activate
+def test_fetch_series_chunks_windows_larger_than_max() -> None:
+    """A 25-year window should fan out into 3 HTTP calls of <= 10 years each."""
+    payload = [{"data": "01/01/2020", "valor": "5.20"}]
+    responses.add(
+        method=responses.GET,
+        url=re.compile(r"https://api\.bcb\.gov\.br/dados/serie/bcdata\.sgs\.3694/dados.*"),
+        json=payload,
+        status=200,
+    )
+
+    df = client.fetch_series("3694", 2000, 2024)
+
+    # 25 years / 10 per request = 3 chunks (2000-2009, 2010-2019, 2020-2024).
+    assert len(responses.calls) == 3
+    assert len(df) == 3  # one row per chunk, since each mock returns 1 row
+
+
+@responses.activate
 def test_sample_bcb_series_returns_latest_observations() -> None:
     payload = [{"data": "01/05/2026", "valor": "5.10"}]
     responses.add(

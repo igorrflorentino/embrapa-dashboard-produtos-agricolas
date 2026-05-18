@@ -3,12 +3,46 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
+
+
+def latest_reference_date(
+    client: bigquery.Client,
+    table_fqn: str,
+    series_code: str,
+    date_format: str = "%d/%m/%Y",
+) -> date | None:
+    """Return the max `reference_date_str` parsed as DATE for a BCB series.
+
+    Returns None if the table doesn't exist or the series has no rows.
+    Used to compute a delta-fetch start year so we don't re-pull 40 years
+    of history on every ingestion.
+    """
+    sql = f"""
+        select max(safe.parse_date(@fmt, reference_date_str)) as max_date
+        from `{table_fqn}`
+        where series_code = @code
+    """
+    try:
+        result = client.query(
+            sql,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("fmt", "STRING", date_format),
+                    bigquery.ScalarQueryParameter("code", "STRING", series_code),
+                ]
+            ),
+        ).result()
+    except NotFound:
+        return None
+    row = next(iter(result), None)
+    return row.max_date if row else None
 
 
 def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> None:
