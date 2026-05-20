@@ -77,6 +77,18 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 
 The setup script tries to find your credentials in this order:
 
+### 0️⃣ Google Cloud Secret Manager (Most Secure)
+If your admin has set up Secret Manager:
+```bash
+export GCP_PROJECT_ID=embrapa-dashboard-commodities
+./setup.sh
+# Script automatically reads from Secret Manager
+```
+
+**Benefits:** No files shared, complete audit logs, instant revocation.
+
+See [SECRET_MANAGER.md](SECRET_MANAGER.md) for detailed setup.
+
 ### 1️⃣ Environment Variable (GOOGLE_APPLICATION_CREDENTIALS)
 If you already have this variable set:
 ```bash
