@@ -26,16 +26,8 @@ SA_EMAIL="sa-claude-code-web-dev@${PROJECT_ID}.iam.gserviceaccount.com"
 echo "✅ Created: $SA_EMAIL"
 echo ""
 
-# 2. Grant dbt_dev BigQuery permissions
-echo "[2/4] Granting BigQuery permissions (dbt_dev schemas only)..."
-
-# Custom role with minimal BigQuery permissions
-# We'll use basic roles for simplicity, but you can restrict further via IAM conditions
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/bigquery.dataEditor" \
-  --condition='resource.matchTag("env", "dev")' \
-  --quiet 2>/dev/null || \
+# 2. Grant BigQuery dataEditor (project-wide; the SA itself is limited scope)
+echo "[2/4] Granting BigQuery dataEditor..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/bigquery.dataEditor" \
@@ -105,7 +97,8 @@ echo "3. Set the setup script to:"
 echo "   #!/bin/bash"
 echo "   ./init_dev_env.sh || true"
 echo ""
-echo "4. Test by running Claude Code Web — it should pass 28/28 tests!"
+echo "4. Open a Claude Code Web session — init_dev_env.sh will bootstrap"
+echo "   .env + dbt profile and run scripts/test_setup.py automatically."
 echo ""
 echo "⚠️  Important:"
 echo "   - Keep $KEYFILE and $B64_FILE secret (don't commit!)"
