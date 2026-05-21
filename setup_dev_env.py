@@ -4,10 +4,9 @@ Cross-platform development environment setup script.
 
 Auto-detects authentication mode and adapts:
   1. Service Account impersonation (OAuth, enterprise) — preferred
-  2. Google Cloud Secret Manager (modern, requires GCP auth)
-  3. GOOGLE_APPLICATION_CREDENTIALS env var (legacy)
-  4. --credentials-file argument (legacy)
-  5. Interactive paste prompt (last resort)
+  2. GOOGLE_APPLICATION_CREDENTIALS env var (legacy)
+  3. --credentials-file argument (legacy)
+  4. Interactive paste prompt (last resort)
 
 Generates the appropriate .env, dbt/profiles.yml, and credential files
 for the detected authentication mode. Works on Windows, macOS, Linux,
@@ -22,7 +21,6 @@ import sys
 import json
 import platform
 import subprocess
-import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
@@ -201,7 +199,7 @@ BCB_END_YEAR=2026
 
     def validate_impersonation_permissions(self, project_id: str) -> bool:
         """
-        Validate that the current user has iam.serviceAccountTokenCreators role
+        Validate that the current user has iam.serviceAccountTokenCreator role
         on sa-secret-reader-prod to enable impersonation.
         """
         try:
@@ -225,7 +223,7 @@ BCB_END_YEAR=2026
 
             # Check for Service Account Token Creator role
             for binding in bindings:
-                if "roles/iam.serviceAccountTokenCreators" in binding.get("role", ""):
+                if "roles/iam.serviceAccountTokenCreator" in binding.get("role", ""):
                     members = binding.get("members", [])
                     for member in members:
                         if "user:" in member or "serviceAccount:" in member:
@@ -234,7 +232,7 @@ BCB_END_YEAR=2026
                             )
                             return True
 
-            self.print_warning(f"Current user not in iam.serviceAccountTokenCreators for {sa_email}")
+            self.print_warning(f"Current user not in iam.serviceAccountTokenCreator for {sa_email}")
             return False
 
         except Exception as e:
@@ -282,51 +280,12 @@ BCB_END_YEAR=2026
         return True
 
     # ============================================================================
-    # Authentication Strategy 2: Google Cloud Secret Manager
-    # ============================================================================
-
-    def get_gcp_credentials_from_secret_manager(self) -> Optional[Dict[str, Any]]:
-        """
-        Fallback 1: Try Google Cloud Secret Manager.
-        Requires: Google Cloud authentication (ADC or gcloud CLI)
-        """
-        try:
-            from google.cloud import secretmanager
-
-            project_id = os.environ.get("GCP_PROJECT_ID") or self.project_id
-            if not project_id:
-                self.print_warning("GCP_PROJECT_ID not set, skipping Secret Manager")
-                return None
-
-            secret_name = "embrapa-gcp-credentials"
-            client = secretmanager.SecretManagerServiceClient()
-            name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-
-            try:
-                response = client.access_secret_version(request={"name": name})
-                secret_string = response.payload.data.decode("UTF-8")
-                creds = json.loads(secret_string)
-                self.print_success(f"Loaded credentials from Secret Manager ({secret_name})")
-                self.auth_method = "secret_manager"
-                return creds
-            except Exception as e:
-                self.print_warning(f"Secret Manager error: {e}")
-                return None
-
-        except ImportError:
-            self.print_warning("google-cloud-secret-manager not installed")
-            return None
-        except Exception as e:
-            self.print_warning(f"Could not access Secret Manager: {e}")
-            return None
-
-    # ============================================================================
-    # Authentication Strategy 3: Environment Variable
+    # Authentication Strategy 2: Environment Variable
     # ============================================================================
 
     def get_gcp_credentials_from_env(self) -> Optional[Dict[str, Any]]:
         """
-        Fallback 2: Try environment variable GOOGLE_APPLICATION_CREDENTIALS.
+        Fallback 1: Try environment variable GOOGLE_APPLICATION_CREDENTIALS.
         """
         env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if env_creds and Path(env_creds).exists():
@@ -342,12 +301,12 @@ BCB_END_YEAR=2026
         return None
 
     # ============================================================================
-    # Authentication Strategy 4: Credentials File Argument
+    # Authentication Strategy 3: Credentials File Argument
     # ============================================================================
 
     def get_gcp_credentials_from_file(self) -> Optional[Dict[str, Any]]:
         """
-        Fallback 3: Try --credentials-file argument.
+        Fallback 2: Try --credentials-file argument.
         """
         if "--credentials-file" in sys.argv:
             idx = sys.argv.index("--credentials-file")
@@ -365,12 +324,12 @@ BCB_END_YEAR=2026
         return None
 
     # ============================================================================
-    # Authentication Strategy 5: Interactive Prompt
+    # Authentication Strategy 4: Interactive Prompt
     # ============================================================================
 
     def get_gcp_credentials_from_prompt(self) -> Optional[Dict[str, Any]]:
         """
-        Fallback 4: Prompt user to paste JSON (legacy).
+        Fallback 3: Prompt user to paste JSON (legacy, last resort).
         """
         self.print_info("No credentials found. Paste your GCP service account JSON below.")
         self.print_info("(Press Enter twice when done)")
@@ -408,18 +367,11 @@ BCB_END_YEAR=2026
 
     def get_gcp_credentials(self) -> Optional[Dict[str, Any]]:
         """
-        Enterprise authentication strategy:
-        1. Try Secret Manager (modern, via impersonation if available)
-        2. Try Environment variable
-        3. Try --credentials-file argument
-        4. Prompt user for JSON (legacy)
+        Fallback authentication strategy (impersonation handled separately):
+        1. Try GOOGLE_APPLICATION_CREDENTIALS environment variable
+        2. Try --credentials-file argument
+        3. Prompt user for JSON (legacy, last resort)
         """
-        # For impersonation, we don't need credentials to be read
-        # But for legacy paths, we still need them
-        creds = self.get_gcp_credentials_from_secret_manager()
-        if creds:
-            return creds
-
         creds = self.get_gcp_credentials_from_env()
         if creds:
             return creds
@@ -688,7 +640,6 @@ def main():
             helper.print_header("✅ Setup Complete!")
             mode_label = {
                 "impersonation": "Service Account Impersonation (OAuth) — enterprise",
-                "secret_manager": "Google Cloud Secret Manager",
                 "env_var": "GOOGLE_APPLICATION_CREDENTIALS env var",
                 "credentials_file": "--credentials-file argument",
                 "manual_json": "Manually pasted JSON keyfile",

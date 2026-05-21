@@ -31,7 +31,7 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 1. ✅ Detects OS (Windows/macOS/Linux)
 2. ✅ Checks for Python 3.8+ (auto-installs if missing)
 3. ✅ Checks for uv (auto-installs if missing)
-4. ✅ **Auto-detects the best authentication mode** (enterprise OAuth/impersonation → Secret Manager → keyfile)
+4. ✅ **Auto-detects the best authentication mode** (enterprise OAuth/impersonation → keyfile fallback)
 5. ✅ Creates `.env` file with configuration (records `GCP_AUTH_METHOD`)
 6. ✅ Creates `~/.dbt/profiles.yml` matching the detected mode (OAuth+impersonation or keyfile)
 7. ✅ Protects credentials in `.gitignore`
@@ -106,36 +106,29 @@ Generated `~/.dbt/profiles.yml` uses `method: oauth` with `impersonate_service_a
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [IAM_SETUP.md](IAM_SETUP.md).
 
-### 2️⃣ Google Cloud Secret Manager
-
-If impersonation is not available but `GCP_PROJECT_ID` is set and you can
-access the `embrapa-gcp-credentials` secret, the script reads the JSON
-keyfile from Secret Manager:
-
-```bash
-export GCP_PROJECT_ID=embrapa-dashboard-commodities
-./setup.sh
-```
-
-See [SECRET_MANAGER.md](SECRET_MANAGER.md) for setup details.
-
-### 3️⃣ Environment Variable (legacy)
+### 2️⃣ Environment Variable (legacy)
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ./setup.sh
 ```
 
-### 4️⃣ File Argument (legacy)
+Useful in CI/CD environments or pre-provisioned VMs where the keyfile is
+already on disk.
+
+### 3️⃣ File Argument (legacy)
 
 ```bash
 ./setup.sh --credentials-file /path/to/service-account.json
 ```
 
-### 5️⃣ Interactive Prompt (last resort)
+Useful when you have a keyfile downloaded locally and want to point to it
+explicitly.
+
+### 4️⃣ Interactive Prompt (last resort)
 
 If none of the above work, the script prompts you to paste your service
-account JSON. Avoid this path — copy/paste leaves traces.
+account JSON. Avoid this path — copy/paste leaves traces in shell history.
 
 ## File Arguments
 

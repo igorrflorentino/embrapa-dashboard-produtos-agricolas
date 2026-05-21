@@ -7,17 +7,18 @@ Step-by-step instructions for administrators to set up Google Cloud IAM roles an
 - **Google Cloud Project:** `embrapa-dashboard-commodities`
 - **gcloud CLI installed:** https://cloud.google.com/sdk/docs/install
 - **Admin access** to the GCP project
-- **Service account JSON keyfile** (for `sa-secret-reader-prod`)
 
 ## Overview
 
 This guide creates:
 
 1. **Four service accounts** with distinct responsibilities
-2. **Secret Manager secret** to store credentials securely
-3. **IAM role bindings** for developers and automation
+2. **IAM role bindings** for developers and automation
 
-**Estimated time:** 15-20 minutes
+No JSON keyfiles are generated, stored, or distributed. All access flows
+through OAuth + service account impersonation.
+
+**Estimated time:** 10-15 minutes
 
 ## Step 1: Authenticate as Admin
 
@@ -36,20 +37,35 @@ gcloud config list
 
 ## Step 2: Create Service Accounts
 
-### 2.1 Secret Reader SA
+### 2.1 Developer Impersonation Target SA
 
 ```bash
 gcloud iam service-accounts create sa-secret-reader-prod \
-  --display-name="Secret Reader (Prod)" \
-  --description="Reads credentials from Secret Manager. Only SA with JSON keyfile."
+  --display-name="Developer Workflow (Prod)" \
+  --description="Impersonation target for developer workflows (dbt + ad-hoc queries)."
 ```
 
-Grant Secret Manager access:
+Grant developer-workflow permissions:
 ```bash
+# Read/write to BigQuery (dbt builds, ad-hoc queries)
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
   --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/secretmanager.secretAccessor
+  --role=roles/bigquery.dataEditor
+
+# Run BigQuery jobs
+gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --role=roles/bigquery.jobUser
+
+# Read GCS landing data
+gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --role=roles/storage.objectViewer
 ```
+
+> Note: the `sa-secret-reader-prod` name is historical — it pre-dates the
+> decision to drop Secret Manager. The account is now purely an impersonation
+> target. Feel free to rename it in your IAM console if you prefer.
 
 ### 2.2 Data Pipeline SA
 
@@ -131,68 +147,12 @@ gcloud iam service-accounts list --filter="displayName:*Prod"
 # sa-ai-agent-admin-prod                          sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
 ```
 
-## Step 3: Create Service Account Key
+## Step 3: Grant Developer Impersonation Access
 
-**Important:** Only `sa-secret-reader-prod` has a JSON keyfile. Other accounts use impersonation.
+Developers need permission to impersonate `sa-secret-reader-prod` so dbt and
+ad-hoc queries can run as that service account.
 
-```bash
-# Create key for secret reader
-gcloud iam service-accounts keys create sa-secret-reader-key.json \
-  --iam-account=sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-
-# Verify key created
-ls -la sa-secret-reader-key.json
-```
-
-**Keep this file safe.** You'll use it to create the Secret Manager secret in the next step.
-
-## Step 4: Create Secret Manager Secret
-
-### 4.1 Enable Secret Manager API
-
-```bash
-gcloud services enable secretmanager.googleapis.com
-```
-
-### 4.2 Create Secret
-
-```bash
-gcloud secrets create embrapa-gcp-credentials \
-  --replication-policy=automatic \
-  --data-file=sa-secret-reader-key.json
-```
-
-Verify:
-```bash
-gcloud secrets describe embrapa-gcp-credentials
-```
-
-### 4.3 Verify Secret Access
-
-```bash
-gcloud secrets versions access latest --secret=embrapa-gcp-credentials | head -5
-
-# Output (should show JSON):
-# {
-#   "type": "service_account",
-#   "project_id": "embrapa-dashboard-commodities",
-#   ...
-```
-
-### 4.4 Clean Up Local Key File
-
-```bash
-# Remove local copy (no longer needed)
-rm sa-secret-reader-key.json
-
-# Secret is safely stored in Secret Manager now
-```
-
-## Step 5: Grant Developer Impersonation Access
-
-Developers need permission to impersonate `sa-secret-reader-prod` to read secrets.
-
-### 5.1 For Individual Developer
+### 3.1 For Individual Developer
 
 ```bash
 # Replace with actual email
@@ -201,10 +161,10 @@ DEVELOPER_EMAIL="developer@embrapa.com.br"
 gcloud iam service-accounts add-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --member=user:${DEVELOPER_EMAIL} \
-  --role=roles/iam.serviceAccountTokenCreators
+  --role=roles/iam.serviceAccountTokenCreator
 ```
 
-### 5.2 For Development Team (Batch)
+### 3.2 For Development Team (Batch)
 
 ```bash
 # Create batch_developers.txt with one email per line
@@ -219,20 +179,20 @@ while read email; do
   gcloud iam service-accounts add-iam-policy-binding \
     sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
     --member=user:${email} \
-    --role=roles/iam.serviceAccountTokenCreators
+    --role=roles/iam.serviceAccountTokenCreator
 done < batch_developers.txt
 ```
 
-### 5.3 Verify Developer Permissions
+### 3.3 Verify Developer Permissions
 
 ```bash
 gcloud iam service-accounts get-iam-policy \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreators")'
+  --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreator")'
 
 # Output:
 # {
-#   "role": "roles/iam.serviceAccountTokenCreators",
+#   "role": "roles/iam.serviceAccountTokenCreator",
 #   "members": [
 #     "user:dev1@embrapa.com.br",
 #     "user:dev2@embrapa.com.br"
@@ -240,7 +200,7 @@ gcloud iam service-accounts get-iam-policy \
 # }
 ```
 
-## Step 6: Authenticate Developers
+## Step 4: Authenticate Developers
 
 Each developer runs this **once per machine** (or after gcloud is installed):
 
@@ -254,9 +214,9 @@ gcloud auth login developer@embrapa.com.br
 
 This opens a browser, developer logs in with their Google account, and an OAuth token is cached locally.
 
-## Step 7: Developer Setup
+## Step 5: Developer Setup
 
-Each developer runs the enterprise setup script:
+Each developer runs the setup script:
 
 ```bash
 # Developer command
@@ -267,13 +227,12 @@ python3 setup_dev_env.py
 The script will:
 1. Detect OAuth context (gcloud auth)
 2. Validate impersonation permissions
-3. Read credentials from Secret Manager via `sa-secret-reader-prod`
-4. Create `.env` with `GCP_AUTH_METHOD=impersonation`
-5. Create `dbt/profiles.yml` with OAuth method
+3. Create `.env` with `GCP_AUTH_METHOD=impersonation`
+4. Create `dbt/profiles.yml` with `method: oauth` + `impersonate_service_account`
 
-## Step 8: Verify Setup
+## Step 6: Verify Setup
 
-### 8.1 Developer Verifies Setup
+### 6.1 Developer Verifies Setup
 
 ```bash
 # Developer runs:
@@ -285,7 +244,7 @@ uv run embrapa doctor
 # ✅ dbt: OK (using OAuth)
 ```
 
-### 8.2 Admin Checks Audit Logs
+### 6.2 Admin Checks Audit Logs
 
 ```bash
 # Admin verifies audit trail
@@ -299,7 +258,7 @@ gcloud logging read \
 # 2026-05-21T15:30:45.123Z  compute.instances.setServiceAccount  developer@embrapa.com.br
 ```
 
-## Step 9 (Optional): Grant Additional Service Account Roles
+## Step 7 (Optional): Grant Additional Service Account Roles
 
 ### For CI/CD (Cloud Run / Cloud Scheduler)
 
@@ -338,33 +297,13 @@ gcloud iam service-accounts add-iam-policy-binding \
   --member="principalSet://iam.googleapis.com/projects/NUMERIC_PROJECT_ID/locations/global/workloadIdentityPools/github-pool/attribute.repository/igorrflorentino/embrapa-dashboard-commodities"
 ```
 
-## Step 10: Credential Rotation (Quarterly)
+## Step 8: Credential Rotation
 
-Every 90 days, rotate the `sa-secret-reader-prod` key:
+There is nothing to rotate manually. OAuth tokens are short-lived (~1 hour)
+and refreshed automatically by gcloud. No static service account keys exist
+in this architecture.
 
-```bash
-# 1. Admin: Create new key
-gcloud iam service-accounts keys create sa-secret-reader-key-v2.json \
-  --iam-account=sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-
-# 2. Admin: Add new version to Secret Manager
-gcloud secrets versions add embrapa-gcp-credentials \
-  --data-file=sa-secret-reader-key-v2.json
-
-# 3. Admin: List versions (check new one is active)
-gcloud secrets versions list embrapa-gcp-credentials
-
-# 4. Admin: Optionally disable old version after 1 week
-# gcloud secrets versions disable v1
-
-# 5. Admin: Clean up local files
-rm sa-secret-reader-key-v2.json
-
-# 6. Developers: Next time they run setup, they automatically get new key
-python3 setup_dev_env.py
-```
-
-## Step 11: Offboarding (Revoke Developer Access)
+## Step 9: Offboarding (Revoke Developer Access)
 
 When a developer leaves:
 
@@ -375,7 +314,7 @@ DEPARTING_EMAIL="departing@embrapa.com.br"
 gcloud iam service-accounts remove-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --member=user:${DEPARTING_EMAIL} \
-  --role=roles/iam.serviceAccountTokenCreators
+  --role=roles/iam.serviceAccountTokenCreator
 
 # Immediate effect - no new tokens can be generated
 # No need to rotate the service account key
@@ -385,29 +324,24 @@ Verify removal:
 ```bash
 gcloud iam service-accounts get-iam-policy \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreators") | .members'
+  --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreator") | .members'
 
 # Output should NOT include the departing email
 ```
 
 ## Troubleshooting
 
-### "Permission denied: roles/secretmanager.secretAccessor"
+### "Permission denied: cannot impersonate sa-secret-reader-prod"
 
-**Problem:** Developer cannot read Secret Manager secret.
+**Problem:** Developer's account is missing the Token Creator role.
 
-**Solution:**
-1. Verify developer is in `iam.serviceAccountTokenCreators` role:
-   ```bash
-   gcloud iam service-accounts get-iam-policy \
-     sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-   ```
-2. Verify `sa-secret-reader-prod` has `secretmanager.secretAccessor` role:
-   ```bash
-   gcloud projects get-iam-policy embrapa-dashboard-commodities \
-     --flatten="bindings[].members" \
-     --filter="bindings.role:secretmanager.secretAccessor"
-   ```
+**Solution:** Verify developer is in `iam.serviceAccountTokenCreator` role:
+```bash
+gcloud iam service-accounts get-iam-policy \
+  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
+```
+
+If missing, re-run Step 3 for that developer.
 
 ### "Failed to impersonate: Invalid Compute Credential"
 
@@ -435,7 +369,7 @@ gcloud auth login developer@embrapa.com.br
    ```bash
    gcloud config list
    ```
-2. Verify developer has impersonation permission (Step 5)
+2. Verify developer has impersonation permission (Step 3)
 3. Check audit logs for permission errors:
    ```bash
    gcloud logging read "resource.type=service_account" --limit=10
@@ -445,8 +379,8 @@ gcloud auth login developer@embrapa.com.br
 
 | Component | Service Account | Roles | Purpose |
 |---|---|---|---|
-| **Developer Local** | (user email) | `roles/iam.serviceAccountTokenCreators` on `sa-secret-reader-prod` | Can impersonate to read secrets |
-| **Secret Manager** | `sa-secret-reader-prod` | `roles/secretmanager.secretAccessor` | Can read GCP credentials |
+| **Developer Local** | (user email) | `roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod` | Can impersonate developer workflow SA |
+| **Developer Workflow** | `sa-secret-reader-prod` | `roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser`<br/>`roles/storage.objectViewer` | dbt builds + ad-hoc queries |
 | **Data Pipeline** | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | IBGE/BCB ingestion |
 | **Web Dashboard** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Looker Studio read-only |
 | **AI Agent Admin** | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/storage.objectCreator` | Data analysis + reporting |
@@ -486,7 +420,6 @@ gcloud logging read "resource.type=gce_instance OR resource.type=bigquery_resour
 ## Support
 
 - **GCP Console:** https://console.cloud.google.com/iam-admin/serviceaccounts
-- **Secret Manager:** https://console.cloud.google.com/security/secret-manager
 - **Audit Logs:** https://console.cloud.google.com/logs
 - **gcloud reference:** https://cloud.google.com/sdk/gcloud/reference/iam
 - **IAM Roles:** https://cloud.google.com/iam/docs/understanding-roles

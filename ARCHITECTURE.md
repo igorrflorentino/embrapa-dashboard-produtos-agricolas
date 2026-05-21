@@ -53,10 +53,10 @@ OAuth 2.0 with service account impersonation:
 │  │ Four-Tier Service Account Architecture                  │  │
 │  │                                                         │  │
 │  │ 1. sa-secret-reader-prod                               │  │
-│  │    ├─ Has JSON keyfile (stored in Secret Manager)      │  │
-│  │    ├─ Used ONLY by setup bootstrap process             │  │
-│  │    ├─ Permission: secretmanager.secretAccessor         │  │
-│  │    └─ Impersonated by developers for reading secrets   │  │
+│  │    ├─ Impersonation target for developers              │  │
+│  │    ├─ No JSON keyfile distributed                      │  │
+│  │    ├─ Used by dbt (BigQuery) and developer workflows   │  │
+│  │    └─ Access granted via Token Creator role            │  │
 │  │                                                         │  │
 │  │ 2. sa-data-pipeline-prod                               │  │
 │  │    ├─ Runs ingestion pipelines (IBGE, BCB)            │  │
@@ -84,21 +84,6 @@ OAuth 2.0 with service account impersonation:
 │  │                                                         │  │
 │  └─────────────────────────────────────────────────────────┘  │
 │                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │ Secret Manager                                          │  │
-│  │                                                         │  │
-│  │ Secret: embrapa-gcp-credentials                        │  │
-│  │  ├─ Version 1: Initial key (JSON for sa-secret-reader) │  │
-│  │  ├─ Version 2: Rotated key (quarterly)                 │  │
-│  │  └─ Latest: Actively used                              │  │
-│  │                                                         │  │
-│  │ Access Control:                                         │  │
-│  │  - Admins: secretmanager.secretAdmin                   │  │
-│  │  - Developers: secretmanager.secretAccessor (via SA)   │  │
-│  │  - Setup process: reads via sa-secret-reader-prod      │  │
-│  │                                                         │  │
-│  └─────────────────────────────────────────────────────────┘  │
-│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,7 +96,7 @@ The trust relationship flows downward:
                                 ↓
                          (Trusts Service Accounts)
                                 ↓
-            sa-secret-reader-prod (has JSON key in Secret Manager)
+                  sa-secret-reader-prod (impersonation target)
                     ↙    ↓    ↘    ↖
                    /     |     \     \
                   /      |      \     \
@@ -119,7 +104,7 @@ The trust relationship flows downward:
         (impersonate via OAuth with Token Creator role)
 ```
 
-**Key Principle:** The only account with a JSON keyfile is `sa-secret-reader-prod`, and it's protected in Secret Manager with minimal access. All other accounts are accessed via impersonation (OAuth), with audit trails for every operation.
+**Key Principle:** No JSON keyfiles are distributed to developers. All identities are accessed via impersonation (OAuth) with audit trails for every operation. The `sa-secret-reader-prod` service account exists purely as an impersonation target for developer workflows (dbt, BigQuery queries).
 
 ## Authentication Flow
 
@@ -134,10 +119,10 @@ The trust relationship flows downward:
 2. **Script detects authentication context:**
    - Checks for gcloud CLI (installed via Cloud SDK)
    - Checks for Application Default Credentials (ADC) from browser login
-   - Falls back to Secret Manager → Environment variable → Keyfile (legacy)
+   - Falls back to GOOGLE_APPLICATION_CREDENTIALS env var → `--credentials-file` arg → manual JSON paste
 
 3. **If impersonation available:**
-   - Script validates developer has `iam.serviceAccountTokenCreators` role on `sa-secret-reader-prod`
+   - Script validates developer has `iam.serviceAccountTokenCreator` role on `sa-secret-reader-prod`
    - Generates OAuth token valid for ~1 hour
    - Updates dbt profiles to use `method: oauth` with `impersonate_service_account`
    - Sets `GCP_AUTH_METHOD=impersonation` in .env
@@ -166,21 +151,22 @@ embrapa_commodities:
 When dbt runs:
 1. Reads OAuth token from gcloud's cached credentials
 2. Uses token to call BigQuery APIs
-3. BigQuery validates token has `iam.serviceAccountTokenCreators` on `sa-secret-reader-prod`
+3. BigQuery validates token has `iam.serviceAccountTokenCreator` on `sa-secret-reader-prod`
 4. BigQuery executes query as if run by `sa-secret-reader-prod`
 5. All actions logged to GCP audit logs with developer's identity + impersonated SA
 
 ### Python Client (Data Pipelines)
 
 ```python
-from google.auth.transport.requests import Request
-from google.oauth2 import service_account
+from google.auth import default
+from google.auth import impersonated_credentials
 
-# Impersonate sa-data-pipeline-prod
-credentials = service_account.Credentials.from_service_account_info(
-    info=secret_reader_creds,  # Only sa-secret-reader has JSON key
-    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+# Use developer OAuth (ADC) to impersonate sa-data-pipeline-prod
+source_creds, _ = default()
+credentials = impersonated_credentials.Credentials(
+    source_credentials=source_creds,
     target_principal=f"sa-data-pipeline-prod@{project}.iam.gserviceaccount.com",
+    target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
 )
 
 # Use impersonated credentials for BigQuery/GCS
@@ -197,7 +183,7 @@ client = bigquery.Client(credentials=credentials, project=project)
 Project: embrapa-dashboard-commodities
 
 Role on sa-secret-reader-prod:
-  - roles/iam.serviceAccountTokenCreators
+  - roles/iam.serviceAccountTokenCreator
     (allows impersonation)
 
   - roles/iam.serviceAccountUser
@@ -214,72 +200,35 @@ Role on sa-secret-reader-prod:
 
 | Service Account | Roles | Purpose |
 |---|---|---|
-| `sa-secret-reader-prod` | `roles/secretmanager.secretAccessor` | Read credentials from Secret Manager |
+| `sa-secret-reader-prod` | `roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser`<br/>`roles/storage.objectViewer` | Impersonation target for developers (dbt + ad-hoc queries) |
 | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | Ingest data (IBGE, BCB) |
 | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Looker Studio read-only access |
 | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectCreator` | Data analysis + report generation |
 
-## Secret Manager Integration
+## Credential Management
 
-### Admin: Create Secret
+**There are no long-lived JSON keyfiles in this architecture.** Developers
+authenticate with their personal Google account (`gcloud auth
+application-default login`) and impersonate `sa-secret-reader-prod` for
+their daily work.
 
-```bash
-gcloud secrets create embrapa-gcp-credentials \
-  --replication-policy=automatic \
-  --data-file=service-account.json
-```
-
-### Admin: Grant Access
+### Granting Access (Admin Task)
 
 ```bash
-# Developer can read secret (via sa-secret-reader-prod)
-gcloud secrets add-iam-policy-binding embrapa-gcp-credentials \
-  --member=user:developer@embrapa.com.br \
-  --role=roles/secretmanager.secretAccessor
-
-# But only sa-secret-reader actually holds the key
-gcloud secrets add-iam-policy-binding embrapa-gcp-credentials \
-  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/secretmanager.secretAccessor
+# Grant a new developer permission to impersonate the service account
+gcloud iam service-accounts add-iam-policy-binding \
+  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --member=user:new-developer@embrapa.com.br \
+  --role=roles/iam.serviceAccountTokenCreator
 ```
 
-### Setup Process: Read Secret
+The developer then runs `./setup.sh` and gets a working environment with no
+credential file to manage.
 
-```bash
-# setup_dev_env.py runs:
-from google.cloud import secretmanager
+### Rotation
 
-client = secretmanager.SecretManagerServiceClient()
-response = client.access_secret_version(
-    request={"name": "projects/PROJECT/secrets/embrapa-gcp-credentials/versions/latest"}
-)
-sa_key_json = response.payload.data.decode('UTF-8')
-
-# Script reads secret, extracts project_id, then discards the JSON
-# Nothing stored locally except .env (no credentials)
-```
-
-## Credential Rotation
-
-### Quarterly Rotation (Admin Task)
-
-```bash
-# 1. Generate new service account key
-gcloud iam service-accounts keys create new-key.json \
-  --iam-account=sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-
-# 2. Add new version to Secret Manager
-gcloud secrets versions add embrapa-gcp-credentials \
-  --data-file=new-key.json
-
-# 3. Disable old version (optional)
-gcloud secrets versions disable v1
-
-# 4. Developers automatically use new version on next setup
-./setup.sh
-```
-
-**No re-distribution needed.** Developers run setup once per quarter, and they automatically get the latest secret from Secret Manager.
+Nothing to rotate manually — OAuth tokens are short-lived (~1 hour) and
+refreshed automatically by gcloud. There is no static secret to expire.
 
 ## Audit & Compliance
 
@@ -309,7 +258,7 @@ If a developer leaves:
 gcloud iam service-accounts remove-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --member=user:departed@embrapa.com.br \
-  --role=roles/iam.serviceAccountTokenCreators
+  --role=roles/iam.serviceAccountTokenCreator
 
 # Immediate effect - no new credentials can be generated
 # No need to rotate the keyfile itself
@@ -328,8 +277,9 @@ If you have a pre-existing `.gcp-credentials.json`:
 
 2. **Script will:**
    - Detect impersonation context first (preferred)
-   - Fall back to Secret Manager if impersonation unavailable
-   - Fall back to keyfile if needed (legacy compatibility)
+   - Fall back to GOOGLE_APPLICATION_CREDENTIALS env var if impersonation unavailable
+   - Fall back to `--credentials-file` argument if provided
+   - Fall back to manual JSON paste (legacy, last resort)
    - Update `.env` with `GCP_AUTH_METHOD` value
    - Update `dbt/profiles.yml` accordingly
 
@@ -382,14 +332,13 @@ A: No problem. Your OAuth token is cached locally (in `~/.config/gcloud/` on Uni
 A: Slightly. OAuth tokens are cached, so subsequent API calls don't require a round-trip to get a token. Keyfile auth also caches, but the token generation step is implicit.
 
 **Q: What's the audit trail like?**
-A: Complete. Every BigQuery job, GCS object access, and Secret Manager read is logged with your identity + the impersonated service account. Admins can see exactly who did what and when.
+A: Complete. Every BigQuery job and GCS object access is logged with your identity + the impersonated service account. Admins can see exactly who did what and when.
 
 ## Related Documentation
 
 - **IAM_SETUP.md** — Step-by-step IAM role and service account setup
 - **setup_dev_env.py** — Unified cross-platform setup script (auto-detects auth mode)
 - **SETUP.md** — General setup documentation
-- **SECRET_MANAGER.md** — Google Cloud Secret Manager guide
 - **CLAUDE.md** — Project architecture and development commands
 
 ## Support
