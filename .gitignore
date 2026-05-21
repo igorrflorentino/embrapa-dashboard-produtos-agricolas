@@ -230,3 +230,4 @@ dbt/profiles.yml
 # Local data dumps written outside GCS during dev
 data/
 *.parquet
+.gcp-credentials.json

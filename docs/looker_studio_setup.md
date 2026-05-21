@@ -13,20 +13,23 @@ Isso cria `embrapa-dashboard-commodities.gold.gold_commodity_matrix` com os dado
 
 ---
 
-## 1. Habilitar BI Engine (recomendado)
+## 1. Habilitar BI Engine (opcional)
 
-Antes de criar o dashboard, ative o BI Engine para evitar cobranças por bytes escaneados e ter respostas em sub-segundo.
+O BI Engine é uma tecnologia de cache para acelerar consultas ao BigQuery.
+
+Looker Studio disponibiliza 1Gb de BI Engine gratuitamente. Para o projeto em questão não será necessário, mas pode ser útil em casos de uso futuro.
+
+Ele melhora o desempenho do dashboard, especialmente se você tiver consultas complexas ou grandes volumes de dados. Ele também pode ajudar a reduzir custos, pois as consultas que usam o BI Engine não são cobradas por bytes escaneados.
 
 1. Acesse: **BigQuery → BI Engine → Reservations** no console GCP
 2. Clique em **Create Reservation**
 3. Configurações:
    - **Project**: `embrapa-dashboard-commodities`
    - **Location**: `us-central1` (mesmo da sua BQ_LOCATION)
-   - **Capacity**: `512 MiB` (cobre as 3 tabelas Gold com folga — `_matrix`
-     pesa só ~10 MB)
+   - **Capacity**: `[defina a capacidade, ex: 1Gb]`
 4. Clique em **Create**
 
-Custo estimado: ~U$ 12–15/mês com 512 MiB. Elimina quase todo billing por query no dashboard.
+Custo estimado: ~U$ 30/mês/Gb.
 
 > Antes de habilitar BI Engine, configure o budget e a quota em
 > [cost_safety.md](cost_safety.md) — assim qualquer custo inesperado dispara
