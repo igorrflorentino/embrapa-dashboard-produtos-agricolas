@@ -23,7 +23,7 @@ through OAuth + service account impersonation.
 ## Step 1: Authenticate as Admin
 
 ```bash
-gcloud auth login your-admin@embrapa.com.br
+gcloud auth login igorlopesc@gmail.com
 gcloud config set project embrapa-dashboard-commodities
 ```
 
@@ -61,6 +61,11 @@ gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
   --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --role=roles/storage.objectViewer
+
+# Allow the SA to make API calls to GCP services (storage.objectViewer does not include this)
+gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --role=roles/serviceusage.serviceUsageConsumer
 ```
 
 > Note: the `sa-secret-reader-prod` name is historical — it pre-dates the
@@ -156,7 +161,7 @@ ad-hoc queries can run as that service account.
 
 ```bash
 # Replace with actual email
-DEVELOPER_EMAIL="developer@embrapa.com.br"
+DEVELOPER_EMAIL="florenciaitalo@gmail.com"
 
 gcloud iam service-accounts add-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
@@ -169,9 +174,9 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```bash
 # Create batch_developers.txt with one email per line
 cat > batch_developers.txt << 'EOF'
-dev1@embrapa.com.br
-dev2@embrapa.com.br
-dev3@embrapa.com.br
+florenciaitalo@gmail.com
+dev2@gmail.com
+dev3@gmail.com
 EOF
 
 # Grant all at once
@@ -194,8 +199,8 @@ gcloud iam service-accounts get-iam-policy \
 # {
 #   "role": "roles/iam.serviceAccountTokenCreator",
 #   "members": [
-#     "user:dev1@embrapa.com.br",
-#     "user:dev2@embrapa.com.br"
+#     "user:florenciaitalo@gmail.com",
+#     "user:dev2@gmail.com"
 #   ]
 # }
 ```
@@ -209,7 +214,7 @@ Each developer runs this **once per machine** (or after gcloud is installed):
 gcloud auth application-default login
 
 # Or for specific account
-gcloud auth login developer@embrapa.com.br
+gcloud auth login florenciaitalo@gmail.com
 ```
 
 This opens a browser, developer logs in with their Google account, and an OAuth token is cached locally.
@@ -249,13 +254,13 @@ uv run embrapa doctor
 ```bash
 # Admin verifies audit trail
 gcloud logging read \
-  "protoPayload.authenticationInfo.principalEmail=developer@embrapa.com.br AND
+  "protoPayload.authenticationInfo.principalEmail=florenciaitalo@gmail.com AND
    protoPayload.request.policy.bindings.members=*sa-secret-reader-prod*" \
   --limit=10 \
   --format=table(timestamp,protoPayload.methodName,protoPayload.authenticationInfo.principalEmail)
 
 # Output shows impersonation events:
-# 2026-05-21T15:30:45.123Z  compute.instances.setServiceAccount  developer@embrapa.com.br
+# 2026-05-21T15:30:45.123Z  compute.instances.setServiceAccount  florenciaitalo@gmail.com
 ```
 
 ## Step 7 (Optional): Grant Additional Service Account Roles
@@ -308,7 +313,7 @@ in this architecture.
 When a developer leaves:
 
 ```bash
-DEPARTING_EMAIL="departing@embrapa.com.br"
+DEPARTING_EMAIL="departed@gmail.com"
 
 # Remove impersonation permission
 gcloud iam service-accounts remove-iam-policy-binding \
@@ -351,7 +356,7 @@ If missing, re-run Step 3 for that developer.
 ```bash
 gcloud auth application-default login
 # or
-gcloud auth login developer@embrapa.com.br
+gcloud auth login florenciaitalo@gmail.com
 ```
 
 ### "Service account sa-secret-reader-prod does not exist"
@@ -380,7 +385,7 @@ gcloud auth login developer@embrapa.com.br
 | Component | Service Account | Roles | Purpose |
 |---|---|---|---|
 | **Developer Local** | (user email) | `roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod` | Can impersonate developer workflow SA |
-| **Developer Workflow** | `sa-secret-reader-prod` | `roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser`<br/>`roles/storage.objectViewer` | dbt builds + ad-hoc queries |
+| **Developer Workflow** | `sa-secret-reader-prod` | `roles/bigquery.user`<br/>`roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/serviceusage.serviceUsageConsumer` | dbt builds + ad-hoc queries |
 | **Data Pipeline** | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | IBGE/BCB ingestion |
 | **Web Dashboard** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Looker Studio read-only |
 | **AI Agent Admin** | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/storage.objectCreator` | Data analysis + reporting |
@@ -406,7 +411,7 @@ gcloud projects get-iam-policy embrapa-dashboard-commodities --flatten="bindings
 ```bash
 gcloud projects get-iam-policy embrapa-dashboard-commodities \
   --flatten="bindings[].members" \
-  --filter="bindings.members:user:developer@embrapa.com.br" \
+  --filter="bindings.members:user:florenciaitalo@gmail.com" \
   --format=table(bindings.role)
 ```
 

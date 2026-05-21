@@ -36,18 +36,18 @@ def test_check_env_fails_on_bad_format(settings: Settings) -> None:
     assert result.ok is False
 
 
-def test_check_adc_returns_project_when_ok() -> None:
+def test_check_adc_returns_project_when_ok(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.google.auth.default") as auth:
         auth.return_value = (MagicMock(), "test-project")
-        result = doctor._check_adc()
+        result = doctor._check_adc(settings)
     assert result.ok is True
     assert "test-project" in result.detail
 
 
-def test_check_adc_fails_with_recovery_hint() -> None:
+def test_check_adc_fails_with_recovery_hint(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.google.auth.default") as auth:
         auth.side_effect = Exception("no credentials")
-        result = doctor._check_adc()
+        result = doctor._check_adc(settings)
     assert result.ok is False
     assert "gcloud auth" in result.detail
 
@@ -62,7 +62,7 @@ def test_check_bq_calls_service_account(settings: Settings) -> None:
 
 def test_check_gcs_reports_existing_bucket(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
-        gcs_cls.return_value.bucket.return_value.exists.return_value = True
+        gcs_cls.return_value.list_blobs.return_value = iter([object()])
         result = doctor._check_gcs(settings)
     assert result.ok is True
     assert "exists" in result.detail
@@ -70,8 +70,10 @@ def test_check_gcs_reports_existing_bucket(settings: Settings) -> None:
 
 def test_check_gcs_passes_when_bucket_missing(settings: Settings) -> None:
     """Missing bucket is OK — it'll be lazily created on first ingest."""
+    from google.cloud.exceptions import NotFound
+
     with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
-        gcs_cls.return_value.bucket.return_value.exists.return_value = False
+        gcs_cls.return_value.list_blobs.side_effect = NotFound("bucket not found")
         result = doctor._check_gcs(settings)
     assert result.ok is True
     assert "will be created" in result.detail

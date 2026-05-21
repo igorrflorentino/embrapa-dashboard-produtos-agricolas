@@ -17,7 +17,7 @@ from rich.table import Table
 from embrapa_commodities import backup, discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
-from embrapa_commodities.config import get_settings
+from embrapa_commodities.config import get_credentials, get_settings
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
 
@@ -197,8 +197,11 @@ def ingest_ibge_batch(
     )
 
     # Build clients once; reuse across all chunks to avoid repeated auth.
-    storage_client = storage.Client(project=settings.gcp_project_id)
-    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+    creds = get_credentials(settings)
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+    bq_client = bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
 
     pipeline_started = time.monotonic()
     chunks_ok: list[str] = []

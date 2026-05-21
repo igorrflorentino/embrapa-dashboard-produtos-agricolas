@@ -218,7 +218,7 @@ their daily work.
 # Grant a new developer permission to impersonate the service account
 gcloud iam service-accounts add-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --member=user:new-developer@embrapa.com.br \
+  --member=user:florenciaitalo@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 ```
 
@@ -243,7 +243,7 @@ Every operation is logged with:
 ```bash
 # Query audit logs
 gcloud logging read \
-  "protoPayload.authenticationInfo.principalEmail=developer@embrapa.com.br OR 
+  "protoPayload.authenticationInfo.principalEmail=florenciaitalo@gmail.com OR 
    protoPayload.request.policy.bindings.members=sa-secret-reader-prod@..." \
   --limit=100 \
   --format=json
@@ -257,7 +257,7 @@ If a developer leaves:
 # Remove their impersonation permission
 gcloud iam service-accounts remove-iam-policy-binding \
   sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --member=user:departed@embrapa.com.br \
+  --member=user:departed@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 
 # Immediate effect - no new credentials can be generated
@@ -301,7 +301,7 @@ New developers should:
    ```bash
    gcloud auth application-default login
    # or
-   gcloud auth login your-email@embrapa.com.br
+   gcloud auth login florenciaitalo@gmail.com
    ```
 
 3. **Run setup:**

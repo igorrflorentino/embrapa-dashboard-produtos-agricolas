@@ -18,7 +18,7 @@ from google.cloud import bigquery, storage
 from google.cloud.exceptions import NotFound
 
 from embrapa_commodities.bcb.client import SGS_URL
-from embrapa_commodities.config import Settings, get_settings
+from embrapa_commodities.config import Settings, get_credentials, get_settings
 from embrapa_commodities.discover import SIDRA_METADATA_URL
 
 logger = logging.getLogger(__name__)
@@ -50,11 +50,15 @@ def _check_env(settings: Settings) -> CheckResult:
         return CheckResult(".env parsed", False, str(exc)[:120])
 
 
-def _check_adc() -> CheckResult:
-    """Application Default Credentials are present and resolve a project."""
+def _check_adc(settings: Settings) -> CheckResult:
+    """Application Default Credentials are present; reports impersonation target when set."""
     try:
         _credentials, project = google.auth.default()
-        return CheckResult("ADC credentials", True, f"project={project or '?'}")
+        if settings.gcp_impersonation_sa:
+            detail = f"project={project or '?'} → impersonating {settings.gcp_impersonation_sa}"
+        else:
+            detail = f"project={project or '?'}"
+        return CheckResult("ADC credentials", True, detail)
     except Exception as exc:
         return CheckResult(
             "ADC credentials",
@@ -66,7 +70,10 @@ def _check_adc() -> CheckResult:
 def _check_bq(settings: Settings) -> CheckResult:
     """The configured GCP project is reachable for BigQuery."""
     try:
-        client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+        creds = get_credentials(settings)
+        client = bigquery.Client(
+            project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+        )
         sa = client.get_service_account_email()
         return CheckResult("BigQuery reachable", True, f"sa={sa}")
     except Exception as exc:
@@ -74,18 +81,21 @@ def _check_bq(settings: Settings) -> CheckResult:
 
 
 def _check_gcs(settings: Settings) -> CheckResult:
-    """The landing bucket exists (or can be created lazily on first ingest)."""
+    """The landing bucket is accessible (or will be created lazily on first ingest)."""
     try:
-        client = storage.Client(project=settings.gcp_project_id)
-        bucket = client.bucket(settings.gcs_bucket)
-        exists = bucket.exists()
-        if exists:
+        creds = get_credentials(settings)
+        client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+        # list_blobs requires only storage.objects.list (included in objectViewer).
+        # bucket.exists() needs storage.buckets.get which objectViewer does not grant.
+        try:
+            next(client.list_blobs(settings.gcs_bucket, max_results=1), None)
             return CheckResult("GCS bucket", True, f"gs://{settings.gcs_bucket} (exists)")
-        return CheckResult(
-            "GCS bucket",
-            True,
-            f"gs://{settings.gcs_bucket} (will be created on first ingest)",
-        )
+        except NotFound:
+            return CheckResult(
+                "GCS bucket",
+                True,
+                f"gs://{settings.gcs_bucket} (will be created on first ingest)",
+            )
     except Exception as exc:
         return CheckResult("GCS bucket", False, str(exc)[:120])
 
@@ -121,7 +131,11 @@ def _check_bcb(settings: Settings) -> CheckResult:
 def _check_bronze_tables(settings: Settings) -> CheckResult:
     """Report whether Bronze tables already exist (informational, never fails)."""
     try:
-        client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+        client = bigquery.Client(
+            project=settings.gcp_project_id,
+            location=settings.bq_location,
+            credentials=get_credentials(settings),
+        )
         targets = [
             (settings.bq_bronze_ibge_dataset, settings.bq_bronze_ibge_table),
             (settings.bq_bronze_bcb_dataset, settings.bq_bronze_bcb_inflation_table),
@@ -147,7 +161,7 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
 
 CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
-    ("adc", lambda _: _check_adc()),
+    ("adc", _check_adc),
     ("bq", _check_bq),
     ("gcs", _check_gcs),
     ("ibge", _check_ibge),

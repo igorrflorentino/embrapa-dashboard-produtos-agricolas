@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     gcs_bucket: str | None = Field(default=None, description="Defaults to <project>-datalake")
     gcs_landing_prefix: str = Field(default="landing")
     bq_location: str = Field(default="US")
+    gcp_impersonation_sa: str | None = Field(
+        default=None,
+        description="SA email to impersonate via ADC (enterprise mode). "
+        "Set to sa-secret-reader-prod@<project>.iam.gserviceaccount.com.",
+    )
 
     # ─── BigQuery dataset / table names ───────────────────────────────────────
     bq_bronze_ibge_dataset: str = Field(default="bronze_ibge")
@@ -98,3 +103,25 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+def get_credentials(settings: Settings | None = None):
+    """Return GCP credentials, impersonating GCP_IMPERSONATION_SA when set.
+
+    Returns None to let the google-cloud libraries fall back to ADC directly.
+    """
+    import google.auth
+    from google.auth import impersonated_credentials
+
+    cfg = settings or get_settings()
+    if not cfg.gcp_impersonation_sa:
+        return None
+
+    source_creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    return impersonated_credentials.Credentials(
+        source_credentials=source_creds,
+        target_principal=cfg.gcp_impersonation_sa,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )

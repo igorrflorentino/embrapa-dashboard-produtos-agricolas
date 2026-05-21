@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from google.cloud import bigquery, storage
 from google.cloud.exceptions import NotFound
 
-from embrapa_commodities.config import Settings
+from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.gcp.storage import ensure_bucket
 
 logger = logging.getLogger(__name__)
@@ -46,9 +46,12 @@ def run(settings: Settings) -> tuple[str, list[str]]:
     Raises ``RuntimeError`` if no table was found at all (typical when the user
     runs ``backup-gold`` before any ``make dbt-build-prod``).
     """
-    storage_client = storage.Client(project=settings.gcp_project_id)
+    creds = get_credentials(settings)
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
     ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
-    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+    bq_client = bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
 
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     uris: list[str] = []

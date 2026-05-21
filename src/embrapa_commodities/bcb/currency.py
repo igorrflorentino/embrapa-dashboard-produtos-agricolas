@@ -9,7 +9,7 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.bcb.client import fetch_series
-from embrapa_commodities.config import Settings
+from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.gcp.bigquery import ensure_dataset, latest_reference_date, load_dataframe
 from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_parquet
 
@@ -86,7 +86,10 @@ def _extract(
 
 
 def run(settings: Settings, *, full: bool = False) -> str:
-    bq_client = bigquery.Client(project=settings.gcp_project_id, location=settings.bq_location)
+    creds = get_credentials(settings)
+    bq_client = bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_bcb_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
     destination = f"{dataset_id}.{settings.bq_bronze_bcb_currency_table}"
@@ -95,7 +98,7 @@ def run(settings: Settings, *, full: bool = False) -> str:
     if df.empty:
         return ""
 
-    storage_client = storage.Client(project=settings.gcp_project_id)
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
     ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     object_name = (

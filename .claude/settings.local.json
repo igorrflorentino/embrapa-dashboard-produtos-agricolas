@@ -27,7 +27,23 @@
       "Bash(Test-Path *)",
       "Bash(grep -rn \"os\\\\.path\\\\|pathlib\\\\|Path\\\\|open\\(\\\\|\\\\\\\\\\\\\\\\n\\\\|/tmp\\\\|os\\\\.sep\" src/embrapa_commodities/ --include=\"*.py\")",
       "Bash(gcloud auth *)",
-      "PowerShell(gcloud auth application-default print-access-token *)"
+      "PowerShell(gcloud auth application-default print-access-token *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\\\\scripts\" -File)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(gcloud auth list *)",
+      "PowerShell(gcloud auth application-default print-access-token 2>&1 | Select-Object -First 3; echo \"---ADC INFO---\"; gcloud config list 2>&1)",
+      "PowerShell(gcloud iam service-accounts get-iam-policy *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(cd \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\"; $env:PYTHONIOENCODING = \"utf-8\"; $env:PYTHONUTF8 = \"1\"; .venv\\\\Scripts\\\\python.exe -X utf8 scripts/setup_dev_env.py 2>&1)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(gcloud projects get-iam-policy embrapa-dashboard-commodities *)",
+      "PowerShell(gcloud --impersonate-service-account=sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com bigquery datasets list --project=embrapa-dashboard-commodities 2>&1)",
+      "PowerShell(gcloud --impersonate-service-account=sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com auth print-access-token 2>&1)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\" -Recurse -Name)",
+      "Bash(Select-Object -First 50)",
+      "PowerShell(gcloud iam service-accounts add-iam-policy-binding *)",
+      "PowerShell(cd \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\"; powershell -ExecutionPolicy Bypass -File scripts/grant-sa-iam-roles.ps1 2>&1)",
+      "PowerShell(gcloud projects add-iam-policy-binding embrapa-dashboard-commodities *)"
     ]
   }
 }

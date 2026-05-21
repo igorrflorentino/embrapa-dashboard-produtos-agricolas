@@ -10,7 +10,7 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities import observability
-from embrapa_commodities.config import Settings
+from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
 from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_parquet
 from embrapa_commodities.ibge.client import fetch_sidra_dataframe
@@ -91,7 +91,9 @@ def run(
     df = df.astype(str)
     df["ingestion_timestamp"] = pd.Timestamp(now)
 
-    storage_client = storage_client or storage.Client(project=settings.gcp_project_id)
+    storage_client = storage_client or storage.Client(
+        project=settings.gcp_project_id, credentials=get_credentials(settings)
+    )
     ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
     run_id = now.strftime("%Y%m%dT%H%M%SZ")
     object_name = (
@@ -102,7 +104,9 @@ def run(
     upload_dataframe_as_parquet(storage_client, settings.gcs_bucket, object_name, df)
 
     bq_client = bq_client or bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location
+        project=settings.gcp_project_id,
+        location=settings.bq_location,
+        credentials=get_credentials(settings),
     )
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
