@@ -8,7 +8,7 @@ Auto-detects authentication mode and adapts:
   3. --credentials-file argument (legacy)
   4. Interactive paste prompt (last resort)
 
-Generates the appropriate .env, dbt/profiles.yml, and credential files
+Generates the appropriate .env, ~/.dbt/profiles.yml, and credential files
 for the detected authentication mode. Works on Windows, macOS, Linux,
 and cloud serverless VMs.
 
@@ -150,8 +150,8 @@ BCB_END_YEAR=2026
         print(f"  {text}")
         print(f"{'=' * 60}\n")
 
-    def print_step(self, step: int, text: str):
-        """Print a step message."""
+    def print_step(self, step: float, text: str):
+        """Print a step message (accepts e.g. 1 and 2.1)."""
         print(f"[{step}] {text}")
 
     def print_success(self, text: str):
@@ -485,19 +485,6 @@ BCB_END_YEAR=2026
             pass
 
         self.print_warning("uv not found. Install from https://github.com/astral-sh/uv")
-        return False
-
-    def validate_gcloud(self) -> bool:
-        """Check if gcloud CLI is available (required for impersonation)."""
-        try:
-            result = subprocess.run(["gcloud", "--version"], capture_output=True, timeout=5)
-            if result.returncode == 0:
-                self.print_success("gcloud CLI found")
-                return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-
-        self.print_warning("gcloud CLI not found (required for service account impersonation)")
         return False
 
     def run_embrapa_doctor(self) -> bool:

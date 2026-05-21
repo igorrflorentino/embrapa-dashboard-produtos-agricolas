@@ -42,7 +42,16 @@ fi
 # Install dependencies
 uv sync
 
+# Materialize .env and ~/.dbt/profiles.yml on first run (Claude Code Web
+# containers and other ephemeral sandboxes start with neither). On a dev
+# machine where both already exist, skip the bootstrap to preserve any
+# manual edits.
+if [ ! -f "$SCRIPT_DIR/.env" ] || [ ! -f "$HOME/.dbt/profiles.yml" ]; then
+    echo "Bootstrapping .env and dbt profile..."
+    uv run python scripts/setup_dev_env.py
+fi
+
 # Run validation tests
-python3 scripts/test_setup.py
+uv run python scripts/test_setup.py
 
 echo "✅ Environment ready!"

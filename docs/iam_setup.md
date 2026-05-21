@@ -228,7 +228,7 @@ The script will:
 1. Detect OAuth context (gcloud auth)
 2. Validate impersonation permissions
 3. Create `.env` with `GCP_AUTH_METHOD=impersonation`
-4. Create `dbt/profiles.yml` with `method: oauth` + `impersonate_service_account`
+4. Create `~/.dbt/profiles.yml` with `method: oauth` + `impersonate_service_account`
 
 ## Step 6: Verify Setup
 
@@ -430,4 +430,3 @@ gcloud logging read "resource.type=gce_instance OR resource.type=bigquery_resour
 2. **Admin:** Share `scripts/setup_dev_env.py` and `architecture.md` with developers
 3. **Developers:** Run `python3 scripts/setup_dev_env.py`
 4. **Everyone:** Review audit logs quarterly
-5. **Admin:** Rotate credentials quarterly (Step 10)

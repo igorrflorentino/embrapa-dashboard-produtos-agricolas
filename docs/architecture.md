@@ -37,7 +37,7 @@ OAuth 2.0 with service account impersonation:
 │  │ .env (NO CREDENTIALS)                │                      │
 │  │ dbt profiles.yml (OAuth method)      │                      │
 │  │                                      │                      │
-│  │ scripts/setup_dev_env.py                     │                      │
+│  │ scripts/setup_dev_env.py             │                      │
 │  │ ↓ impersonate                        │                      │
 │  │ sa-secret-reader-prod                │                      │
 │  └────────────────────┬─────────────────┘                      │
@@ -281,7 +281,7 @@ If you have a pre-existing `.gcp-credentials.json`:
    - Fall back to `--credentials-file` argument if provided
    - Fall back to manual JSON paste (legacy, last resort)
    - Update `.env` with `GCP_AUTH_METHOD` value
-   - Update `dbt/profiles.yml` accordingly
+   - Update `~/.dbt/profiles.yml` accordingly
 
 3. **Existing keyfile remains:**
    - Only used as a fallback when impersonation isn't available

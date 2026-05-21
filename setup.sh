@@ -46,7 +46,7 @@ find_python() {
             major=$(echo "$version" | cut -d. -f1)
             minor=$(echo "$version" | cut -d. -f2)
 
-            if [ "$major" -ge 3 ] && [ "$minor" -ge 8 ]; then
+            if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 8 ]; }; then
                 echo "$cmd"
                 return 0
             fi

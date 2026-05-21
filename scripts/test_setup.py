@@ -83,7 +83,7 @@ class EnvironmentTester:
             self.print_pass()
             self.tests_passed.append("File exists: .gcp-credentials.json")
         elif auth_mode == "enterprise":
-            print("⚠️  (optional in enterprise/OAuth mode)")
+            print("⚠️ (optional in enterprise/OAuth mode)")
             self.tests_passed.append("File exists: .gcp-credentials.json (optional)")
         else:
             self.print_fail(f"not found at {self.GCP_CREDS_FILE}")
@@ -217,7 +217,7 @@ class EnvironmentTester:
         self.print_test("dbt auth method: service-account or oauth")
         if "method: service-account" in content or "method: oauth" in content:
             method = "service-account" if "method: service-account" in content else "oauth"
-            print(f"✅ ({method})")
+            self.print_pass()
             self.tests_passed.append(f"dbt auth method: {method}")
         else:
             self.print_fail("no valid method (service-account or oauth)")

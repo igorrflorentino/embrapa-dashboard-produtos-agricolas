@@ -46,7 +46,7 @@ function Find-Python {
             $version = & $cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
             if ($version) {
                 $major, $minor = $version.Split('.')
-                if ([int]$major -ge 3 -and [int]$minor -ge 8) {
+                if ([int]$major -gt 3 -or ([int]$major -eq 3 -and [int]$minor -ge 8)) {
                     return $cmd
                 }
             }
