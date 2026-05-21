@@ -36,6 +36,26 @@ Buckets e datasets são **criados automaticamente** na primeira execução de `e
 
 ## Quickstart
 
+### Caminho automatizado (recomendado para máquinas novas)
+
+```bash
+# macOS / Linux
+./setup.sh
+
+# Windows (Command Prompt ou PowerShell)
+setup.bat
+```
+
+Os scripts instalam Python 3.12 e `uv` se faltarem, detectam o melhor modo de
+autenticação (impersonação OAuth ou keyfile legado) e geram `.env` +
+`~/.dbt/profiles.yml`. Detalhes em [docs/setup.md](docs/setup.md).
+
+Para sandboxes (incluindo Claude Code Web), o `init_dev_env.sh` decodifica um
+keyfile passado via `GCP_CREDENTIALS_B64` e dispara o mesmo fluxo de
+validação. Veja a seção *Claude Code Web* em [docs/setup.md](docs/setup.md).
+
+### Caminho manual
+
 ```bash
 # 1. Python + venv
 pyenv local 3.12.11

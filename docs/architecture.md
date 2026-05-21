@@ -37,7 +37,7 @@ OAuth 2.0 with service account impersonation:
 │  │ .env (NO CREDENTIALS)                │                      │
 │  │ dbt profiles.yml (OAuth method)      │                      │
 │  │                                      │                      │
-│  │ setup_dev_env.py                     │                      │
+│  │ scripts/setup_dev_env.py                     │                      │
 │  │ ↓ impersonate                        │                      │
 │  │ sa-secret-reader-prod                │                      │
 │  └────────────────────┬─────────────────┘                      │
@@ -113,7 +113,7 @@ The trust relationship flows downward:
 1. **Developer runs setup:**
    ```bash
    ./setup.sh  # or setup.bat on Windows
-   python3 setup_dev_env.py
+   python3 scripts/setup_dev_env.py
    ```
 
 2. **Script detects authentication context:**
@@ -272,7 +272,7 @@ If you have a pre-existing `.gcp-credentials.json`:
 
 1. **Re-run the unified setup script:**
    ```bash
-   python3 setup_dev_env.py
+   python3 scripts/setup_dev_env.py
    ```
 
 2. **Script will:**
@@ -306,7 +306,7 @@ New developers should:
 
 3. **Run setup:**
    ```bash
-   python3 setup_dev_env.py
+   python3 scripts/setup_dev_env.py
    ```
 
 4. **Script uses impersonation automatically.**
@@ -323,7 +323,7 @@ A: dbt uses the `oauth` method in `profiles.yml`. It reads a cached OAuth token 
 A: The setup script will warn you. Install the Cloud SDK from https://cloud.google.com/sdk/docs/install. This is a one-time step per machine.
 
 **Q: Can I use this with GitHub Actions / CI/CD?**
-A: Yes. See `IAM_SETUP.md` for CI/CD integration using Workload Identity Federation (no service account keys in GitHub Secrets).
+A: Yes. See `iam_setup.md` for CI/CD integration using Workload Identity Federation (no service account keys in GitHub Secrets).
 
 **Q: What if I lose my laptop?**
 A: No problem. Your OAuth token is cached locally (in `~/.config/gcloud/` on Unix, `AppData\gcloud\` on Windows). Remove your IAM role on `sa-secret-reader-prod`, and that laptop can no longer access GCP.
@@ -336,15 +336,15 @@ A: Complete. Every BigQuery job and GCS object access is logged with your identi
 
 ## Related Documentation
 
-- **IAM_SETUP.md** — Step-by-step IAM role and service account setup
-- **setup_dev_env.py** — Unified cross-platform setup script (auto-detects auth mode)
-- **SETUP.md** — General setup documentation
+- **iam_setup.md** — Step-by-step IAM role and service account setup
+- **scripts/setup_dev_env.py** — Unified cross-platform setup script (auto-detects auth mode)
+- **setup.md** — General setup documentation
 - **CLAUDE.md** — Project architecture and development commands
 
 ## Support
 
 For questions or issues:
-1. Check **IAM_SETUP.md** for permission configuration
+1. Check **iam_setup.md** for permission configuration
 2. Run `embrapa doctor` to diagnose authentication issues
 3. Review GCP audit logs: https://console.cloud.google.com/logs
 4. Contact your GCP administrator for IAM role assignments
