@@ -261,7 +261,7 @@ Each developer runs the enterprise setup script:
 ```bash
 # Developer command
 cd embrapa-dashboard-commodities
-python3 setup_dev_env_enterprise.py
+python3 setup_dev_env.py
 ```
 
 The script will:
@@ -361,7 +361,7 @@ gcloud secrets versions list embrapa-gcp-credentials
 rm sa-secret-reader-key-v2.json
 
 # 6. Developers: Next time they run setup, they automatically get new key
-python3 setup_dev_env_enterprise.py
+python3 setup_dev_env.py
 ```
 
 ## Step 11: Offboarding (Revoke Developer Access)
@@ -494,7 +494,7 @@ gcloud logging read "resource.type=gce_instance OR resource.type=bigquery_resour
 ## Next Steps
 
 1. **Admin:** Complete all steps in this guide
-2. **Admin:** Share `setup_dev_env_enterprise.py` and `ARCHITECTURE.md` with developers
-3. **Developers:** Run `python3 setup_dev_env_enterprise.py`
+2. **Admin:** Share `setup_dev_env.py` and `ARCHITECTURE.md` with developers
+3. **Developers:** Run `python3 setup_dev_env.py`
 4. **Everyone:** Review audit logs quarterly
 5. **Admin:** Rotate credentials quarterly (Step 10)

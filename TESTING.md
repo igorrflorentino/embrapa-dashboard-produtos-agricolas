@@ -56,7 +56,7 @@ The test suite validates **28 critical components** across 9 categories:
   - `embrapa_commodities:`
   - `dev:` and `prod:` targets
   - `type: bigquery`
-  - `method: service-account`
+  - `method: service-account` (legacy) **or** `method: oauth` (enterprise)
 
 ### 5️⃣ Python & Dependencies (1 test)
 - ✅ Python >= 3.8 available

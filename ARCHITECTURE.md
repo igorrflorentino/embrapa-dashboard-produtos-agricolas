@@ -37,7 +37,7 @@ OAuth 2.0 with service account impersonation:
 │  │ .env (NO CREDENTIALS)                │                      │
 │  │ dbt profiles.yml (OAuth method)      │                      │
 │  │                                      │                      │
-│  │ setup_dev_env_enterprise.py          │                      │
+│  │ setup_dev_env.py                     │                      │
 │  │ ↓ impersonate                        │                      │
 │  │ sa-secret-reader-prod                │                      │
 │  └────────────────────┬─────────────────┘                      │
@@ -128,7 +128,7 @@ The trust relationship flows downward:
 1. **Developer runs setup:**
    ```bash
    ./setup.sh  # or setup.bat on Windows
-   python3 setup_dev_env_enterprise.py
+   python3 setup_dev_env.py
    ```
 
 2. **Script detects authentication context:**
@@ -246,7 +246,7 @@ gcloud secrets add-iam-policy-binding embrapa-gcp-credentials \
 ### Setup Process: Read Secret
 
 ```bash
-# setup_dev_env_enterprise.py runs:
+# setup_dev_env.py runs:
 from google.cloud import secretmanager
 
 client = secretmanager.SecretManagerServiceClient()
@@ -319,23 +319,23 @@ gcloud iam service-accounts remove-iam-policy-binding \
 
 ### For Existing Setups
 
-If you have `setup_dev_env.py` (old) or `.gcp-credentials.json`:
+If you have a pre-existing `.gcp-credentials.json`:
 
-1. **Use new setup script:**
+1. **Re-run the unified setup script:**
    ```bash
-   python3 setup_dev_env_enterprise.py
+   python3 setup_dev_env.py
    ```
 
 2. **Script will:**
    - Detect impersonation context first (preferred)
    - Fall back to Secret Manager if impersonation unavailable
-   - Fall back to keyfile (legacy) if needed
+   - Fall back to keyfile if needed (legacy compatibility)
    - Update `.env` with `GCP_AUTH_METHOD` value
    - Update `dbt/profiles.yml` accordingly
 
 3. **Existing keyfile remains:**
-   - If fallback used, `.gcp-credentials.json` still created
-   - Can be safely deleted once impersonation validated
+   - Only used as a fallback when impersonation isn't available
+   - Can be safely deleted once impersonation is validated
    - Still in `.gitignore` (never committed)
 
 ### For New Developers
@@ -356,7 +356,7 @@ New developers should:
 
 3. **Run setup:**
    ```bash
-   python3 setup_dev_env_enterprise.py
+   python3 setup_dev_env.py
    ```
 
 4. **Script uses impersonation automatically.**
@@ -387,8 +387,7 @@ A: Complete. Every BigQuery job, GCS object access, and Secret Manager read is l
 ## Related Documentation
 
 - **IAM_SETUP.md** — Step-by-step IAM role and service account setup
-- **setup_dev_env.py** — Original setup script (keyfile-based, for backward compatibility)
-- **setup_dev_env_enterprise.py** — Modern setup script (OAuth with impersonation)
+- **setup_dev_env.py** — Unified cross-platform setup script (auto-detects auth mode)
 - **SETUP.md** — General setup documentation
 - **SECRET_MANAGER.md** — Google Cloud Secret Manager guide
 - **CLAUDE.md** — Project architecture and development commands

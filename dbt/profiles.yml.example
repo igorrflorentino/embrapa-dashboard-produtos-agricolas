@@ -3,7 +3,7 @@
 # AUTHENTICATION OPTIONS:
 #
 # 1. ENTERPRISE (Recommended): OAuth + Service Account Impersonation
-#    - Setup: python3 setup_dev_env_enterprise.py
+#    - Setup: python3 setup_dev_env.py (auto-detects enterprise mode)
 #    - Requires: gcloud auth application-default login
 #    - No JSON keyfiles needed
 #    - See: ARCHITECTURE.md
