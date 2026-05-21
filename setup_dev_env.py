@@ -121,13 +121,60 @@ BCB_END_YEAR=2026
         """Print an info message."""
         print(f"  ℹ️  {text}")
 
+    def get_gcp_credentials_from_secret_manager(self) -> Optional[Dict[str, Any]]:
+        """
+        Strategy 0: Try Google Cloud Secret Manager.
+        Requires: Google Cloud authentication (ADC or gcloud CLI)
+        """
+        try:
+            from google.cloud import secretmanager
+
+            # Detect project ID
+            project_id = os.environ.get("GCP_PROJECT_ID")
+            if not project_id:
+                self.print_warning("GCP_PROJECT_ID not set, skipping Secret Manager")
+                return None
+
+            # Secret name
+            secret_name = "embrapa-gcp-credentials"
+
+            # Create client
+            client = secretmanager.SecretManagerServiceClient()
+
+            # Build the resource name
+            name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+
+            try:
+                response = client.access_secret_version(request={"name": name})
+                secret_string = response.payload.data.decode("UTF-8")
+                creds = json.loads(secret_string)
+
+                self.print_success(f"Loaded credentials from Secret Manager ({secret_name})")
+                return creds
+            except Exception as e:
+                self.print_warning(f"Secret Manager error: {e}")
+                return None
+
+        except ImportError:
+            self.print_warning("google-cloud-secret-manager not installed, skipping Secret Manager")
+            return None
+        except Exception as e:
+            self.print_warning(f"Could not access Secret Manager: {e}")
+            return None
+
     def get_gcp_credentials(self) -> Optional[Dict[str, Any]]:
         """
         Get GCP credentials with fallback strategy:
+        0. Try Google Cloud Secret Manager (if available)
         1. Try environment variable GOOGLE_APPLICATION_CREDENTIALS
         2. Try --credentials-file argument
         3. Prompt user to paste JSON
         """
+        # Strategy 0: Check Secret Manager (most secure)
+        creds = self.get_gcp_credentials_from_secret_manager()
+        if creds:
+            return creds
+
         # Strategy 1: Check environment variable
         env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if env_creds and Path(env_creds).exists():
