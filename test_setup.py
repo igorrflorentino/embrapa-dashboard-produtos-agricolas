@@ -42,13 +42,23 @@ class EnvironmentTester:
         """Print fail."""
         print(f"❌ {reason}")
 
+    def detect_auth_mode(self) -> str:
+        """Detect whether using enterprise (OAuth/impersonation) or legacy (keyfile) auth."""
+        if self.GCP_CREDS_FILE.exists():
+            return "legacy"
+        env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+        if env_creds and Path(env_creds).exists():
+            return "legacy"
+        return "enterprise"
+
     def test_files_exist(self) -> bool:
         """Test that all required files exist."""
         self.print_header("1️⃣  File Existence Tests")
 
-        tests = {
+        auth_mode = self.detect_auth_mode()
+
+        required_tests = {
             ".env": self.ENV_FILE,
-            ".gcp-credentials.json": self.GCP_CREDS_FILE,
             "~/.dbt/profiles.yml": self.DBT_PROFILES_FILE,
             "setup.sh": self.REPO_ROOT / "setup.sh",
             "setup.bat": self.REPO_ROOT / "setup.bat",
@@ -58,7 +68,7 @@ class EnvironmentTester:
         }
 
         all_pass = True
-        for name, path in tests.items():
+        for name, path in required_tests.items():
             self.print_test(f"File exists: {name}")
             if path.exists():
                 self.print_pass()
@@ -67,6 +77,19 @@ class EnvironmentTester:
                 self.print_fail(f"not found at {path}")
                 self.tests_failed.append(f"File exists: {name}")
                 all_pass = False
+
+        # .gcp-credentials.json is optional in enterprise (OAuth) mode
+        self.print_test("File exists: .gcp-credentials.json")
+        if self.GCP_CREDS_FILE.exists():
+            self.print_pass()
+            self.tests_passed.append("File exists: .gcp-credentials.json")
+        elif auth_mode == "enterprise":
+            print("⚠️  (optional in enterprise/OAuth mode)")
+            self.tests_passed.append("File exists: .gcp-credentials.json (optional)")
+        else:
+            self.print_fail(f"not found at {self.GCP_CREDS_FILE}")
+            self.tests_failed.append("File exists: .gcp-credentials.json")
+            all_pass = False
 
         return all_pass
 
@@ -107,38 +130,55 @@ class EnvironmentTester:
         return all_pass
 
     def test_gcp_credentials(self) -> bool:
-        """Test that GCP credentials are valid JSON."""
+        """Test GCP credentials — keyfile (legacy) or ADC (enterprise)."""
         self.print_header("3️⃣  GCP Credentials Tests")
 
-        self.print_test("Reading credentials file")
-        try:
-            with open(self.GCP_CREDS_FILE) as f:
-                creds = json.load(f)
-            self.print_pass()
-        except (json.JSONDecodeError, IOError) as e:
-            self.print_fail(f"Invalid JSON: {e}")
-            self.tests_failed.append("Read credentials")
-            return False
+        auth_mode = self.detect_auth_mode()
 
-        required_fields = [
-            "project_id",
-            "private_key",
-            "client_email",
-            "type",
-        ]
-
-        all_pass = True
-        for field in required_fields:
-            self.print_test(f"Credential field: {field}")
-            if field in creds:
+        if self.GCP_CREDS_FILE.exists():
+            # Legacy: validate JSON keyfile
+            self.print_test("Reading credentials file (legacy keyfile)")
+            try:
+                with open(self.GCP_CREDS_FILE) as f:
+                    creds = json.load(f)
                 self.print_pass()
-                self.tests_passed.append(f"Credential field: {field}")
-            else:
-                self.print_fail(f"{field} missing")
-                self.tests_failed.append(f"Credential field: {field}")
-                all_pass = False
+            except (json.JSONDecodeError, IOError) as e:
+                self.print_fail(f"Invalid JSON: {e}")
+                self.tests_failed.append("Read credentials")
+                return False
 
-        return all_pass
+            required_fields = ["project_id", "private_key", "client_email", "type"]
+            all_pass = True
+            for field in required_fields:
+                self.print_test(f"Credential field: {field}")
+                if field in creds:
+                    self.print_pass()
+                    self.tests_passed.append(f"Credential field: {field}")
+                else:
+                    self.print_fail(f"{field} missing")
+                    self.tests_failed.append(f"Credential field: {field}")
+                    all_pass = False
+            return all_pass
+        else:
+            # Enterprise: check Application Default Credentials (ADC)
+            self.print_test("Application Default Credentials (enterprise/OAuth mode)")
+            try:
+                result = subprocess.run(
+                    ["gcloud", "auth", "application-default", "print-access-token"],
+                    capture_output=True, timeout=10
+                )
+                if result.returncode == 0:
+                    self.print_pass()
+                    self.tests_passed.append("ADC credentials (enterprise)")
+                    return True
+                else:
+                    self.print_fail("No ADC token — run: gcloud auth application-default login")
+                    self.tests_failed.append("ADC credentials (enterprise)")
+                    return False
+            except FileNotFoundError:
+                self.print_fail("gcloud not found — install Cloud SDK or provide .gcp-credentials.json")
+                self.tests_failed.append("ADC credentials (enterprise)")
+                return False
 
     def test_dbt_profiles(self) -> bool:
         """Test that dbt profiles.yml is valid YAML."""
@@ -154,12 +194,12 @@ class EnvironmentTester:
             self.tests_failed.append("Read dbt profiles")
             return False
 
+        # Required in all modes
         required_sections = [
             "embrapa_commodities:",
             "dev:",
             "prod:",
             "type: bigquery",
-            "method: service-account",
         ]
 
         all_pass = True
@@ -172,6 +212,17 @@ class EnvironmentTester:
                 self.print_fail(f"{section} not found")
                 self.tests_failed.append(f"dbt section: {section}")
                 all_pass = False
+
+        # Auth method: either service-account (legacy) or oauth (enterprise)
+        self.print_test("dbt auth method: service-account or oauth")
+        if "method: service-account" in content or "method: oauth" in content:
+            method = "service-account" if "method: service-account" in content else "oauth"
+            print(f"✅ ({method})")
+            self.tests_passed.append(f"dbt auth method: {method}")
+        else:
+            self.print_fail("no valid method (service-account or oauth)")
+            self.tests_failed.append("dbt auth method")
+            all_pass = False
 
         return all_pass
 
@@ -253,7 +304,9 @@ class EnvironmentTester:
         self.print_test("embrapa doctor (health check)")
         try:
             env = os.environ.copy()
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
+            if self.GCP_CREDS_FILE.exists():
+                env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
+            # In enterprise mode, ADC is used automatically (no env var needed)
 
             result = subprocess.run(
                 ["uv", "run", "embrapa", "doctor"],
@@ -289,7 +342,9 @@ class EnvironmentTester:
         self.print_test("dbt debug (BigQuery connection)")
         try:
             env = os.environ.copy()
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
+            if self.GCP_CREDS_FILE.exists():
+                env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
+            # In enterprise mode, ADC/impersonation is used automatically
 
             result = subprocess.run(
                 ["uv", "run", "dbt", "debug"],
