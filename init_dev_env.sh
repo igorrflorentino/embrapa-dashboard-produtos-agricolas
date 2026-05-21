@@ -10,6 +10,17 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# For Claude Code Web: decode GCP credentials from base64 env var if present
+if [ -n "${GCP_CREDENTIALS_B64:-}" ]; then
+    KEYFILE=".gcp-credentials.json"
+    if [ ! -f "$KEYFILE" ]; then
+        echo "Decoding GCP_CREDENTIALS_B64 → $KEYFILE"
+        echo "$GCP_CREDENTIALS_B64" | base64 -d > "$KEYFILE"
+        chmod 600 "$KEYFILE"
+        export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$KEYFILE"
+    fi
+fi
+
 # Ensure uv is available (auto-install if missing)
 if ! command -v uv &> /dev/null; then
     echo "Installing uv..."
