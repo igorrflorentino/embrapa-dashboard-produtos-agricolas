@@ -5,7 +5,9 @@
 #   DASH_SERVICE  — Cloud Run service name (default: embrapa-commodities-dashboard)
 #   DASH_REGION   — Cloud Run region        (default: us-central1)
 #   BQ_LOCATION   — BigQuery location       (default: US)
-#   DASH_SA       — runtime service account (default: dashboard-runtime@<project>)
+#   DASH_SA       — runtime service account email. If unset, Cloud Run uses
+#                    the project's default Compute Engine SA. For a dedicated
+#                    least-privilege SA, run scripts\dashboard-setup-sa.ps1 first.
 
 if (-not $env:GCP_PROJECT_ID) {
     Write-Host "GCP_PROJECT_ID is not set." -ForegroundColor Red
@@ -16,22 +18,32 @@ if (-not $env:GCP_PROJECT_ID) {
 $Service = if ($env:DASH_SERVICE) { $env:DASH_SERVICE } else { "embrapa-commodities-dashboard" }
 $Region  = if ($env:DASH_REGION)  { $env:DASH_REGION }  else { "us-central1" }
 $BqLoc   = if ($env:BQ_LOCATION)  { $env:BQ_LOCATION }  else { "US" }
-$Sa      = if ($env:DASH_SA)      { $env:DASH_SA }      else { "dashboard-runtime@$($env:GCP_PROJECT_ID).iam.gserviceaccount.com" }
 
 Write-Host "Deploying $Service to $Region (project $($env:GCP_PROJECT_ID))..." -ForegroundColor Cyan
-Write-Host "Runtime SA: $Sa" -ForegroundColor DarkGray
 
-gcloud run deploy $Service `
-    --source . `
-    --region $Region `
-    --service-account $Sa `
-    --set-env-vars "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc" `
-    --allow-unauthenticated `
-    --memory 1Gi `
-    --cpu 1 `
-    --min-instances 0 `
-    --max-instances 5 `
-    --port 8080
+$DeployArgs = @(
+    "run", "deploy", $Service,
+    "--source", ".",
+    "--region", $Region,
+    "--set-env-vars", "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc",
+    "--allow-unauthenticated",
+    "--memory", "1Gi",
+    "--cpu", "1",
+    "--min-instances", "0",
+    "--max-instances", "5",
+    "--port", "8080"
+)
+
+if ($env:DASH_SA) {
+    Write-Host "Runtime SA: $($env:DASH_SA)" -ForegroundColor DarkGray
+    $DeployArgs += "--service-account"
+    $DeployArgs += $env:DASH_SA
+} else {
+    Write-Host "Runtime SA: (Cloud Run default — Compute Engine SA)" -ForegroundColor DarkGray
+    Write-Host "  Tip: scripts\dashboard-setup-sa.ps1 provisions a dedicated read-only SA" -ForegroundColor DarkGray
+}
+
+gcloud @DeployArgs
 
 if (-not $?) { exit 1 }
 

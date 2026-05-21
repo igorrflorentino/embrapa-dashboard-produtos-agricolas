@@ -1,0 +1,51 @@
+# Files NOT uploaded to Cloud Build when running `gcloud run deploy --source .`.
+# Mirrors .dockerignore plus gcloud-specific noise.
+
+.git
+.gitignore
+.github
+.venv
+.vscode
+.idea
+.claude
+.dbt
+.ruff_cache
+.pytest_cache
+.mypy_cache
+__pycache__
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# dbt artefacts — not needed at dashboard runtime
+dbt/target
+dbt/dbt_packages
+dbt/logs
+dbt/.user.yml
+
+# Local environment / secrets
+.env
+.env.local
+.env.*.local
+**/*.key.json
+**/credentials*.json
+scripts/sa-*-key.json
+scripts/sa-*-key.b64
+
+# Test + tooling outputs
+tests
+htmlcov
+.coverage
+.coverage.*
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+
+# Design handoff (huge, not needed at runtime)
+Embrapa-Commodities-Design-System-handoff.zip
+*Embrapa Commodities Design System*
+
+# Planning artifacts
+plans

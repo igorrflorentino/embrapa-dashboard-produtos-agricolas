@@ -102,27 +102,30 @@ def _highlights(store: GoldStore, conv: str, ccy: str) -> html.Div:
             )
         )
 
-    # 2) Biggest YoY mover (state-level).
+    # 2) Biggest YoY mover by ABSOLUTE change. Ranking by % swing surfaces
+    # microscopic baselines (e.g. a UF that went from R$ 300k to R$ 16 mi
+    # produces a +4000% headline that misleads more than it informs). We
+    # rank by absolute delta and quote the percentage as secondary context.
     if hi > lo:
         cur = store.top_states(year=hi, convention=conv, currency=ccy, n=27)
         prev = store.top_states(year=hi - 1, convention=conv, currency=ccy, n=27)
         merged = cur.merge(prev, on=["state_acronym", "state_name"], suffixes=("", "_prev"))
         merged = merged[(merged["value_prev"] > 0) & (merged["value"] > 0)]
         if not merged.empty:
-            merged["delta_pct"] = (
-                (merged["value"] - merged["value_prev"]) / merged["value_prev"] * 100.0
-            )
-            mover = merged.loc[merged["delta_pct"].abs().idxmax()]
-            tone = "ok" if mover["delta_pct"] >= 0 else "err"
+            merged["delta_abs"] = merged["value"] - merged["value_prev"]
+            merged["delta_pct"] = merged["delta_abs"] / merged["value_prev"] * 100.0
+            mover = merged.loc[merged["delta_abs"].abs().idxmax()]
+            tone = "ok" if mover["delta_abs"] >= 0 else "err"
             cards.append(
                 _highlight(
                     overline=f"Maior variação · {hi - 1} → {hi}",
-                    badge=fmt_delta(float(mover["delta_pct"])),
+                    badge=fmt_currency(float(mover["delta_abs"]), ccy),
                     badge_tone=tone,
                     title=f"{mover['state_name']} ({mover['state_acronym']}) lidera a variação",
                     body=f"De {fmt_currency(float(mover['value_prev']), ccy)} para "
-                    f"{fmt_currency(float(mover['value']), ccy)} em "
-                    f"{convention_label(conv)} · {ccy}.",
+                    f"{fmt_currency(float(mover['value']), ccy)} "
+                    f"({fmt_delta(float(mover['delta_pct']))}) "
+                    f"em {convention_label(conv)} · {ccy}.",
                 )
             )
 

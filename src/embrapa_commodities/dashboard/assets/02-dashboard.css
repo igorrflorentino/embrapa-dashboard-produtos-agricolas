@@ -144,8 +144,10 @@
   border-radius: var(--radius-md);
   padding: 14px 16px;
   display: grid;
-  grid-template-columns: repeat(6, 1fr) auto;
-  gap: 16px;
+  /* 5 equal-width filters fit one row: Período, Produto, UF, Convenção, Moeda.
+     The "Apenas OK" checkbox wraps to its own full-width row below. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px 16px;
   align-items: end;
   box-shadow: var(--shadow-1);
   margin-bottom: 4px;
@@ -167,13 +169,23 @@
   background: #fff;
   color: var(--fg-1);
 }
-.filter.check-inline { grid-column: span 2; flex-direction: row; align-items: center; }
+/* "Apenas data_quality_flag = OK" wraps to its own row, full-width, so it
+   doesn't compete with the Moeda buttons on narrower viewports. */
+.filter.check-inline {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-subtle);
+  margin-top: 4px;
+}
 .checkbox-row {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--fg-2);
   cursor: pointer;
 }
 .checkbox-row input { accent-color: var(--embrapa-green); }
+.checkbox-row code { font-size: 12px; }
 
 .seg {
   display: inline-flex;
