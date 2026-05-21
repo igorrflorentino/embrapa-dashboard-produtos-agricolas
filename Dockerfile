@@ -30,8 +30,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PORT=8080 \
     LOG_LEVEL=INFO
 
-# Non-root user (Cloud Run honors USER directive).
-RUN groupadd --system app && useradd --system --gid app --no-create-home app
+# Non-root user (Cloud Run honors USER directive). Give it a home dir so
+# gunicorn 26's internal control server has somewhere to live.
+RUN groupadd --system app \
+ && useradd --system --gid app --create-home --home-dir /home/app app
 
 WORKDIR /app
 

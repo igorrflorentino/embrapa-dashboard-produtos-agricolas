@@ -144,8 +144,10 @@ def _error_state(exc: Exception) -> html.Div:
 
 
 def _attach_healthcheck(dash_app: Dash) -> None:
-    @dash_app.server.route("/healthz")
-    def _healthz():
+    # Google Frontend reserves /healthz, so we expose our healthcheck under
+    # a path that GFE doesn't intercept.
+    @dash_app.server.route("/_health")
+    def _health():
         return jsonify(status="ok"), 200
 
 

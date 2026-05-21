@@ -60,7 +60,7 @@ Cloud Run picks up `Dockerfile` automatically when present. The
 ```bash
 URL=$(gcloud run services describe embrapa-commodities-dashboard \
         --region us-central1 --format='value(status.url)')
-curl -fsS "$URL/healthz"
+curl -fsS "$URL/_health"
 open "$URL"
 ```
 
