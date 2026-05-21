@@ -1,6 +1,22 @@
 # Copy to ~/.dbt/profiles.yml (do NOT commit the real one — it lives outside the repo).
-# Authentication uses Application Default Credentials — run once:
-#   gcloud auth application-default login
+#
+# AUTHENTICATION OPTIONS:
+#
+# 1. ENTERPRISE (Recommended): OAuth + Service Account Impersonation
+#    - Setup: python3 setup_dev_env.py (auto-detects enterprise mode)
+#    - Requires: gcloud auth application-default login
+#    - No JSON keyfiles needed
+#    - See: ARCHITECTURE.md
+#
+# 2. LEGACY: OAuth only (Application Default Credentials)
+#    - Setup: gcloud auth application-default login
+#    - Works with user account credentials
+#    - Good for local development
+#
+# 3. LEGACY: Keyfile-based (deprecated)
+#    - Setup: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/keyfile.json
+#    - Legacy method, still supported
+#    - Not recommended for new setups
 #
 # Targets:
 #   dev  (default) — writes to dbt_dev_silver, dbt_dev_gold.  Safe to iterate.
@@ -12,27 +28,94 @@
 #   make dbt-build                 # uses dev
 #   make dbt-build-prod            # uses prod
 
+# ============================================================================
+# ENTERPRISE CONFIGURATION (Service Account Impersonation with OAuth)
+# ============================================================================
 embrapa_commodities:
   target: dev
   outputs:
     dev:
       type: bigquery
       method: oauth
-      project: embrapa-dashboard-commodities   # override per environment
+      project: embrapa-dashboard-commodities
       dataset: dbt_dev                          # sandboxed: dbt_dev_silver, dbt_dev_gold
       location: us-central1
       threads: 4
       job_execution_timeout_seconds: 600
       job_retries: 1
       priority: interactive
+      # Enterprise: Use impersonation for complete audit trail
+      impersonate_service_account: sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
 
     prod:
       type: bigquery
       method: oauth
-      project: embrapa-dashboard-commodities   # override per environment
+      project: embrapa-dashboard-commodities
       dataset: prod                             # ignored for models with custom schema
       location: us-central1
       threads: 8
       job_execution_timeout_seconds: 600
       job_retries: 1
       priority: batch
+      # Enterprise: Use impersonation for complete audit trail
+      impersonate_service_account: sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
+
+# ============================================================================
+# LEGACY CONFIGURATION (OAuth without Impersonation)
+# Uncomment below if enterprise impersonation is not available
+# ============================================================================
+# embrapa_commodities:
+#   target: dev
+#   outputs:
+#     dev:
+#       type: bigquery
+#       method: oauth
+#       project: embrapa-dashboard-commodities
+#       dataset: dbt_dev
+#       location: us-central1
+#       threads: 4
+#       job_execution_timeout_seconds: 600
+#       job_retries: 1
+#       priority: interactive
+#
+#     prod:
+#       type: bigquery
+#       method: oauth
+#       project: embrapa-dashboard-commodities
+#       dataset: prod
+#       location: us-central1
+#       threads: 8
+#       job_execution_timeout_seconds: 600
+#       job_retries: 1
+#       priority: batch
+
+# ============================================================================
+# LEGACY CONFIGURATION (Keyfile-based Authentication)
+# Uncomment below if OAuth/impersonation are not available (not recommended)
+# ============================================================================
+# embrapa_commodities:
+#   target: dev
+#   outputs:
+#     dev:
+#       type: bigquery
+#       method: service-account
+#       keyfile: /path/to/.gcp-credentials.json
+#       project: embrapa-dashboard-commodities
+#       dataset: dbt_dev
+#       location: us-central1
+#       threads: 4
+#       job_execution_timeout_seconds: 600
+#       job_retries: 1
+#       priority: interactive
+#
+#     prod:
+#       type: bigquery
+#       method: service-account
+#       keyfile: /path/to/.gcp-credentials.json
+#       project: embrapa-dashboard-commodities
+#       dataset: prod
+#       location: us-central1
+#       threads: 8
+#       job_execution_timeout_seconds: 600
+#       job_retries: 1
+#       priority: batch

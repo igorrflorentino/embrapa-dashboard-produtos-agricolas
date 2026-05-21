@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """
 Cross-platform development environment setup script.
-Supports Windows, macOS, and Linux with automatic detection.
+
+Auto-detects authentication mode and adapts:
+  1. Service Account impersonation (OAuth, enterprise) — preferred
+  2. GOOGLE_APPLICATION_CREDENTIALS env var (legacy)
+  3. --credentials-file argument (legacy)
+  4. Interactive paste prompt (last resort)
+
+Generates the appropriate .env, dbt/profiles.yml, and credential files
+for the detected authentication mode. Works on Windows, macOS, Linux,
+and cloud serverless VMs.
+
+See ARCHITECTURE.md for the four-tier service account model and
+IAM_SETUP.md for the admin-side configuration.
 """
 
 import os
@@ -9,19 +21,18 @@ import sys
 import json
 import platform
 import subprocess
-import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 
 class SetupHelper:
-    """Helper for cross-platform environment setup."""
+    """Cross-platform setup with auto-detected authentication mode."""
 
     REPO_ROOT = Path(__file__).parent
     ENV_FILE = REPO_ROOT / ".env"
     DBT_PROFILES_DIR = Path.home() / ".dbt"
     DBT_PROFILES_FILE = DBT_PROFILES_DIR / "profiles.yml"
-    GCP_CREDS_FILE = REPO_ROOT / ".gcp-credentials.json"
+    GCP_CREDS_FILE = REPO_ROOT / ".gcp-credentials.json"  # Legacy fallback only
 
     ENV_TEMPLATE = """{gcp_config}{bcb_config}{ibge_config}"""
 
@@ -30,6 +41,7 @@ GCP_PROJECT_ID={project_id}
 GCS_BUCKET={bucket}
 GCS_LANDING_PREFIX=landing
 BQ_LOCATION=us-central1
+GCP_AUTH_METHOD={auth_method}
 
 # BigQuery datasets / tables
 BQ_BRONZE_IBGE_DATASET=bronze_ibge
@@ -61,7 +73,37 @@ BCB_END_YEAR=2026
 
 """
 
-    DBT_PROFILES_TEMPLATE = """embrapa_commodities:
+    # Enterprise: OAuth method with service account impersonation
+    DBT_PROFILES_ENTERPRISE = """embrapa_commodities:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: {project_id}
+      dataset: dbt_dev
+      location: us-central1
+      threads: 4
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+      priority: interactive
+      impersonate_service_account: sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com
+
+    prod:
+      type: bigquery
+      method: oauth
+      project: {project_id}
+      dataset: prod
+      location: us-central1
+      threads: 8
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+      priority: batch
+      impersonate_service_account: sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com
+"""
+
+    # Legacy: Keyfile method (for backward compatibility)
+    DBT_PROFILES_LEGACY = """embrapa_commodities:
   target: dev
   outputs:
     dev:
@@ -94,6 +136,8 @@ BCB_END_YEAR=2026
         self.is_windows = self.os_name == "Windows"
         self.is_mac = self.os_name == "Darwin"
         self.is_linux = self.os_name == "Linux"
+        self.auth_method = "unknown"
+        self.project_id = None
 
     def print_header(self, text: str):
         """Print a formatted header."""
@@ -121,61 +165,128 @@ BCB_END_YEAR=2026
         """Print an info message."""
         print(f"  ℹ️  {text}")
 
-    def get_gcp_credentials_from_secret_manager(self) -> Optional[Dict[str, Any]]:
+    # ============================================================================
+    # Authentication Strategy 1: Service Account Impersonation (Enterprise)
+    # ============================================================================
+
+    def detect_impersonation_context(self) -> Tuple[bool, Optional[str]]:
         """
-        Strategy 0: Try Google Cloud Secret Manager.
-        Requires: Google Cloud authentication (ADC or gcloud CLI)
+        Detect if running in a context that supports service account impersonation.
+        Returns (is_available, reason)
         """
         try:
-            from google.cloud import secretmanager
+            # Check if gcloud is available
+            result = subprocess.run(
+                ["gcloud", "auth", "application-default", "print-access-token"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return True, "gcloud OAuth available"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
-            # Detect project ID
-            project_id = os.environ.get("GCP_PROJECT_ID")
-            if not project_id:
-                self.print_warning("GCP_PROJECT_ID not set, skipping Secret Manager")
-                return None
+        try:
+            # Check if Application Default Credentials (ADC) is available
+            from google.auth import default
+            creds, _ = default()
+            if creds and not creds.service_account_email:  # Not a service account key
+                return True, "Application Default Credentials (ADC) available"
+        except Exception:
+            pass
 
-            # Secret name
-            secret_name = "embrapa-gcp-credentials"
+        return False, "No impersonation context detected"
 
-            # Create client
-            client = secretmanager.SecretManagerServiceClient()
+    def validate_impersonation_permissions(self, project_id: str) -> bool:
+        """
+        Validate that the current user has iam.serviceAccountTokenCreator role
+        on sa-secret-reader-prod to enable impersonation.
+        """
+        try:
+            sa_email = f"sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com"
 
-            # Build the resource name
-            name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+            result = subprocess.run(
+                [
+                    "gcloud", "iam", "service-accounts", "get-iam-policy",
+                    sa_email, "--format=json"
+                ],
+                capture_output=True,
+                timeout=10
+            )
 
-            try:
-                response = client.access_secret_version(request={"name": name})
-                secret_string = response.payload.data.decode("UTF-8")
-                creds = json.loads(secret_string)
+            if result.returncode != 0:
+                self.print_warning(f"Could not check IAM policy for {sa_email}")
+                return False
 
-                self.print_success(f"Loaded credentials from Secret Manager ({secret_name})")
-                return creds
-            except Exception as e:
-                self.print_warning(f"Secret Manager error: {e}")
-                return None
+            policy = json.loads(result.stdout.decode())
+            bindings = policy.get("bindings", [])
 
-        except ImportError:
-            self.print_warning("google-cloud-secret-manager not installed, skipping Secret Manager")
-            return None
+            # Check for Service Account Token Creator role
+            for binding in bindings:
+                if "roles/iam.serviceAccountTokenCreator" in binding.get("role", ""):
+                    members = binding.get("members", [])
+                    for member in members:
+                        if "user:" in member or "serviceAccount:" in member:
+                            self.print_success(
+                                f"Permission validated: {member} has Service Account Token Creator"
+                            )
+                            return True
+
+            self.print_warning(f"Current user not in iam.serviceAccountTokenCreator for {sa_email}")
+            return False
+
         except Exception as e:
-            self.print_warning(f"Could not access Secret Manager: {e}")
-            return None
+            self.print_warning(f"Could not validate impersonation permissions: {e}")
+            return False
 
-    def get_gcp_credentials(self) -> Optional[Dict[str, Any]]:
-        """
-        Get GCP credentials with fallback strategy:
-        0. Try Google Cloud Secret Manager (if available)
-        1. Try environment variable GOOGLE_APPLICATION_CREDENTIALS
-        2. Try --credentials-file argument
-        3. Prompt user to paste JSON
-        """
-        # Strategy 0: Check Secret Manager (most secure)
-        creds = self.get_gcp_credentials_from_secret_manager()
-        if creds:
-            return creds
+    def get_current_gcp_user(self) -> Optional[str]:
+        """Get the currently authenticated GCP user/service account."""
+        try:
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "account"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return result.stdout.decode().strip()
+        except Exception:
+            pass
+        return None
 
-        # Strategy 1: Check environment variable
+    def setup_impersonation(self, project_id: str) -> bool:
+        """
+        Setup for service account impersonation (enterprise mode).
+        """
+        self.print_step(2.1, "Detecting service account impersonation context...")
+
+        available, reason = self.detect_impersonation_context()
+        if not available:
+            self.print_warning(f"Impersonation not available: {reason}")
+            return False
+
+        self.print_success(reason)
+
+        user = self.get_current_gcp_user()
+        if user:
+            self.print_info(f"Authenticated as: {user}")
+
+        # Validate permissions
+        self.print_step(2.2, "Validating impersonation permissions...")
+        if not self.validate_impersonation_permissions(project_id):
+            self.print_warning("Impersonation permission check failed (may still work)")
+
+        self.auth_method = "impersonation"
+        self.print_success("Enterprise mode: Service Account impersonation enabled")
+        return True
+
+    # ============================================================================
+    # Authentication Strategy 2: Environment Variable
+    # ============================================================================
+
+    def get_gcp_credentials_from_env(self) -> Optional[Dict[str, Any]]:
+        """
+        Fallback 1: Try environment variable GOOGLE_APPLICATION_CREDENTIALS.
+        """
         env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if env_creds and Path(env_creds).exists():
             self.print_info(f"Found credentials in GOOGLE_APPLICATION_CREDENTIALS")
@@ -183,11 +294,20 @@ BCB_END_YEAR=2026
                 with open(env_creds) as f:
                     creds = json.load(f)
                     self.print_success(f"Loaded credentials from {env_creds}")
+                    self.auth_method = "env_var"
                     return creds
             except (json.JSONDecodeError, IOError) as e:
                 self.print_warning(f"Failed to read credentials file: {e}")
+        return None
 
-        # Strategy 2: Check for --credentials-file argument
+    # ============================================================================
+    # Authentication Strategy 3: Credentials File Argument
+    # ============================================================================
+
+    def get_gcp_credentials_from_file(self) -> Optional[Dict[str, Any]]:
+        """
+        Fallback 2: Try --credentials-file argument.
+        """
         if "--credentials-file" in sys.argv:
             idx = sys.argv.index("--credentials-file")
             if idx + 1 < len(sys.argv):
@@ -197,11 +317,20 @@ BCB_END_YEAR=2026
                         with open(creds_path) as f:
                             creds = json.load(f)
                             self.print_success(f"Loaded credentials from {creds_path}")
+                            self.auth_method = "credentials_file"
                             return creds
                     except (json.JSONDecodeError, IOError) as e:
                         self.print_error(f"Failed to read {creds_path}: {e}")
+        return None
 
-        # Strategy 3: Prompt user
+    # ============================================================================
+    # Authentication Strategy 4: Interactive Prompt
+    # ============================================================================
+
+    def get_gcp_credentials_from_prompt(self) -> Optional[Dict[str, Any]]:
+        """
+        Fallback 3: Prompt user to paste JSON (legacy, last resort).
+        """
         self.print_info("No credentials found. Paste your GCP service account JSON below.")
         self.print_info("(Press Enter twice when done)")
 
@@ -226,13 +355,43 @@ BCB_END_YEAR=2026
             json_str = "\n".join(lines)
             creds = json.loads(json_str)
             self.print_success("Credentials parsed successfully")
+            self.auth_method = "manual_json"
             return creds
         except json.JSONDecodeError as e:
             self.print_error(f"Invalid JSON: {e}")
             return None
 
+    # ============================================================================
+    # Unified Credential Resolution
+    # ============================================================================
+
+    def get_gcp_credentials(self) -> Optional[Dict[str, Any]]:
+        """
+        Fallback authentication strategy (impersonation handled separately):
+        1. Try GOOGLE_APPLICATION_CREDENTIALS environment variable
+        2. Try --credentials-file argument
+        3. Prompt user for JSON (legacy, last resort)
+        """
+        creds = self.get_gcp_credentials_from_env()
+        if creds:
+            return creds
+
+        creds = self.get_gcp_credentials_from_file()
+        if creds:
+            return creds
+
+        creds = self.get_gcp_credentials_from_prompt()
+        if creds:
+            return creds
+
+        return None
+
+    # ============================================================================
+    # Configuration Files
+    # ============================================================================
+
     def save_gcp_credentials(self, creds: Dict[str, Any]) -> bool:
-        """Save GCP credentials to file."""
+        """Save GCP credentials to file (legacy mode only)."""
         try:
             with open(self.GCP_CREDS_FILE, "w") as f:
                 json.dump(creds, f, indent=2)
@@ -244,37 +403,45 @@ BCB_END_YEAR=2026
             return False
 
     def create_env_file(self, project_id: str, bucket: str) -> bool:
-        """Create .env file."""
+        """Create .env file with auth method."""
         try:
             content = self.ENV_TEMPLATE.format(
-                gcp_config=self.GCP_CONFIG.format(project_id=project_id, bucket=bucket),
+                gcp_config=self.GCP_CONFIG.format(
+                    project_id=project_id,
+                    bucket=bucket,
+                    auth_method=self.auth_method
+                ),
                 ibge_config=self.IBGE_CONFIG,
                 bcb_config=self.BCB_CONFIG
             )
-
             self.ENV_FILE.write_text(content)
-            self.print_success(f"Created {self.ENV_FILE}")
+            self.print_success(f"Created {self.ENV_FILE} (auth_method={self.auth_method})")
             return True
         except IOError as e:
             self.print_error(f"Failed to create .env: {e}")
             return False
 
-    def create_dbt_profiles(self, project_id: str) -> bool:
-        """Create dbt profiles.yml."""
+    def create_dbt_profiles(self, project_id: str, use_enterprise: bool = True) -> bool:
+        """Create dbt profiles.yml with appropriate authentication method."""
         try:
             self.DBT_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
-            # Use absolute path to credentials
-            keyfile = self.GCP_CREDS_FILE.resolve()
-
-            content = self.DBT_PROFILES_TEMPLATE.format(
-                project_id=project_id,
-                keyfile=str(keyfile)
-            )
+            if use_enterprise and self.auth_method == "impersonation":
+                # Enterprise mode: OAuth with impersonation
+                content = self.DBT_PROFILES_ENTERPRISE.format(project_id=project_id)
+                self.print_info("Using enterprise OAuth method with service account impersonation")
+            else:
+                # Legacy mode: Keyfile-based authentication
+                keyfile = self.GCP_CREDS_FILE.resolve()
+                content = self.DBT_PROFILES_LEGACY.format(
+                    project_id=project_id,
+                    keyfile=str(keyfile)
+                )
+                self.print_info("Using legacy keyfile-based authentication")
 
             self.DBT_PROFILES_FILE.write_text(content)
 
-            # Set restrictive permissions on Linux/Mac
+            # Set restrictive permissions on Unix
             if not self.is_windows:
                 os.chmod(self.DBT_PROFILES_FILE, 0o600)
 
@@ -306,6 +473,10 @@ BCB_END_YEAR=2026
             self.print_error(f"Failed to update .gitignore: {e}")
             return False
 
+    # ============================================================================
+    # Validation
+    # ============================================================================
+
     def validate_uv(self) -> bool:
         """Check if uv is available."""
         try:
@@ -325,7 +496,7 @@ BCB_END_YEAR=2026
         return False
 
     def validate_gcloud(self) -> bool:
-        """Check if gcloud CLI is available (optional)."""
+        """Check if gcloud CLI is available (required for impersonation)."""
         try:
             result = subprocess.run(
                 ["gcloud", "--version"],
@@ -338,14 +509,20 @@ BCB_END_YEAR=2026
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        self.print_warning("gcloud CLI not found (optional for this setup)")
+        self.print_warning("gcloud CLI not found (required for service account impersonation)")
         return False
 
     def run_embrapa_doctor(self) -> bool:
         """Run embrapa doctor to validate setup."""
         try:
             env = os.environ.copy()
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
+
+            # For impersonation, we don't set GOOGLE_APPLICATION_CREDENTIALS
+            # gcloud auth will handle it
+            if self.auth_method == "impersonation":
+                env.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+            elif self.GCP_CREDS_FILE.exists():
+                env["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.GCP_CREDS_FILE.resolve())
 
             result = subprocess.run(
                 ["uv", "run", "embrapa", "doctor"],
@@ -367,9 +544,14 @@ BCB_END_YEAR=2026
             self.print_warning(f"Could not run embrapa doctor: {e}")
             return False
 
+    # ============================================================================
+    # Main Setup Flow
+    # ============================================================================
+
     def run_setup(self) -> bool:
-        """Run the complete setup process."""
+        """Run the complete enterprise setup process."""
         self.print_header(f"Development Environment Setup ({self.os_name})")
+        self.print_info("Auto-detecting authentication mode...")
 
         # Step 1: Check uv
         self.print_step(1, "Checking uv installation...")
@@ -377,37 +559,63 @@ BCB_END_YEAR=2026
             self.print_error("uv is required. Please install it first.")
             return False
 
-        # Step 2: Check gcloud (optional)
-        self.print_step(2, "Checking gcloud CLI (optional)...")
-        self.validate_gcloud()
+        # Step 2: Attempt service account impersonation (enterprise)
+        self.print_step(2, "Checking for service account impersonation (enterprise mode)...")
+        if not self.setup_impersonation(self.project_id):
+            self.print_warning("Enterprise mode not available, falling back to legacy authentication")
 
-        # Step 3: Get GCP credentials
-        self.print_step(3, "Setting up GCP credentials...")
-        creds = self.get_gcp_credentials()
-        if not creds:
-            self.print_error("Cannot proceed without GCP credentials")
-            return False
+        # Step 3: Get GCP project ID
+        self.print_step(3, "Determining GCP project...")
+        if not self.project_id:
+            # Try to get from gcloud
+            try:
+                result = subprocess.run(
+                    ["gcloud", "config", "get-value", "project"],
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    self.project_id = result.stdout.decode().strip()
+                    self.print_success(f"Detected project: {self.project_id}")
+            except Exception:
+                pass
 
-        project_id = creds.get("project_id")
-        if not project_id:
-            self.print_error("Invalid credentials: missing project_id")
-            return False
+            # Try environment variable
+            if not self.project_id:
+                self.project_id = os.environ.get("GCP_PROJECT_ID")
+                if self.project_id:
+                    self.print_success(f"Using GCP_PROJECT_ID from environment: {self.project_id}")
 
-        bucket = f"{project_id}-datalake"
+        # If still no project, try to get from credentials
+        if not self.project_id:
+            self.print_step(3.1, "Setting up GCP credentials...")
+            creds = self.get_gcp_credentials()
+            if not creds:
+                self.print_error("Cannot proceed without GCP credentials or project")
+                return False
 
-        # Step 4: Save credentials
-        self.print_step(4, "Saving GCP credentials...")
-        if not self.save_gcp_credentials(creds):
-            return False
+            self.project_id = creds.get("project_id")
+            if not self.project_id:
+                self.print_error("Invalid credentials: missing project_id")
+                return False
+
+            # For non-impersonation paths, save the keyfile
+            if self.auth_method != "impersonation":
+                self.print_step(4, "Saving GCP credentials...")
+                if not self.save_gcp_credentials(creds):
+                    return False
+
+        bucket = f"{self.project_id}-datalake"
 
         # Step 5: Create .env
         self.print_step(5, "Creating .env file...")
-        if not self.create_env_file(project_id, bucket):
+        if not self.create_env_file(self.project_id, bucket):
             return False
 
         # Step 6: Create dbt profiles
         self.print_step(6, "Creating dbt profiles...")
-        if not self.create_dbt_profiles(project_id):
+        use_enterprise = self.auth_method == "impersonation"
+        if not self.create_dbt_profiles(self.project_id, use_enterprise=use_enterprise):
             return False
 
         # Step 7: Update .gitignore
@@ -416,7 +624,7 @@ BCB_END_YEAR=2026
 
         # Step 8: Validate setup
         self.print_step(8, "Validating setup...")
-        doctor_passed = self.run_embrapa_doctor()
+        self.run_embrapa_doctor()
 
         return True
 
@@ -430,16 +638,26 @@ def main():
 
         if success:
             helper.print_header("✅ Setup Complete!")
+            mode_label = {
+                "impersonation": "Service Account Impersonation (OAuth) — enterprise",
+                "env_var": "GOOGLE_APPLICATION_CREDENTIALS env var",
+                "credentials_file": "--credentials-file argument",
+                "manual_json": "Manually pasted JSON keyfile",
+                "unknown": "Unknown (no credentials configured)",
+            }.get(helper.auth_method, helper.auth_method)
+            print(f"Authentication Mode: {mode_label}\n")
             print("Your development environment is ready.\n")
             print("Next steps:")
             print("  1. Review .env file and make any necessary changes")
             print("  2. Run: uv run embrapa --help")
             print("  3. Run: make dbt-build (for dbt development)")
-            print("  4. Happy coding! 🚀\n")
+            print("  4. See ARCHITECTURE.md for the cloud architecture overview")
+            print("  5. Happy coding! 🚀\n")
             sys.exit(0)
         else:
             helper.print_header("❌ Setup Failed")
             print("Please review the errors above and try again.\n")
+            print("For setup help, see: SETUP.md, ARCHITECTURE.md, and IAM_SETUP.md\n")
             sys.exit(1)
     except KeyboardInterrupt:
         print("\n\nSetup cancelled by user.")

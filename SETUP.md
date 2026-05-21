@@ -31,11 +31,17 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 1. ✅ Detects OS (Windows/macOS/Linux)
 2. ✅ Checks for Python 3.8+ (auto-installs if missing)
 3. ✅ Checks for uv (auto-installs if missing)
-4. ✅ Loads GCP credentials (with fallback strategy)
-5. ✅ Creates `.env` file with configuration
-6. ✅ Creates `~/.dbt/profiles.yml` for BigQuery
+4. ✅ **Auto-detects the best authentication mode** (enterprise OAuth/impersonation → keyfile fallback)
+5. ✅ Creates `.env` file with configuration (records `GCP_AUTH_METHOD`)
+6. ✅ Creates `~/.dbt/profiles.yml` matching the detected mode (OAuth+impersonation or keyfile)
 7. ✅ Protects credentials in `.gitignore`
 8. ✅ Validates entire setup with `embrapa doctor`
+
+> **One script, two modes.** The same `setup_dev_env.py` produces an enterprise
+> setup (OAuth + service-account impersonation, **no keyfile on disk**) when
+> `gcloud auth application-default login` has been run, and falls back to the
+> legacy JSON-keyfile flow otherwise. See [ARCHITECTURE.md](ARCHITECTURE.md)
+> for the full enterprise model.
 
 ## Machine Requirements
 
@@ -68,42 +74,61 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 - Calls `setup_dev_env.py` for configuration
 
 ### `setup_dev_env.py` (Core Python Script)
-- Cross-platform setup logic
-- Gets GCP credentials (with 3-level fallback)
-- Creates `.env` and dbt profiles
-- Runs validation checks
+- Cross-platform setup logic — single source of truth
+- **Auto-detects** the best available authentication method
+- Generates `.env` and `~/.dbt/profiles.yml` matching the detected mode
+- Runs validation checks against the configured project
 
-## GCP Credentials Strategy
+### `init_dev_env.sh` (One-shot init / SessionStart hook)
+- Lightweight wrapper for already-cloned repos
+- Used by Claude Code on the web and as a quick re-init
+- Sets `GOOGLE_APPLICATION_CREDENTIALS` if a keyfile exists, otherwise lets
+  Application Default Credentials take over
+- Runs `uv sync` and `python3 test_setup.py`
 
-The setup script tries to find your credentials in this order:
+## GCP Authentication Strategy
 
-### 0️⃣ Google Cloud Secret Manager (Most Secure)
-If your admin has set up Secret Manager:
-```bash
-export GCP_PROJECT_ID=embrapa-dashboard-commodities
-./setup.sh
-# Script automatically reads from Secret Manager
-```
+The setup script tries authentication strategies in this order, picking the
+first one that works:
 
-**Benefits:** No files shared, complete audit logs, instant revocation.
+### 1️⃣ Service Account Impersonation (Enterprise — Recommended)
 
-See [SECRET_MANAGER.md](SECRET_MANAGER.md) for detailed setup.
+If you have run `gcloud auth application-default login` and your account has
+`roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod`, the script
+configures **OAuth + impersonation**:
 
-### 1️⃣ Environment Variable (GOOGLE_APPLICATION_CREDENTIALS)
-If you already have this variable set:
+- ✅ No JSON keyfile written to disk
+- ✅ Complete audit trail in Cloud Logging
+- ✅ Instant revocation via IAM
+- ✅ Automatic credential rotation (no re-distribution)
+
+Generated `~/.dbt/profiles.yml` uses `method: oauth` with `impersonate_service_account`.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [IAM_SETUP.md](IAM_SETUP.md).
+
+### 2️⃣ Environment Variable (legacy)
+
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ./setup.sh
 ```
 
-### 2️⃣ File Argument
-Pass credentials file as argument:
+Useful in CI/CD environments or pre-provisioned VMs where the keyfile is
+already on disk.
+
+### 3️⃣ File Argument (legacy)
+
 ```bash
 ./setup.sh --credentials-file /path/to/service-account.json
 ```
 
-### 3️⃣ Interactive Prompt
-If neither above works, the script will ask you to paste your service account JSON.
+Useful when you have a keyfile downloaded locally and want to point to it
+explicitly.
+
+### 4️⃣ Interactive Prompt (last resort)
+
+If none of the above work, the script prompts you to paste your service
+account JSON. Avoid this path — copy/paste leaves traces in shell history.
 
 ## File Arguments
 
