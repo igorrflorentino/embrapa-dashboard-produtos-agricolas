@@ -245,6 +245,36 @@ choco install python312
 # https://www.python.org/downloads/
 ```
 
+### "command not found: $'\r'" / "unrecognized arguments" on Windows
+
+If you see errors like:
+
+```
+scripts/setup-claude-code-web-sa.sh: line 10: $'\r': command not found
+ERROR: (gcloud...) unrecognized arguments:
+```
+
+your Git checkout converted the shell scripts to CRLF line endings. The
+repo's `.gitattributes` pins `*.sh` to LF, but Git only applies it on a
+fresh checkout. Re-normalize your working copy:
+
+```bash
+git rm --cached -r .
+git reset --hard HEAD
+```
+
+Or, if you only want to fix the affected scripts without touching the
+rest of the tree:
+
+```bash
+git checkout-index --force -- init_dev_env.sh setup.sh test.sh \
+  scripts/setup-claude-code-web-sa.sh
+```
+
+If you cloned with `core.autocrlf=true`, consider switching to
+`core.autocrlf=input` (`git config --global core.autocrlf input`) so
+Windows checkouts stop munging Unix-only scripts.
+
 ### "uv installation failed"
 
 The bootstrap scripts attempt auto-installation. If it fails:
