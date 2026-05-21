@@ -231,3 +231,25 @@ dbt/profiles.yml
 data/
 *.parquet
 .gcp-credentials.json
+
+# Claude
+sa-secret-reader-dev_embrapa-dashboard-commodities.json
+sa-secret-reader-dev_embrapa-dashboard-commodities.b64
+sa-secret-reader-prod_embrapa-dashboard-commodities.json
+sa-secret-reader-prod_embrapa-dashboard-commodities.b64
+sa-secret-reader-dev_embrapa-dashboard-commodities-key.json
+sa-secret-reader-dev_embrapa-dashboard-commodities-key.b64
+sa-secret-reader-prod_embrapa-dashboard-commodities-key.json
+sa-secret-reader-prod_embrapa-dashboard-commodities-key.b64
+sa-code-reader-dev_embrapa-dashboard-commodities-key.json
+sa-code-reader-dev_embrapa-dashboard-commodities-key.b64
+sa-code-reader-prod_embrapa-dashboard-commodities-key.json
+sa-code-reader-prod_embrapa-dashboard-commodities-key.b64
+sa-code-web-dev_embrapa-dashboard-commodities-key.json
+sa-code-web-dev_embrapa-dashboard-commodities-key.b64
+sa-code-web-prod_embrapa-dashboard-commodities-key.json
+sa-code-web-prod_embrapa-dashboard-commodities-key.b64
+sa-claude-code-web-dev-key.json
+sa-claude-code-web-dev-key.b64
+sa-claude-code-web-prod-key.json
+sa-claude-code-web-prod-key.b64
