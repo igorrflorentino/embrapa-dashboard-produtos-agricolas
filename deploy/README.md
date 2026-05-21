@@ -44,7 +44,7 @@ gcloud run deploy embrapa-commodities-dashboard \
   --source . \
   --region us-central1 \
   --service-account dashboard-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=US \
+  --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=us-central1 \
   --allow-unauthenticated \
   --memory 1Gi --cpu 1 \
   --min-instances 0 --max-instances 5 \

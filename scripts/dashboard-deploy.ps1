@@ -4,7 +4,7 @@
 # Optional env:
 #   DASH_SERVICE  — Cloud Run service name (default: embrapa-commodities-dashboard)
 #   DASH_REGION   — Cloud Run region        (default: us-central1)
-#   BQ_LOCATION   — BigQuery location       (default: US)
+#   BQ_LOCATION   — BigQuery location       (default: us-central1, matches gold dataset)
 #   DASH_SA       — runtime service account email. If unset, Cloud Run uses
 #                    the project's default Compute Engine SA. For a dedicated
 #                    least-privilege SA, run scripts\dashboard-setup-sa.ps1 first.
@@ -17,7 +17,7 @@ if (-not $env:GCP_PROJECT_ID) {
 
 $Service = if ($env:DASH_SERVICE) { $env:DASH_SERVICE } else { "embrapa-commodities-dashboard" }
 $Region  = if ($env:DASH_REGION)  { $env:DASH_REGION }  else { "us-central1" }
-$BqLoc   = if ($env:BQ_LOCATION)  { $env:BQ_LOCATION }  else { "US" }
+$BqLoc   = if ($env:BQ_LOCATION)  { $env:BQ_LOCATION }  else { "us-central1" }
 
 Write-Host "Deploying $Service to $Region (project $($env:GCP_PROJECT_ID))..." -ForegroundColor Cyan
 
