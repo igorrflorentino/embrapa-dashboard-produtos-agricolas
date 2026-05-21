@@ -17,8 +17,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-Write-Host "Building $Image from deploy/Dockerfile..." -ForegroundColor Cyan
-docker build -f deploy/Dockerfile -t $Image .
+Write-Host "Building $Image from ./Dockerfile..." -ForegroundColor Cyan
+docker build -t $Image .
 if (-not $?) { exit 1 }
 
 Write-Host ""

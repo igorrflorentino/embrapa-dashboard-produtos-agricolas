@@ -51,7 +51,7 @@ gcloud run deploy embrapa-commodities-dashboard \
   --port 8080
 ```
 
-Cloud Run picks up `deploy/Dockerfile` automatically when present. The
+Cloud Run picks up `Dockerfile` automatically when present. The
 `Makefile` target `make dashboard-deploy` wraps this command and reads
 `GCP_PROJECT_ID` / `BQ_LOCATION` from the environment.
 

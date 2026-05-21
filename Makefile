@@ -74,7 +74,7 @@ dashboard-run: dashboard-sync    ## Local dev server on http://localhost:8080
 	$(PY) --extra dashboard python -m embrapa_commodities.dashboard.app
 
 dashboard-build:    ## Build the Cloud Run image locally
-	docker build -f deploy/Dockerfile -t $(DASH_IMAGE) .
+	docker build -t $(DASH_IMAGE) .
 
 dashboard-deploy:    ## Deploy the dashboard to Cloud Run (uses gcloud's active project)
 	gcloud run deploy $(DASH_SERVICE) \

@@ -3,7 +3,7 @@
 # `gcloud run deploy --source .` honors this when you point it at the repo root.
 
 # ───── builder stage ─────
-FROM python:3.12-slim AS builder
+FROM python:3.12.11-slim AS builder
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
@@ -23,7 +23,7 @@ COPY src/ src/
 RUN uv sync --frozen --no-dev --extra dashboard
 
 # ───── runtime stage ─────
-FROM python:3.12-slim AS runtime
+FROM python:3.12.11-slim AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
