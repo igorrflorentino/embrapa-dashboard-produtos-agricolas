@@ -168,7 +168,7 @@ BCB_END_YEAR=2026
 
     def print_info(self, text: str):
         """Print an info message."""
-        print(f"  ℹ️  {text}")  # noqa: RUF001
+        print(f"  ℹ️  {text}")
 
     # ============================================================================
     # Authentication Strategy 1: Service Account Impersonation (Enterprise)

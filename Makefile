@@ -1,6 +1,7 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean \
-        precommit-install precommit-run
+        precommit-install precommit-run \
+        dashboard-sync dashboard-run dashboard-build dashboard-deploy
 
 PY := uv run
 DBT_DIR := dbt
@@ -60,3 +61,26 @@ precommit-run:        ## Run all hooks against every file (not just staged)
 
 clean:
 	rm -rf .pytest_cache .ruff_cache $(DBT_DIR)/target $(DBT_DIR)/dbt_packages $(DBT_DIR)/logs
+
+# ─── Dash dashboard (Cloud Run target) ─────────────────────────────────────
+DASH_IMAGE  ?= embrapa-dashboard:local
+DASH_SERVICE ?= embrapa-commodities-dashboard
+DASH_REGION ?= us-central1
+
+dashboard-sync:    ## Install dashboard runtime deps
+	uv sync --extra dashboard
+
+dashboard-run: dashboard-sync    ## Local dev server on http://localhost:8080
+	$(PY) --extra dashboard python -m embrapa_commodities.dashboard.app
+
+dashboard-build:    ## Build the Cloud Run image locally
+	docker build -f deploy/Dockerfile -t $(DASH_IMAGE) .
+
+dashboard-deploy:    ## Deploy the dashboard to Cloud Run (uses gcloud's active project)
+	gcloud run deploy $(DASH_SERVICE) \
+	  --source . \
+	  --region $(DASH_REGION) \
+	  --allow-unauthenticated \
+	  --memory 1Gi --cpu 1 --min-instances 0 --max-instances 5 \
+	  --port 8080 \
+	  --set-env-vars GCP_PROJECT_ID=$$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=$${BQ_LOCATION:-US}

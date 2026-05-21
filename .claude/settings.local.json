@@ -45,7 +45,15 @@
       "PowerShell(cd \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\"; powershell -ExecutionPolicy Bypass -File scripts/grant-sa-iam-roles.ps1 2>&1)",
       "PowerShell(gcloud projects add-iam-policy-binding embrapa-dashboard-commodities *)",
       "Bash(git commit *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\" -Force)",
+      "Bash(Select-Object Name)",
+      "PowerShell(Get-ChildItem \"Embrapa Commodities Design System-handoff.zip\" | Select-Object Name, Length; [System.IO.Compression.ZipFile]::OpenRead\\(\\(Resolve-Path \"Embrapa Commodities Design System-handoff.zip\"\\).Path\\).Entries | Select-Object FullName, Length | Format-Table -AutoSize)",
+      "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\\(Resolve-Path \"Embrapa-Commodities-Design-System-handoff.zip\"\\).Path\\); $zip.Entries | Select-Object FullName, Length | Format-Table -AutoSize; $zip.Dispose\\(\\))",
+      "Bash(python -c ' *)",
+      "Bash(uv sync *)",
+      "Bash(GCP_PROJECT_ID=stub-project uv run --no-sync python -c ' *)"
     ]
   }
 }
