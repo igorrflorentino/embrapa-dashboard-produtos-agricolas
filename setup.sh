@@ -128,7 +128,7 @@ main() {
     # Step 3: Run setup script
     print_header "Running environment setup..."
 
-    "$PYTHON_CMD" "$SCRIPT_DIR/setup_dev_env.py" "$@"
+    "$PYTHON_CMD" "$SCRIPT_DIR/scripts/setup_dev_env.py" "$@"
     exit_code=$?
 
     if [ $exit_code -eq 0 ]; then

@@ -10,15 +10,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# For Claude Code Web: decode GCP credentials from base64 env var if present
-if [ -n "${GCP_CREDENTIALS_B64:-}" ]; then
-    KEYFILE=".gcp-credentials.json"
-    if [ ! -f "$KEYFILE" ]; then
-        echo "Decoding GCP_CREDENTIALS_B64 → $KEYFILE"
-        echo "$GCP_CREDENTIALS_B64" | base64 -d > "$KEYFILE"
-        chmod 600 "$KEYFILE"
-        export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$KEYFILE"
-    fi
+KEYFILE="$SCRIPT_DIR/.gcp-credentials.json"
+
+# For Claude Code Web: decode GCP credentials from base64 env var if present.
+# (No-op locally — devs don't set GCP_CREDENTIALS_B64 on their machines.)
+if [ -n "${GCP_CREDENTIALS_B64:-}" ] && [ ! -f "$KEYFILE" ]; then
+    echo "Decoding GCP_CREDENTIALS_B64 → $KEYFILE"
+    echo "$GCP_CREDENTIALS_B64" | base64 -d > "$KEYFILE"
+    chmod 600 "$KEYFILE"
 fi
 
 # Ensure uv is available (auto-install if missing)
@@ -30,8 +29,7 @@ if ! command -v uv &> /dev/null; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# Configure credentials — pick whichever auth path is available
-KEYFILE="$SCRIPT_DIR/.gcp-credentials.json"
+# Pick whichever auth path is available (single source of truth)
 if [ -f "$KEYFILE" ]; then
     export GOOGLE_APPLICATION_CREDENTIALS="$KEYFILE"
     echo "🔑 Auth: legacy keyfile (${KEYFILE})"
@@ -45,6 +43,6 @@ fi
 uv sync
 
 # Run validation tests
-python3 test_setup.py
+python3 scripts/test_setup.py
 
 echo "✅ Environment ready!"

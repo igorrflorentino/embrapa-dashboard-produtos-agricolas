@@ -37,10 +37,10 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 7. ✅ Protects credentials in `.gitignore`
 8. ✅ Validates entire setup with `embrapa doctor`
 
-> **One script, two modes.** The same `setup_dev_env.py` produces an enterprise
+> **One script, two modes.** The same `scripts/setup_dev_env.py` produces an enterprise
 > setup (OAuth + service-account impersonation, **no keyfile on disk**) when
 > `gcloud auth application-default login` has been run, and falls back to the
-> legacy JSON-keyfile flow otherwise. See [ARCHITECTURE.md](ARCHITECTURE.md)
+> legacy JSON-keyfile flow otherwise. See [architecture.md](architecture.md)
 > for the full enterprise model.
 
 ## Machine Requirements
@@ -61,7 +61,7 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 - Detects Python 3.8+ installations
 - Auto-installs Python 3.12 via system package manager
 - Auto-installs uv via curl
-- Calls `setup_dev_env.py` for configuration
+- Calls `scripts/setup_dev_env.py` for configuration
 
 ### `setup.bat` (Windows Command Prompt)
 - Wrapper that calls `setup.ps1`
@@ -71,20 +71,29 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 - Detects Python 3.8+ installations
 - Auto-installs Python 3.12 via Chocolatey (or shows manual steps)
 - Auto-installs uv via PowerShell
-- Calls `setup_dev_env.py` for configuration
+- Calls `scripts/setup_dev_env.py` for configuration
 
-### `setup_dev_env.py` (Core Python Script)
+### `scripts/setup_dev_env.py` (Core Python Script)
 - Cross-platform setup logic — single source of truth
 - **Auto-detects** the best available authentication method
 - Generates `.env` and `~/.dbt/profiles.yml` matching the detected mode
+- Reads `GCP_IMPERSONATION_SA` from `.env` to override the default impersonation target
 - Runs validation checks against the configured project
 
 ### `init_dev_env.sh` (One-shot init / SessionStart hook)
 - Lightweight wrapper for already-cloned repos
 - Used by Claude Code on the web and as a quick re-init
+- Decodes `GCP_CREDENTIALS_B64` (Claude Code Web only) into `.gcp-credentials.json`
 - Sets `GOOGLE_APPLICATION_CREDENTIALS` if a keyfile exists, otherwise lets
   Application Default Credentials take over
-- Runs `uv sync` and `python3 test_setup.py`
+- Runs `uv sync` and `python3 scripts/test_setup.py`
+
+### `scripts/setup-claude-code-web-sa.sh` (admin one-time)
+- Provisions `sa-claude-code-web-dev` in your GCP project with limited
+  BigQuery + GCS permissions
+- Emits a JSON keyfile and a base64-encoded copy to paste into Claude Code
+  Web's environment variables (`GCP_CREDENTIALS_B64`)
+- Both output files are covered by `.gitignore` (`sa-*.json`, `sa-*.b64`)
 
 ## GCP Authentication Strategy
 
@@ -94,17 +103,22 @@ first one that works:
 ### 1️⃣ Service Account Impersonation (Enterprise — Recommended)
 
 If you have run `gcloud auth application-default login` and your account has
-`roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod`, the script
-configures **OAuth + impersonation**:
+`roles/iam.serviceAccountTokenCreator` on the impersonation target SA, the
+script configures **OAuth + impersonation**:
 
 - ✅ No JSON keyfile written to disk
 - ✅ Complete audit trail in Cloud Logging
 - ✅ Instant revocation via IAM
 - ✅ Automatic credential rotation (no re-distribution)
 
+The default impersonation target is
+`sa-secret-reader-prod@<project>.iam.gserviceaccount.com`. Override it by
+setting `GCP_IMPERSONATION_SA` (short name or full email) in your shell
+before running setup, or in `.env` after first run.
+
 Generated `~/.dbt/profiles.yml` uses `method: oauth` with `impersonate_service_account`.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [IAM_SETUP.md](IAM_SETUP.md).
+See [architecture.md](architecture.md) and [iam_setup.md](iam_setup.md).
 
 ### 2️⃣ Environment Variable (legacy)
 
@@ -139,6 +153,54 @@ account JSON. Avoid this path — copy/paste leaves traces in shell history.
 ```
 
 Same options work with `setup.bat` and `setup.ps1`.
+
+## Claude Code Web (cloud sandbox)
+
+Claude Code on the web runs sessions in an ephemeral container. There is no
+interactive `gcloud auth` flow there, so the OAuth+impersonation path is not
+available. Instead, the container reads a base64-encoded service account key
+from an environment variable and writes it to `.gcp-credentials.json` on each
+session start.
+
+### One-time admin setup
+
+```bash
+# Provisions sa-claude-code-web-dev with limited BigQuery + GCS scopes
+# and writes scripts/sa-claude-code-web-dev-key.{json,b64}
+bash scripts/setup-claude-code-web-sa.sh
+```
+
+Both output files are ignored by git via the `sa-*.json` / `sa-*.b64` patterns.
+
+### Per-session configuration (Claude Code Web UI)
+
+In **Settings → Update cloud environment**:
+
+- **Environment variables:**
+  - `GCP_PROJECT_ID=<your_project_id>`
+  - `GCP_CREDENTIALS_B64=<paste contents of scripts/sa-claude-code-web-dev-key.b64>`
+- **Setup script:**
+  ```bash
+  #!/bin/bash
+  ./init_dev_env.sh || true
+  ```
+
+`init_dev_env.sh` then:
+1. Decodes `GCP_CREDENTIALS_B64` → `.gcp-credentials.json`
+2. Exports `GOOGLE_APPLICATION_CREDENTIALS`
+3. Runs `uv sync` and `scripts/test_setup.py`
+
+### Rotating the key
+
+If the key leaks, delete the old key and rerun the provisioning script:
+
+```bash
+gcloud iam service-accounts keys list \
+  --iam-account=sa-claude-code-web-dev@<project>.iam.gserviceaccount.com
+gcloud iam service-accounts keys delete <KEY_ID> \
+  --iam-account=sa-claude-code-web-dev@<project>.iam.gserviceaccount.com
+bash scripts/setup-claude-code-web-sa.sh
+```
 
 ## Troubleshooting
 
@@ -219,20 +281,21 @@ This may happen if the service account doesn't have proper IAM roles:
 
 ## Environment Files Created
 
-### `.env`
+### `.env` (always)
 - **Location:** Project root
-- **Contains:** GCP project settings, dataset names, pipeline configuration
+- **Contains:** GCP project settings, dataset names, pipeline configuration, `GCP_AUTH_METHOD`
 - **Safety:** Added to `.gitignore`
 
-### `~/.dbt/profiles.yml`
+### `~/.dbt/profiles.yml` (always)
 - **Location:** User home directory (`.dbt/` folder)
-- **Contains:** dbt BigQuery connection (service account keyfile path)
+- **Contains:** dbt BigQuery connection — `method: oauth` + `impersonate_service_account` in enterprise mode, `method: service-account` + `keyfile` in legacy mode
 - **Safety:** Permissions restricted to user only
 
-### `.gcp-credentials.json`
+### `.gcp-credentials.json` (legacy only)
 - **Location:** Project root
 - **Contains:** GCP service account credentials
-- **Safety:** Added to `.gitignore`, file permissions 0600
+- **Created only** in the legacy paths (env var / `--credentials-file` / manual paste). Enterprise mode does NOT write this file.
+- **Safety:** Added to `.gitignore` (pattern `sa-*.json` and explicit entry), file permissions 0600
 
 ## Validation
 
@@ -271,7 +334,7 @@ If the bootstrap scripts encounter issues, you can set up manually:
    ```
 3. **Run setup script:**
    ```bash
-   python3 setup_dev_env.py --credentials-file /path/to/service-account.json
+   python3 scripts/setup_dev_env.py --credentials-file /path/to/service-account.json
    ```
 
 ## Support
@@ -296,12 +359,12 @@ setup.sh / setup.bat
     ├─→ Found? Continue
     └─→ Not found? Auto-install
     ↓
-setup_dev_env.py
-    ├─→ Get GCP Credentials
-    ├─→ Create .env
-    ├─→ Create dbt/profiles.yml
-    ├─→ Update .gitignore
-    └─→ Run embrapa doctor
+scripts/setup_dev_env.py
+    ├─→ Resolve GCP project ID (gcloud → env → keyfile)
+    ├─→ Detect impersonation context (OAuth) or fall back to keyfile
+    ├─→ Create .env (records GCP_AUTH_METHOD)
+    ├─→ Create ~/.dbt/profiles.yml (oauth+impersonation or service-account)
+    └─→ Run `uv run embrapa doctor`
     ↓
 ✅ Ready to develop!
 ```

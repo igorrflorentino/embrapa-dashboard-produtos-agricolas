@@ -12,23 +12,28 @@ Generates the appropriate .env, dbt/profiles.yml, and credential files
 for the detected authentication mode. Works on Windows, macOS, Linux,
 and cloud serverless VMs.
 
-See ARCHITECTURE.md for the four-tier service account model and
-IAM_SETUP.md for the admin-side configuration.
+The impersonation target SA defaults to
+`sa-secret-reader-prod@<project>.iam.gserviceaccount.com` but can be
+overridden by setting GCP_IMPERSONATION_SA (either a short name or a
+full email).
+
+See docs/architecture.md for the four-tier service account model and
+docs/iam_setup.md for the admin-side configuration.
 """
 
-import os
-import sys
 import json
+import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Any
 
 
 class SetupHelper:
     """Cross-platform setup with auto-detected authentication mode."""
 
-    REPO_ROOT = Path(__file__).parent
+    REPO_ROOT = Path(__file__).resolve().parent.parent
     ENV_FILE = REPO_ROOT / ".env"
     DBT_PROFILES_DIR = Path.home() / ".dbt"
     DBT_PROFILES_FILE = DBT_PROFILES_DIR / "profiles.yml"
@@ -87,7 +92,7 @@ BCB_END_YEAR=2026
       job_execution_timeout_seconds: 600
       job_retries: 1
       priority: interactive
-      impersonate_service_account: sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com
+      impersonate_service_account: {impersonation_sa}
 
     prod:
       type: bigquery
@@ -99,7 +104,7 @@ BCB_END_YEAR=2026
       job_execution_timeout_seconds: 600
       job_retries: 1
       priority: batch
-      impersonate_service_account: sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com
+      impersonate_service_account: {impersonation_sa}
 """
 
     # Legacy: Keyfile method (for backward compatibility)
@@ -141,9 +146,9 @@ BCB_END_YEAR=2026
 
     def print_header(self, text: str):
         """Print a formatted header."""
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {text}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
     def print_step(self, step: int, text: str):
         """Print a step message."""
@@ -163,13 +168,13 @@ BCB_END_YEAR=2026
 
     def print_info(self, text: str):
         """Print an info message."""
-        print(f"  ℹ️  {text}")
+        print(f"  ℹ️  {text}")  # noqa: RUF001
 
     # ============================================================================
     # Authentication Strategy 1: Service Account Impersonation (Enterprise)
     # ============================================================================
 
-    def detect_impersonation_context(self) -> Tuple[bool, Optional[str]]:
+    def detect_impersonation_context(self) -> tuple[bool, str | None]:
         """
         Detect if running in a context that supports service account impersonation.
         Returns (is_available, reason)
@@ -179,7 +184,7 @@ BCB_END_YEAR=2026
             result = subprocess.run(
                 ["gcloud", "auth", "application-default", "print-access-token"],
                 capture_output=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 return True, "gcloud OAuth available"
@@ -189,6 +194,7 @@ BCB_END_YEAR=2026
         try:
             # Check if Application Default Credentials (ADC) is available
             from google.auth import default
+
             creds, _ = default()
             if creds and not creds.service_account_email:  # Not a service account key
                 return True, "Application Default Credentials (ADC) available"
@@ -200,52 +206,64 @@ BCB_END_YEAR=2026
     def validate_impersonation_permissions(self, project_id: str) -> bool:
         """
         Validate that the current user has iam.serviceAccountTokenCreator role
-        on sa-secret-reader-prod to enable impersonation.
+        on the impersonation target SA.
         """
         try:
-            sa_email = f"sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com"
+            sa_email = self.get_impersonation_sa_email(project_id)
+            current_user = self.get_current_gcp_user()
 
             result = subprocess.run(
-                [
-                    "gcloud", "iam", "service-accounts", "get-iam-policy",
-                    sa_email, "--format=json"
-                ],
+                ["gcloud", "iam", "service-accounts", "get-iam-policy", sa_email, "--format=json"],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
+                stderr = result.stderr.decode().strip()
                 self.print_warning(f"Could not check IAM policy for {sa_email}")
+                if stderr:
+                    self.print_info(f"gcloud: {stderr.splitlines()[0]}")
                 return False
 
             policy = json.loads(result.stdout.decode())
             bindings = policy.get("bindings", [])
 
-            # Check for Service Account Token Creator role
+            # Check that the CURRENT user is bound to Service Account Token Creator
             for binding in bindings:
-                if "roles/iam.serviceAccountTokenCreator" in binding.get("role", ""):
-                    members = binding.get("members", [])
-                    for member in members:
-                        if "user:" in member or "serviceAccount:" in member:
-                            self.print_success(
-                                f"Permission validated: {member} has Service Account Token Creator"
-                            )
-                            return True
+                if binding.get("role") != "roles/iam.serviceAccountTokenCreator":
+                    continue
+                members = binding.get("members", [])
+                if current_user and f"user:{current_user}" in members:
+                    self.print_success(
+                        f"Permission validated: {current_user} can impersonate {sa_email}"
+                    )
+                    return True
+                if current_user and f"serviceAccount:{current_user}" in members:
+                    self.print_success(
+                        f"Permission validated: {current_user} can impersonate {sa_email}"
+                    )
+                    return True
 
-            self.print_warning(f"Current user not in iam.serviceAccountTokenCreator for {sa_email}")
+            who = current_user or "current user"
+            self.print_warning(f"{who} not in iam.serviceAccountTokenCreator for {sa_email}")
             return False
 
         except Exception as e:
             self.print_warning(f"Could not validate impersonation permissions: {e}")
             return False
 
-    def get_current_gcp_user(self) -> Optional[str]:
+    def get_impersonation_sa_email(self, project_id: str) -> str:
+        """Return the impersonation target SA email (configurable via GCP_IMPERSONATION_SA)."""
+        sa = os.environ.get("GCP_IMPERSONATION_SA")
+        if sa:
+            return sa if "@" in sa else f"{sa}@{project_id}.iam.gserviceaccount.com"
+        return f"sa-secret-reader-prod@{project_id}.iam.gserviceaccount.com"
+
+    def get_current_gcp_user(self) -> str | None:
         """Get the currently authenticated GCP user/service account."""
         try:
             result = subprocess.run(
-                ["gcloud", "config", "get-value", "account"],
-                capture_output=True,
-                timeout=5
+                ["gcloud", "config", "get-value", "account"], capture_output=True, timeout=5
             )
             if result.returncode == 0:
                 return result.stdout.decode().strip()
@@ -283,20 +301,20 @@ BCB_END_YEAR=2026
     # Authentication Strategy 2: Environment Variable
     # ============================================================================
 
-    def get_gcp_credentials_from_env(self) -> Optional[Dict[str, Any]]:
+    def get_gcp_credentials_from_env(self) -> dict[str, Any] | None:
         """
         Fallback 1: Try environment variable GOOGLE_APPLICATION_CREDENTIALS.
         """
         env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if env_creds and Path(env_creds).exists():
-            self.print_info(f"Found credentials in GOOGLE_APPLICATION_CREDENTIALS")
+            self.print_info("Found credentials in GOOGLE_APPLICATION_CREDENTIALS")
             try:
                 with open(env_creds) as f:
                     creds = json.load(f)
                     self.print_success(f"Loaded credentials from {env_creds}")
                     self.auth_method = "env_var"
                     return creds
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 self.print_warning(f"Failed to read credentials file: {e}")
         return None
 
@@ -304,7 +322,7 @@ BCB_END_YEAR=2026
     # Authentication Strategy 3: Credentials File Argument
     # ============================================================================
 
-    def get_gcp_credentials_from_file(self) -> Optional[Dict[str, Any]]:
+    def get_gcp_credentials_from_file(self) -> dict[str, Any] | None:
         """
         Fallback 2: Try --credentials-file argument.
         """
@@ -319,7 +337,7 @@ BCB_END_YEAR=2026
                             self.print_success(f"Loaded credentials from {creds_path}")
                             self.auth_method = "credentials_file"
                             return creds
-                    except (json.JSONDecodeError, IOError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         self.print_error(f"Failed to read {creds_path}: {e}")
         return None
 
@@ -327,7 +345,7 @@ BCB_END_YEAR=2026
     # Authentication Strategy 4: Interactive Prompt
     # ============================================================================
 
-    def get_gcp_credentials_from_prompt(self) -> Optional[Dict[str, Any]]:
+    def get_gcp_credentials_from_prompt(self) -> dict[str, Any] | None:
         """
         Fallback 3: Prompt user to paste JSON (legacy, last resort).
         """
@@ -365,7 +383,7 @@ BCB_END_YEAR=2026
     # Unified Credential Resolution
     # ============================================================================
 
-    def get_gcp_credentials(self) -> Optional[Dict[str, Any]]:
+    def get_gcp_credentials(self) -> dict[str, Any] | None:
         """
         Fallback authentication strategy (impersonation handled separately):
         1. Try GOOGLE_APPLICATION_CREDENTIALS environment variable
@@ -390,7 +408,7 @@ BCB_END_YEAR=2026
     # Configuration Files
     # ============================================================================
 
-    def save_gcp_credentials(self, creds: Dict[str, Any]) -> bool:
+    def save_gcp_credentials(self, creds: dict[str, Any]) -> bool:
         """Save GCP credentials to file (legacy mode only)."""
         try:
             with open(self.GCP_CREDS_FILE, "w") as f:
@@ -398,7 +416,7 @@ BCB_END_YEAR=2026
             os.chmod(self.GCP_CREDS_FILE, 0o600)
             self.print_success(f"Saved credentials to {self.GCP_CREDS_FILE}")
             return True
-        except IOError as e:
+        except OSError as e:
             self.print_error(f"Failed to save credentials: {e}")
             return False
 
@@ -407,17 +425,15 @@ BCB_END_YEAR=2026
         try:
             content = self.ENV_TEMPLATE.format(
                 gcp_config=self.GCP_CONFIG.format(
-                    project_id=project_id,
-                    bucket=bucket,
-                    auth_method=self.auth_method
+                    project_id=project_id, bucket=bucket, auth_method=self.auth_method
                 ),
                 ibge_config=self.IBGE_CONFIG,
-                bcb_config=self.BCB_CONFIG
+                bcb_config=self.BCB_CONFIG,
             )
             self.ENV_FILE.write_text(content)
             self.print_success(f"Created {self.ENV_FILE} (auth_method={self.auth_method})")
             return True
-        except IOError as e:
+        except OSError as e:
             self.print_error(f"Failed to create .env: {e}")
             return False
 
@@ -428,14 +444,16 @@ BCB_END_YEAR=2026
 
             if use_enterprise and self.auth_method == "impersonation":
                 # Enterprise mode: OAuth with impersonation
-                content = self.DBT_PROFILES_ENTERPRISE.format(project_id=project_id)
+                content = self.DBT_PROFILES_ENTERPRISE.format(
+                    project_id=project_id,
+                    impersonation_sa=self.get_impersonation_sa_email(project_id),
+                )
                 self.print_info("Using enterprise OAuth method with service account impersonation")
             else:
                 # Legacy mode: Keyfile-based authentication
                 keyfile = self.GCP_CREDS_FILE.resolve()
                 content = self.DBT_PROFILES_LEGACY.format(
-                    project_id=project_id,
-                    keyfile=str(keyfile)
+                    project_id=project_id, keyfile=str(keyfile)
                 )
                 self.print_info("Using legacy keyfile-based authentication")
 
@@ -447,30 +465,8 @@ BCB_END_YEAR=2026
 
             self.print_success(f"Created {self.DBT_PROFILES_FILE}")
             return True
-        except IOError as e:
+        except OSError as e:
             self.print_error(f"Failed to create dbt profiles: {e}")
-            return False
-
-    def add_to_gitignore(self) -> bool:
-        """Add sensitive files to .gitignore."""
-        gitignore = self.REPO_ROOT / ".gitignore"
-        entries = [".gcp-credentials.json"]
-
-        try:
-            if gitignore.exists():
-                content = gitignore.read_text()
-            else:
-                content = ""
-
-            for entry in entries:
-                if entry not in content:
-                    content += f"\n{entry}"
-
-            gitignore.write_text(content)
-            self.print_success("Updated .gitignore")
-            return True
-        except IOError as e:
-            self.print_error(f"Failed to update .gitignore: {e}")
             return False
 
     # ============================================================================
@@ -480,11 +476,7 @@ BCB_END_YEAR=2026
     def validate_uv(self) -> bool:
         """Check if uv is available."""
         try:
-            result = subprocess.run(
-                ["uv", "--version"],
-                capture_output=True,
-                timeout=5
-            )
+            result = subprocess.run(["uv", "--version"], capture_output=True, timeout=5)
             if result.returncode == 0:
                 version = result.stdout.decode().strip()
                 self.print_success(f"Found uv: {version}")
@@ -498,11 +490,7 @@ BCB_END_YEAR=2026
     def validate_gcloud(self) -> bool:
         """Check if gcloud CLI is available (required for impersonation)."""
         try:
-            result = subprocess.run(
-                ["gcloud", "--version"],
-                capture_output=True,
-                timeout=5
-            )
+            result = subprocess.run(["gcloud", "--version"], capture_output=True, timeout=5)
             if result.returncode == 0:
                 self.print_success("gcloud CLI found")
                 return True
@@ -529,7 +517,7 @@ BCB_END_YEAR=2026
                 cwd=self.REPO_ROOT,
                 capture_output=True,
                 timeout=60,
-                env=env
+                env=env,
             )
 
             output = result.stdout.decode()
@@ -559,36 +547,32 @@ BCB_END_YEAR=2026
             self.print_error("uv is required. Please install it first.")
             return False
 
-        # Step 2: Attempt service account impersonation (enterprise)
-        self.print_step(2, "Checking for service account impersonation (enterprise mode)...")
-        if not self.setup_impersonation(self.project_id):
-            self.print_warning("Enterprise mode not available, falling back to legacy authentication")
+        # Step 2: Determine GCP project ID (needed before we can validate
+        # impersonation permissions, which require the project name to build
+        # the SA email).
+        self.print_step(2, "Determining GCP project...")
+        try:
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                project = result.stdout.decode().strip()
+                if project and project != "(unset)":
+                    self.project_id = project
+                    self.print_success(f"Detected project from gcloud: {self.project_id}")
+        except Exception:
+            pass
 
-        # Step 3: Get GCP project ID
-        self.print_step(3, "Determining GCP project...")
         if not self.project_id:
-            # Try to get from gcloud
-            try:
-                result = subprocess.run(
-                    ["gcloud", "config", "get-value", "project"],
-                    capture_output=True,
-                    timeout=5
-                )
-                if result.returncode == 0:
-                    self.project_id = result.stdout.decode().strip()
-                    self.print_success(f"Detected project: {self.project_id}")
-            except Exception:
-                pass
+            self.project_id = os.environ.get("GCP_PROJECT_ID")
+            if self.project_id:
+                self.print_success(f"Using GCP_PROJECT_ID from environment: {self.project_id}")
 
-            # Try environment variable
-            if not self.project_id:
-                self.project_id = os.environ.get("GCP_PROJECT_ID")
-                if self.project_id:
-                    self.print_success(f"Using GCP_PROJECT_ID from environment: {self.project_id}")
-
-        # If still no project, try to get from credentials
+        # If still no project, try to read from a keyfile (fallback paths)
         if not self.project_id:
-            self.print_step(3.1, "Setting up GCP credentials...")
+            self.print_step(2.1, "Loading credentials to discover project ID...")
             creds = self.get_gcp_credentials()
             if not creds:
                 self.print_error("Cannot proceed without GCP credentials or project")
@@ -599,31 +583,39 @@ BCB_END_YEAR=2026
                 self.print_error("Invalid credentials: missing project_id")
                 return False
 
-            # For non-impersonation paths, save the keyfile
-            if self.auth_method != "impersonation":
-                self.print_step(4, "Saving GCP credentials...")
-                if not self.save_gcp_credentials(creds):
+            # Save keyfile since we now have one in hand
+            self.print_step(2.2, "Saving GCP credentials...")
+            if not self.save_gcp_credentials(creds):
+                return False
+
+        # Step 3: With project_id known, attempt service account impersonation.
+        self.print_step(3, "Checking for service account impersonation (enterprise mode)...")
+        if not self.setup_impersonation(self.project_id):
+            self.print_warning(
+                "Enterprise mode not available, falling back to legacy authentication"
+            )
+            # If we have no keyfile yet, prompt for one now.
+            if self.auth_method != "impersonation" and not self.GCP_CREDS_FILE.exists():
+                self.print_step(3.1, "Setting up GCP credentials for legacy auth...")
+                creds = self.get_gcp_credentials()
+                if creds and not self.save_gcp_credentials(creds):
                     return False
 
         bucket = f"{self.project_id}-datalake"
 
-        # Step 5: Create .env
-        self.print_step(5, "Creating .env file...")
+        # Step 4: Create .env
+        self.print_step(4, "Creating .env file...")
         if not self.create_env_file(self.project_id, bucket):
             return False
 
-        # Step 6: Create dbt profiles
-        self.print_step(6, "Creating dbt profiles...")
+        # Step 5: Create dbt profiles
+        self.print_step(5, "Creating dbt profiles...")
         use_enterprise = self.auth_method == "impersonation"
         if not self.create_dbt_profiles(self.project_id, use_enterprise=use_enterprise):
             return False
 
-        # Step 7: Update .gitignore
-        self.print_step(7, "Updating .gitignore...")
-        self.add_to_gitignore()
-
-        # Step 8: Validate setup
-        self.print_step(8, "Validating setup...")
+        # Step 6: Validate setup
+        self.print_step(6, "Validating setup...")
         self.run_embrapa_doctor()
 
         return True
@@ -651,13 +643,13 @@ def main():
             print("  1. Review .env file and make any necessary changes")
             print("  2. Run: uv run embrapa --help")
             print("  3. Run: make dbt-build (for dbt development)")
-            print("  4. See ARCHITECTURE.md for the cloud architecture overview")
+            print("  4. See docs/architecture.md for the cloud architecture overview")
             print("  5. Happy coding! 🚀\n")
             sys.exit(0)
         else:
             helper.print_header("❌ Setup Failed")
             print("Please review the errors above and try again.\n")
-            print("For setup help, see: SETUP.md, ARCHITECTURE.md, and IAM_SETUP.md\n")
+            print("For setup help, see: docs/setup.md, docs/architecture.md, docs/iam_setup.md\n")
             sys.exit(1)
     except KeyboardInterrupt:
         print("\n\nSetup cancelled by user.")

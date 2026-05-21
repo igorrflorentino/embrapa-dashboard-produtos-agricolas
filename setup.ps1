@@ -170,7 +170,7 @@ function Main {
     Write-Header "Running environment setup..."
 
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    $setupPyPath = Join-Path $scriptDir "setup_dev_env.py"
+    $setupPyPath = Join-Path $scriptDir "scripts/setup_dev_env.py"
 
     & $pythonCmd $setupPyPath @Args
     $exitCode = $LASTEXITCODE

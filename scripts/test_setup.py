@@ -4,18 +4,17 @@ Comprehensive test suite for development environment setup.
 Tests all critical components.
 """
 
-import os
-import sys
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
-from typing import Tuple, List
 
 
 class EnvironmentTester:
     """Test suite for development environment."""
 
-    REPO_ROOT = Path(__file__).parent
+    REPO_ROOT = Path(__file__).resolve().parent.parent
     ENV_FILE = REPO_ROOT / ".env"
     GCP_CREDS_FILE = REPO_ROOT / ".gcp-credentials.json"
     DBT_PROFILES_FILE = Path.home() / ".dbt" / "profiles.yml"
@@ -26,9 +25,9 @@ class EnvironmentTester:
 
     def print_header(self, text: str):
         """Print a formatted header."""
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {text}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
     def print_test(self, name: str) -> None:
         """Print test name."""
@@ -63,8 +62,8 @@ class EnvironmentTester:
             "setup.sh": self.REPO_ROOT / "setup.sh",
             "setup.bat": self.REPO_ROOT / "setup.bat",
             "setup.ps1": self.REPO_ROOT / "setup.ps1",
-            "setup_dev_env.py": self.REPO_ROOT / "setup_dev_env.py",
-            "SETUP.md": self.REPO_ROOT / "SETUP.md",
+            "scripts/setup_dev_env.py": self.REPO_ROOT / "scripts" / "setup_dev_env.py",
+            "docs/setup.md": self.REPO_ROOT / "docs" / "setup.md",
         }
 
         all_pass = True
@@ -111,7 +110,7 @@ class EnvironmentTester:
             with open(self.ENV_FILE) as f:
                 env_content = f.read()
             self.print_pass()
-        except IOError as e:
+        except OSError as e:
             self.print_fail(str(e))
             self.tests_failed.append("Read .env file")
             return False
@@ -133,8 +132,6 @@ class EnvironmentTester:
         """Test GCP credentials — keyfile (legacy) or ADC (enterprise)."""
         self.print_header("3️⃣  GCP Credentials Tests")
 
-        auth_mode = self.detect_auth_mode()
-
         if self.GCP_CREDS_FILE.exists():
             # Legacy: validate JSON keyfile
             self.print_test("Reading credentials file (legacy keyfile)")
@@ -142,7 +139,7 @@ class EnvironmentTester:
                 with open(self.GCP_CREDS_FILE) as f:
                     creds = json.load(f)
                 self.print_pass()
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 self.print_fail(f"Invalid JSON: {e}")
                 self.tests_failed.append("Read credentials")
                 return False
@@ -165,7 +162,8 @@ class EnvironmentTester:
             try:
                 result = subprocess.run(
                     ["gcloud", "auth", "application-default", "print-access-token"],
-                    capture_output=True, timeout=10
+                    capture_output=True,
+                    timeout=10,
                 )
                 if result.returncode == 0:
                     self.print_pass()
@@ -176,7 +174,9 @@ class EnvironmentTester:
                     self.tests_failed.append("ADC credentials (enterprise)")
                     return False
             except FileNotFoundError:
-                self.print_fail("gcloud not found — install Cloud SDK or provide .gcp-credentials.json")
+                self.print_fail(
+                    "gcloud not found — install Cloud SDK or provide .gcp-credentials.json"
+                )
                 self.tests_failed.append("ADC credentials (enterprise)")
                 return False
 
@@ -189,7 +189,7 @@ class EnvironmentTester:
             with open(self.DBT_PROFILES_FILE) as f:
                 content = f.read()
             self.print_pass()
-        except IOError as e:
+        except OSError as e:
             self.print_fail(str(e))
             self.tests_failed.append("Read dbt profiles")
             return False
@@ -253,11 +253,7 @@ class EnvironmentTester:
 
         self.print_test("uv available")
         try:
-            result = subprocess.run(
-                ["uv", "--version"],
-                capture_output=True,
-                timeout=5
-            )
+            result = subprocess.run(["uv", "--version"], capture_output=True, timeout=5)
             if result.returncode == 0:
                 version = result.stdout.decode().strip()
                 self.print_pass()
@@ -282,7 +278,7 @@ class EnvironmentTester:
                 ["uv", "run", "dbt", "--version"],
                 cwd=self.REPO_ROOT,
                 capture_output=True,
-                timeout=30
+                timeout=30,
             )
             if result.returncode == 0:
                 self.print_pass()
@@ -313,7 +309,7 @@ class EnvironmentTester:
                 cwd=self.REPO_ROOT,
                 capture_output=True,
                 timeout=60,
-                env=env
+                env=env,
             )
 
             output = result.stdout.decode()
@@ -351,7 +347,7 @@ class EnvironmentTester:
                 cwd=self.REPO_ROOT / "dbt",
                 capture_output=True,
                 timeout=30,
-                env=env
+                env=env,
             )
 
             output = result.stdout.decode()

@@ -18,21 +18,23 @@ test.bat
 
 ### Or directly with Python
 ```bash
-python3 test_setup.py
+python3 scripts/test_setup.py
 ```
 
 ## What Gets Tested
 
-The test suite validates **28 critical components** across 9 categories:
+The test suite validates critical components across 9 categories. The exact
+count varies by auth mode (~27 in enterprise / impersonation mode, ~31 in
+legacy keyfile mode):
 
-### 1️⃣ File Existence (8 tests)
+### 1️⃣ File Existence (8 checks)
 - ✅ `.env` file exists
-- ✅ `.gcp-credentials.json` exists
 - ✅ `~/.dbt/profiles.yml` exists
-- ✅ All bootstrap scripts present
-- ✅ Documentation files present
+- ✅ Bootstrap scripts present: `setup.sh`, `setup.bat`, `setup.ps1`, `scripts/setup_dev_env.py`
+- ✅ `docs/setup.md` present
+- ✅ `.gcp-credentials.json` — required in legacy mode, optional in enterprise mode
 
-### 2️⃣ Environment Configuration (6 tests)
+### 2️⃣ Environment Configuration (7 checks)
 - ✅ `.env` file is readable
 - ✅ Required config keys present:
   - `GCP_PROJECT_ID`
@@ -42,15 +44,11 @@ The test suite validates **28 critical components** across 9 categories:
   - `BCB_INFLATION_SERIES`
   - `IBGE_PRODUCT_CODES`
 
-### 3️⃣ GCP Credentials (4 tests)
-- ✅ Credentials file is valid JSON
-- ✅ Required fields present:
-  - `project_id`
-  - `private_key`
-  - `client_email`
-  - `type`
+### 3️⃣ GCP Credentials (1–5 checks)
+- **Legacy:** Credentials file is valid JSON + required fields (`project_id`, `private_key`, `client_email`, `type`)
+- **Enterprise:** Application Default Credentials (ADC) reachable via `gcloud auth application-default print-access-token`
 
-### 4️⃣ dbt Configuration (5 tests)
+### 4️⃣ dbt Configuration (6 checks)
 - ✅ `profiles.yml` is readable
 - ✅ Required sections present:
   - `embrapa_commodities:`
@@ -98,8 +96,8 @@ The test suite validates **28 critical components** across 9 categories:
   📊 Test Summary
 ============================================================
 
-Total: 28 tests
-Passed: 28 ✅
+Total: 27 tests
+Passed: 27 ✅
 Failed: 0 ❌
 
 🎉 All tests passed! Environment is ready.
@@ -187,7 +185,7 @@ These tests can be integrated into CI/CD pipelines:
 #!/bin/bash
 # GitHub Actions example
 - name: Test environment setup
-  run: python3 test_setup.py
+  run: python3 scripts/test_setup.py
 ```
 
 ## Test Coverage
@@ -215,15 +213,15 @@ If all tests pass, you're ready to:
 
 ## Additional Resources
 
-- **SETUP.md** — Environment setup documentation
+- **setup.md** — Environment setup documentation
 - **CLAUDE.md** — Project architecture and commands
-- **setup_dev_env.py** — Setup script (see for test implementation)
-- **test_setup.py** — Test script source code
+- **scripts/setup_dev_env.py** — Setup script (see for test implementation)
+- **scripts/test_setup.py** — Test script source code
 
 ## Support
 
 For test failures or questions:
-1. Check TESTING.md troubleshooting section
-2. Review SETUP.md for setup issues
+1. Check testing.md troubleshooting section
+2. Review setup.md for setup issues
 3. Check CLAUDE.md for architecture details
 4. Open GitHub issue if problem persists

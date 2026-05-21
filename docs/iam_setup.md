@@ -221,7 +221,7 @@ Each developer runs the setup script:
 ```bash
 # Developer command
 cd embrapa-dashboard-commodities
-python3 setup_dev_env.py
+python3 scripts/setup_dev_env.py
 ```
 
 The script will:
@@ -427,7 +427,7 @@ gcloud logging read "resource.type=gce_instance OR resource.type=bigquery_resour
 ## Next Steps
 
 1. **Admin:** Complete all steps in this guide
-2. **Admin:** Share `setup_dev_env.py` and `ARCHITECTURE.md` with developers
-3. **Developers:** Run `python3 setup_dev_env.py`
+2. **Admin:** Share `scripts/setup_dev_env.py` and `architecture.md` with developers
+3. **Developers:** Run `python3 scripts/setup_dev_env.py`
 4. **Everyone:** Review audit logs quarterly
 5. **Admin:** Rotate credentials quarterly (Step 10)
