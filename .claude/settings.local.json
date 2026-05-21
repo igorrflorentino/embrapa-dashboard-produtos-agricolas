@@ -43,7 +43,9 @@
       "Bash(Select-Object -First 50)",
       "PowerShell(gcloud iam service-accounts add-iam-policy-binding *)",
       "PowerShell(cd \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\"; powershell -ExecutionPolicy Bypass -File scripts/grant-sa-iam-roles.ps1 2>&1)",
-      "PowerShell(gcloud projects add-iam-policy-binding embrapa-dashboard-commodities *)"
+      "PowerShell(gcloud projects add-iam-policy-binding embrapa-dashboard-commodities *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ]
   }
 }
