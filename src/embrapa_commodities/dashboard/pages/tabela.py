@@ -103,6 +103,41 @@ def _apply_search(df: pd.DataFrame, term: str | None) -> pd.DataFrame:
     return df[mask]
 
 
+def _quality_flag_styling() -> list[dict]:
+    """Style the data_quality_flag column by exact value.
+
+    Earlier versions used `!= 'OK' && {col} is not blank` to color any
+    non-OK flag red, but that compound filter query crashes Dash 4's
+    filter parser ("DataTable filtering syntax is invalid"), which in
+    turn prevents the entire DataTable from rendering. Listing each
+    known flag value explicitly is uglier but works on every Dash
+    version and is robust to future operator changes.
+    """
+    base_style = {"fontWeight": 500}
+    rules: list[dict] = [
+        {
+            "if": {
+                "filter_query": '{data_quality_flag} eq "OK"',
+                "column_id": "data_quality_flag",
+            },
+            "color": "var(--embrapa-green-darker)",
+            **base_style,
+        },
+    ]
+    for bad_value in ("MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"):
+        rules.append(
+            {
+                "if": {
+                    "filter_query": f'{{data_quality_flag}} eq "{bad_value}"',
+                    "column_id": "data_quality_flag",
+                },
+                "color": "var(--status-error)",
+                **base_style,
+            }
+        )
+    return rules
+
+
 def _prepare_for_table(df: pd.DataFrame, visible: list[str]) -> list[dict]:
     """Convert the filtered DataFrame to a list of dicts for DataTable.
 
@@ -316,25 +351,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
                     "backgroundColor": "#fff",
                     "borderBottom": "1px solid var(--border-subtle)",
                 },
-                style_data_conditional=[
-                    {
-                        "if": {
-                            "filter_query": "{data_quality_flag} = 'OK'",
-                            "column_id": "data_quality_flag",
-                        },
-                        "color": "var(--embrapa-green-darker)",
-                        "fontWeight": 500,
-                    },
-                    {
-                        "if": {
-                            "filter_query": "{data_quality_flag} != 'OK' "
-                            "&& {data_quality_flag} is not blank",
-                            "column_id": "data_quality_flag",
-                        },
-                        "color": "var(--status-error)",
-                        "fontWeight": 500,
-                    },
-                ],
+                style_data_conditional=_quality_flag_styling(),
             )
 
             note = None
