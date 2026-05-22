@@ -610,8 +610,11 @@ body.is-loading                     { cursor: progress; }
 
 /* Pre-hydration: before Dash mounts the React tree, the default
    "Loading…" string flashes in the top-left. Replace it with our own
-   brand-coloured bar so the user always sees an intentional indicator. */
-._dash-loading {
+   brand-coloured bar so the user always sees an intentional indicator.
+   The selector is scoped to the direct child of #react-entry-point so
+   we don't accidentally hit the dcc.Loading spinners (which may share
+   the `_dash-loading` class internally). */
+#react-entry-point > ._dash-loading {
   position: fixed;
   top: 0;
   left: 0;
@@ -625,7 +628,7 @@ body.is-loading                     { cursor: progress; }
   color: transparent;
   text-indent: -9999px;
 }
-._dash-loading::before {
+#react-entry-point > ._dash-loading::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -660,9 +663,11 @@ body.is-loading                     { cursor: progress; }
 .loading-wrap.loading-highlights { min-height: 160px; }
 .loading-wrap.loading-cities { min-height: 220px; }
 
-/* Dim and slightly desaturate the content while a callback is pending so the
-   spinner is unambiguous and the stale data doesn't look "fresh". */
-._dash-loading-callback ~ * { opacity: 0.45; pointer-events: none; }
+/* Earlier versions dimmed stale content via `._dash-loading-callback ~ *`
+   but the general-sibling selector kept applying after the spinner was
+   removed (in some Dash transitions the wrapper element lingers in the
+   DOM hidden). dcc.Loading already provides a visible spinner — we don't
+   need to dim anything further. */
 
 /* ---------- Error overlay (full-screen block) ---------- */
 .error-overlay {
