@@ -53,7 +53,30 @@
       "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\\(Resolve-Path \"Embrapa-Commodities-Design-System-handoff.zip\"\\).Path\\); $zip.Entries | Select-Object FullName, Length | Format-Table -AutoSize; $zip.Dispose\\(\\))",
       "Bash(python -c ' *)",
       "Bash(uv sync *)",
-      "Bash(GCP_PROJECT_ID=stub-project uv run --no-sync python -c ' *)"
+      "Bash(GCP_PROJECT_ID=stub-project uv run --no-sync python -c ' *)",
+      "Bash(gcloud config *)",
+      "Bash(gcloud iam *)",
+      "Bash(gcloud services *)",
+      "Bash(bq ls *)",
+      "Bash(bq show *)",
+      "Bash(gcloud run *)",
+      "Bash(gcloud projects *)",
+      "Bash(gcloud alpha *)",
+      "Bash(curl -fsSL -w 'HTTP %{http_code}  time=%{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/healthz)",
+      "Bash(curl -fsSL -o /tmp/root.html -w 'HTTP %{http_code}  time=%{time_total}s  size=%{size_download}\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/)",
+      "Read(//tmp/**)",
+      "Bash(curl -is https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/healthz)",
+      "Bash(curl -fsSL -w 'HTTP %{http_code}  time=%{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/_health)",
+      "Bash(curl -fsSL -o /dev/null -w 'GET / -> HTTP %{http_code}  time=%{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/)",
+      "Bash(curl -fsSL -o /dev/null -w 'HTTP %{http_code}  time=%{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/)",
+      "Bash(curl -fsSL -w '  /_health  HTTP %{http_code}  %{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/_health)",
+      "Bash(curl -fsSL -o /dev/null -w '  /         HTTP %{http_code}  %{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/)",
+      "Bash(curl -fsSL -o /dev/null -w '  HTTP %{http_code}  %{size_download} bytes\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/assets/03-loading.js)",
+      "Bash(curl -fsSL -o /dev/null -w '  attempt __TRACKED_VAR__: HTTP %{http_code}  time=%{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/_health)",
+      "Bash(curl -fsSL -o /dev/null -w '  /status   HTTP %{http_code}  %{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/status)",
+      "Bash(curl -fsSL -o /dev/null -w '  /produto  HTTP %{http_code}  %{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/produto)",
+      "Bash(curl -fsSL -o /dev/null -w '  /geografia HTTP %{http_code}  %{time_total}s\\\\n' https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/geografia)",
+      "Bash(GCP_PROJECT_ID=stub-project PYTHONIOENCODING=utf-8 uv run --no-sync python -c ' *)"
     ]
   }
 }
