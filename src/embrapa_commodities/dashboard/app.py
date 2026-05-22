@@ -3,9 +3,10 @@
 Exposes the Flask WSGI app as ``server`` so Gunicorn / Cloud Run can target
 ``embrapa_commodities.dashboard.app:server``.
 
-The first request lazily instantiates a singleton `GoldStore`, which in turn
-issues one `SELECT * FROM gold_commodity_matrix` against BigQuery. Subsequent
-requests are served from the in-memory pandas snapshot.
+Architecture: the dashboard is **source-scoped**. The registry in
+`data_sources.py` declares each upstream dataset and its views. URLs
+look like ``/<source-id>/<view-id>`` — see the registry for the
+canonical list. The only global page is ``/status``.
 
 Error handling:
 - Any exception during layout rendering or in a page callback writes a
@@ -24,20 +25,13 @@ from dash import Dash, Input, Output, dcc, html, no_update
 from flask import jsonify
 
 from embrapa_commodities.dashboard.components.shell import shell
-from embrapa_commodities.dashboard.config import get_settings
-from embrapa_commodities.dashboard.data import GoldStore
-from embrapa_commodities.dashboard.health import health
-from embrapa_commodities.dashboard.pages import (
-    dados,
-    export,
-    geography,
-    glossario,
-    overview,
-    product,
-    sobre_api,
-    status,
-    tabela,
+from embrapa_commodities.dashboard.data_sources import (
+    DEFAULT_SOURCE_ID,
+    DataSource,
+    build_registry,
 )
+from embrapa_commodities.dashboard.health import health
+from embrapa_commodities.dashboard.pages import status as status_page
 from embrapa_commodities.dashboard.theme import install_template
 
 logging.basicConfig(
@@ -46,29 +40,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-PAGE_MODULES = {
-    "/": overview,
-    "/produto": product,
-    "/geografia": geography,
-    "/tabela": tabela,
-    "/export": export,
-    "/glossario": glossario,
-    "/dados": dados,
-    "/sobre-api": sobre_api,
-    "/status": status,
-}
 
-PAGE_LABELS = {
-    "/": "Visão geral",
-    "/produto": "Produto",
-    "/geografia": "Geografia",
-    "/tabela": "Tabela bruta",
-    "/export": "Exportar CSV",
-    "/glossario": "Glossário",
-    "/dados": "Sobre os dados",
-    "/sobre-api": "Sobre a API",
-    "/status": "Saúde do sistema",
-}
+# ── Source registry — built at app startup ────────────────────────────────
+DATA_SOURCES: dict[str, DataSource] = {}
+
+
+def _default_source() -> DataSource:
+    return DATA_SOURCES[DEFAULT_SOURCE_ID]
+
+
+def _default_path() -> str:
+    src = _default_source()
+    return f"/{src.id}/{src.default_view().id}"
+
+
+def _resolve(pathname: str) -> tuple[DataSource | None, object | None, str]:
+    """Parse a request path into (source, view, canonical_path).
+
+    Returns (None, None, path) for unknown or special-cased paths.
+    """
+    path = (pathname or "/").rstrip("/") or "/"
+    if path == "/" or path == "":
+        return None, None, "/"
+    if path == "/status":
+        return None, None, "/status"
+    parts = path.strip("/").split("/")
+    if not parts:
+        return None, None, "/"
+    source_id = parts[0]
+    source = DATA_SOURCES.get(source_id)
+    if source is None:
+        return None, None, path
+    if len(parts) == 1:
+        # /<source> with no view → canonicalize to default view
+        return source, source.default_view(), f"/{source.id}/{source.default_view().id}"
+    view = source.find_view(parts[1])
+    return source, view, path
 
 
 def build_error_payload(
@@ -80,9 +87,11 @@ def build_error_payload(
     """Structured error payload written to the global-error `dcc.Store`.
 
     Also tees a copy into the health registry so it shows up on /status.
+    `page` is a URL path; the label is resolved from the registry when
+    possible, falling back to the raw path.
     """
     payload = {
-        "page": PAGE_LABELS.get(page, page),
+        "page": _page_label(page),
         "where": where,
         "type": type(exc).__name__,
         "message": str(exc) or "(sem mensagem)",
@@ -93,6 +102,20 @@ def build_error_payload(
     return payload
 
 
+def _page_label(path: str) -> str:
+    """Friendly label for an URL path, used in error overlays."""
+    if path == "/status":
+        return "Saúde do sistema"
+    if path == "/":
+        return "Início"
+    src, view, _ = _resolve(path)
+    if src is None:
+        return path
+    if view is None:
+        return src.label
+    return f"{src.label} · {view.label}"
+
+
 def _infer_cause(exc: BaseException) -> str:
     """Heuristic to translate common errors into operator-friendly causes."""
     name = type(exc).__name__
@@ -100,15 +123,10 @@ def _infer_cause(exc: BaseException) -> str:
     module = type(exc).__module__
 
     if "notfound" in name.lower() or "404" in msg:
-        if "location" in msg:
-            return (
-                "Dataset não encontrado nessa location do BigQuery. "
-                "Verifique se BQ_LOCATION corresponde à região onde o "
-                "dataset gold realmente está."
-            )
         return (
-            "Tabela ou dataset não encontrado. Verifique BQ_GOLD_DATASET "
-            "e se o pipeline dbt já materializou gold_commodity_matrix."
+            "Tabela, dataset ou location não encontrada no BigQuery. "
+            "Verifique BQ_GOLD_DATASET (nome do dataset) e BQ_LOCATION "
+            "(deve corresponder à região onde o dataset realmente está)."
         )
     if "forbidden" in name.lower() or "permission" in msg or "403" in msg:
         return (
@@ -180,35 +198,26 @@ def _build_dash() -> Dash:
     )
     health.stage_ok("dash_app", detail="Layout root + Store + overlay")
 
-    # ── Create the GoldStore eagerly at app startup so that callback
-    # registration below can capture it. The store constructor itself is
-    # cheap — it only opens a BigQuery client; the actual SELECT * is
-    # deferred to the first slicer call. This is critical: prior versions
-    # registered page callbacks lazily inside the route callback, but by
-    # then the client had already fetched /_dash-dependencies and didn't
-    # know to dispatch them — leaving cold-start visitors with empty
-    # charts until they manually reloaded. Registering at startup means
-    # /_dash-dependencies always returns the full graph.
+    # ── Build the source registry and register every view's callbacks at
+    # startup. This is critical: prior versions registered page callbacks
+    # lazily inside the route callback, but by then the client had already
+    # fetched /_dash-dependencies and didn't know to dispatch them. With
+    # eager registration the JS always receives the full graph.
     health.stage_started("page_callbacks")
     try:
-        ingestion, dashboard = get_settings()
-        store = GoldStore(ingestion, dashboard)
-        page_modules = (
-            overview,
-            product,
-            geography,
-            tabela,
-            export,
-            glossario,
-            dados,
-            sobre_api,
-            status,
-        )
-        for module in page_modules:
-            module.register_callbacks(dash_app, store)
+        DATA_SOURCES.update(build_registry())
+        view_count = 0
+        for source in DATA_SOURCES.values():
+            for view in source.all_views():
+                view.register_fn(dash_app, source.store)
+                view_count += 1
+        # The /status page is global (not source-scoped), so register it
+        # separately. Its register_fn accepts an unused store arg for API
+        # symmetry.
+        status_page.register_callbacks(dash_app, None)
         health.stage_ok(
             "page_callbacks",
-            detail=f"{len(page_modules)} páginas registradas",
+            detail=f"{len(DATA_SOURCES)} fonte(s), {view_count} view(s) + /status",
         )
     except Exception as exc:
         logger.exception("Failed to register page callbacks at startup")
@@ -217,21 +226,58 @@ def _build_dash() -> Dash:
 
     @dash_app.callback(
         Output("page-container", "children"),
+        Output("url", "pathname"),
         Output("global-error", "data"),
         Input("url", "pathname"),
     )
     def _route(pathname):
-        path = pathname or "/"
-        module = PAGE_MODULES.get(path)
-        if module is None:
-            return shell(_not_found(path), pathname=path), None
+        path = (pathname or "/").rstrip("/") or "/"
+
+        # Special-cased global routes.
+        if path == "/":
+            target = _default_path()
+            # Redirect — pathname update will re-fire this callback.
+            return no_update, target, None
+        if path == "/status":
+            try:
+                content = status_page.layout(None)
+                return shell(content, path=path, source=None, view=None), no_update, None
+            except Exception as exc:
+                logger.exception("Failed to render layout for /status")
+                return (
+                    no_update,
+                    no_update,
+                    build_error_payload(
+                        exc, page=path, where="layout da página Saúde do sistema"
+                    ),
+                )
+
+        source, view, canonical_path = _resolve(path)
+        if source is None:
+            return shell(_not_found(path), path=path, source=None, view=None), no_update, None
+        if view is None:
+            # /<source>/<unknown-view>
+            return (
+                shell(_not_found(path), path=path, source=source, view=None),
+                no_update,
+                None,
+            )
+        if canonical_path != path:
+            # /<source> with no view → redirect to default view URL.
+            return no_update, canonical_path, None
         try:
-            content = module.layout(store)
-            return shell(content, pathname=path), None
+            content = view.layout_fn(source.store)
+            return shell(content, path=path, source=source, view=view), no_update, None
         except Exception as exc:
             logger.exception("Failed to render layout for %s", path)
-            return no_update, build_error_payload(
-                exc, page=path, where=f"layout da página {PAGE_LABELS.get(path, path)}"
+            return (
+                no_update,
+                no_update,
+                build_error_payload(
+                    exc,
+                    page=path,
+                    where=f"layout da view {source.label} · {view.label}",
+                ),
             )
 
     @dash_app.callback(
@@ -267,7 +313,7 @@ def _not_found(path: str) -> html.Div:
         children=[
             html.Div(className="overline", children="404"),
             html.H3(f"Página não encontrada: {path}", className="section-title"),
-            dcc.Link("Voltar à visão geral", href="/", className="link"),
+            dcc.Link("Voltar ao início", href=_default_path(), className="link"),
         ],
     )
 

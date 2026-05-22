@@ -1,8 +1,12 @@
 """AppShell — institutional chrome wrapping every page.
 
 Topbar (verde Embrapa), sidebar, content slot, and footer with the tríade
-lockup. The active nav item is highlighted client-side by Dash's pathname
-prop coming from `dcc.Location`.
+lockup. The shell is **source-aware**: when a `DataSource` is active, the
+top nav renders that source's `primary_views`, and the sidebar lists the
+available sources plus the active source's `sidebar_sections`.
+
+On global pages (e.g. /status) there is no active source — the top nav
+shows just the product name and the sidebar omits the per-source extras.
 """
 
 from __future__ import annotations
@@ -10,45 +14,34 @@ from __future__ import annotations
 from dash import dcc, html
 
 from embrapa_commodities.dashboard.components.icons import icon
+from embrapa_commodities.dashboard.data_sources import DataSource
 
-NAV = [
-    ("/", "Visão geral", "dashboard"),
-    ("/produto", "Produto", "eco"),
-    ("/geografia", "Geografia", "map"),
-]
-
-SIDEBAR_EXTRA = [
-    (
-        "Dados",
-        [
-            ("Tabela bruta", "database", "/tabela"),
-            ("Exportar CSV", "download", "/export"),
-            ("Sobre a API", "api", "/sobre-api"),
-        ],
-    ),
-    (
-        "Operação",
-        [("Saúde do sistema", "fact_check", "/status")],
-    ),
-    (
-        "Sobre",
-        [
-            ("Glossário", "help", "/glossario"),
-            ("Sobre os dados", "info", "/dados"),
-        ],
-    ),
-]
+# Single global sidebar section, always visible regardless of the
+# active source. `/status` is the only global page so far.
+_GLOBAL_SECTION = (
+    ("Saúde do sistema", "fact_check", "/status"),
+)
 
 
-def _topbar(pathname: str) -> html.Header:
-    nav_items = [
-        dcc.Link(
-            label,
-            href=href,
-            className=f"topnav-item {'active' if pathname == href else ''}",
-        )
-        for href, label, _ in NAV
-    ]
+def _topbar(source: DataSource | None, view_id: str | None) -> html.Header:
+    """Topbar with view tabs for the currently-active source.
+
+    When no source is active (e.g. /status), the topbar shows just the
+    product name without view tabs.
+    """
+    nav_items = []
+    if source is not None:
+        for v in source.primary_views:
+            href = f"/{source.id}/{v.id}"
+            is_active = v.id == view_id
+            nav_items.append(
+                dcc.Link(
+                    v.label,
+                    href=href,
+                    className=f"topnav-item {'active' if is_active else ''}",
+                )
+            )
+
     return html.Header(
         className="topbar",
         children=[
@@ -70,58 +63,75 @@ def _topbar(pathname: str) -> html.Header:
                         children=[icon("schedule", size=14), html.Span("Dados públicos")],
                         className="util-chip",
                     ),
-                    html.Span("IBGE PEVS · BCB SGS", className="util-chip"),
+                    html.Span(
+                        source.label if source is not None else "Embrapa",
+                        className="util-chip",
+                    ),
                 ],
             ),
         ],
     )
 
 
-def _sidebar(pathname: str) -> html.Aside:
-    primary_items = [
-        dcc.Link(
-            children=[icon(ic), html.Span(label)],
-            href=href,
-            className=f"side-item {'active' if pathname == href else ''}",
-        )
-        for href, label, ic in NAV
-    ]
+def _sidebar(
+    sources: list[DataSource],
+    active_source: DataSource | None,
+    active_view_id: str | None,
+    path: str,
+) -> html.Aside:
+    """Sidebar with sources at top, active source's extras, then globals."""
+    items: list = []
 
-    extras: list = []
-    for section_title, items in SIDEBAR_EXTRA:
-        extras.append(html.Div(section_title, className="side-section"))
-        for item in items:
-            # Items are (label, icon) for inert entries or (label, icon, href)
-            # for actual navigation links.
-            if len(item) == 3:
-                label, ic, href = item
-                extras.append(
+    # ── 1. Data sources ────────────────────────────────────────────────────
+    items.append(html.Div("Bases de dados", className="side-section"))
+    for src in sources:
+        default_href = f"/{src.id}/{src.default_view().id}"
+        # A source is "active" when its id appears in the active context,
+        # regardless of which view is open.
+        is_active = active_source is not None and active_source.id == src.id
+        items.append(
+            dcc.Link(
+                children=[icon(src.icon), html.Span(src.label)],
+                href=default_href,
+                className=f"side-item {'active' if is_active else ''}",
+            )
+        )
+
+    # ── 2. Active source's secondary sections ──────────────────────────────
+    if active_source is not None:
+        for section in active_source.sidebar_sections:
+            items.append(html.Div(section.title, className="side-section"))
+            for v in section.views:
+                href = f"/{active_source.id}/{v.id}"
+                is_active = v.id == active_view_id
+                items.append(
                     dcc.Link(
-                        children=[icon(ic), html.Span(label)],
+                        children=[icon(v.icon), html.Span(v.label)],
                         href=href,
-                        className=(f"side-item {'active' if pathname == href else ''}"),
+                        className=f"side-item {'active' if is_active else ''}",
                     )
                 )
-            else:
-                label, ic = item
-                extras.append(
-                    html.Div(
-                        children=[icon(ic), html.Span(label)],
-                        className="side-item",
-                    )
-                )
+
+    # ── 3. Global section (always present) ─────────────────────────────────
+    items.append(html.Div("Operação", className="side-section"))
+    for label, ic, href in _GLOBAL_SECTION:
+        is_active = path == href
+        items.append(
+            dcc.Link(
+                children=[icon(ic), html.Span(label)],
+                href=href,
+                className=f"side-item {'active' if is_active else ''}",
+            )
+        )
 
     return html.Aside(
         className="sidebar",
         children=[
-            html.Div("Dashboards", className="side-section"),
-            *primary_items,
-            *extras,
+            *items,
             html.Div(
                 className="side-foot",
                 children=html.Div(
-                    "Dados públicos · IBGE PEVS / BCB SGS. "
-                    "Pipeline Bronze → Silver → Gold sobre BigQuery.",
+                    "Dados públicos · Pipeline Bronze → Silver → Gold sobre BigQuery.",
                     className="public-note",
                 ),
             ),
@@ -170,16 +180,33 @@ def _footer() -> html.Footer:
     )
 
 
-def shell(content, pathname: str) -> html.Div:
-    """Wrap a page's content in the full application shell."""
+def shell(
+    content,
+    *,
+    path: str,
+    source: DataSource | None,
+    view: object | None,
+) -> html.Div:
+    """Wrap a page's content in the full application shell.
+
+    `source` is the active DataSource (None for global pages). `view`
+    is the active View within that source (None when /<source> falls
+    back to the default view, or for global pages).
+    """
+    # Late import to avoid a circular dependency between app and shell.
+    from embrapa_commodities.dashboard.app import DATA_SOURCES
+
+    sources = list(DATA_SOURCES.values())
+    view_id = getattr(view, "id", None)
+
     return html.Div(
         className="shell",
         children=[
-            _topbar(pathname),
+            _topbar(source, view_id),
             html.Div(
                 className="body",
                 children=[
-                    _sidebar(pathname),
+                    _sidebar(sources, source, view_id, path),
                     html.Main(className="content", children=content),
                 ],
             ),
