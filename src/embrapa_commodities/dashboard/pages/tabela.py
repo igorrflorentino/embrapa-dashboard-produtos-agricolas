@@ -20,7 +20,12 @@ from embrapa_commodities.dashboard.components.export import (
 from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.section_header import section_header
 from embrapa_commodities.dashboard.data import GoldStore
-from embrapa_commodities.dashboard.formatting import fmt_currency, fmt_number
+
+# Hard cap on rows sent to the client. The DataTable paginates client-side,
+# but the JSON payload includes every row — without this cap a 90k-row
+# snapshot would push ~5 MB to the browser per filter change, freezing
+# navigation. For the full dataset the user should use /export.
+MAX_DISPLAY_ROWS = 1000
 
 PREFIX = "tabela"
 
@@ -41,19 +46,35 @@ INITIAL_VISIBLE: tuple[str, ...] = (
 
 
 def _build_columns(visible: list[str]) -> list[dict]:
-    """Dash DataTable column spec for the requested visible set."""
+    """Dash DataTable column spec for the requested visible set.
+
+    Numbers use the DataTable's native pt-BR-leaning format spec
+    (thousand-sep `.`, decimal `,`) so the rows can ship as raw floats
+    instead of pre-formatted strings — ~5x smaller payload.
+    """
     cols: list[dict] = []
     for name in DEFAULT_COLUMNS:
         if name not in visible:
             continue
-        is_numeric = name.startswith(("val_", "quantity_")) or name == "reference_year"
-        cols.append(
-            {
-                "name": COLUMN_LABELS.get(name, name),
-                "id": name,
-                "type": "numeric" if is_numeric else "text",
+        col: dict = {"name": COLUMN_LABELS.get(name, name), "id": name}
+        if name == "reference_year":
+            col["type"] = "numeric"
+            col["format"] = {"specifier": "d"}
+        elif name.startswith("val_"):
+            col["type"] = "numeric"
+            col["format"] = {
+                "specifier": ",.2f",
+                "locale": {"group": ".", "decimal": ","},
             }
-        )
+        elif name.startswith("quantity_"):
+            col["type"] = "numeric"
+            col["format"] = {
+                "specifier": ",.0f",
+                "locale": {"group": ".", "decimal": ","},
+            }
+        else:
+            col["type"] = "text"
+        cols.append(col)
     return cols
 
 
@@ -82,35 +103,26 @@ def _apply_search(df: pd.DataFrame, term: str | None) -> pd.DataFrame:
     return df[mask]
 
 
-def _format_for_display(df: pd.DataFrame) -> pd.DataFrame:
-    """Render numeric columns with pt-BR formatting for display.
+def _prepare_for_table(df: pd.DataFrame, visible: list[str]) -> list[dict]:
+    """Convert the filtered DataFrame to a list of dicts for DataTable.
 
-    The underlying DataTable type stays 'numeric' so sorting still works
-    correctly — we store the formatted string in a parallel column that the
-    column spec points at. Simpler approach: cast all-numeric columns to
-    pre-formatted strings AND keep the original sortable order via the
-    DataTable's row order (rows are pre-sorted server-side before paging).
+    Keeps numeric columns as raw floats (DataTable formats them client-side
+    via the column spec) and renders the few date columns as ISO strings.
+    Drops columns not in `visible` to minimize the JSON payload.
     """
-    out = df.copy()
-    for col in out.columns:
-        if col.startswith("val_"):
-            ccy = "BRL"
-            if col.endswith("_usd"):
-                ccy = "USD"
-            elif col.endswith("_eur"):
-                ccy = "EUR"
-            elif col.endswith("_cny"):
-                ccy = "CNY"
-            out[col] = out[col].map(lambda v, c=ccy: fmt_currency(v, c) if pd.notna(v) else "—")
-        elif col == "quantity_tons":
-            out[col] = out[col].map(lambda v: fmt_number(v, unit="t") if pd.notna(v) else "—")
-        elif col == "quantity_m3":
-            out[col] = out[col].map(lambda v: fmt_number(v, unit="m³") if pd.notna(v) else "—")
-        elif col == "reference_date":
-            out[col] = out[col].map(lambda v: v.strftime("%Y-%m-%d") if pd.notna(v) else "—")
-        elif col == "last_refresh":
-            out[col] = out[col].map(lambda v: v.strftime("%Y-%m-%d %H:%M") if pd.notna(v) else "—")
-    return out
+    cols = [c for c in visible if c in df.columns]
+    out = df[cols].copy()
+    if "reference_date" in out.columns:
+        out["reference_date"] = out["reference_date"].map(
+            lambda v: v.strftime("%Y-%m-%d") if pd.notna(v) else None
+        )
+    if "last_refresh" in out.columns:
+        out["last_refresh"] = out["last_refresh"].map(
+            lambda v: v.strftime("%Y-%m-%d %H:%M") if pd.notna(v) else None
+        )
+    # to_dict preserves NaN as float('nan') which Dash handles fine — empty
+    # cell in the rendered table. Lighter than pre-formatting to "—".
+    return out.to_dict("records")
 
 
 def layout(store: GoldStore) -> html.Div:
@@ -258,10 +270,10 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
             row_count_str = f"{row_count:,}".replace(",", ".")
 
             visible = visible_cols or list(INITIAL_VISIBLE)
-            display_df = _format_for_display(df[[c for c in visible if c in df.columns]])
+            records = _prepare_for_table(df.head(MAX_DISPLAY_ROWS), visible)
 
             table = dash_table.DataTable(
-                data=display_df.head(5000).to_dict("records"),
+                data=records,
                 columns=_build_columns(visible),
                 page_size=25,
                 page_action="native",
@@ -326,9 +338,10 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
             )
 
             note = None
-            if row_count > 5000:
+            if row_count > MAX_DISPLAY_ROWS:
+                cap_str = f"{MAX_DISPLAY_ROWS:,}".replace(",", ".")
                 note = html.Div(
-                    f"Mostrando as primeiras 5.000 de {row_count_str} linhas. "
+                    f"Mostrando as primeiras {cap_str} de {row_count_str} linhas. "
                     "Refine os filtros ou use Exportar CSV para o conjunto completo.",
                     className="caption",
                     style={
