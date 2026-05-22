@@ -19,6 +19,7 @@ NAV = [
 
 SIDEBAR_EXTRA = [
     ("Dados", [("Tabela bruta", "database"), ("Exportar CSV", "download"), ("Sobre a API", "api")]),
+    ("Operação", [("Saúde do sistema", "fact_check", "/status")]),
     ("Sobre", [("Glossário", "help"), ("Sobre os dados", "info")]),
 ]
 
@@ -73,13 +74,26 @@ def _sidebar(pathname: str) -> html.Aside:
     extras: list = []
     for section_title, items in SIDEBAR_EXTRA:
         extras.append(html.Div(section_title, className="side-section"))
-        for label, ic in items:
-            extras.append(
-                html.Div(
-                    children=[icon(ic), html.Span(label)],
-                    className="side-item",
+        for item in items:
+            # Items are (label, icon) for inert entries or (label, icon, href)
+            # for actual navigation links.
+            if len(item) == 3:
+                label, ic, href = item
+                extras.append(
+                    dcc.Link(
+                        children=[icon(ic), html.Span(label)],
+                        href=href,
+                        className=(f"side-item {'active' if pathname == href else ''}"),
+                    )
                 )
-            )
+            else:
+                label, ic = item
+                extras.append(
+                    html.Div(
+                        children=[icon(ic), html.Span(label)],
+                        className="side-item",
+                    )
+                )
 
     return html.Aside(
         className="sidebar",

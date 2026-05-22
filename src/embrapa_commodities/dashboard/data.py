@@ -25,6 +25,7 @@ from google.cloud import bigquery
 from embrapa_commodities.config import Settings as IngestionSettings
 from embrapa_commodities.dashboard.config import DashboardSettings, get_credentials
 from embrapa_commodities.dashboard.formatting import value_column
+from embrapa_commodities.dashboard.health import health
 
 logger = logging.getLogger(__name__)
 
@@ -284,13 +285,25 @@ class GoldStore:
             location=self._ingestion.bq_location,
             credentials=creds,
         )
+        health.stage_started("bq_snapshot", detail=f"SELECT * FROM {self._table_fqn}")
         started = time.monotonic()
         logger.info("Loading snapshot from %s", self._table_fqn)
         query = f"SELECT * FROM `{self._table_fqn}`"
         # Use the BigQuery Storage API for the row download — binary Arrow
         # stream, 5–10x faster than the default REST/JSON path for tables
         # of this size. Requires roles/bigquery.readSessionUser on the SA.
-        df = client.query(query).result().to_dataframe(create_bqstorage_client=True)
+        try:
+            df = client.query(query).result().to_dataframe(create_bqstorage_client=True)
+        except Exception as exc:
+            health.stage_error("bq_snapshot", str(exc))
+            raise
         elapsed = time.monotonic() - started
         logger.info("Gold snapshot loaded: %d rows in %.1fs", len(df), elapsed)
+        health.stage_ok(
+            "bq_snapshot",
+            detail=f"{len(df):,} linhas em {elapsed:.1f}s",
+            rows=len(df),
+            elapsed_seconds=round(elapsed, 2),
+            table=self._table_fqn,
+        )
         return GoldSnapshot(df=df, loaded_at=datetime.now(), rows=len(df))

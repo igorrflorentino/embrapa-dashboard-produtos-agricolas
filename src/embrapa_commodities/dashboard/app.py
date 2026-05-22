@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import traceback
 
 from dash import Dash, Input, Output, dcc, html, no_update
@@ -27,7 +26,8 @@ from flask import jsonify
 from embrapa_commodities.dashboard.components.shell import shell
 from embrapa_commodities.dashboard.config import get_settings
 from embrapa_commodities.dashboard.data import GoldStore
-from embrapa_commodities.dashboard.pages import geography, overview, product
+from embrapa_commodities.dashboard.health import health
+from embrapa_commodities.dashboard.pages import geography, overview, product, status
 from embrapa_commodities.dashboard.theme import install_template
 
 logging.basicConfig(
@@ -40,12 +40,14 @@ PAGE_MODULES = {
     "/": overview,
     "/produto": product,
     "/geografia": geography,
+    "/status": status,
 }
 
 PAGE_LABELS = {
     "/": "Visão geral",
     "/produto": "Produto",
     "/geografia": "Geografia",
+    "/status": "Saúde do sistema",
 }
 
 
@@ -55,8 +57,11 @@ def build_error_payload(
     page: str,
     where: str,
 ) -> dict[str, str]:
-    """Structured error payload written to the global-error `dcc.Store`."""
-    return {
+    """Structured error payload written to the global-error `dcc.Store`.
+
+    Also tees a copy into the health registry so it shows up on /status.
+    """
+    payload = {
         "page": PAGE_LABELS.get(page, page),
         "where": where,
         "type": type(exc).__name__,
@@ -64,6 +69,8 @@ def build_error_payload(
         "cause": _infer_cause(exc),
         "traceback": traceback.format_exc(limit=20),
     }
+    health.record_error(payload)
+    return payload
 
 
 def _infer_cause(exc: BaseException) -> str:
@@ -112,7 +119,12 @@ def _infer_cause(exc: BaseException) -> str:
 
 
 def _build_dash() -> Dash:
-    """Construct the Dash app, install theme, register all callbacks lazily."""
+    """Construct the Dash app, install theme, register all callbacks at startup."""
+    # If we're executing this code, the container has booted and Python is up.
+    health.stage_ok(
+        "container",
+        detail=f"Revision {os.environ.get('K_REVISION', 'local')}",
+    )
     install_template()
     dash_app = Dash(
         __name__,
@@ -145,26 +157,27 @@ def _build_dash() -> Dash:
             html.Div(id="page-container"),
         ]
     )
+    health.stage_ok("dash_app", detail="Layout root + Store + overlay")
 
-    store_holder: dict[str, GoldStore] = {}
-    store_lock = threading.Lock()
-    callbacks_registered = {"flag": False}
-
-    def _store() -> GoldStore:
-        if "store" not in store_holder:
-            with store_lock:
-                if "store" not in store_holder:
-                    ingestion, dashboard = get_settings()
-                    store_holder["store"] = GoldStore(ingestion, dashboard)
-        return store_holder["store"]
-
-    def _register_all_callbacks_once():
-        if callbacks_registered["flag"]:
-            return
-        store = _store()
-        for module in (overview, product, geography):
+    # ── Create the GoldStore eagerly at app startup so that callback
+    # registration below can capture it. The store constructor itself is
+    # cheap — it only opens a BigQuery client; the actual SELECT * is
+    # deferred to the first slicer call. This is critical: prior versions
+    # registered page callbacks lazily inside the route callback, but by
+    # then the client had already fetched /_dash-dependencies and didn't
+    # know to dispatch them — leaving cold-start visitors with empty
+    # charts until they manually reloaded. Registering at startup means
+    # /_dash-dependencies always returns the full graph.
+    try:
+        ingestion, dashboard = get_settings()
+        store = GoldStore(ingestion, dashboard)
+        for module in (overview, product, geography, status):
             module.register_callbacks(dash_app, store)
-        callbacks_registered["flag"] = True
+        health.stage_ok("page_callbacks", detail="4 páginas registradas")
+    except Exception as exc:
+        logger.exception("Failed to register page callbacks at startup")
+        health.stage_error("page_callbacks", str(exc))
+        raise
 
     @dash_app.callback(
         Output("page-container", "children"),
@@ -177,14 +190,7 @@ def _build_dash() -> Dash:
         if module is None:
             return shell(_not_found(path), pathname=path), None
         try:
-            _register_all_callbacks_once()
-        except Exception as exc:
-            logger.exception("Failed to register callbacks")
-            return no_update, build_error_payload(
-                exc, page=path, where="inicialização das callbacks"
-            )
-        try:
-            content = module.layout(_store())
+            content = module.layout(store)
             return shell(content, pathname=path), None
         except Exception as exc:
             logger.exception("Failed to render layout for %s", path)
