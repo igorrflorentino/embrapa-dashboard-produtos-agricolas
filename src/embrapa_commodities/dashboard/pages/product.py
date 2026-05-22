@@ -135,7 +135,7 @@ def layout(store: GoldStore) -> html.Div:
                     ),
                 ],
             ),
-            html.Div(id={"section": PREFIX, "control": "kpi_strip"}),
+            _spinner(html.Div(id={"section": PREFIX, "control": "kpi_strip"}), name="kpi"),
             html.Div(
                 className="grid-2",
                 children=[
@@ -146,10 +146,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Série histórica",
                                 title="Valor real e quantidade ao longo do tempo",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "ts"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "ts"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="ts",
                             ),
                         ],
                     ),
@@ -160,10 +163,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Distribuição geográfica",
                                 title="UFs que produzem este item",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "ufs"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "ufs"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="ufs",
                             ),
                         ],
                     ),
@@ -176,9 +182,12 @@ def layout(store: GoldStore) -> html.Div:
                         overline="Detalhamento municipal",
                         title="Top 20 municípios no ano mais recente",
                     ),
-                    html.Div(
-                        id={"section": PREFIX, "control": "cities"},
-                        className="table-wrap",
+                    _spinner(
+                        html.Div(
+                            id={"section": PREFIX, "control": "cities"},
+                            className="table-wrap",
+                        ),
+                        name="cities",
                     ),
                 ],
             ),
@@ -186,45 +195,68 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
+def _spinner(child, *, name: str):
+    """Wrap a chart/region in a Dash Loading so users get explicit feedback."""
+    return dcc.Loading(
+        children=child,
+        type="circle",
+        color="#006f35",
+        parent_className=f"loading-wrap loading-{name}",
+        delay_show=120,
+    )
+
+
 def register_callbacks(dash_app, store: GoldStore) -> None:
+    from dash import no_update
+
+    from embrapa_commodities.dashboard.app import build_error_payload
+
     @dash_app.callback(
         Output({"section": PREFIX, "control": "kpi_strip"}, "children"),
         Output({"section": PREFIX, "control": "ts"}, "figure"),
         Output({"section": PREFIX, "control": "ufs"}, "figure"),
         Output({"section": PREFIX, "control": "cities"}, "children"),
+        Output("global-error", "data", allow_duplicate=True),
         Input({"section": PREFIX, "control": "product"}, "value"),
         Input({"section": PREFIX, "control": "conv"}, "value"),
         Input({"section": PREFIX, "control": "ccy"}, "value"),
         Input({"section": PREFIX, "control": "period"}, "value"),
+        prevent_initial_call="initial_duplicate",
     )
     def _update(product_code, conv, ccy, period):
-        conv = conv or "ipca"
-        ccy = ccy or "BRL"
-        years = _period_to_years(store, period)
+        try:
+            conv = conv or "ipca"
+            ccy = ccy or "BRL"
+            years = _period_to_years(store, period)
 
-        if not product_code:
-            empty = _empty_card("Selecione um produto.")
-            return empty, _placeholder_fig(), _placeholder_fig(), empty
+            if not product_code:
+                empty = _empty_card("Selecione um produto.")
+                return empty, _placeholder_fig(), _placeholder_fig(), empty, no_update
 
-        ts = store.time_series(
-            convention=conv, currency=ccy, years=years, product_code=product_code
-        )
-        ts_chart = line_with_secondary(
-            ts,
-            value_label=f"Valor ({convention_label(conv)}, {ccy})",
-            quantity_label="Quantidade",
-        )
+            ts = store.time_series(
+                convention=conv, currency=ccy, years=years, product_code=product_code
+            )
+            ts_chart = line_with_secondary(
+                ts,
+                value_label=f"Valor ({convention_label(conv)}, {ccy})",
+                quantity_label="Quantidade",
+            )
 
-        hi = ts["reference_year"].max() if not ts.empty else store.year_range()[1]
-        ufs = store.top_states(
-            year=int(hi), convention=conv, currency=ccy, product_code=product_code
-        )
-        ufs_chart = bar_top_states(ufs, value_label=f"Valor ({convention_label(conv)}, {ccy})")
+            hi = ts["reference_year"].max() if not ts.empty else store.year_range()[1]
+            ufs = store.top_states(
+                year=int(hi), convention=conv, currency=ccy, product_code=product_code
+            )
+            ufs_chart = bar_top_states(ufs, value_label=f"Valor ({convention_label(conv)}, {ccy})")
 
-        kpis = _kpi_strip(store, product_code, conv, ccy, years)
-        cities_table = _cities_table(store, product_code, conv, ccy, int(hi))
+            kpis = _kpi_strip(store, product_code, conv, ccy, years)
+            cities_table = _cities_table(store, product_code, conv, ccy, int(hi))
 
-        return kpis, ts_chart, ufs_chart, cities_table
+            return kpis, ts_chart, ufs_chart, cities_table, no_update
+        except Exception as exc:
+            err = build_error_payload(
+                exc, page="/produto", where="callback de atualização (Produto)"
+            )
+            return no_update, no_update, no_update, no_update, err
 
 
 def _placeholder_fig():

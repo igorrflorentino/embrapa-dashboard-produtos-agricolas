@@ -258,6 +258,17 @@ def _quality_spark(store: GoldStore) -> list[float]:
     return g.astype(float).tolist()
 
 
+def _spinner(child, *, name: str):
+    """Wrap a chart/region in a Dash Loading so users get explicit feedback."""
+    return dcc.Loading(
+        children=child,
+        type="circle",
+        color="#006f35",
+        parent_className=f"loading-wrap loading-{name}",
+        delay_show=120,
+    )
+
+
 def layout(store: GoldStore) -> html.Div:
     """Render the page. Filter callbacks are registered via `register_callbacks`."""
     return html.Div(
@@ -265,13 +276,19 @@ def layout(store: GoldStore) -> html.Div:
         children=[
             _hero(store),
             filter_bar(PREFIX, store),
-            html.Div(
-                id={"section": PREFIX, "control": "kpi_strip"},
-                children=_kpi_strip(store, "ipca", "BRL"),
+            _spinner(
+                html.Div(
+                    id={"section": PREFIX, "control": "kpi_strip"},
+                    children=_kpi_strip(store, "ipca", "BRL"),
+                ),
+                name="kpi",
             ),
-            html.Div(
-                id={"section": PREFIX, "control": "highlights"},
-                children=_highlights(store, "ipca", "BRL"),
+            _spinner(
+                html.Div(
+                    id={"section": PREFIX, "control": "highlights"},
+                    children=_highlights(store, "ipca", "BRL"),
+                ),
+                name="highlights",
             ),
             html.Div(
                 className="grid-2",
@@ -283,10 +300,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Série histórica · IPCA · BRL",
                                 title="Valor real total ao longo do tempo",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "time_series"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "time_series"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="ts",
                             ),
                         ],
                     ),
@@ -297,10 +317,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Composição",
                                 title="Participação por produto",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "donut"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "donut"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="donut",
                             ),
                         ],
                     ),
@@ -317,10 +340,13 @@ def layout(store: GoldStore) -> html.Div:
                             className="caption",
                         ),
                     ),
-                    dcc.Graph(
-                        id={"section": PREFIX, "control": "top_states"},
-                        config={"displayModeBar": False},
-                        className="chart-box",
+                    _spinner(
+                        dcc.Graph(
+                            id={"section": PREFIX, "control": "top_states"},
+                            config={"displayModeBar": False},
+                            className="chart-box",
+                        ),
+                        name="topstates",
                     ),
                 ],
             ),
@@ -330,7 +356,9 @@ def layout(store: GoldStore) -> html.Div:
 
 
 def register_callbacks(dash_app, store: GoldStore) -> None:
-    from dash import callback_context  # noqa: F401
+    from dash import no_update
+
+    from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
         Output({"section": PREFIX, "control": "kpi_strip"}, "children"),
@@ -338,41 +366,49 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         Output({"section": PREFIX, "control": "time_series"}, "figure"),
         Output({"section": PREFIX, "control": "donut"}, "figure"),
         Output({"section": PREFIX, "control": "top_states"}, "figure"),
+        Output("global-error", "data", allow_duplicate=True),
         Input({"section": PREFIX, "control": "period"}, "value"),
         Input({"section": PREFIX, "control": "product"}, "value"),
         Input({"section": PREFIX, "control": "uf"}, "value"),
         Input({"section": PREFIX, "control": "conv"}, "value"),
         Input({"section": PREFIX, "control": "ccy"}, "value"),
         Input({"section": PREFIX, "control": "only_ok"}, "value"),
+        prevent_initial_call="initial_duplicate",
     )
     def _update(period, product, uf, conv, ccy, only_ok):
-        conv = conv or "ipca"
-        ccy = ccy or "BRL"
-        years = _period_to_years(store, period)
-        product_code = None if product in (None, "all") else product
-        uf_code = None if uf in (None, "all") else uf
-        only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
+        try:
+            conv = conv or "ipca"
+            ccy = ccy or "BRL"
+            years = _period_to_years(store, period)
+            product_code = None if product in (None, "all") else product
+            uf_code = None if uf in (None, "all") else uf
+            only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
 
-        ts = store.time_series(
-            convention=conv,
-            currency=ccy,
-            years=years,
-            product_code=product_code,
-            state_acronym=uf_code,
-        )
-        value_label = f"Valor ({convention_label(conv)}, {ccy})"
-        line = line_time_series(ts, value_label=value_label)
+            ts = store.time_series(
+                convention=conv,
+                currency=ccy,
+                years=years,
+                product_code=product_code,
+                state_acronym=uf_code,
+            )
+            value_label = f"Valor ({convention_label(conv)}, {ccy})"
+            line = line_time_series(ts, value_label=value_label)
 
-        hi = years[1] if years else store.year_range()[1]
-        mix = store.product_mix(year=hi, convention=conv, currency=ccy, state_acronym=uf_code)
-        donut = donut_product_mix(mix)
+            hi = years[1] if years else store.year_range()[1]
+            mix = store.product_mix(year=hi, convention=conv, currency=ccy, state_acronym=uf_code)
+            donut = donut_product_mix(mix)
 
-        top = store.top_states(year=hi, convention=conv, currency=ccy, product_code=product_code)
-        bar = bar_top_states(top, value_label=value_label)
+            top = store.top_states(
+                year=hi, convention=conv, currency=ccy, product_code=product_code
+            )
+            bar = bar_top_states(top, value_label=value_label)
 
-        kpis = _kpi_strip_filtered(store, conv, ccy, years, product_code, uf_code, only_ok_flag)
-        highlights = _highlights(store, conv, ccy)
-        return kpis, highlights, line, donut, bar
+            kpis = _kpi_strip_filtered(store, conv, ccy, years, product_code, uf_code, only_ok_flag)
+            highlights = _highlights(store, conv, ccy)
+            return kpis, highlights, line, donut, bar, no_update
+        except Exception as exc:
+            err = build_error_payload(exc, page="/", where="callback de atualização (Visão geral)")
+            return (no_update, no_update, no_update, no_update, no_update, err)
 
 
 def _period_to_years(store: GoldStore, period: str | None) -> tuple[int, int] | None:

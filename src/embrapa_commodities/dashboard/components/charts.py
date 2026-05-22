@@ -74,10 +74,7 @@ def donut_product_mix(df: pd.DataFrame) -> go.Figure:
             colors[idx] = "#ECECEC"
     # Hide labels for slices under 3% — they round to 0% / clutter the ring.
     total = float(df["value"].sum()) or 1.0
-    text_values = [
-        f"{(v / total * 100):.0f}%" if (v / total) >= 0.03 else ""
-        for v in df["value"]
-    ]
+    text_values = [f"{(v / total * 100):.0f}%" if (v / total) >= 0.03 else "" for v in df["value"]]
     fig.add_trace(
         go.Pie(
             labels=df["product_description"],

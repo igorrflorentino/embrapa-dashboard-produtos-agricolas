@@ -6,6 +6,12 @@ Exposes the Flask WSGI app as ``server`` so Gunicorn / Cloud Run can target
 The first request lazily instantiates a singleton `GoldStore`, which in turn
 issues one `SELECT * FROM gold_commodity_matrix` against BigQuery. Subsequent
 requests are served from the in-memory pandas snapshot.
+
+Error handling:
+- Any exception during layout rendering or in a page callback writes a
+  structured payload to the `global-error` `dcc.Store`.
+- A separate callback paints a full-screen overlay over the dashboard when
+  that store has a value, blocking interaction until the user reloads.
 """
 
 from __future__ import annotations
@@ -13,8 +19,9 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import traceback
 
-from dash import Dash, Input, Output, dcc, html
+from dash import Dash, Input, Output, dcc, html, no_update
 from flask import jsonify
 
 from embrapa_commodities.dashboard.components.shell import shell
@@ -34,6 +41,74 @@ PAGE_MODULES = {
     "/produto": product,
     "/geografia": geography,
 }
+
+PAGE_LABELS = {
+    "/": "Visão geral",
+    "/produto": "Produto",
+    "/geografia": "Geografia",
+}
+
+
+def build_error_payload(
+    exc: BaseException,
+    *,
+    page: str,
+    where: str,
+) -> dict[str, str]:
+    """Structured error payload written to the global-error `dcc.Store`."""
+    return {
+        "page": PAGE_LABELS.get(page, page),
+        "where": where,
+        "type": type(exc).__name__,
+        "message": str(exc) or "(sem mensagem)",
+        "cause": _infer_cause(exc),
+        "traceback": traceback.format_exc(limit=20),
+    }
+
+
+def _infer_cause(exc: BaseException) -> str:
+    """Heuristic to translate common errors into operator-friendly causes."""
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    module = type(exc).__module__
+
+    if "notfound" in name.lower() or "404" in msg:
+        if "location" in msg:
+            return (
+                "Dataset não encontrado nessa location do BigQuery. "
+                "Verifique se BQ_LOCATION corresponde à região onde o "
+                "dataset gold realmente está."
+            )
+        return (
+            "Tabela ou dataset não encontrado. Verifique BQ_GOLD_DATASET "
+            "e se o pipeline dbt já materializou gold_commodity_matrix."
+        )
+    if "forbidden" in name.lower() or "permission" in msg or "403" in msg:
+        return (
+            "A service account não tem permissão para ler o BigQuery. "
+            "Verifique as IAM bindings (bigquery.dataViewer + bigquery.jobUser)."
+        )
+    if "badrequest" in name.lower() or "400" in msg:
+        return (
+            "O BigQuery rejeitou a query. Pode ser inconsistência de "
+            "schema entre o que o dashboard espera e o que o dbt produziu."
+        )
+    if name in {"KeyError", "AttributeError"}:
+        return (
+            "Coluna ou propriedade esperada não existe no DataFrame. "
+            "O schema do Gold pode ter mudado sem o código acompanhar."
+        )
+    if "google.api_core" in module or "google.auth" in module:
+        return (
+            "Falha de comunicação ou autenticação com o BigQuery. "
+            "Verifique credenciais (ADC localmente ou SA no Cloud Run)."
+        )
+    if isinstance(exc, ConnectionError | TimeoutError):
+        return "Falha de rede ao contatar o BigQuery."
+    return (
+        "Causa não identificada automaticamente. Verifique os logs do "
+        "Cloud Run para o traceback completo."
+    )
 
 
 def _build_dash() -> Dash:
@@ -60,6 +135,10 @@ def _build_dash() -> Dash:
     dash_app.layout = html.Div(
         children=[
             dcc.Location(id="url", refresh=False),
+            # global error store + always-mounted overlay
+            dcc.Store(id="global-error", data=None, storage_type="memory"),
+            html.Div(id="error-overlay", className="error-overlay hidden"),
+            # the dashboard itself
             html.Div(id="page-container"),
         ]
     )
@@ -86,20 +165,52 @@ def _build_dash() -> Dash:
 
     @dash_app.callback(
         Output("page-container", "children"),
+        Output("global-error", "data"),
         Input("url", "pathname"),
     )
     def _route(pathname):
         path = pathname or "/"
         module = PAGE_MODULES.get(path)
         if module is None:
-            return shell(_not_found(path), pathname=path)
-        _register_all_callbacks_once()
+            return shell(_not_found(path), pathname=path), None
+        try:
+            _register_all_callbacks_once()
+        except Exception as exc:
+            logger.exception("Failed to register callbacks")
+            return no_update, build_error_payload(
+                exc, page=path, where="inicialização das callbacks"
+            )
         try:
             content = module.layout(_store())
+            return shell(content, pathname=path), None
         except Exception as exc:
-            logger.exception("Failed to render %s", path)
-            content = _error_state(exc)
-        return shell(content, pathname=path)
+            logger.exception("Failed to render layout for %s", path)
+            return no_update, build_error_payload(
+                exc, page=path, where=f"layout da página {PAGE_LABELS.get(path, path)}"
+            )
+
+    @dash_app.callback(
+        Output("error-overlay", "children"),
+        Output("error-overlay", "className"),
+        Input("global-error", "data"),
+    )
+    def _render_error_overlay(err):
+        if err is None:
+            return [], "error-overlay hidden"
+        return _build_error_screen(err), "error-overlay visible"
+
+    # JS hook on the Recarregar button — does a hard reload.
+    dash_app.clientside_callback(
+        """
+        function(n_clicks) {
+            if (n_clicks) { window.location.reload(); }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("error-overlay", "data-reloaded", allow_duplicate=True),
+        Input("error-reload-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
 
     _attach_healthcheck(dash_app)
     return dash_app
@@ -116,28 +227,65 @@ def _not_found(path: str) -> html.Div:
     )
 
 
-def _error_state(exc: Exception) -> html.Div:
+def _build_error_screen(err: dict[str, str]) -> html.Div:
+    """Full-screen blocking error overlay."""
     return html.Div(
-        className="card",
+        className="error-card",
         children=[
-            html.Div("Falha ao carregar a página", className="overline"),
-            html.H3("Erro inesperado", className="section-title"),
-            html.P(
-                "Não foi possível carregar os dados do BigQuery. Verifique as "
-                "credenciais, o nome do projeto e o acesso à tabela "
-                "gold.gold_commodity_matrix.",
-                className="page-sub",
+            html.Div(
+                className="error-head",
+                children=[
+                    html.Span("!", className="error-bang"),
+                    html.Div(
+                        children=[
+                            html.Div("Erro no dashboard", className="error-title"),
+                            html.Div(
+                                "O carregamento foi interrompido. O painel está congelado "
+                                "para evitar exibir dados parciais ou incorretos.",
+                                className="error-sub",
+                            ),
+                        ]
+                    ),
+                ],
             ),
-            html.Pre(
-                str(exc),
-                style={
-                    "background": "var(--bg-surface-2)",
-                    "padding": "12px",
-                    "borderRadius": "6px",
-                    "fontSize": "12px",
-                    "color": "var(--fg-2)",
-                    "overflow": "auto",
-                },
+            html.Div(
+                className="error-grid",
+                children=[
+                    _error_row("Página", err.get("page", "—")),
+                    _error_row("Onde", err.get("where", "—")),
+                    _error_row("Tipo", err.get("type", "—")),
+                    _error_row("Mensagem", err.get("message", "—"), mono=True),
+                    _error_row("Causa provável", err.get("cause", "—")),
+                ],
+            ),
+            html.Details(
+                className="error-trace",
+                children=[
+                    html.Summary("Traceback completo"),
+                    html.Pre(err.get("traceback", "")),
+                ],
+            ),
+            html.Div(
+                className="error-actions",
+                children=html.Button(
+                    "Recarregar página",
+                    id="error-reload-btn",
+                    n_clicks=0,
+                    className="btn-primary",
+                ),
+            ),
+        ],
+    )
+
+
+def _error_row(label: str, value: str, *, mono: bool = False) -> html.Div:
+    return html.Div(
+        className="error-row",
+        children=[
+            html.Div(label, className="error-row-label"),
+            html.Div(
+                value,
+                className="error-row-value" + (" mono" if mono else ""),
             ),
         ],
     )

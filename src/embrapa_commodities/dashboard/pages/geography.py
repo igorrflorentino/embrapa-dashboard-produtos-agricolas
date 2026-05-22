@@ -188,7 +188,7 @@ def layout(store: GoldStore) -> html.Div:
                     ),
                 ],
             ),
-            html.Div(id={"section": PREFIX, "control": "kpi_strip"}),
+            _spinner(html.Div(id={"section": PREFIX, "control": "kpi_strip"}), name="kpi"),
             html.Div(
                 className="grid-2",
                 children=[
@@ -199,10 +199,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Brasil · valor por UF",
                                 title="Mapa de calor estadual",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "choropleth"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "choropleth"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="choropleth",
                             ),
                         ],
                     ),
@@ -213,10 +216,13 @@ def layout(store: GoldStore) -> html.Div:
                                 overline="Mix por produto",
                                 title="Evolução temporal por produto",
                             ),
-                            dcc.Graph(
-                                id={"section": PREFIX, "control": "stack"},
-                                config={"displayModeBar": False},
-                                className="chart-box",
+                            _spinner(
+                                dcc.Graph(
+                                    id={"section": PREFIX, "control": "stack"},
+                                    config={"displayModeBar": False},
+                                    className="chart-box",
+                                ),
+                                name="stack",
                             ),
                         ],
                     ),
@@ -229,9 +235,12 @@ def layout(store: GoldStore) -> html.Div:
                         overline="Detalhamento municipal",
                         title="Top 20 municípios do recorte",
                     ),
-                    html.Div(
-                        id={"section": PREFIX, "control": "cities"},
-                        className="table-wrap",
+                    _spinner(
+                        html.Div(
+                            id={"section": PREFIX, "control": "cities"},
+                            className="table-wrap",
+                        ),
+                        name="cities",
                     ),
                 ],
             ),
@@ -239,46 +248,74 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
+def _spinner(child, *, name: str):
+    """Wrap a chart/region in a Dash Loading so users get explicit feedback."""
+    return dcc.Loading(
+        children=child,
+        type="circle",
+        color="#006f35",
+        parent_className=f"loading-wrap loading-{name}",
+        delay_show=120,
+    )
+
+
 def register_callbacks(dash_app, store: GoldStore) -> None:
+    from dash import no_update
+
+    from embrapa_commodities.dashboard.app import build_error_payload
+
     @dash_app.callback(
         Output({"section": PREFIX, "control": "kpi_strip"}, "children"),
         Output({"section": PREFIX, "control": "choropleth"}, "figure"),
         Output({"section": PREFIX, "control": "stack"}, "figure"),
         Output({"section": PREFIX, "control": "cities"}, "children"),
+        Output("global-error", "data", allow_duplicate=True),
         Input({"section": PREFIX, "control": "uf"}, "value"),
         Input({"section": PREFIX, "control": "year"}, "value"),
         Input({"section": PREFIX, "control": "conv"}, "value"),
         Input({"section": PREFIX, "control": "ccy"}, "value"),
+        prevent_initial_call="initial_duplicate",
     )
     def _update(uf, year, conv, ccy):
-        conv = conv or "ipca"
-        ccy = ccy or "BRL"
-        year = int(year)
-        uf_code = None if uf in (None, "all") else uf
+        try:
+            conv = conv or "ipca"
+            ccy = ccy or "BRL"
+            year = int(year)
+            uf_code = None if uf in (None, "all") else uf
 
-        value_label = f"Valor ({convention_label(conv)}, {ccy})"
+            value_label = f"Valor ({convention_label(conv)}, {ccy})"
 
-        # Choropleth always shows all UFs for the selected year.
-        states = store.top_states(year=year, convention=conv, currency=ccy, n=27)
-        geojson = _load_brazil_geojson() if uf_code is None else None
-        if uf_code is not None:
-            # When a UF is selected, show its product-mix bar instead.
-            mix = store.product_mix(year=year, convention=conv, currency=ccy, state_acronym=uf_code)
-            mix_renamed = mix.rename(
-                columns={"product_description": "state_name", "product_code": "state_acronym"}
+            # Choropleth always shows all UFs for the selected year.
+            states = store.top_states(year=year, convention=conv, currency=ccy, n=27)
+            geojson = _load_brazil_geojson() if uf_code is None else None
+            if uf_code is not None:
+                # When a UF is selected, show its product-mix bar instead.
+                mix = store.product_mix(
+                    year=year, convention=conv, currency=ccy, state_acronym=uf_code
+                )
+                mix_renamed = mix.rename(
+                    columns={
+                        "product_description": "state_name",
+                        "product_code": "state_acronym",
+                    }
+                )
+                choro = bar_top_states(mix_renamed, value_label=value_label)
+            else:
+                choro = choropleth_brazil(states, geojson, value_label=value_label)
+
+            # Stacked area: product mix over time for the recorte.
+            stack_df = _build_stacked(store, conv, ccy, uf_code)
+            stack = stacked_product_area(stack_df, value_label=value_label)
+
+            kpis = _kpi_strip(store, uf_code, conv, ccy, year)
+            cities = _cities_table(store, uf_code, conv, ccy, year)
+
+            return kpis, choro, stack, cities, no_update
+        except Exception as exc:
+            err = build_error_payload(
+                exc, page="/geografia", where="callback de atualização (Geografia)"
             )
-            choro = bar_top_states(mix_renamed, value_label=value_label)
-        else:
-            choro = choropleth_brazil(states, geojson, value_label=value_label)
-
-        # Stacked area: product mix over time for the recorte.
-        stack_df = _build_stacked(store, conv, ccy, uf_code)
-        stack = stacked_product_area(stack_df, value_label=value_label)
-
-        kpis = _kpi_strip(store, uf_code, conv, ccy, year)
-        cities = _cities_table(store, uf_code, conv, ccy, year)
-
-        return kpis, choro, stack, cities
+            return no_update, no_update, no_update, no_update, err
 
 
 def _build_stacked(store: GoldStore, conv: str, ccy: str, state_acronym: str | None):
