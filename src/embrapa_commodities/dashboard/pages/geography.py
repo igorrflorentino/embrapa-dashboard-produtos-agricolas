@@ -10,12 +10,16 @@ import logging
 from functools import lru_cache
 
 import requests
-from dash import Input, Output, dash_table, dcc, html
+from dash import Input, Output, State, dash_table, dcc, html, no_update
 
 from embrapa_commodities.dashboard.components.charts import (
     bar_top_states,
     choropleth_brazil,
     stacked_product_area,
+)
+from embrapa_commodities.dashboard.components.export import (
+    download_payload,
+    export_button,
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
@@ -116,7 +120,17 @@ def layout(store: GoldStore) -> html.Div:
                                 className="page-sub",
                             ),
                         ]
-                    )
+                    ),
+                    html.Div(
+                        className="hero-meta",
+                        children=html.Div(
+                            style={"display": "flex", "gap": "8px"},
+                            children=export_button(
+                                button_id={"section": PREFIX, "control": "export"},
+                                download_id={"section": PREFIX, "control": "download"},
+                            ),
+                        ),
+                    ),
                 ],
             ),
             html.Div(
@@ -260,8 +274,6 @@ def _spinner(child, *, name: str):
 
 
 def register_callbacks(dash_app, store: GoldStore) -> None:
-    from dash import no_update
-
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -316,6 +328,21 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
                 exc, page="/geografia", where="callback de atualização (Geografia)"
             )
             return no_update, no_update, no_update, no_update, err
+
+    @dash_app.callback(
+        Output({"section": PREFIX, "control": "download"}, "data"),
+        Input({"section": PREFIX, "control": "export"}, "n_clicks"),
+        State({"section": PREFIX, "control": "uf"}, "value"),
+        State({"section": PREFIX, "control": "year"}, "value"),
+        prevent_initial_call=True,
+    )
+    def _download(n_clicks, uf, year):
+        if not n_clicks:
+            return no_update
+        uf_code = None if uf in (None, "all") else uf
+        df = store.filtered(years=(int(year), int(year)), state_acronym=uf_code)
+        suffix = uf_code or "brasil"
+        return download_payload(df, filename_prefix=f"embrapa-geografia-{suffix}-{int(year)}")
 
 
 def _build_stacked(store: GoldStore, conv: str, ccy: str, state_acronym: str | None):

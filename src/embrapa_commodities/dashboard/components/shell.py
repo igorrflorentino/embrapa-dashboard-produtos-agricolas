@@ -18,9 +18,25 @@ NAV = [
 ]
 
 SIDEBAR_EXTRA = [
-    ("Dados", [("Tabela bruta", "database"), ("Exportar CSV", "download"), ("Sobre a API", "api")]),
-    ("Operação", [("Saúde do sistema", "fact_check", "/status")]),
-    ("Sobre", [("Glossário", "help"), ("Sobre os dados", "info")]),
+    (
+        "Dados",
+        [
+            ("Tabela bruta", "database", "/tabela"),
+            ("Exportar CSV", "download", "/export"),
+            ("Sobre a API", "api", "/sobre-api"),
+        ],
+    ),
+    (
+        "Operação",
+        [("Saúde do sistema", "fact_check", "/status")],
+    ),
+    (
+        "Sobre",
+        [
+            ("Glossário", "help", "/glossario"),
+            ("Sobre os dados", "info", "/dados"),
+        ],
+    ),
 ]
 
 

@@ -27,7 +27,17 @@ from embrapa_commodities.dashboard.components.shell import shell
 from embrapa_commodities.dashboard.config import get_settings
 from embrapa_commodities.dashboard.data import GoldStore
 from embrapa_commodities.dashboard.health import health
-from embrapa_commodities.dashboard.pages import geography, overview, product, status
+from embrapa_commodities.dashboard.pages import (
+    dados,
+    export,
+    geography,
+    glossario,
+    overview,
+    product,
+    sobre_api,
+    status,
+    tabela,
+)
 from embrapa_commodities.dashboard.theme import install_template
 
 logging.basicConfig(
@@ -40,6 +50,11 @@ PAGE_MODULES = {
     "/": overview,
     "/produto": product,
     "/geografia": geography,
+    "/tabela": tabela,
+    "/export": export,
+    "/glossario": glossario,
+    "/dados": dados,
+    "/sobre-api": sobre_api,
     "/status": status,
 }
 
@@ -47,6 +62,11 @@ PAGE_LABELS = {
     "/": "Visão geral",
     "/produto": "Produto",
     "/geografia": "Geografia",
+    "/tabela": "Tabela bruta",
+    "/export": "Exportar CSV",
+    "/glossario": "Glossário",
+    "/dados": "Sobre os dados",
+    "/sobre-api": "Sobre a API",
     "/status": "Saúde do sistema",
 }
 
@@ -173,9 +193,23 @@ def _build_dash() -> Dash:
     try:
         ingestion, dashboard = get_settings()
         store = GoldStore(ingestion, dashboard)
-        for module in (overview, product, geography, status):
+        page_modules = (
+            overview,
+            product,
+            geography,
+            tabela,
+            export,
+            glossario,
+            dados,
+            sobre_api,
+            status,
+        )
+        for module in page_modules:
             module.register_callbacks(dash_app, store)
-        health.stage_ok("page_callbacks", detail="4 páginas registradas")
+        health.stage_ok(
+            "page_callbacks",
+            detail=f"{len(page_modules)} páginas registradas",
+        )
     except Exception as exc:
         logger.exception("Failed to register page callbacks at startup")
         health.stage_error("page_callbacks", str(exc))

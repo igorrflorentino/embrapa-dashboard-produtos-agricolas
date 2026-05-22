@@ -6,11 +6,15 @@ top UFs that produce it, and a city ranking table.
 
 from __future__ import annotations
 
-from dash import Input, Output, dash_table, dcc, html
+from dash import Input, Output, State, dash_table, dcc, html, no_update
 
 from embrapa_commodities.dashboard.components.charts import (
     bar_top_states,
     line_with_secondary,
+)
+from embrapa_commodities.dashboard.components.export import (
+    download_payload,
+    export_button,
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
@@ -64,7 +68,17 @@ def layout(store: GoldStore) -> html.Div:
                                 className="page-sub",
                             ),
                         ]
-                    )
+                    ),
+                    html.Div(
+                        className="hero-meta",
+                        children=html.Div(
+                            style={"display": "flex", "gap": "8px"},
+                            children=export_button(
+                                button_id={"section": PREFIX, "control": "export"},
+                                download_id={"section": PREFIX, "control": "download"},
+                            ),
+                        ),
+                    ),
                 ],
             ),
             html.Div(
@@ -207,8 +221,6 @@ def _spinner(child, *, name: str):
 
 
 def register_callbacks(dash_app, store: GoldStore) -> None:
-    from dash import no_update
-
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -257,6 +269,20 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
                 exc, page="/produto", where="callback de atualização (Produto)"
             )
             return no_update, no_update, no_update, no_update, err
+
+    @dash_app.callback(
+        Output({"section": PREFIX, "control": "download"}, "data"),
+        Input({"section": PREFIX, "control": "export"}, "n_clicks"),
+        State({"section": PREFIX, "control": "product"}, "value"),
+        State({"section": PREFIX, "control": "period"}, "value"),
+        prevent_initial_call=True,
+    )
+    def _download(n_clicks, product_code, period):
+        if not n_clicks or not product_code:
+            return no_update
+        years = _period_to_years(store, period)
+        df = store.filtered(years=years, product_code=product_code)
+        return download_payload(df, filename_prefix=f"embrapa-produto-{product_code}")
 
 
 def _placeholder_fig():

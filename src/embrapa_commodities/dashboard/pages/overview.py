@@ -6,12 +6,16 @@ chart, product mix donut, top-states bar, and the monetary-convention card.
 
 from __future__ import annotations
 
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html, no_update
 
 from embrapa_commodities.dashboard.components.charts import (
     bar_top_states,
     donut_product_mix,
     line_time_series,
+)
+from embrapa_commodities.dashboard.components.export import (
+    download_payload,
+    export_button,
 )
 from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.kpi import kpi_card
@@ -66,6 +70,13 @@ def _hero(store: GoldStore) -> html.Div:
                     _meta_row("Convenção ativa", "IPCA · BRL"),
                     _meta_row("Última carga do Gold", last_refresh_str),
                     _meta_row("Snapshot carregado em", loaded_str),
+                    html.Div(
+                        style={"display": "flex", "gap": "8px", "marginTop": "8px"},
+                        children=export_button(
+                            button_id={"section": PREFIX, "control": "export"},
+                            download_id={"section": PREFIX, "control": "download"},
+                        ),
+                    ),
                 ],
             ),
         ],
@@ -356,8 +367,6 @@ def layout(store: GoldStore) -> html.Div:
 
 
 def register_callbacks(dash_app, store: GoldStore) -> None:
-    from dash import no_update
-
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -409,6 +418,30 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         except Exception as exc:
             err = build_error_payload(exc, page="/", where="callback de atualização (Visão geral)")
             return (no_update, no_update, no_update, no_update, no_update, err)
+
+    @dash_app.callback(
+        Output({"section": PREFIX, "control": "download"}, "data"),
+        Input({"section": PREFIX, "control": "export"}, "n_clicks"),
+        State({"section": PREFIX, "control": "period"}, "value"),
+        State({"section": PREFIX, "control": "product"}, "value"),
+        State({"section": PREFIX, "control": "uf"}, "value"),
+        State({"section": PREFIX, "control": "only_ok"}, "value"),
+        prevent_initial_call=True,
+    )
+    def _download(n_clicks, period, product, uf, only_ok):
+        if not n_clicks:
+            return no_update
+        years = _period_to_years(store, period)
+        product_code = None if product in (None, "all") else product
+        uf_code = None if uf in (None, "all") else uf
+        only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
+        df = store.filtered(
+            years=years,
+            product_code=product_code,
+            state_acronym=uf_code,
+            only_ok=only_ok_flag,
+        )
+        return download_payload(df, filename_prefix="embrapa-visao-geral")
 
 
 def _period_to_years(store: GoldStore, period: str | None) -> tuple[int, int] | None:
