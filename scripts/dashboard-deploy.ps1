@@ -25,7 +25,7 @@ $DeployArgs = @(
     "run", "deploy", $Service,
     "--source", ".",
     "--region", $Region,
-    "--set-env-vars", "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc",
+    "--set-env-vars", "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc,CLOUD_RUN_REGION=$Region",
     "--allow-unauthenticated",
     "--memory", "1Gi",
     "--cpu", "1",

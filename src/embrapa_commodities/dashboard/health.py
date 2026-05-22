@@ -61,6 +61,11 @@ class Health:
         for name, label in _STAGE_LABELS:
             self._stages[name] = StageState(name=name, label=label)
 
+        # The "container" stage started before any of our Python ran — the
+        # most honest proxy is the moment the health module was imported.
+        # This lets the status table show a real timestamp instead of "—".
+        self._stages["container"].started_at = self._app_started_at
+
     # ── Stage mutators ────────────────────────────────────────────────────
     def stage_started(self, name: str, *, detail: str | None = None) -> None:
         with self._lock:

@@ -84,4 +84,4 @@ dashboard-deploy:    ## Deploy the dashboard to Cloud Run (uses gcloud's active 
 	  --memory 1Gi --cpu 1 --min-instances 0 --max-instances 5 \
 	  --port 8080 \
 	  --cpu-boost \
-	  --set-env-vars GCP_PROJECT_ID=$$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=$${BQ_LOCATION:-us-central1}
+	  --set-env-vars GCP_PROJECT_ID=$$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=$${BQ_LOCATION:-us-central1},CLOUD_RUN_REGION=$(DASH_REGION)

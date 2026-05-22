@@ -125,6 +125,7 @@ def _build_dash() -> Dash:
         "container",
         detail=f"Revision {os.environ.get('K_REVISION', 'local')}",
     )
+    health.stage_started("dash_app")
     install_template()
     dash_app = Dash(
         __name__,
@@ -168,6 +169,7 @@ def _build_dash() -> Dash:
     # know to dispatch them — leaving cold-start visitors with empty
     # charts until they manually reloaded. Registering at startup means
     # /_dash-dependencies always returns the full graph.
+    health.stage_started("page_callbacks")
     try:
         ingestion, dashboard = get_settings()
         store = GoldStore(ingestion, dashboard)
