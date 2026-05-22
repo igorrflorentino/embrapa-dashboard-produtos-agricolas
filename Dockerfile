@@ -43,11 +43,13 @@ RUN chown -R app:app /app
 USER app
 EXPOSE 8080
 
-# Gunicorn: 2 workers × 4 threads is enough for a small in-memory dashboard.
-# `--preload` shares the BigQuery snapshot across workers via fork-after-import.
+# Gunicorn: 1 worker × 4 threads. A single worker is enough for the beta
+# traffic profile and halves the BigQuery snapshot footprint — with 2
+# workers each one loaded its own 94k-row pandas DataFrame, doubling
+# both cold-start time and resident memory.
 CMD exec gunicorn \
     --bind "0.0.0.0:${PORT}" \
-    --workers 2 \
+    --workers 1 \
     --threads 4 \
     --timeout 120 \
     --access-logfile - \

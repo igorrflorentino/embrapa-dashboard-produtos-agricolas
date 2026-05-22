@@ -31,7 +31,8 @@ $DeployArgs = @(
     "--cpu", "1",
     "--min-instances", "0",
     "--max-instances", "5",
-    "--port", "8080"
+    "--port", "8080",
+    "--cpu-boost"
 )
 
 if ($env:DASH_SA) {

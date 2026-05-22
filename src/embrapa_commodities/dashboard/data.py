@@ -287,7 +287,10 @@ class GoldStore:
         started = time.monotonic()
         logger.info("Loading snapshot from %s", self._table_fqn)
         query = f"SELECT * FROM `{self._table_fqn}`"
-        df = client.query(query).result().to_dataframe(create_bqstorage_client=False)
+        # Use the BigQuery Storage API for the row download — binary Arrow
+        # stream, 5–10x faster than the default REST/JSON path for tables
+        # of this size. Requires roles/bigquery.readSessionUser on the SA.
+        df = client.query(query).result().to_dataframe(create_bqstorage_client=True)
         elapsed = time.monotonic() - started
         logger.info("Gold snapshot loaded: %d rows in %.1fs", len(df), elapsed)
         return GoldSnapshot(df=df, loaded_at=datetime.now(), rows=len(df))
