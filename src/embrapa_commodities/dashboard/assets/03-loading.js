@@ -3,79 +3,54 @@
  *
  * Adds `is-loading` to <body> whenever any Dash callback is pending
  * (detected via dcc.Loading spinner elements and Dash's own
- * `data-dash-is-loading` attribute). Removes the class as soon as no
+ * `data-dash-is-loading` attribute). Removes the class once no
  * loading indicator is present in the DOM.
+ *
+ * Implementation: pure polling at 4 Hz. A previous version used a
+ * MutationObserver with subtree=true, which Plotly's animation
+ * mutations triggered thousands of times per second — that froze
+ * the browser tab. Polling is bounded and predictable; the 250ms
+ * lag is invisible compared to typical callback durations.
  *
  * The CSS in 02-dashboard.css then:
  *   - shows the top progress bar
  *   - enables pointer-events on .page-loading-block so the user
  *     can't interact with half-loaded content
- *
- * We intentionally start in loading state — at boot, before Dash
- * even mounts the layout, there are no spinners yet to detect, but
- * we know the dashboard is still loading. The observer takes over
- * once the layout hydrates.
  * ============================================================ */
 (function () {
   "use strict";
 
-  var LOADING_SELECTORS = [
-    "._dash-loading-callback",
-    '[data-dash-is-loading="true"]',
-  ];
+  var POLL_MS = 250;
+  var INITIAL_GRACE_MS = 800; // stay in loading state for the first frame regardless
 
-  function anyPendingCallbacks() {
-    for (var i = 0; i < LOADING_SELECTORS.length; i++) {
-      if (document.querySelector(LOADING_SELECTORS[i])) {
-        return true;
-      }
-    }
+  var startedAt = Date.now();
+  var lastLoadingState = null; // tracks last applied state so we avoid no-op class writes
+
+  function anyPendingCallback() {
+    // querySelector is O(1) hash lookup on the matching first node; even on
+    // huge DOMs this is microseconds, and we only run it 4x/sec.
+    if (document.querySelector("._dash-loading-callback")) return true;
+    if (document.querySelector('[data-dash-is-loading="true"]')) return true;
     return false;
   }
 
-  // Debounce removals so a brief gap between callbacks (e.g. one
-  // finishing the same tick the next starts) doesn't flicker the bar.
-  var clearTimer = null;
-  var IDLE_DELAY_MS = 180;
-
   function refresh() {
-    var loading = anyPendingCallbacks();
+    var inGrace = Date.now() - startedAt < INITIAL_GRACE_MS;
+    var loading = inGrace || anyPendingCallback();
+    if (loading === lastLoadingState) return; // nothing to do
+    lastLoadingState = loading;
     if (loading) {
-      if (clearTimer) {
-        clearTimeout(clearTimer);
-        clearTimer = null;
-      }
       document.body.classList.add("is-loading");
-      return;
+    } else {
+      document.body.classList.remove("is-loading");
     }
-    if (clearTimer) return;
-    clearTimer = setTimeout(function () {
-      clearTimer = null;
-      if (!anyPendingCallbacks()) {
-        document.body.classList.remove("is-loading");
-      }
-    }, IDLE_DELAY_MS);
   }
 
   function init() {
-    // Start in loading state. The first refresh() after Dash hydrates
-    // will either keep it (if callbacks are pending) or clear it.
+    // Start in loading state immediately.
     document.body.classList.add("is-loading");
-
-    var observer = new MutationObserver(refresh);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-dash-is-loading", "class"],
-    });
-
-    // Safety net: poll once a second in case a mutation slips through
-    // (rare, but cheap to do — no DOM access if class is unchanged).
-    setInterval(refresh, 1000);
-
-    // Initial check after Dash has had a tick to mount.
-    setTimeout(refresh, 250);
+    lastLoadingState = true;
+    setInterval(refresh, POLL_MS);
   }
 
   if (document.readyState === "loading") {
