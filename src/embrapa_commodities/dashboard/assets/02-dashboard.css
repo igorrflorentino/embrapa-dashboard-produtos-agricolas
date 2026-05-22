@@ -557,6 +557,89 @@
   font-size: 13px;
 }
 
+/* ---------- Page-level loading bar + interaction blocker ----------
+ * The bar is fixed at the very top of the viewport and slides a brand-
+ * green segment back and forth (indeterminate progress). The block is a
+ * transparent fixed layer that intercepts pointer events so the user
+ * can SEE elements appear but cannot interact until everything settles.
+ * Both are coordinated by 03-loading.js via the `is-loading` body class.
+ */
+.page-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 9998;
+  background: rgba(0, 111, 53, 0.12);
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+.page-loading-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--embrapa-green) 35%,
+    var(--embrapa-green) 65%,
+    transparent 100%
+  );
+  animation: page-loading-slide 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes page-loading-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(450%); }
+}
+
+.page-loading-block {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: transparent;
+  pointer-events: none;
+}
+
+body.is-loading .page-loading-bar  { opacity: 1; }
+body.is-loading .page-loading-block { pointer-events: auto; cursor: progress; }
+body.is-loading                     { cursor: progress; }
+
+/* Pre-hydration: before Dash mounts the React tree, the default
+   "Loading…" string flashes in the top-left. Replace it with our own
+   brand-coloured bar so the user always sees an intentional indicator. */
+._dash-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 9999;
+  background: rgba(0, 111, 53, 0.12);
+  overflow: hidden;
+  /* hide the "Loading…" text */
+  font-size: 0;
+  color: transparent;
+  text-indent: -9999px;
+}
+._dash-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--embrapa-green) 35%,
+    var(--embrapa-green) 65%,
+    transparent 100%
+  );
+  animation: page-loading-slide 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* ---------- Loading spinner (dcc.Loading) ---------- */
 /* Reserve vertical space so the layout doesn't jump as cards toggle their
    loading state. Per-component spinners only — page-level loading is handled

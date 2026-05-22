@@ -135,6 +135,9 @@ def _build_dash() -> Dash:
     dash_app.layout = html.Div(
         children=[
             dcc.Location(id="url", refresh=False),
+            # page-level loading indicators — toggled by 03-loading.js
+            html.Div(className="page-loading-bar"),
+            html.Div(className="page-loading-block"),
             # global error store + always-mounted overlay
             dcc.Store(id="global-error", data=None, storage_type="memory"),
             html.Div(id="error-overlay", className="error-overlay hidden"),
