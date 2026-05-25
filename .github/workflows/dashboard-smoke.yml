@@ -22,8 +22,10 @@
 #         --attribute-condition="assertion.repository == 'OWNER/REPO'" \
 #         --issuer-uri="https://token.actions.githubusercontent.com"
 #
-#  2. Create a service account for CI and bind it (BigQuery Data Viewer + Job
-#     User is enough — the smoke only READS Gold tables, never writes):
+#  2. Create a service account for CI and bind three read-only roles
+#     (Data Viewer for table reads, Job User to issue queries, Read Session
+#     User for the BigQuery Storage Read API which the dashboard uses for
+#     row streaming via google-cloud-bigquery-storage):
 #
 #       gcloud iam service-accounts create sa-dashboard-smoke-ci \
 #         --project="${GCP_PROJECT_ID}"
@@ -34,6 +36,9 @@
 #       gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
 #         --member="serviceAccount:sa-dashboard-smoke-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
 #         --role="roles/bigquery.jobUser"
+#       gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+#         --member="serviceAccount:sa-dashboard-smoke-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+#         --role="roles/bigquery.readSessionUser"
 #
 #  3. Allow the WIF provider to impersonate that SA from this repo only:
 #
