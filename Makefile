@@ -1,5 +1,5 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean \
+        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test test-smoke clean \
         precommit-install precommit-run \
         dashboard-sync dashboard-run dashboard-build dashboard-deploy \
         dashboard-smoke dashboard-visual
@@ -51,8 +51,11 @@ lint:
 	$(PY) ruff check .
 	$(PY) ruff format --check .
 
-test:
-	$(PY) pytest
+test:    ## Fast unit tests (excludes `-m smoke`; no live BQ required)
+	$(PY) pytest -m "not smoke"
+
+test-smoke: dashboard-sync    ## Live-BQ dashboard smoke (HARD-fails without GCP_PROJECT_ID)
+	$(PY) --extra dashboard pytest -m smoke
 
 precommit-install:    ## Install git hooks defined in .pre-commit-config.yaml
 	$(PY) pre-commit install
