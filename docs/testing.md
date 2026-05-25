@@ -197,6 +197,12 @@ The local smoke is for fast feedback during a change. The merge gate is
 - Authenticates to GCP via **Workload Identity Federation** — no private
   keys live in the repo; GitHub mints a short-lived OIDC token at job time
   and exchanges it for a SA token via the WIF provider.
+- Requires four repo-level Actions Variables: `GCP_PROJECT_ID`,
+  `GCP_WIF_PROVIDER`, `GCP_SMOKE_SERVICE_ACCOUNT`, and `BQ_LOCATION`. The last
+  one matters because `config.py` defaults `bq_location="US"` (multi-region)
+  while the actual Gold dataset is single-region — a mismatch surfaces as a
+  `404 Dataset not found in location US` error from BigQuery, not a
+  permissions failure.
 - Skips on fork PRs (they can't reach the WIF provider; this is the intended
   security boundary).
 - Uploads `artifacts/dashboard_smoke_server.log` on failure so you can read

@@ -47,6 +47,10 @@
 #       GCP_PROJECT_ID                = your project id
 #       GCP_WIF_PROVIDER              = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github-provider
 #       GCP_SMOKE_SERVICE_ACCOUNT     = sa-dashboard-smoke-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+#       BQ_LOCATION                   = the region your Gold dataset lives in
+#                                       (e.g. us-central1). The dashboard config
+#                                       defaults to "US" multi-region, which
+#                                       returns 404 against a single-region dataset.
 #
 #     (These are `vars.*`, not `secrets.*` — they aren't credentials, they're
 #     references. The actual short-lived token is minted by WIF at job time.)
@@ -102,6 +106,11 @@ jobs:
       - name: Run dashboard smoke (live BigQuery)
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          # Must match the Gold dataset's actual region. The dashboard config
+          # defaults to `US` multi-region; a single-region dataset (us-central1
+          # in this project) returns 404 against that default. See workflow
+          # header comment, step 4.
+          BQ_LOCATION: ${{ vars.BQ_LOCATION }}
         run: make test-smoke
 
       - name: Upload server log on failure
