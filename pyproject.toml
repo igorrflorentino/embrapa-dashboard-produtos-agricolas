@@ -73,3 +73,11 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    # Opt-in marker for tests that need live GCP credentials (BigQuery, GCS).
+    # `make test` runs with `-m 'not smoke'` to keep the default test loop
+    # fast and credential-free; `make test-smoke` runs with `-m smoke` and
+    # HARD-FAILS if credentials are missing (no silent skips — see the 2026-05
+    # audit action item #4 and tests/test_dashboard_smoke.py).
+    "smoke: live-BigQuery dashboard smoke test; opt-in via `make test-smoke`",
+]

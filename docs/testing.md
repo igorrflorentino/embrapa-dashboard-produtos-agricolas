@@ -143,6 +143,74 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/.gcp-credentials.json
 uv run embrapa doctor
 ```
 
+## Dashboard testing
+
+The dashboard (`src/embrapa_commodities/dashboard/`) has its own test layer
+that intentionally sits *outside* the default `make test` loop. The split
+was driven by the 2026-05 audit (P1, action item #4): contributors used to
+get a green `make test` without any dashboard verification at all.
+
+### Three layers, three audiences
+
+| Layer | Command | When it runs | Needs live BQ? | Where it lives |
+|-------|---------|--------------|----------------|----------------|
+| **1. Unit tests** | `make test` | Every dev, every commit | No | `tests/` (excludes `-m smoke`) |
+| **2. Dashboard smoke** | `make test-smoke` | Devs touching the dashboard, before PR | **Yes** — hard-fails without `GCP_PROJECT_ID` | `tests/test_dashboard_smoke.py` (marked `@pytest.mark.smoke`) |
+| **3. CI gate** | GitHub Actions runs `make test-smoke` on every PR | Always, automatically | Yes (Workload Identity Federation) | `.github/workflows/dashboard-smoke.yml` |
+
+### Why the smoke is opt-in, not always-on
+
+The smoke boots the Dash server, hits `/_health` and `/`, lists Dash
+callbacks, and forces a live BigQuery route render. **It requires real
+credentials** (`GCP_PROJECT_ID` + Application Default Credentials).
+
+- `make test` runs `pytest -m "not smoke"` so it stays fast and credential-free.
+  Forks, fresh clones, and offline work all get a clean green.
+- `make test-smoke` runs `pytest -m smoke` and **hard-fails** (not skips!) if
+  `GCP_PROJECT_ID` is unset. This is deliberate: a silent skip on missing
+  creds is the *exact anti-pattern the audit flagged*. Whoever invoked the
+  smoke owes the environment — a green `test-smoke` must mean "live BQ
+  rendered the dashboard", never "I didn't have creds, so nothing ran".
+
+### When to run what
+
+| Scenario | Command |
+|----------|---------|
+| Routine work, no dashboard changes | `make test` |
+| About to PR a change under `src/embrapa_commodities/dashboard/**` | `make test` **then** `make test-smoke` |
+| About to PR a Gold model change (could break the dashboard's data contract) | `make test-smoke` |
+| UI/visual change you want to attach to the PR description | `make dashboard-visual` (Chromium screenshots → `artifacts/`) |
+| Gate a Cloud Run deploy against a live URL | `uv run python scripts/dashboard_smoke.py --no-launch --url https://...` |
+
+`make dashboard-visual` is intentionally **not** in pytest — headless-Chromium
+installs and rendering flakiness would degrade CI reliability without adding
+much signal beyond what the smoke already proves. Keep it as a manual step
+when a PR's diff includes UI changes worth eyeballing.
+
+### CI is the source of truth
+
+The local smoke is for fast feedback during a change. The merge gate is
+`.github/workflows/dashboard-smoke.yml`, which:
+
+- Runs on PRs that touch the dashboard, `scripts/dashboard_smoke.py`, the
+  Gold dbt models, or `pyproject.toml`/`uv.lock`.
+- Authenticates to GCP via **Workload Identity Federation** — no private
+  keys live in the repo; GitHub mints a short-lived OIDC token at job time
+  and exchanges it for a SA token via the WIF provider.
+- Requires four repo-level Actions Variables: `GCP_PROJECT_ID`,
+  `GCP_WIF_PROVIDER`, `GCP_SMOKE_SERVICE_ACCOUNT`, and `BQ_LOCATION`. The last
+  one matters because `config.py` defaults `bq_location="US"` (multi-region)
+  while the actual Gold dataset is single-region — a mismatch surfaces as a
+  `404 Dataset not found in location US` error from BigQuery, not a
+  permissions failure.
+- Skips on fork PRs (they can't reach the WIF provider; this is the intended
+  security boundary).
+- Uploads `artifacts/dashboard_smoke_server.log` on failure so you can read
+  the server crash without reproducing locally.
+
+The one-time GCP setup (WIF pool, provider, SA binding) is documented as a
+header comment at the top of the workflow file.
+
 ## Manual Testing
 
 Beyond automated tests, you can verify functionality manually:

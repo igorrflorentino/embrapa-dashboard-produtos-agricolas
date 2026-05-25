@@ -237,6 +237,44 @@ def _interpret_route_response(status: int, raw: bytes) -> tuple[str, bool]:
     return "page rendered, no error overlay (live BQ snapshot loaded)", True
 
 
+# ── Public orchestrator (used by main() and by tests/test_dashboard_smoke.py)
+def run_smoke(
+    *,
+    url: str = "http://127.0.0.1:8051",
+    launch: bool = True,
+    port: int = 8051,
+    timeout: float = 90.0,
+    log_path: Path | None = None,
+) -> list[tuple[str, bool, str]]:
+    """Launch (or target) the dashboard, run the HTTP+callback smoke, return results.
+
+    Each result is ``(check_name, passed, detail)``. The caller decides how to
+    surface them (print for the CLI; assert for pytest). Raises ``RuntimeError``
+    if ``launch=True`` and the server never becomes healthy within ``timeout``.
+
+    Keeping orchestration here — instead of in ``main()`` — lets the pytest
+    wrapper reuse the exact same launch/check/teardown flow without re-implementing
+    the server lifecycle, and guarantees both code paths surface the same failures.
+    """
+    proc = None
+    base = url
+    resolved_log = log_path or REPO_ROOT / "artifacts" / "dashboard_smoke_server.log"
+    try:
+        if launch:
+            base = f"http://127.0.0.1:{port}"
+            resolved_log.parent.mkdir(parents=True, exist_ok=True)
+            proc = launch_server(port, resolved_log)
+            if not wait_for_health(base, timeout):
+                raise RuntimeError(
+                    f"dashboard server did not become healthy within {timeout:.0f}s "
+                    f"(see {resolved_log})"
+                )
+        return run_checks(base)
+    finally:
+        if proc is not None:
+            stop_server(proc)
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 def main() -> int:
     # The dashboard is pt-BR; error details carry ã/ç/õ. Force UTF-8 stdout so
@@ -277,28 +315,28 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    proc = None
     log_path = REPO_ROOT / "artifacts" / "dashboard_smoke_server.log"
-    base = args.url
+    if args.launch:
+        base = f"http://127.0.0.1:{args.port}"
+        print(f"Launching dashboard on {base} (log: {log_path}) ...")
+    else:
+        print(f"Testing already-running server at {args.url} ...\n")
 
     try:
-        if args.launch:
-            base = f"http://127.0.0.1:{args.port}"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            print(f"Launching dashboard on {base} (log: {log_path}) ...")
-            proc = launch_server(args.port, log_path)
-            if not wait_for_health(base, args.timeout):
-                print(f"FAILED: server did not become healthy within {args.timeout:.0f}s")
-                _print_log_tail(log_path)
-                return 2
-            print("Server healthy. Running checks ...\n")
-        else:
-            print(f"Testing already-running server at {base} ...\n")
+        results = run_smoke(
+            url=args.url,
+            launch=args.launch,
+            port=args.port,
+            timeout=args.timeout,
+            log_path=log_path,
+        )
+    except RuntimeError as e:
+        print(f"FAILED: {e}")
+        _print_log_tail(log_path)
+        return 2
 
-        results = run_checks(base)
-    finally:
-        if proc is not None:
-            stop_server(proc)
+    if args.launch:
+        print("Server healthy. Checks complete.\n")
 
     all_ok = True
     for name, ok, detail in results:
