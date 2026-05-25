@@ -112,21 +112,22 @@ Always iterate on `make dbt-build` (dev). `make dbt-build-prod` does a `--full-r
 
 **Dev schemas auto-expire after 7 days.** The `apply_dev_ttl` macro runs as an `on-run-end` hook only when `target.name == 'dev'`, setting `default_table_expiration_days = 7` on `dbt_dev_silver` and `dbt_dev_gold`. Abandoned experimentation tables self-clean instead of accumulating in the project.
 
-## Migration notes (one-time)
+## Skills available
 
-- **Bronze re-partitioning:** Bronze tables are now partitioned by `DATE(ingestion_timestamp)` and clustered (IBGE: `municipio_codigo, ano, variavel_codigo`; BCB: `series_code, reference_date_str`). BigQuery cannot retrofit partitioning on existing tables — if you have pre-existing Bronze tables from before this change, drop them before the next `embrapa ingest *` run, otherwise the load job fails with a partition mismatch:
-  ```bash
-  bq rm -f -t "${GCP_PROJECT_ID}:bronze_ibge.sidra_t289_raw"
-  bq rm -f -t "${GCP_PROJECT_ID}:bronze_bcb.inflation_series_raw"
-  bq rm -f -t "${GCP_PROJECT_ID}:bronze_bcb.currency_series_raw"
-  ```
-- **Gold materialization:** changed from `incremental` to `table`. No action required — `dbt build` will recreate it cleanly. The Gold model now also has new columns (`reference_date`, `state_name`, `region`, `city_code`, `last_refresh`) and renamed columns (snake_case throughout). Looker Studio reports must rebind any deleted column names (`valnominalbrl` → `val_nominal_brl`, etc.).
-- **GCS bucket protections:** versioning and lifecycle rules are now applied idempotently on `ensure_bucket` — existing buckets are upgraded on the next run.
-- **`val_nominal_*` → `val_yearfx_*`:** the 4 BRL/USD/EUR/CNY columns were renamed because "nominal" was misleading (Silver already converts everything to current BRL numerary via the currency reform seed). Looker Studio reports need to rebind the 4 metrics — see `docs/looker_studio_setup.md`.
+Each skill in `.claude/skills/` provides deep context for a specific workflow. Claude Code loads them on demand by matching the task description.
 
-## Notes for changes
+| Skill | When to use |
+|-------|------------|
+| `run-dashboard` | Run, serve, smoke-test, or screenshot the Dash web app |
+| `dbt-workflow` | Create/modify dbt models, run transforms, understand Silver/Gold patterns |
+| `dash-page-scaffold` | Create a new page or view in the dashboard |
+| `deploy-cloud-run` | Deploy to Cloud Run, build Docker image, verify production |
+| `lint-and-test` | Run ruff, pytest, sqlfluff, or pre-commit hooks |
+| `ingest-data` | Ingest from IBGE/BCB, add products or series, debug pipelines |
+| `bigquery-debug` | Debug BQ errors (404/403/400), inspect data, diagnostic queries |
+| `new-chart-component` | Create new Plotly chart types or Dash components |
+| `code-audit` | Strategic health audit: complexity, maintainability, coverage (run periodically, not on every change) |
 
-- Adding an IBGE product: just update `IBGE_PRODUCT_CODES` in `.env`. The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_codigo`.
-- Adding a new historical-currency unit string (e.g. older IBGE labels): add a row to `dbt/seeds/historical_currency_factors.csv` with a non-overlapping `[year_from, year_to]` range.
-- IBGE SIDRA has a per-request cell limit. For windows >10 years use `ingest ibge-batch`; chunk size auto-scales with number of products (`recommended_chunk_years` in `ibge/client.py`).
-- Tests mock HTTP clients via `responses` — see `tests/test_ibge_client.py` and `tests/test_bcb_client.py` for the pattern.
+## Migration history
+
+One-time migration notes (Bronze re-partitioning, Gold schema changes, column renames) are archived in `docs/migration_history.md`.

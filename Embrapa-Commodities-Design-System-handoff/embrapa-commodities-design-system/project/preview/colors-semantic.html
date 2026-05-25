@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: #fff; padding: 24px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .sw { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+  .chip { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--border-subtle); flex-shrink: 0; }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 12px; font-weight: 500; color: var(--fg-1); line-height: 1.2; }
+  .var { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); }
+  .group-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); margin: 0 0 10px; font-weight: 500;}
+  .col { display: flex; flex-direction: column; gap: 6px; }
+  h4 { font-size: 12px; font-weight: 500; color: var(--fg-2); margin: 0 0 6px; }
+</style>
+</head>
+<body>
+  <div class="group-label">Semantic tokens · light surface</div>
+  <div class="row">
+    <div class="col">
+      <h4>Surfaces & foreground</h4>
+      <div class="sw"><div class="chip" style="background:#FAFAF7"></div><div class="meta"><div class="name">bg-page</div><div class="var">--bg-page</div></div></div>
+      <div class="sw"><div class="chip" style="background:#fff"></div><div class="meta"><div class="name">bg-surface</div><div class="var">--bg-surface</div></div></div>
+      <div class="sw"><div class="chip" style="background:#F4F4F0"></div><div class="meta"><div class="name">bg-surface-2</div><div class="var">--bg-surface-2</div></div></div>
+      <div class="sw"><div class="chip" style="background:#1a1f1c"></div><div class="meta"><div class="name">fg-1</div><div class="var">--fg-1 · primary</div></div></div>
+      <div class="sw"><div class="chip" style="background:#333"></div><div class="meta"><div class="name">fg-2</div><div class="var">--fg-2 · body</div></div></div>
+      <div class="sw"><div class="chip" style="background:#666"></div><div class="meta"><div class="name">fg-3</div><div class="var">--fg-3 · secondary</div></div></div>
+    </div>
+    <div class="col">
+      <h4>Status</h4>
+      <div class="sw"><div class="chip" style="background:#006f35"></div><div class="meta"><div class="name">OK / success</div><div class="var">--status-ok</div></div></div>
+      <div class="sw"><div class="chip" style="background:#B7791F"></div><div class="meta"><div class="name">Warning</div><div class="var">--status-warn</div></div></div>
+      <div class="sw"><div class="chip" style="background:#B23A2B"></div><div class="meta"><div class="name">Error</div><div class="var">--status-error</div></div></div>
+      <div class="sw"><div class="chip" style="background:#06617c"></div><div class="meta"><div class="name">Info</div><div class="var">--status-info</div></div></div>
+      <div class="sw"><div class="chip" style="background:#cc4b10"></div><div class="meta"><div class="name">Tag laranja</div><div class="var">RESERVED · "Empregados" only</div></div></div>
+    </div>
+  </div>
+</body>
+</html>

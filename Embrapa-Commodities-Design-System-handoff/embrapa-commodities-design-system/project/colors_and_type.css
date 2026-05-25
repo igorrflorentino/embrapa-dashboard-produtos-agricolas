@@ -1,0 +1,373 @@
+/* ============================================================
+ * Embrapa Commodities Design System
+ * colors_and_type.css — foundations
+ *
+ * Two palettes coexist in the Embrapa universe:
+ *   1. CORPORATE palette (logo, mobile apps, signage)
+ *      Source: Manual de Identidade Visual + Guia Mobile
+ *      Anchored on Verde Embrapa #006f35 and Azul Embrapa #06617c
+ *   2. PRESENTATIONS palette (Embrapa 5.0 slide template, 2023+)
+ *      Source: Template Embrapa para apresentações
+ *      Anchored on Yale Blue #1D4D7E + grays — for slide decks,
+ *      data visualizations, and the Looker-style dashboards.
+ *
+ * The commodities dashboard sits at the intersection: it inherits
+ * the institutional brand (header/footer use corporate green), but
+ * the data surface uses the modern presentations palette for
+ * chart legibility on white.
+ * ============================================================ */
+
+/* ----- Webfonts -----------------------------------------------
+ * Embrapa brand fonts (per Manual de Identidade Visual):
+ *   • Univers — primary identity face (papelaria, sinalização)
+ *   • Arial   — internal documents (memos, formulários)
+ *   • Verdana — web / intranet
+ * We layer Univers first, with Verdana as the manual's prescribed
+ * web fallback, then Arial, then system. The wordmark uses Univers
+ * Extra Bold Italic; the closest cut we have is Univers 65 Bold
+ * Oblique, which we expose as the `.brand-italic` class.
+ *
+ * Note: Univers is shipped in 55 Roman / 55 Oblique / 65 Bold /
+ * 65 Bold Oblique only — no Light (45) or Medium. CSS-level
+ * font-synthesis-weight produces an acceptable faux-medium for
+ * weight 500 (used for .overline, buttons, etc.).
+ *
+ * Mono — IBM Plex Mono via Google Fonts. The brand has no mono
+ * specification; Plex Mono is institutional-warm and works well
+ * for the long numeric strings the commodity dashboard renders.
+ * ------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_55_Roman.otf') format('opentype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_55_Oblique.otf') format('opentype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_65_Bold_Regular.ttf') format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_65_Bold_Oblique.otf') format('opentype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+/* Univers 75 Black — extra-heavy weight, used for big display type. */
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_75_Black.ttf') format('truetype');
+  font-weight: 800; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_75_Black_Italic.ttf') format('truetype');
+  font-weight: 800; font-style: italic; font-display: swap;
+}
+/* Univers 85 Extra Black — the wordmark cut. Reserved for hero / brand moments. */
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_85_ExtraBlack.ttf') format('truetype');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url('fonts/Univers_85_ExtraBlack_Italic.ttf') format('truetype');
+  font-weight: 900; font-style: italic; font-display: swap;
+}
+
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url('fonts/arial.ttf') format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url('fonts/ariali.ttf') format('truetype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url('fonts/arialbd.ttf') format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url('fonts/arialbi.ttf') format('truetype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url('fonts/verdana.ttf') format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url('fonts/verdanai.ttf') format('truetype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url('fonts/verdanab.ttf') format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url('fonts/verdanaz.ttf') format('truetype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+
+:root {
+  /* ============ CORPORATE PALETTE (institutional) ============ */
+  /* From Manual de Identidade Visual + Guia Mobile */
+  --embrapa-green:        #006f35; /* Verde Embrapa — primary brand */
+  --embrapa-green-dark:   #005529; /* darker shade, app icons */
+  --embrapa-green-darker: #003c1d; /* deepest, type on light */
+  --embrapa-green-light:  #00763d; /* slight lift, ui hover */
+  --embrapa-blue:         #06617c; /* Azul Embrapa — secondary brand */
+  --embrapa-blue-dark:    #004993; /* institutional blue, employee tag */
+  --embrapa-blue-darker:  #0e3b65; /* deepest blue */
+  --embrapa-blue-pale:    #cddee9; /* atmospheric blue tint */
+  --embrapa-graygreen:    #6e867d; /* muted brand-aligned neutral */
+  --embrapa-orange:       #cc4b10; /* RESTRICTED USE — internal/employee tag only */
+
+  /* ============ PRESENTATIONS PALETTE (data surface) ============ */
+  /* From Embrapa 5.0 presentation template, Jan 2023 */
+  --pres-black:        #000000;
+  --pres-gray-900:     #333333; /* "Cinza escuro" — body text */
+  --pres-gray-600:     #666666; /* "Cinza médio" — secondary text */
+  --pres-gray-200:     #ECECEC; /* "Cinza claro" — surfaces / dividers */
+  --pres-white:        #ffffff;
+  --pres-yale-blue:    #1D4D7E; /* primary chart color */
+  --pres-french-blue:  #3A74B0; /* secondary chart color */
+  --pres-beau-blue:    #B4D0E7; /* tertiary / fill */
+
+  /* ============ SEMANTIC TOKENS — light surface ============ */
+  /* Page surfaces */
+  --bg-page:           #FAFAF7;            /* warm off-white, paper-feel */
+  --bg-surface:        #FFFFFF;            /* cards, panels */
+  --bg-surface-2:      #F4F4F0;            /* nested / inset */
+  --bg-surface-3:      #ECECEC;            /* deep inset */
+  --bg-brand:          var(--embrapa-green);
+  --bg-brand-deep:     var(--embrapa-green-darker);
+
+  /* Foreground (text) */
+  --fg-1:              #1a1f1c;            /* primary text — slightly green-black */
+  --fg-2:              var(--pres-gray-900); /* body */
+  --fg-3:              var(--pres-gray-600); /* secondary */
+  --fg-4:              #9aa5a0;            /* tertiary, captions */
+  --fg-on-brand:       #ffffff;            /* on green/blue */
+  --fg-accent:         var(--embrapa-green);
+  --fg-link:           var(--pres-yale-blue);
+
+  /* Borders / dividers */
+  --border-subtle:     rgba(0, 60, 29, 0.08);
+  --border-default:    rgba(0, 60, 29, 0.14);
+  --border-strong:     rgba(0, 60, 29, 0.28);
+  --border-on-brand:   rgba(255, 255, 255, 0.18);
+
+  /* Semantic / status (for dashboards specifically) */
+  --status-ok:         var(--embrapa-green);
+  --status-warn:       #B7791F; /* amber, neutral institutional */
+  --status-error:      #B23A2B; /* not the brand orange — that's reserved */
+  --status-info:       var(--embrapa-blue);
+  --status-muted:      var(--pres-gray-600);
+
+  /* Data viz scale — derived from presentations palette + extensions
+   * Chosen to be color-blind passable and to print legibly. */
+  --viz-1: #1D4D7E; /* yale blue */
+  --viz-2: #006f35; /* embrapa green */
+  --viz-3: #B7791F; /* amber */
+  --viz-4: #3A74B0; /* french blue */
+  --viz-5: #6e867d; /* gray-green */
+  --viz-6: #B23A2B; /* terracotta */
+  --viz-7: #0e3b65; /* deep navy */
+  --viz-8: #B4D0E7; /* beau blue */
+
+  /* ============ TYPOGRAPHY ============ */
+  /* Univers is the manual's primary face; Verdana is its prescribed
+   * web fallback; Arial sits behind for internal documents. */
+  --font-display:  'Univers', 'Embrapa Verdana', 'Embrapa Arial', 'Helvetica Neue', Arial, sans-serif;
+  --font-body:     'Univers', 'Embrapa Verdana', 'Embrapa Arial', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:     'IBM Plex Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Scale — institutional, restrained. Body is 15px.
+   * The Embrapa mobile guide is explicit about "menos é mais" —
+   * we keep the scale tight and prefer weight over size for hierarchy. */
+  --fs-display:  56px;  --lh-display:  1.05;  --ls-display:  -0.02em;
+  --fs-h1:       40px;  --lh-h1:       1.12;  --ls-h1:       -0.015em;
+  --fs-h2:       30px;  --lh-h2:       1.18;  --ls-h2:       -0.01em;
+  --fs-h3:       22px;  --lh-h3:       1.28;  --ls-h3:       -0.005em;
+  --fs-h4:       17px;  --lh-h4:       1.35;  --ls-h4:       0;
+  --fs-body:     15px;  --lh-body:     1.55;  --ls-body:     0;
+  --fs-body-sm:  13px;  --lh-body-sm:  1.5;   --ls-body-sm:  0;
+  --fs-caption:  12px;  --lh-caption:  1.4;   --ls-caption:  0.01em;
+  --fs-overline: 11px;  --lh-overline: 1.2;   --ls-overline: 0.12em;  /* tracked, uppercase */
+  --fs-mono-lg:  28px;  --fs-mono:     14px;
+
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-bold:     700;
+  --fw-black:    800;   /* Univers 75 Black */
+  --fw-display:  900;   /* Univers 85 Extra Black — wordmark cut */
+
+  /* ============ SPACING (8pt baseline) ============ */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  /* ============ RADII ============ */
+  /* Embrapa's visual language is grounded and geometric — corners stay small.
+   * The leaf shape gives ALL the curve identity. UI corners are quiet. */
+  --radius-xs:  2px;
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  10px;
+  --radius-xl:  16px;
+  --radius-pill: 999px;
+
+  /* ============ SHADOWS ============ */
+  /* Soft, institutional — no neon, no high-blur fluff. */
+  --shadow-1: 0 1px 2px rgba(0, 60, 29, 0.06);
+  --shadow-2: 0 2px 6px rgba(0, 60, 29, 0.07), 0 1px 2px rgba(0, 60, 29, 0.05);
+  --shadow-3: 0 8px 24px rgba(0, 60, 29, 0.08), 0 2px 4px rgba(0, 60, 29, 0.05);
+  --shadow-4: 0 18px 48px rgba(0, 60, 29, 0.12), 0 4px 10px rgba(0, 60, 29, 0.06);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,60,29,0.04);
+
+  /* ============ MOTION ============ */
+  /* Slow, deliberate, institutional. No bounce. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.3, 0, 0, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:      120ms;
+  --dur-base:      200ms;
+  --dur-slow:      360ms;
+
+  /* ============ LAYOUT ============ */
+  --container-max: 1280px;
+  --gutter:        24px;
+  --sidebar-w:     260px;
+  --topbar-h:      56px;
+}
+
+/* ============ SEMANTIC ELEMENT STYLES ============ */
+html, body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
+  /* Univers ships in 400 + 700 only; let the browser synthesize the
+   * intermediate medium weight (500) used by overlines and buttons. */
+  font-synthesis-weight: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, .h1, h2, .h2, h3, .h3, h4, .h4 {
+  font-family: var(--font-display);
+  color: var(--fg-1);
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1, .h1 {
+  font-size: var(--fs-h1);
+  line-height: var(--lh-h1);
+  letter-spacing: var(--ls-h1);
+  font-weight: var(--fw-medium);
+}
+h2, .h2 {
+  font-size: var(--fs-h2);
+  line-height: var(--lh-h2);
+  letter-spacing: var(--ls-h2);
+  font-weight: var(--fw-medium);
+}
+h3, .h3 {
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  letter-spacing: var(--ls-h3);
+  font-weight: var(--fw-medium);
+}
+h4, .h4 {
+  font-size: var(--fs-h4);
+  line-height: var(--lh-h4);
+  font-weight: var(--fw-medium);
+}
+
+p, .p {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+small, .caption {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--fg-3);
+}
+
+.overline {
+  font-size: var(--fs-overline);
+  letter-spacing: var(--ls-overline);
+  text-transform: uppercase;
+  font-weight: var(--fw-medium);
+  color: var(--fg-3);
+}
+
+.display {
+  font-size: var(--fs-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--ls-display);
+  font-weight: var(--fw-medium);
+}
+
+/* Italic display — echoes the Univers Extra Black Italic of the
+ * wordmark. Use ONLY for hero / brand moments, never body. */
+.brand-italic {
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+code, kbd, samp, pre, .mono, .num {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+}
+
+a {
+  color: var(--fg-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--embrapa-green); }
+
+/* Tabular numerals helper — required for any column of values */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Focus ring — institutional, accessible */
+:focus-visible {
+  outline: 2px solid var(--embrapa-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: #fff; padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .swatch { padding: 24px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; }
+  .swatch.light { background: #fff; border: 1px solid var(--border-default);}
+  .swatch.dark  { background: var(--embrapa-green); }
+  .swatch img { max-width: 80%; height: 100px; object-fit: contain; }
+  .meta { grid-column: 1 / -1; display: flex; gap: 20px; font-size: 11px; color: var(--fg-3); }
+  .meta strong { color: var(--fg-1); display: block; font-weight: 500; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+  <div class="swatch light"><img src="../assets/logo-embrapa-color.png" alt="Embrapa logo color"></div>
+  <div class="swatch dark"><img src="../assets/logo-embrapa-white.png" alt="Embrapa logo white"></div>
+  <div class="meta">
+    <div><strong>Versão colorida</strong>Preferida — sobre fundos claros</div>
+    <div><strong>Versão negativa</strong>Sobre fundos escuros / verde Embrapa</div>
+    <div><strong>Largura mínima</strong>Tela 36 mm · Impresso 20 mm</div>
+    <div><strong>Razão</strong>8:3 (largura : altura · módulo "m")</div>
+  </div>
+</body>
+</html>

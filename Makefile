@@ -1,7 +1,8 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test clean \
         precommit-install precommit-run \
-        dashboard-sync dashboard-run dashboard-build dashboard-deploy
+        dashboard-sync dashboard-run dashboard-build dashboard-deploy \
+        dashboard-smoke dashboard-visual
 
 PY := uv run
 DBT_DIR := dbt
@@ -72,6 +73,14 @@ dashboard-sync:    ## Install dashboard runtime deps
 
 dashboard-run: dashboard-sync    ## Local dev server on http://localhost:8080
 	$(PY) --extra dashboard python -m embrapa_commodities.dashboard.app
+
+dashboard-smoke: dashboard-sync    ## Boot + HTTP/callback smoke (live BQ render)
+	$(PY) --extra dashboard python scripts/dashboard_smoke.py
+
+dashboard-visual: ## Headless-browser visual check (screenshots → artifacts/)
+	uv sync --extra dashboard --extra visual
+	$(PY) --extra dashboard --extra visual python -m playwright install chromium
+	$(PY) --extra dashboard --extra visual python scripts/dashboard_visual_check.py
 
 dashboard-build:    ## Build the Cloud Run image locally
 	docker build -t $(DASH_IMAGE) .

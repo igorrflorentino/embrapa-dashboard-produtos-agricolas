@@ -238,3 +238,10 @@ sa-*.json
 sa-*.b64
 **/sa-*.json
 **/sa-*.b64
+
+# Claude
+.claude/settings.local.json
+
+# Dashboard validation output (smoke server logs, Playwright screenshots)
+artifacts/
+

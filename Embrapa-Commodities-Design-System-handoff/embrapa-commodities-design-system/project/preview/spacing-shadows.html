@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: var(--bg-page); padding: 32px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .card { background: #fff; height: 110px; border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--border-subtle); }
+  .name { font-size: 12px; font-weight: 500; color: var(--fg-1); }
+  .label { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); text-align: center; padding: 0 8px; }
+</style>
+</head>
+<body>
+  <div class="card" style="box-shadow: var(--shadow-1);"><div class="name">shadow-1</div><div class="label">hairline lift</div></div>
+  <div class="card" style="box-shadow: var(--shadow-2);"><div class="name">shadow-2</div><div class="label">resting card</div></div>
+  <div class="card" style="box-shadow: var(--shadow-3);"><div class="name">shadow-3</div><div class="label">popover · dropdown</div></div>
+  <div class="card" style="box-shadow: var(--shadow-4);"><div class="name">shadow-4</div><div class="label">modal · dragged</div></div>
+</body>
+</html>

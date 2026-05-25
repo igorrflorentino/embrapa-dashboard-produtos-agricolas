@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: var(--bg-page); padding: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .kpi { background: #fff; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px 20px; }
+  .ov { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; color: var(--fg-3); }
+  .val { font-family: var(--font-mono); font-size: 30px; font-weight: 500; color: var(--fg-1); margin-top: 8px; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .sub { font-size: 12px; color: var(--fg-3); margin-top: 6px; }
+  .delta { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .delta.up { background: rgba(0,111,53,0.10); color: var(--embrapa-green-darker); }
+  .delta.down { background: rgba(178,58,43,0.10); color: #8E2A1E; }
+  .arrow { font-size: 10px; }
+</style>
+</head>
+<body>
+  <div class="kpi">
+    <div class="ov">Valor real (IPCA)</div>
+    <div class="val">R$ 1,8 bi</div>
+    <div class="sub"><span class="delta up"><span class="arrow">▲</span>+12,4%</span> &nbsp; vs. 2022</div>
+  </div>
+  <div class="kpi">
+    <div class="ov">Quantidade</div>
+    <div class="val">1.198.610 t</div>
+    <div class="sub"><span class="delta down"><span class="arrow">▼</span>−3,1%</span> &nbsp; vs. 2022</div>
+  </div>
+  <div class="kpi">
+    <div class="ov">Cobertura</div>
+    <div class="val">26 / 27</div>
+    <div class="sub">UFs com dados em 2023</div>
+  </div>
+</body>
+</html>

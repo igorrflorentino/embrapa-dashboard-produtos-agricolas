@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: #fff; padding: 24px; }
+  .stage { background: var(--embrapa-green); aspect-ratio: 9 / 4; border-radius: var(--radius-md); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;}
+  .stage img { width: 38.2%; }
+  /* área de não-interferência (overlay guide) */
+  .stage::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      linear-gradient(90deg, transparent calc(50% - 19.1% - 1.5%), rgba(255,255,255,0.18) calc(50% - 19.1% - 1.5%), rgba(255,255,255,0.18) calc(50% - 19.1%), transparent calc(50% - 19.1%), transparent calc(50% + 19.1%), rgba(255,255,255,0.18) calc(50% + 19.1%), rgba(255,255,255,0.18) calc(50% + 19.1% + 1.5%), transparent calc(50% + 19.1% + 1.5%));
+    pointer-events: none;
+  }
+  .legend { display: flex; gap: 30px; margin-top: 14px; font-size: 11px; color: var(--fg-3); }
+  .legend strong { color: var(--fg-1); display: block; font-weight: 500; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+  <div class="stage"><img src="../assets/logo-embrapa-white.png" alt="Embrapa"></div>
+  <div class="legend">
+    <div><strong>0,382 ×</strong>Largura do logo</div>
+    <div><strong>Proporção áurea</strong>Posição central</div>
+    <div><strong>Fundo</strong>#006F35 (preferido) · #06617C · #FFFFFF</div>
+  </div>
+</body>
+</html>

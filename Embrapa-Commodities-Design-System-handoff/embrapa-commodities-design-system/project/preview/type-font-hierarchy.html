@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: #fff; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+  .row { display: grid; grid-template-columns: 130px 1fr auto; gap: 18px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+  .row:last-child { border-bottom: none; }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg-3); }
+  .label strong { display: block; color: var(--fg-1); font-weight: 500; margin-bottom: 2px; font-family: var(--font-body); font-size: 13px; }
+  .specimen { font-size: 22px; line-height: 1.25; color: var(--fg-1); }
+  .specimen.italic { font-style: italic; }
+  .specimen.bold { font-weight: 700; }
+  .role { font-size: 11px; color: var(--fg-3); text-align: right; max-width: 200px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="label"><strong>Univers</strong>primary</div>
+    <div class="specimen" style="font-family: 'Univers', sans-serif;">Castanha-do-pará · IPCA encadeado</div>
+    <div class="role">Identidade visual<br>papelaria · sinalização</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers Bold</strong>700</div>
+    <div class="specimen bold" style="font-family: 'Univers', sans-serif;">Castanha-do-pará · IPCA encadeado</div>
+    <div class="role">Títulos, destaques</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers Italic</strong>400 italic</div>
+    <div class="specimen italic" style="font-family: 'Univers', sans-serif;">Castanha-do-pará · IPCA encadeado</div>
+    <div class="role">Voz geral preferida<br>(per manual)</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Verdana</strong>web fallback</div>
+    <div class="specimen" style="font-family: 'Embrapa Verdana', Verdana, sans-serif;">Castanha-do-pará · IPCA encadeado</div>
+    <div class="role">Internet · intranet</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Arial</strong>docs fallback</div>
+    <div class="specimen" style="font-family: 'Embrapa Arial', Arial, sans-serif;">Castanha-do-pará · IPCA encadeado</div>
+    <div class="role">Memorandos · formulários</div>
+  </div>
+</body>
+</html>

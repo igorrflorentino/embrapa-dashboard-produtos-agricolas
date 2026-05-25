@@ -1,0 +1,32 @@
+{
+  "hooks": {
+"PostToolUse": [
+      {
+        "matcher": "Write|Create|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ruff check --fix --output-format concise src/ tests/ 2>&1 | head -30",
+            "description": "Automatically fixes formatting and linting issues using Ruff."
+          },
+          {
+            "type": "command",
+            "command": "uv run pytest tests/ -q --tb=short --maxfail=1 2>&1 | head -30",
+            "description": "Runs the test suite. Fails fast on the first error to keep the AI context clean."
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$OSTYPE\" == \"darwin\"* ]]; then osascript -e 'display notification \"Claude Code needs your attention\" with title \"Claude Code\"'; afplay /System/Library/Sounds/Glass.aiff; else powershell.exe -Command \"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Media.SystemSounds]::Asterisk.Play(); [System.Windows.Forms.MessageBox]::Show('Claude Code needs your attention', 'Claude Code')\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

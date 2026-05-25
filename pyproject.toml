@@ -30,6 +30,11 @@ dashboard = [
     "gunicorn>=22.0",
     "google-cloud-bigquery-storage>=2.25",
 ]
+# Headless-browser visual checks (Tier 2). Kept out of `dashboard` so the
+# Cloud Run runtime image stays lean — only needed for pre-release validation.
+visual = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
@@ -44,8 +49,10 @@ packages = ["src/embrapa_commodities"]
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-cov>=5",
     "responses>=0.25",
     "ruff>=0.6",
+    "radon>=6",
     "sqlfluff>=3.1",
     "sqlfluff-templater-dbt>=3.1",
     "pre-commit>=3.7",

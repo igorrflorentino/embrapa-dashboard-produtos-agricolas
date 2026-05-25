@@ -1,0 +1,992 @@
+1
+Embrapa
+Template Embrapa para
+apresentações
+Versão Beta
+Set 2025
+ATENÇÃO: NÃO SOLICITAR ACESSO PARA EDIÇÃO DESTE DOCUMENTO, FAVOR LER O SLIDE 4!!
+
+-- 1 of 92 --
+
+2
+Um novo padrão
+para apresentações
+Este é o novo template para elaboração de slides de
+apresentações na Empresa. Além de disponibilizar layouts
+e modelos de slides, este arquivo traz informações
+técnicas sobre o projeto visual e orientações de uso.
+
+-- 2 of 92 --
+
+3
+Princípios do Projeto
+Online, expansivo, colaborativo e em constante evolução
+• 	Online: implementado como Apresentações Google, o template permite criar
+apresentações na nuvem, sem o programa Power Point;
+• 	Expansivo: mais do que um padrão fechado, o template é um framework com grids e
+padrões que favorecem a criação de novos templates de acordo com cada necessidade;
+• 	Colaborativo: qualquer empregado que criar um novo tipo de slide pode submetê-lo à
+equipe do projeto e incrementar o template;
+• 	Em constante evolução: uma vez expansivo e colaborativo, novas versões do arquivo
+devem ser disponibilizadas constantemente no mesmo arquivo do Google Drive.
+
+-- 3 of 92 --
+
+4
+Saiba como utilizar
+• 	Autenticado com seu usuário @embrapa.br no Google Drive
+• 	Clique em Arquivo > Fazer uma cópia > Toda a apresentação;
+• 	Escolha uma pasta do Google Drive para salvar sua nova apresentação;
+• 	Duplique, edite e exclua slides para montar sua apresentação;
+• 	A cada nova apresentação, faça uma cópia do template original.
+Trabalhe de qualquer lugar e dispositivo conectado à Internet
+
+-- 4 of 92 --
+
+Fundamentos
+visuais
+
+-- 5 of 92 --
+
+6
+Paleta de cores
+A paleta do projeto é composta por oito cores. É possível compor slides com elementos em azul ou
+apenas em tons de cinza. Alguns layouts são disponibilizados nas duas versões.
+Preto
+#000000
+Cinza escuro
+#333333
+Cinza médio
+#666666
+Cinza claro
+#ECECEC
+Branco
+#FFFFFF
+Yale Blue
+#1D4D7E
+French Blue
+#3A74B0
+Beau Blue
+#B4D0E7
+
+-- 6 of 92 --
+
+7
+Família de fontes
+E tamanhos de letras
+Roboto Light Roboto (Negrito) | 65
+Roboto | 28
+Roboto | 25
+Roboto Medium | 72
+
+-- 7 of 92 --
+
+8
+Sistema de Grid
+Para apoiar o posicionamento de elementos
+nos slides foi criado um sistema grid com 12
+colunas e seis linhas.
+Para visualizar o grid, clique em
+Ver > Guias > Mostrar Guias
+
+-- 8 of 92 --
+
+Layouts
+de slides
+
+-- 9 of 92 --
+
+10
+Layouts de slides
+1. 	Capas para apresentações
+2. 	Tópicos e textos
+3. 	Tópicos especiais
+4. 	Tabelas e gráficos
+5. 	Mosaicos de imagens e textos
+As páginas a seguir são modelos de slides para diferentes necessidades. Duplique o slide
+desejado e modifique os conteúdos. Abaixo, os tipos de slides disponibilizados:
+6. 	Slides de transição
+7. 	Mockups de dispositivos
+8. 	Mapas editáveis
+9. 	Marcas vetoriais
+10. 	Slides de encerramento
+
+-- 10 of 92 --
+
+1. Capas
+para apresentações
+
+-- 11 of 92 --
+
+12
+Título da apresentação
+Informações adicionais
+Brasília
+Jan 2023
+
+-- 12 of 92 --
+
+Título da apresentação
+Informações adicionais
+Brasília, 28 de junho de 2023
+
+-- 13 of 92 --
+
+Título da apresentação
+Informações adicionais
+Brasília, 28 de junho de 2023
+
+-- 14 of 92 --
+
+Título da apresentação
+Informações adicionais
+Brasília, 28 de junho de 2023
+
+-- 15 of 92 --
+
+Título da apresentação
+Informações adicionais
+Brasília, 28 de junho de 2023
+v
+
+-- 16 of 92 --
+
+17
+Dicas de uso
+Para manipulação de imagens e degradês no Apresentações Google
+Alguns slides – como os três primeiros modelos de capa – possuem uma máscara com
+degradê para aumentar a legibilidade de letras aplicadas sobre imagens. Para substituir
+a imagem, é preciso colocar esta máscara no fundo do slide. Para isso, clique na
+máscara com o botão direito do mouse e depois em Ordenar > Enviar para o fundo.
+Para substituir a imagem, clique com o botão direito na imagem e depois em
+Substituir imagem
+Para trazer a máscara degradê novamente para a frente da imagem, clique na imagem
+com o botão direito a depois em Ordenar > Enviar para o fundo.
+Imagem para ocupar a tela inteira de um slide deve ter 1920 pixels de largura e
+1080 pixels de altura.
+
+-- 17 of 92 --
+
+2. Tópicos
+e textos
+
+-- 18 of 92 --
+
+19
+Slide com texto
+Minha terra tem palmeiras, onde canta o Sabiá, As aves, que aqui gorjeiam, Não
+gorjeiam como lá. Nosso céu tem mais estrelas, nossas várzeas têm mais flores,
+Nossos bosques têm mais vida, Nossa vida mais amores.
+Em cismar, sozinho, à noite, mais prazer encontro eu lá; Minha terra tem
+palmeiras, onde canta o Sabiá. Minha terra tem primores, Que tais não encontro
+eu cá; Em cismar – sozinho, à noite – Mais prazer encontro eu lá; Minha terra tem
+palmeiras, Onde canta o Sabiá.
+Sem imagens
+
+-- 19 of 92 --
+
+20
+Slide com citação
+Minha terra tem palmeiras, onde canta o Sabiá, As aves, que
+aqui gorjeiam, Não gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais flores, Nossos bosques
+têm mais vida, Nossa vida mais amores.
+(Gonçalves Dias, em “Canção do Exílio”)
+Sem imagens
+“
+”
+
+-- 20 of 92 --
+
+21
+Slide com tópicos numerados
+1. 	Minha terra tem palmeiras onde canta o Sabiá;
+2. 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+3. 	Nosso céu tem mais estrelas;
+4. 	Nossas várzeas têm mais flores;
+5. 	Nossos bosques têm mais vida;
+6. 	Nossa vida mais amores.
+Sem imagens
+
+-- 21 of 92 --
+
+22
+Slide com tópicos não numerados
+Sem imagens
+• 	Minha terra tem palmeiras onde canta o Sabiá;
+• 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+• 	Nosso céu tem mais estrelas;
+• 	Nossas várzeas têm mais flores;
+• 	Nossos bosques têm mais vida;
+• 	Nossa vida mais amores.
+
+-- 22 of 92 --
+
+23
+Slide tópicos numerados
+Com imagem à direita
+1. 	Minha terra tem palmeiras onde canta o Sabiá;
+2. 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+3. 	Nosso céu tem mais estrelas;
+4. 	Nossas várzeas têm mais flores;
+5. 	Nossos bosques têm mais vida;
+6. 	Nossa vida mais amores.
+
+-- 23 of 92 --
+
+24
+Slide tópicos não numerados
+Com imagem à direita
+• 	Minha terra tem palmeiras onde canta o Sabiá;
+• 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+• 	Nosso céu tem mais estrelas;
+• 	Nossas várzeas têm mais flores;
+• 	Nossos bosques têm mais vida;
+• 	Nossa vida mais amores.
+
+-- 24 of 92 --
+
+25
+Slide tópicos numerados
+Com imagem à esquerda
+1. 	Minha terra tem palmeiras onde canta o Sabiá;
+2. 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+3. 	Nosso céu tem mais estrelas;
+4. 	Nossas várzeas têm mais flores;
+5. 	Nossos bosques têm mais vida;
+6. 	Nossa vida mais amores.
+
+-- 25 of 92 --
+
+26
+Slide tópicos não numerados
+Com imagem à esquerda
+• 	Minha terra tem palmeiras onde canta o Sabiá;
+• 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+• 	Nosso céu tem mais estrelas;
+• 	Nossas várzeas têm mais flores;
+• 	Nossos bosques têm mais vida;
+• 	Nossa vida mais amores.
+
+-- 26 of 92 --
+
+27
+Slide tópicos numerados
+Com mosaico à esquerda
+1. 	Minha terra tem palmeiras onde canta o Sabiá;
+2. 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+3. 	Nosso céu tem mais estrelas;
+4. 	Nossas várzeas têm mais flores;
+5. 	Nossos bosques têm mais vida;
+6. 	Nossa vida mais amores.
+
+-- 27 of 92 --
+
+28
+Slide tópicos não numerados
+Com mosaico à esquerda
+• 	Minha terra tem palmeiras onde canta o Sabiá;
+• 	As aves, que aqui gorjeiam, não gorjeiam como lá;
+• 	Nosso céu tem mais estrelas;
+• 	Nossas várzeas têm mais flores;
+• 	Nossos bosques têm mais vida;
+• 	Nossa vida mais amores.
+
+-- 28 of 92 --
+
+3. Tópicos
+especiais
+
+-- 29 of 92 --
+
+30
+Tópicos especiais numerados
+Minha terra tem
+palmeiras onde
+canta o Sabiá
+As aves, que aqui
+gorjeiam, não
+gorjeiam como lá
+Nosso céu tem mais
+estrelas, nossas
+várzeas têm mais
+flores
+Nossos bosques
+têm mais vida,
+nossa vida mais
+amores
+1 	2 	3 	4
+Com quatro itens
+
+-- 30 of 92 --
+
+31
+Minha terra tem palmeiras
+onde canta o Sabiá
+1
+As aves, que aqui gorjeiam,
+não gorjeiam como lá
+2
+Nosso céu tem mais estrelas,
+nossas várzeas têm mais
+flores
+3
+Tópicos especiais numerados
+Com três itens
+
+-- 31 of 92 --
+
+32
+Tópicos especiais numerados
+Minha terra tem palmeiras
+onde canta o Sabiá
+1
+As aves, que aqui gorjeiam,
+não gorjeiam como lá
+2
+Com dois itens
+
+-- 32 of 92 --
+
+33
+Minha terra tem
+palmeiras onde
+canta o Sabiá
+As aves, que aqui
+gorjeiam, não
+gorjeiam como lá
+Nosso céu tem mais
+estrelas, nossas
+várzeas têm mais
+flores
+Nossos bosques
+têm mais vida,
+nossa vida mais
+amores
+Tópicos especiais com imagem
+Com quatro itens
+
+-- 33 of 92 --
+
+34
+Minha terra tem
+palmeiras onde canta o
+Sabiá
+As aves, que aqui
+gorjeiam, não gorjeiam
+como lá
+Nosso céu tem mais
+estrelas, nossas várzeas
+têm mais flores
+Tópicos especiais com imagem
+Com três itens
+
+-- 34 of 92 --
+
+35
+Tópicos com imagens
+Em cada item
+1 Lavoura 	2 Alimento 	3 Negócio 	4 Renda
+
+-- 35 of 92 --
+
+36
+Dicas de uso
+Para manipulação de imagens no Apresentações Google
+Para trocar uma imagem em um dos layouts disponibilizados neste template, basta clicar
+com o botão direito do mouse sobre a imagem e depois em Substituir imagem.
+A imagem não precisa estar na dimensão exata do layout. A imagem será enquadrada no
+espaço sem distorções. Com isso, partes da foto poderão ser automaticamente cortadas.
+
+-- 36 of 92 --
+
+4. Tabelas
+e Gráficos
+
+-- 37 of 92 --
+
+38
+Coluna 1 	Coluna 2 	Coluna 3
+1 - Minha terra tem palmeiras, onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais flores.
+Nossos bosques têm mais vida, nossa vida mais amores. Em
+cismar, sozinho, à noite, mais prazer encontro eu lá; Minha terra
+tem palmeiras, onde canta o Sabiá.
+Minha terra tem primores, que tais não
+encontro eu cá; Em cismar – sozinho,
+à noite – mais prazer encontro eu lá.
+2 - Minha terra tem palmeiras, onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá.
+Nosso céu tem mais estrelas, nossas várzeas têm mais flores.
+Nossos bosques têm mais vida.
+Nossa vida mais amores. Em cismar,
+sozinho, à noite, mais prazer encontro
+eu lá; Minha terra tem palmeiras,
+onde canta o Sabiá.
+3 - Minha terra tem palmeiras, onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais
+estrelas.
+Nossas várzeas têm mais flores. Nossos bosques têm mais vida,
+nossa vida mais amores. Em cismar, sozinho, à noite, mais prazer
+encontro eu lá.
+Minha terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem primores,
+que tais não encontro eu cá.
+4 - Minha terra tem palmeiras, onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais flores.
+Nossos bosques têm mais vida, nossa vida
+mais amores.
+Em cismar, sozinho, à noite, mais prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta o Sabiá.
+Minha terra tem primores, que tais não
+encontro eu cá; Em cismar – sozinho,
+à noite – mais prazer encontro eu lá.
+Minha terra tem palmeiras, onde
+canta o Sabiá. Não permita Deus que
+eu morra, sem que eu volte para lá.
+
+-- 38 of 92 --
+
+39
+Gráfico pizza
+Dados fictícios
+
+-- 39 of 92 --
+
+40
+Gráfico barra
+Dados fictícios
+
+-- 40 of 92 --
+
+41
+Gráfico com imagens
+Dados e proporções fictícias
+Item 1
+32%
+Item 2
+22%
+Item 3
+15%
+Item 4
+10%
+
+-- 41 of 92 --
+
+42
+Gráfico com imagens
+Dados e proporções fictícias
+Item 1
+122
+Item 2
+100
+Item 3
+85
+Item 4
+70
+
+-- 42 of 92 --
+
+5. Mosaicos
+de imagens e textos
+
+-- 43 of 92 --
+
+44
+Mosaico Azul
+Minha terra tem palmeiras onde canta o Sabiá. As
+aves, que aqui gorjeiam, não gorjeiam como lá. Nosso
+céu tem mais estrelas, nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+
+-- 44 of 92 --
+
+45
+Mosaico Cinza
+Minha terra tem palmeiras onde canta o Sabiá. As
+aves, que aqui gorjeiam, não gorjeiam como lá. Nosso
+céu tem mais estrelas, nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+
+-- 45 of 92 --
+
+46
+01
+Minha terra tem
+palmeiras onde canta o
+Sabiá.
+02
+As aves, que aqui
+gorjeiam, não gorjeiam
+como lá.
+03
+Nosso céu tem mais
+estrelas, nossas várzeas
+têm mais flores.
+Mosaico
+Com Tópicos
+Minha terra tem palmeiras onde
+canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá.
+Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+
+-- 46 of 92 --
+
+47
+01
+Minha terra tem
+palmeiras onde canta o
+Sabiá.
+02
+As aves, que aqui
+gorjeiam, não gorjeiam
+como lá.
+03
+Nosso céu tem mais
+estrelas, nossas várzeas
+têm mais flores.
+Mosaico
+Com Tópicos
+Minha terra tem palmeiras onde
+canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá.
+Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+
+-- 47 of 92 --
+
+48
+Mosaico variação 2
+Minha terra tem palmeiras onde canta o Sabiá. As
+aves, que aqui gorjeiam, não gorjeiam como lá. Nosso
+céu tem mais estrelas, nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+Nossa vida mais amores. Em cismar,
+sozinho, à noite, mais prazer encontro eu lá;
+Minha terra tem palmeiras, onde canta o
+Sabiá.
+
+-- 48 of 92 --
+
+49
+Minha terra tem palmeiras onde canta o Sabiá. As
+aves, que aqui gorjeiam, não gorjeiam como lá. Nosso
+céu tem mais estrelas, nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+Nossa vida mais amores. Em cismar,
+sozinho, à noite, mais prazer encontro eu lá;
+Minha terra tem palmeiras, onde canta o
+Sabiá.
+Mosaico variação 2
+
+-- 49 of 92 --
+
+50
+Em cismar, sozinho, à
+noite, mais prazer encontro
+eu lá; Minha terra tem
+palmeiras, onde canta o
+Sabiá. Minha terra tem
+primores.
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida,
+nossa vida mais amores.
+Mosaico Variação 3
+
+-- 50 of 92 --
+
+51
+Em cismar, sozinho, à
+noite, mais prazer encontro
+eu lá; Minha terra tem
+palmeiras, onde canta o
+Sabiá. Minha terra tem
+primores.
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida,
+nossa vida mais amores.
+Mosaico Variação 3
+
+-- 51 of 92 --
+
+52
+Mosaico 4 Minha terra tem palmeiras onde canta o Sabiá. As aves, que
+aqui gorjeiam, não gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais flores.
+
+-- 52 of 92 --
+
+53
+Mosaico 4 Minha terra tem palmeiras onde canta o Sabiá. As aves, que
+aqui gorjeiam, não gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais flores.
+
+-- 53 of 92 --
+
+54
+Nossos bosques têm mais
+vida, nossa vida mais
+amores. Em cismar, sozinho,
+à noite, mais prazer encontro
+eu lá; Minha terra tem
+palmeiras, onde canta o
+Sabiá.
+Minha terra tem palmeiras
+onde canta o Sabiá. As aves,
+que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu
+tem mais estrelas, nossas
+várzeas têm mais flores. 	Mosaico
+Quadrantes
+Minha terra tem primores, que
+tais não encontro eu cá; Em
+cismar – sozinho, à noite –
+mais prazer encontro eu lá;
+Minha terra tem palmeiras,
+onde canta o Sabiá.
+
+-- 54 of 92 --
+
+55
+Nossos bosques têm mais
+vida, nossa vida mais
+amores. Em cismar, sozinho,
+à noite, mais prazer encontro
+eu lá; Minha terra tem
+palmeiras, onde canta o
+Sabiá.
+Minha terra tem palmeiras
+onde canta o Sabiá. As aves,
+que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu
+tem mais estrelas, nossas
+várzeas têm mais flores. 	Mosaico
+Quadrantes
+Minha terra tem primores, que
+tais não encontro eu cá; Em
+cismar – sozinho, à noite –
+mais prazer encontro eu lá;
+Minha terra tem palmeiras,
+onde canta o Sabiá.
+
+-- 55 of 92 --
+
+56
+Mosaico Variação 6
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá; Em cismar – sozinho, à
+noite – mais prazer encontro.
+
+-- 56 of 92 --
+
+57
+Mosaico Variação 6
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá; Em cismar – sozinho, à
+noite – mais prazer encontro.
+
+-- 57 of 92 --
+
+58
+Mosaico Variação 7
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá; Em cismar – sozinho, à
+noite – mais prazer encontro.
+
+-- 58 of 92 --
+
+59
+Mosaico Variação 7
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá; Em cismar – sozinho, à
+noite – mais prazer encontro.
+
+-- 59 of 92 --
+
+60
+Mosaico Variação 8
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá.
+
+-- 60 of 92 --
+
+61
+Mosaico Variação 8
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá. Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores, nossos bosques têm mais vida.
+Nossa vida mais amores. Em
+cismar, sozinho, à noite, mais
+prazer encontro eu lá; Minha
+terra tem palmeiras, onde canta
+o Sabiá. Minha terra tem
+primores, que tais não encontro
+eu cá.
+
+-- 61 of 92 --
+
+6. Slides de
+transição
+
+-- 62 of 92 --
+
+63
+Transição
+com título
+
+-- 63 of 92 --
+
+64
+Transição
+com título
+
+-- 64 of 92 --
+
+Transição
+simples
+
+-- 65 of 92 --
+
+66
+Transição
+com faixa
+A melhor estratégia ou plano para
+ter uma lavoura produtiva inicia
+com o diagnóstico dos solos.
+
+-- 66 of 92 --
+
+67
+
+-- 67 of 92 --
+
+68
+7. Mockups
+de dispositivos
+
+-- 68 of 92 --
+
+iPhone e iPad
+Mockup
+Minha terra tem palmeiras onde
+canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá.
+Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores.
+69
+
+-- 69 of 92 --
+
+70	70
+iPhone Mockup
+Minha terra tem palmeiras onde
+canta o Sabiá. As aves, que aqui
+gorjeiam, não gorjeiam como lá.
+Nosso céu tem mais estrelas,
+nossas várzeas têm mais flores,
+nossos bosques têm mais vida.
+
+-- 70 of 92 --
+
+71
+iPhone Mockup
+Minha terra tem palmeiras onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais
+flores, nossos bosques têm mais vida,
+nossa vida mais amores.
+
+-- 71 of 92 --
+
+72
+iPhone e iPad
+Mockup
+Minha terra tem palmeiras onde canta o
+Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais
+estrelas, nossas várzeas têm mais
+flores, nossos bosques têm mais vida,
+nossa vida mais amores.
+
+-- 72 of 92 --
+
+73
+Dispositivos Digitais
+Minha terra tem palmeiras onde canta o Sabiá. As aves, que aqui gorjeiam, não
+gorjeiam como lá. Nosso céu tem mais estrelas, nossas várzeas têm mais flores,
+nossos bosques têm mais vida, nossa vida mais amores.
+
+-- 73 of 92 --
+
+74
+8. Mapas
+editáveis
+
+-- 74 of 92 --
+
+75
+Mapa editável
+Minha terra tem palmeiras onde canta o Sabiá.
+As aves, que aqui gorjeiam, não gorjeiam como
+lá. Nosso céu tem mais estrelas, nossas várzeas
+têm mais flores, nossos bosques têm mais vida.
+
+-- 75 of 92 --
+
+76
+
+-- 76 of 92 --
+
+77
+
+-- 77 of 92 --
+
+78
+
+-- 78 of 92 --
+
+79
+
+-- 79 of 92 --
+
+80
+
+-- 80 of 92 --
+
+81
+
+-- 81 of 92 --
+
+82
+
+-- 82 of 92 --
+
+83
+9. Marcas
+vetoriais
+
+-- 83 of 92 --
+
+Marca Embrapa
+Formato vetorial redimensionável - SVG
+
+-- 84 of 92 --
+
+Tríade Embrapa
+
+-- 85 of 92 --
+
+86
+10. Slides de
+encerramento
+
+-- 86 of 92 --
+
+Obrigado!
+Informações adicionais
+Informações complementares
+
+-- 87 of 92 --
+
+Obrigado!
+Informações adicionais
+Informações complementares
+
+-- 88 of 92 --
+
+Obrigado
+Informações adicionais
+Informações complementares
+v
+
+-- 89 of 92 --
+
+90
+Dicas para mais informações
+Sobre planejamento e elaboração de slides para apresentações
+Estão disponíveis, nos endereços https://youtu.be/l5IYjM_mM6M e
+https://www.youtube.com/watch?v=9B_PtqbX94c vídeo aulas Embrapa sobre
+apresentações com o seguinte conteúdo:
+1. 	Planejamento de apresentações;
+2. 	Organização das informações;
+3. 	Composição visual dos slides;
+4. 	Operação de PowerPoint.
+De forma complementar, o Google disponibiliza no endereço
+https://support.google.com/a/users/answer/9282488?usp=slides_web&visit_id=63810
+1232961162326-4040699501&p=slides_training&rd=1 treinamento e ajuda para
+operação do Apresentações Google.
+
+-- 90 of 92 --
+
+91
+Ficha
+técnica
+
+-- 91 of 92 --
+
+92
+Embrapa 5.0 template
+Ficha técnica
+Área responsável
+Supervisão de Promoção e Marca
+Superintendência de Comunicação (Sucom)
+sucom.spm@embrapa.br
+Criação
+Daniel Medeiros
+Versão
+Beta – janeiro de 2023
+
+-- 92 of 92 --
+

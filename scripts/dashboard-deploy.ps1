@@ -51,5 +51,21 @@ if (-not $?) { exit 1 }
 $Url = gcloud run services describe $Service --region $Region --format='value(status.url)'
 Write-Host ""
 Write-Host "Deployed to: $Url" -ForegroundColor Green
+# Note: GFE reserves /healthz, so the app exposes its healthcheck at /_health.
 Write-Host "Health check:" -ForegroundColor DarkGray
-Write-Host "  curl -fsS $Url/healthz" -ForegroundColor DarkGray
+Write-Host "  curl -fsS $Url/_health" -ForegroundColor DarkGray
+
+# ── Post-deploy smoke gate ────────────────────────────────────────────────
+# Drive the live service's real HTTP surface (health, Dash bootstrap,
+# callback graph, and a live BigQuery render) before declaring success.
+Write-Host ""
+Write-Host "Running post-deploy smoke against $Url ..." -ForegroundColor Cyan
+uv run python scripts/dashboard_smoke.py --no-launch --url $Url
+if (-not $?) {
+    Write-Host ""
+    Write-Host "Post-deploy smoke FAILED — the new revision is serving but a check did not pass." -ForegroundColor Red
+    Write-Host "  Heavier visual gate: scripts\dashboard-visual.ps1 --no-launch --url $Url" -ForegroundColor DarkGray
+    exit 1
+}
+Write-Host "Post-deploy smoke passed." -ForegroundColor Green
+Write-Host "  Optional visual gate before release: scripts\dashboard-visual.ps1 --no-launch --url $Url" -ForegroundColor DarkGray

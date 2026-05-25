@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; background: #fff; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: grid; grid-template-columns: 150px 1fr auto; gap: 18px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
+  .row:last-child { border-bottom: none; }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg-3); }
+  .label strong { display: block; color: var(--fg-1); font-weight: 500; margin-bottom: 2px; font-family: var(--font-body); font-size: 12px; }
+  .specimen { font-family: 'Univers', sans-serif; font-size: 28px; line-height: 1.2; color: var(--fg-1); letter-spacing: -0.01em; }
+  .role { font-size: 11px; color: var(--fg-3); text-align: right; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="label"><strong>Univers 55</strong>400 Roman</div>
+    <div class="specimen" style="font-weight: 400;">Castanha-do-pará</div>
+    <div class="role">Body text</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers 55</strong>400 Italic</div>
+    <div class="specimen" style="font-weight: 400; font-style: italic;">Castanha-do-pará</div>
+    <div class="role">Manual-preferred general voice</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers 65</strong>700 Bold</div>
+    <div class="specimen" style="font-weight: 700;">Castanha-do-pará</div>
+    <div class="role">Headings, emphasis</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers 75</strong>800 Black</div>
+    <div class="specimen" style="font-weight: 800;">Castanha-do-pará</div>
+    <div class="role">Big display, slide covers</div>
+  </div>
+  <div class="row">
+    <div class="label"><strong>Univers 85</strong>900 Extra Black Italic</div>
+    <div class="specimen" style="font-weight: 900; font-style: italic;">Embrapa</div>
+    <div class="role">Wordmark cut · <code class="mono" style="font-size:10px;">.brand-italic</code></div>
+  </div>
+</body>
+</html>

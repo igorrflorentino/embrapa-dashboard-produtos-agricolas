@@ -1,0 +1,730 @@
+Guia 	de Identidade Visual 	AplicativosMobile
+
+-- 1 of 34 --
+
+Introdução
+Este guia tem o objetivo de dar as orientações iniciais para
+a programação visual em aplicativos para dispositivos
+portáteis, como smartphones e tablets. O uso crescente
+dessas ferramentas traz o desafio à Embrapa de
+acompanhar este cenário com o desenvolvimento de
+tecnologias digitais, bem como o de manter sua identidade
+visual corporativa nesse novo universo de informação.
+Participaram da construção desse guia:
+Luciane Jaques <luciane.jaques@embrapa.br>
+Silvana Teixeira <silvana.teixeira@embrapa.br>
+Gabriel Pupo Nogueira <gabriel.nogueira@embrapa.br>
+Renato Tardin Costa <renato.tardin@embrapa.br>
+Bruno Imbroisi <bruno.imbroisi@embrapa.br>
+Andre Scofano <Andre.scofano@embrapa.br>
+
+-- 2 of 34 --
+
+Aplicação da marca
+Área de não-interferência
+Um dos preceitos mais importantes para a correta
+aplicação da marca Embrapa é o respeito à área
+de não-interferência. Esta área corresponde a
+uma margem em torno da marca com distância
+correspondente à altura da letra “a”.
+Obs: este item deve ser observado em todas as
+aplicações da marca, seja para telas de abertura ou
+internas e em qualquer elemento visual do aplicativo
+que esta seja aplicada.
+a
+a
+Área de não-interferência
+a
+a
+a
+g
+
+-- 3 of 34 --
+
+Aplicação da marca
+Dimensionamento
+A marca Embrapa deve ficar com largura igual a 38,2%
+da largura de tela. Essa relação é estabelecida pela
+Proporção Áurea, muito utilizada na área de design
+gráfico para a elaboração de grids e construção de
+marcas.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+horizontalmente, com distância da base equivalente à
+altura da marca + altura do “a”, conforme a referência
+ao lado.
+1x
+0,382x
+
+-- 4 of 34 --
+
+Padrão para tela de abertura
+O Guia de Identidade Visual para Aplicativos Mobile diz:
+» A marca Embrapa deve ficar com
+largura igual a 38,2% da largura de
+tela, posição centralizada e
+espaçamento indicado abaixo.
+» Usar preferencialmente a cor verde
+#006f35 no fundo.
+
+-- 5 of 34 --
+
+Observações Gerais
+Para garantir um adequado visual ao aplicativo, lembre-se de
+respeitar a “área de respiro”, mantendo uma distância adequada
+de todas margens. No exemplo ao lado, a linha tracejada seria o
+limite. Não é obrigado a ocupar toda a área interna: o importante
+é não deixar o conteúdo “colado” às margens.
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteú-
+do Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo Con-
+teúdo Conteúdo Conteúdo Conteúdo Conteúdo Conte-
+údo Conteúdo Conteúdo Conteúdo Conteúdo Conteú-
+do Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Con teúdo Conte údo Con-
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+Conteúdo Conteúdo Conteúdo
+
+-- 6 of 34 --
+
+» Busque a simetria, o equilíbrio, a sustentação central dos elementos,
+de forma a reforçar os atributos conceituais do projeto.
+» Inspire-se nos bons modelos já disponíveis; se basear em um
+aplicativo bem aceito garante um bom resultado ao projeto.
+» Lembre-se de que “menos é mais”. Não polua com excesso de
+elementos; ser conciso e objetivo é a melhor forma de comunicar o que
+se quer de maneira eficiente.
+Observações Gerais
+
+-- 7 of 34 --
+
+RGB (0, 111, 53)
+#006f35
+RGB (6, 97, 124)
+#06617c
+RGB (0, 60 29)
+#003c1d
+RGB (205, 222, 233)
+#cddee9
+RGB (0, 85, 41)
+#005529
+RGB (110, 134, 125
+# 6e867d
+RGB (0, 0, 0) 	RGB (255, 255, 255)
+Escala cromática
+Ao lado temos a paleta de cores indicada para a
+padronização cromática dos aplicativos. Sugere-se
+a utilização do verde #006f35 como cor base para o
+background.
+
+-- 8 of 34 --
+
+Padrão para ícones de sistema
+Segundo o Material Design do Google:
+» Um ícone de sistema simboliza um comando, arquivo,
+dispositivo ou diretório. Também pode representar ações mais
+comuns, como excluir, imprimir e salvar.
+» O ícone de sistema deve ser simples, moderno, amigável e às
+vezes peculiar. Deve ser reduzido à essência na sua forma,
+mantendo legibilidade mesmo em tamanho pequeno.
+» A forma deve ser forte e geométrica. Simetria e consistência
+visual ajudam na qualidade e simplicidade.
+» Mais detalhes sobre como desenhar o seu ícone em:
+https://material.io/guidelines/style/icons.html#icons-system-icons
+
+-- 9 of 34 --
+
+Padrão para ícones de sistema
+Exemplos de ícones de sistema do Material Design:
+» Para conhecer os ícones disponíveis: https://material.io/icons/
+
+-- 10 of 34 --
+
+Ícones de aplicativos
+Desenho
+O uso de um mesmo estilo de desenho reforça a integração da
+família de aplicativos. Para representar os ícones de Apps da
+Embrapa, utilize geometrias simples construídas sobre uma grade
+de referência e busque sempre a essência das formas. Desenhe
+objetos ou conceitos com contornos de espessura uniforme,
+monocromáticos, sem efeitos de luz e sombra, e, quando
+necessário, faça preenchimentos pontuais e utilize linhas diagonais
+em 45º, preferencialmente.
+45º
+módulo
+
+-- 11 of 34 --
+
+Ícones de aplicativos
+Formato
+A escolha por um formato externo constante confere
+consistência visual ao conjunto. A Embrapa estabeleceu
+como padrão o mesmo desenho da folha presente na marca
+para fortalecer a associação com a Empresa. Além do verde
+corporativo, foi aplicado um segundo tom para evidenciar
+a percepção da forma como folha e reforçar o eixo de 45º
+escolhido para as linhas em diagonal de alguns ícones.
+45º
+
+-- 12 of 34 --
+
+Ícones de aplicativos
+Identificação corporativa
+A aplicação da marca na composição do ícone é a forma mais
+direta de caracterizar o vínculo com a empresa, além de servir
+como uma chancela de autenticidade do aplicativo. Como o
+formato externo estabelecido para os ícones de Apps da Embrapa
+já faz referência à folha, recomenda-se a aplicação da marca
+somente nos ícones de apresentação das lojas (ex. Google
+Play e Apple Store). E, caso haja restrição de acesso, como
+em um aplicativo voltado para o público interno, por exemplo,
+recomenda-se a utilização da tag lateral empregados.
+App 3 	App 4	App 2	App 1
+
+-- 13 of 34 --
+
+Ícones de aplicativos
+Cor
+A aplicação de cores nas fi guras e fundos dos ícones deve ser
+controlada para que os elementos do conjunto mantenham uma
+forte identidade entre si e principalmente vínculo com a marca
+institucional. Recomenda-se, portanto, a utilização da cor verde
+ou azul da Embrapa na composição, admitindo variações tonais
+detalhadas na Escala Cromática deste Guia.
+Obs.: utilizar a cor laranja apenas na tag lateral de restrição de
+acesso. RGB (0, 85, 41)
+#005529
+RGB (0, 73, 148)
+#004993
+Empregados
+RGB (0, 119, 61)
+#00763D
+RGB (14, 59, 101)
+#0e3b65
+RGB (204, 75, 76)
+#cc4b10
+
+-- 14 of 34 --
+
+Ícones de aplicativos
+Proporção
+A visualização de imagens e textos nos smarthphones melhora a
+cada ano com o aumento do tamanho das telas e da resolução
+dos celulares. Entretanto, como a exibição dos ícones ocorre em
+contextos variados (diferentes sistemas operacionais, situações
+de interação e modelos de aparelho), é importante considerar a
+visibilidade em tamanhos pequenos. Construa os ícones em uma
+matriz de 37 x 33 módulos e respeite a largura de um (01) módulo
+para os traçados. Para os Apps com restrição de uso, adicionar a
+tag lateral empregados, conforme diagrama ao lado.
+Obs.: verifi car os tamanhos atualizados de apresentação dos
+ícones nos sites dos diferentes sistemas Android, iOS e Windows
+Phone. Links disponíveis no início do Guia.	
+Empregados
+1módulo
+33
+37
+42
+33
+
+-- 15 of 34 --
+
+Launch screen
+A marca Embrapa deve fi car com largura igual a 38,2%
+da largura de tela, respeitando a proporção áurea. A
+marca deve estar centralizada e posicionada a 19,35%
+da lagura da tela em relação à base. Somente a marca
+Embrapa deve aparecer na tela de inicialização (launch
+screen). As marcas das instituições parceiras devem
+aparecer na tela “Sobre”.
+O símbolo do aplicativo deve estar posicionado a
+19,35% da lagura da tela em relação ao topo. E deve
+fi car com largura igual a 61,8% da largura de tela.
+O nome do aplicativo deve estar posicionado a 5,2%
+da lagura da tela em relação ao símbolo e deve ter
+no máximo três linhas. A fonte deve ser a Univers em
+negrito e itálico, de tamanho igual a e 8,2% da lagura
+da tela e a entrelinha igual a 5,2% da lagura da tela.
+1x
+0,382x
+0,618x
+0,193x
+0,193x
+Roda da
+Reprodução
+0,052x
+0,082x
+
+-- 16 of 34 --
+
+Launch screen
+A cor de fundo da tela de inicialização deve ser verde, azul ou branca, conforme exemplos abaixo.
+Pasto Certo	Doutor Milho	Roda da
+Reprodução
+RGB
+(0, 111, 53)
+#006f35
+RGB
+(6, 97, 124)
+#06617c
+RGB
+(255, 255, 255)
+#ffffff
+Quando a cor de fundo for branca,
+o símbolo e o nome do aplicativo
+devem ser todo verde ou todo azul.
+
+-- 17 of 34 --
+
+Aplicação da marca
+Splash Screen
+Dimensionamento
+A marca Embrapa deve ficar com largura igual a 38,2%
+da largura de tela. Essa relação é estabelecida pela
+Proporção Áurea, muito utilizada na área de design
+gráfico para a elaboração de grids e contrução de
+marcas.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+verticalmente, com distância da base equivalente a
+altura da marca + altura do “a”, conforme a referência
+ao lado.
+1x
+0,382x
+
+-- 18 of 34 --
+
+Aplicação da marca em parceria
+Splash Screen
+Dimensionamento
+A aplicação da marca Embrapa e dos parceiros deve
+seguir os modelos e proporções ao lado.
+Obs: observar sempre e cuidar com a boa proporção
+visual entre as marcas.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+verticalmente, com distância da base equivalente a
+altura da marca, conforme a referência ao lado.
+1x
+0,382x
+1x
+0,382x
+x
+x
+1x
+0,325x
+x
+x
+
+-- 19 of 34 --
+
+Objetivos
+Estabelecer padrões para a identidade visual dos APPs da Embrapa
+Diferenciar nas lojas de APPs os aplicativos da Embrapa que são para acesso do
+público em geral e aqueles de acesso restrito
+Resultados esperados
+Padronização das páginas do Google Play e Apple Store criando uma identidade
+para os aplicativos desenvolvidos pela Embrapa.
+Briefing - Padronização Visual para APPs da Embrapa, 01/09/17
+Ícones de APPs - Briefing
+Objetivos e resultados
+
+-- 20 of 34 --
+
+Consistência visual dos ícones
+• Cor (uma)
+• Desenho simplificado em silhueta
+• Efeito (baixo-relevo)
+Identificação da empresa
+• Cor institucional laranja
+• Símbolo da Natura
+• Palavra Natura na composição do nome do APP
+Consistência visual dos ícones
+• Forma externa (circular)
+• Desenho geométrico simples
+Identificação da empresa
+• “Raio” do messenger (símbolo)
+• Cor institucional azul no símbolo
+• Palavra Messenger na composição do nome do APP
+Consistência visual dos ícones
+• Cor (paleta restrita)
+• Desenho geométrico simples
+Identificação da empresa
+• Cores institucionais
+• Letra G (em alguns ícones)
+• Palavra Google na composição do nome do APP
+Consistência visual dos ícones
+• Moldura colorida
+• Detalhe do ícone + moldura da mesma cor
+• Estilo do desenho (formas preenchidas / linhas)
+Identificação da empresa
+• Forma triangular da Adobe (em alguns)
+• Palavra Adobe na composição do nome do APP
+Consistência visual dos ícones
+• Cor (uma com variações de tom)
+• Desenho simplificado em negativo
+Identificação da empresa
+• Marca IBM na faixa inferior
+• Sigla IBM na composição do nome do APP
+Consistência visual dos ícones
+• Cores (duas)
+Identificação da empresa
+• Símbolo X da Caixa ou a marca (em quase todos)
+• Cores institucionais azul e laranja
+• Palavra Caixa na composição do nome do APP
+Ícones de APPs - Pesquisa de Boas Práticas
+Consistência visual de ícones e identificação de empresas
+Pesquisa: Google Play, 2017. Nessa amostragem, não foram incluídos todos os aplicativos das empresas encontrados na busca.
+
+-- 21 of 34 --
+
+1. Elementos de consistência visual dos ícones
+Cores | a aplicação controlada de cor nas figuras e fundos dos ícones
+confere uma forte identidade ao conjunto de aplicativos de uma empresa
+Estilo do desenho | ícones simples com mesmo acabamento (2D, 3D, sombreados ...)
+reforçam a intergração dos desenhos da família de APPs
+Formato externo | círculos, quadrados, quadrados arredondados ou outros
+formatos externos também reforçam a consistência visual do conjunto
+2. Recursos de identificação da empresa proprietária
+Marca | a aplicação da marca completa da empresa ou do símbolo na composição
+do ícone é a forma mais clara de representar o proprietário do APP. Essa aplicação
+funciona também como uma chancela de autenticidade do aplicativo
+Cores | optar pelas cores institucionais amplia a percepção de vínculo entre o APP
+e a instituição proprietária, além de contribuir para a consistência visual do conjunto
+ao utilizar uma paleta controlada
+Nome no aplicativo | além dos recursos visuais, muitas empresas incluem o próprio
+nome corporativo na composição dos nomes dos aplicativos (Google Maps, Google
+Drive, Google Translator etc), o que garante a associação com a empresa proprietária
+mesmo quando o símbolo não é aplicado.
+Ícones de APPs - Pesquisa de Boas Práticas
+Diagnóstico
+X 	Y 	Z
+cor
+aplicativo
+oficial
+A consistência visual na família de ícones de APPs de uma
+empresa auxilia na identificação de aplicativos oficiais,
+até em casos de diferenças sutis entre originais e
+“independentes”. O segundo ícone, por exemplo, não
+aplica o símbolo da Natura e a sombra não está aplicada
+de acordo com o padrão dos originais.
+aplicativo
+independente
+vs.
+desenho 	formato
+
+-- 22 of 34 --
+
+Ícones de APPs - Embrapa
+Mapeamento
+Mapeamento dos principais problemas de identidade visual dos ícones
+Apesar das boas soluções gráficas desenvolvidas para alguns ícones, o conjunto de APPs da Embrapa apresenta inconsistências,
+o que prejudica a percepção de uma família de aplicativos pertencentes a uma mesma Empresa:
+• Não utilizam uma paleta de cor padronizada
+• Não utilizam o mesmo tratamento gráfico nos desenhos
+• Não utilizam um formato de moldura padronizado
+• Não utilizam uma fonte de texto padrão (quando há informação textual)
+• Não utilizam a marca da Embrapa ou o símbolo da folha com regularidade e consistência
+• Não utilizam a palavra Embrapa na composição do nome do APP
+Pesquisa: Google Play, 2017 (palavra Embrapa).
+
+-- 23 of 34 --
+
+Propostas de padronização
+• Estabelecer a mesma paleta de cor do Guia de Identidade Visual para Aplicativos da
+Embrapa (2014) para as figuras ou fundos dos ícones
+• Padronizar o formato externo do fundo (ex.: folha ou quadrado arredondado)
+• Estabelecer o mesmo estilo de desenho para os ícones (ex.: geométrico, em
+negativo e sombra aplicada em 45º)
+• Incluir a marca ou o símbolo da folha nos ícones de apresentação das lojas virtuais
+(Gooplay e Apple Store)
+• Avaliar a aplicação da palavra Embrapa na composição dos nomes dos APPs
+• Utilizar o azul e a palavra “restrito” ou “empregados” para diferenciar os ícones de
+acesso controlado
+Ícones de APPs - Embrapa
+Soluções
+cor verde
+de fundo
+escolha por
+um formato
+externo
+uso do símbolo
+no desenho
+uso da marca
+Embrapa
+padronização
+da fonte
+ícones
+geométricos
+em negativo
+aplicação de
+efeitos de sombra
+Algumas soluções gráficas já existentes poderiam ser adotadas como padrão para todos os aplicativos da Embrapa (atuais ou futuros).
+
+-- 24 of 34 --
+
+ANDROID
+Aparelho/Res. 	Ícone tamanho
+Escala 100% 	48 px
+Escala 400% 	192 px
+IOS
+Aparelho/Res. 	Ícone tamanho
+iPhone / 3x 	60 pt (3x = 180 px)
+iPhone / 2x 	60 pt (2x = 120 px)
+WINDOWSPHONE
+Aparelho/Res. 	Ícone tamanho
+Escala 100% 	44 px
+Escala 400% 	176 px
+48 px 	60 pt 	44 px
+176 px	180 px	192 px
+16%
+https://material.io/guidelines/style/icons.html# 	https://docs.microsoft.com/pt-br/windows/uwp/design/shell/tiles-and-notifications/app-assets	https://developer.apple.com/ios/human-interface-guidelines/icons-and-images/app-icon/
+Ícones de APPs - Dimensões
+Principais sistemas operacionais - tamanhos recomendados para construção dos ícones
+
+-- 25 of 34 --
+
+Loja Google Play 	Loja Apple Store
+Tela inicial
+Tela de notificação
+128 px
+75 px
+26 px
+Ícones de APPs - Dimensões
+Outros tamanhos importantes
+Considerar os tamanhos de apresentação dos
+ícones nas duas principais lojas de APPs, Google
+Play e Apple Store. É uma oportunidade de
+apresentação da marca Embrapa.
+O tamanho e a resolução dos displays dos
+smartphones aumentam a cada ano, mas ainda é
+preciso considerar aparelhos com tamanho
+moderado de tela e resolução abaixo da melhor
+tecnologia disponível.
+Aparelho Iphone 5S
+13 px
+Dimensões pequenas podem
+prejudicar a exposição da marca.
+
+-- 26 of 34 --
+
+Aplicação da marca
+Tela “Menu”
+Dimensionamento
+A aplicação da marca Embrapa e dos parceiros deve
+seguir os modelos e proporções ao lado.
+Obs: observar sempre e cuidar com a boa proporção
+visual entre as marcas.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+verticalmente, com distância da base equivalente a altura
+da marca, conforme a referência ao lado.
+1x
+0,382x
+1x
+0,382x
+
+-- 27 of 34 --
+
+Aplicação da marca em parceria
+Tela “Menu”
+Dimensionamento
+A aplicação da marca Embrapa e dos parceiros deve
+seguir os modelos e proporções ao lado.
+Quando houver apenas um parceiro as marcas devem
+ser aplicadas na parte superior do menu. Quando
+existirem dois parceiros ou mais as marcas devem
+ser aplicadas na parte inferior do menu.
+Obs: observar sempre e cuidar com a boa
+proporção visual entre as marcas.
+1x
+0,382x	0,382x
+1x
+0,382x
+x
+x
+1x
+0,325x
+x
+x
+
+-- 28 of 34 --
+
+Pesquisa prévia
+Android
+iOS
+Tela “Sobre” em aplicativos Android e iOS
+Fizemos um levantamento em diversos aplicativos em iOS e
+Android.
+Independe da plataforma utilizada, percebemos o foco na
+estrutura de informação legal, com raras exceções de aplicação
+de algum elemento gráfico diferenciado, que, quando ocorre, é
+simplesmente um mesmo elemento já utilizado em outras áreas
+do aplicativo.
+
+-- 29 of 34 --
+
+Proposta
+Aplicação da Marca Embrapa
+Conforme já consta no Guia de Aplicativos, a marca
+Embrapa deve ficar com largura igual a 38,2% da largura de
+tela. Essa relação é estabelecida pela Proporção Áurea.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+verticalmente, com distância da margem superior equivalente
+à altura da marca, que será também utilizada para dar o
+espaçamento da área de respiro ao redor do conteúdo a ser
+disponibilizado. Este se distancia da marca com a distância
+equivalente à altura da marca + altura do “a”, conforme a
+referência ao lado.
+OBS: ao final do conteúdo, deixa-se uma margem também
+equivalente à altura da marca. Porém, como o conteúdo
+pode ser mais extenso que o tamanho da tela, esse limite só
+se aplica mesmo ao final, podendo o conteúdo intermediário
+transpassar o limite inferior da tela touchscreen.
+1x
+0,382x
+Política de Uso
+Omnis ides aut as atur rest laborest, ut
+esequam eos apiet, occatem niet, com-
+nis sam, tendam enit labor as etur, optas
+experum, 	quassimusam 	quossustio 	cus-
+trum enimus arumque vita quiam lant.
+Agnis magnis et mi, nonsequaes sinven-
+tis reperovid quisqui volesenime solores
+magnis adistio ipic tet quatus reperunt.
+Pa nonsed quis que sit laboremquam quis et
+volupti dolorestint aperferio officture, cor abo-
+repr essequunt, id magnatibus evIta porest,
+aut autatis accatur?
+Quis eaquatem voluptu reserem ius susantur
+aceratis maionsed mincit vent laute magni-
+mus non reptatibus, sunt, aut aboreprem qua-
+tis quamus corepuda velitis volorem quiatis
+rem et, ipsandandit doluptam exceatium ha-
+ritempelia pligni dolupiciisto in coreper fercidi
+demolorio. Et que consedi tiorestem auditate
+essequis saector erept
+
+-- 30 of 34 --
+
+1)
+2)
+Resultado
+Ao lado, um esboço da aplicação. Na imagem 1,
+inserimos uma barra de navegação, que pode ser uma
+opção desenvolvida no aplicativo e também utilizada
+nesta tela.
+Na imagem 2, temos as informações de rodapé, onde
+podem ser inseridos links para mais informações (SAC),
+portal da Embrapa e demais informações que forem
+pertinentes.
+Política de Uso
+Omnis ides aut as atur rest laborest, ut
+esequam eos apiet, occatem niet, com-
+nis sam, tendam enit labor as etur, optas
+experum, 	quassimusam 	quossustio 	cus-
+trum enimus arumque vita quiam lant.
+Agnis magnis et mi, nonsequaes sinven-
+tis reperovid quisqui volesenime solores
+magnis adistio ipic tet quatus reperunt.
+Pa nonsed quis que sit laboremquam quis et
+volupti dolorestint aperferio officture, cor abo-
+repr essequunt, id magnatibus evIta porest,
+aut autatis accatur?
+Quis eaquatem voluptu reserem ius susantur
+aceratis maionsed mincit vent laute magni-
+mus non reptatibus, sunt, aut aboreprem qua-
+tis quamus corepuda velitis volorem quiatis
+rem et, ipsandandit doluptam exceatium ha-
+ritempelia pligni dolupiciisto in coreper fercidi
+demolorio. Et que consedi tiorestem auditate
+essequis saector erept
+oluptu reserem ius susantur aceratis maion-
+sed mincit vent laute magnimus non repta-
+magnis et mi, nonsequaes sinventis re-
+perovid 	quisqui 	volesenime 	solores
+magnis adistio ipic tet quatus reperunt.
+Pa nonsed quis que sit laboremquam quis et
+volupti dolorestint aperferio officture, cor abo-
+repr essequunt, id magnatibus evIta porest,
+aut autatis accatur?
+Quis eaquatem voluptu reserem ius susantur
+aceratis maionsed mincit vent laute magni-
+mus non reptatibus, sunt, aut aboreprem qua-
+tis quamus corepuda velitis volorem quiatis
+rem et, ipsandandit doluptam exceatium ha-
+ritempelia pligni dolupiciisto in coreper fercidi
+demolorio. Et que consedi tiorestem auditate
+essequis saector erept
+oluptu reserem ius susantur aceratis maion-
+sed mincit vent laute magnimus non repta-
+tibus, sunt, aut aboreprem quatis quamus
+corepuda velitis volorem quiatis rem et, ip-
+sandandit doluptam exceatium haritempelia
+pligni dolupiciisto in coreper fercidi demolorio.
+Et que consedi tiorestem auditate essequis
+saector erept
+Serviço de Atendimento ao Cidadão (SAC)
+www.embrapa.br
+© Copyrights Embrapa
+Empresa Brasileira de Pesquisa Agropecuária
+Ministério da Agricultura, Pecuária e Abastecimento
+Resultado	
+< Voltar
+
+-- 31 of 34 --
+
+Dimensionamento
+A aplicação da marca Embrapa e dos parceiros deve
+seguir os modelos ao lado. Sempre prevalecendo a
+boa proporção visual entre as marcas.
+Posionamento
+Sugere-se que o posicionamento seja centralizado
+verticalmente na parte superior, conforme a
+referência ao lado.
+1x
+0,325x
+x
+x
+1x
+x0,382x
+x
+1x
+x
+0,382x
+
+-- 32 of 34 --
+
+» Busque a simetria, o equilíbrio, a sustentação central dos
+elementros, de forma a reforçar os atributos conceituais do projeto.
+» Inspire-se nos bons modelos já disponíveis; se basear em um
+aplicativo bem aceito garante um bom resultado ao projeto.
+» Lembre-se que menos é mais. Não polua com excesso de
+elementos; ser conciso e objetivo é a melhor forma de comunicar o
+que se quer de maneira eficiente.
+Observações Gerais
+
+-- 33 of 34 --
+
+Supervisão de Comunicação Coorporativa
+Gerência de Comunicação e Informação
+Secretaria Geral
+
+-- 34 of 34 --
+
