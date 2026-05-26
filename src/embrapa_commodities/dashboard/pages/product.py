@@ -28,6 +28,7 @@ from embrapa_commodities.dashboard.formatting import (
 
 PREFIX = "product"
 
+
 def _empty_card(message: str) -> html.Div:
     return html.Div(className="empty-state", children=message)
 
@@ -283,7 +284,6 @@ def _placeholder_fig():
     from embrapa_commodities.dashboard.components.charts import _empty
 
     return _empty(go.Figure())
-
 
 
 def _kpi_strip(

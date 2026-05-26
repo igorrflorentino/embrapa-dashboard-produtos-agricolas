@@ -195,11 +195,7 @@ def _yoy_deltas(series) -> tuple[float | None, float | None, object | None]:
         return None, None, None
     last = series.iloc[-1]
     prev = series.iloc[-2]
-    delta_v = (
-        (last["value"] - prev["value"]) / prev["value"] * 100.0
-        if prev["value"]
-        else None
-    )
+    delta_v = (last["value"] - prev["value"]) / prev["value"] * 100.0 if prev["value"] else None
     delta_q = (
         (last["quantity"] - prev["quantity"]) / prev["quantity"] * 100.0
         if prev["quantity"]
@@ -480,8 +476,6 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
             only_ok=only_ok_flag,
         )
         return download_payload(df, filename_prefix="embrapa-visao-geral")
-
-
 
 
 def _kpi_strip_filtered(

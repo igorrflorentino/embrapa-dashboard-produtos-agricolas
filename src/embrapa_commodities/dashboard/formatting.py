@@ -66,7 +66,6 @@ def fmt_number(value: float | int | None, unit: str | None = None, decimals: int
     return f"{rendered}{NBSP}{unit}" if unit else rendered
 
 
-
 def fmt_delta(value: float | None, suffix: str = "%") -> str:
     """Format a signed delta with explicit + on positives."""
     if value is None:

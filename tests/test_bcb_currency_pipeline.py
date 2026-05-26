@@ -28,7 +28,6 @@ def settings() -> Settings:
     )  # type: ignore[call-arg]
 
 
-
 # ─── _effective_start_year — month=1 boundary is the interesting case ────────
 def test_effective_start_year_returns_configured_when_table_empty() -> None:
     bq = MagicMock()
