@@ -89,13 +89,18 @@ dashboard-build:    ## Build the Cloud Run image locally
 	docker build -t $(DASH_IMAGE) .
 
 dashboard-deploy:    ## Deploy the dashboard to Cloud Run (uses gcloud's active project)
-	# Auth posture: --no-allow-unauthenticated. The dashboard is gated by
-	# roles/run.invoker — grant it per-user via docs/auth.md. Do NOT flip
-	# this to --allow-unauthenticated without re-auditing what Gold exposes.
+	# Auth posture: --no-allow-unauthenticated + --invoker-iam-check. The
+	# dashboard is gated by roles/run.invoker — grant it per-user via
+	# docs/auth.md. Do NOT flip either flag without re-auditing what Gold
+	# exposes. NOTE: BOTH flags are required. --no-allow-unauthenticated
+	# removes the allUsers IAM binding, but Cloud Run also stores an
+	# `invoker-iam-disabled` annotation independently that bypasses ALL IAM
+	# checks; --invoker-iam-check is what clears that annotation.
 	gcloud run deploy $(DASH_SERVICE) \
 	  --source . \
 	  --region $(DASH_REGION) \
 	  --no-allow-unauthenticated \
+	  --invoker-iam-check \
 	  --memory 1Gi --cpu 1 --min-instances 0 --max-instances 5 \
 	  --port 8080 \
 	  --cpu-boost \

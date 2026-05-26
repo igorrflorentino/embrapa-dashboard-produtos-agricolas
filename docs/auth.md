@@ -1,9 +1,25 @@
 # Dashboard auth — granting access to the Cloud Run URL
 
 The Cloud Run service `embrapa-dashboard-commodities` is deployed with
-`--no-allow-unauthenticated`. Hitting the URL with no credentials returns
-`403 Forbidden`. To view the dashboard a principal must hold
-`roles/run.invoker` on the service.
+`--no-allow-unauthenticated` **and** `--invoker-iam-check`. Hitting the
+URL with no credentials returns `403 Forbidden`. To view the dashboard a
+principal must hold `roles/run.invoker` on the service.
+
+> ### ⚠ Gotcha: two flags, not one
+>
+> `--no-allow-unauthenticated` alone is **not enough** to gate a Cloud
+> Run service. Cloud Run stores an `invoker-iam-disabled` annotation on
+> the service independently of the IAM policy. When that annotation is
+> `true`, Cloud Run **bypasses the IAM check entirely** — the service
+> responds 200 to anonymous requests even with the policy showing only
+> specific users. `--no-allow-unauthenticated` removes the `allUsers`
+> IAM binding; `--invoker-iam-check` is what clears the annotation. Both
+> are required in `gcloud run deploy` and `gcloud run services update`.
+>
+> To diagnose: `gcloud run services describe <svc> --region <r> --format=yaml`
+> and look for `run.googleapis.com/invoker-iam-disabled: 'true'`. If
+> present, the gate is open regardless of the IAM policy. Fix with
+> `gcloud run services update <svc> --region <r> --invoker-iam-check`.
 
 This is the URL-level access layer. The container's read access to BigQuery
 is a separate concern, governed by the `dashboard-runtime` service account

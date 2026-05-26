@@ -27,9 +27,13 @@ $DeployArgs = @(
     "--region", $Region,
     "--set-env-vars", "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc,CLOUD_RUN_REGION=$Region",
     # Auth posture: private. Access is gated by roles/run.invoker -- see
-    # docs/auth.md for how to grant a user or group. Do NOT switch to
-    # --allow-unauthenticated without re-auditing what Gold exposes.
+    # docs/auth.md for how to grant a user or group. BOTH flags below are
+    # required: --no-allow-unauthenticated removes the allUsers IAM binding,
+    # and --invoker-iam-check clears the `invoker-iam-disabled` annotation
+    # that Cloud Run stores independently and which bypasses ALL IAM checks.
+    # Do NOT remove either without re-auditing what Gold exposes.
     "--no-allow-unauthenticated",
+    "--invoker-iam-check",
     "--memory", "1Gi",
     "--cpu", "1",
     "--min-instances", "0",
