@@ -141,9 +141,7 @@ def test_defaults_match_documented_values() -> None:
     assert s.bcb_start_year == 1980
 
 
-def test_get_settings_returns_settings_instance(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
+def test_get_settings_returns_settings_instance(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # get_settings() reads GCP_PROJECT_ID from the environment via pydantic-settings.
     # Chdir into an empty tmp dir so any developer-local .env can't bleed in.
     monkeypatch.chdir(tmp_path)
@@ -184,9 +182,7 @@ def test_get_credentials_builds_impersonated_creds() -> None:
     fake_source = MagicMock(name="source-creds")
     with (
         patch("google.auth.default", return_value=(fake_source, "test-project")) as default,
-        patch(
-            "google.auth.impersonated_credentials.Credentials"
-        ) as creds_cls,
+        patch("google.auth.impersonated_credentials.Credentials") as creds_cls,
     ):
         result = get_credentials(s)
 

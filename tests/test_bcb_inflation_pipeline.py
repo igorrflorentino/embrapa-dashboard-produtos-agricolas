@@ -92,9 +92,7 @@ def test_effective_start_year_passes_series_code_through() -> None:
 def test_extract_full_mode_does_not_query_bigquery(settings: Settings) -> None:
     """`--full` must not call latest_reference_date — that's the whole point of the flag."""
     bq = MagicMock()
-    fake_series_df = pd.DataFrame(
-        {"data": ["01/01/2020"], "valor": ["0.21"]}
-    )
+    fake_series_df = pd.DataFrame({"data": ["01/01/2020"], "valor": ["0.21"]})
     with (
         patch("embrapa_commodities.bcb.inflation.latest_reference_date") as latest,
         patch(

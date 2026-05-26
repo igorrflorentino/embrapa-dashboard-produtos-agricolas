@@ -185,8 +185,7 @@ def test_ingest_ibge_batch_auto_chunk_iterates_full_window(
     assert pipeline_run.call_count == 5
     # Each call must have received a chunked Settings, not the full window.
     chunk_years = [
-        (c.args[0].ibge_start_year, c.args[0].ibge_end_year)
-        for c in pipeline_run.call_args_list
+        (c.args[0].ibge_start_year, c.args[0].ibge_end_year) for c in pipeline_run.call_args_list
     ]
     assert chunk_years == [(2010, 2010), (2011, 2011), (2012, 2012), (2013, 2013), (2014, 2014)]
 
@@ -263,9 +262,7 @@ def test_ingest_all_runs_three_pipelines_in_order(
 ) -> None:
     order: list[str] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        cli.ibge_pipeline, "run", lambda s: order.append("ibge") or ""
-    )
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: order.append("ibge") or "")
     monkeypatch.setattr(
         cli.bcb_inflation, "run", lambda s, full: order.append(f"inflation-{full}") or ""
     )
@@ -286,12 +283,8 @@ def test_ingest_all_full_flag_propagates_to_bcb_only(
     seen_full: list[bool] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
-    monkeypatch.setattr(
-        cli.bcb_inflation, "run", lambda s, full: seen_full.append(full) or ""
-    )
-    monkeypatch.setattr(
-        cli.bcb_currency, "run", lambda s, full: seen_full.append(full) or ""
-    )
+    monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: seen_full.append(full) or "")
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: seen_full.append(full) or "")
 
     result = runner.invoke(cli.app, ["ingest", "all", "--full"])
 
@@ -313,9 +306,7 @@ def test_discover_ibge_products_prints_matches(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(cli.discover, "search_ibge_products", fake_search)
 
-    result = runner.invoke(
-        cli.app, ["discover", "ibge-products", "--keywords", "castanha,madeira"]
-    )
+    result = runner.invoke(cli.app, ["discover", "ibge-products", "--keywords", "castanha,madeira"])
 
     assert result.exit_code == 0, result.output
     assert "3405" in result.output
@@ -329,9 +320,7 @@ def test_discover_ibge_products_exits_1_when_no_matches(
 ) -> None:
     monkeypatch.setattr(cli.discover, "search_ibge_products", lambda *_a: [])
 
-    result = runner.invoke(
-        cli.app, ["discover", "ibge-products", "--keywords", "nada"]
-    )
+    result = runner.invoke(cli.app, ["discover", "ibge-products", "--keywords", "nada"])
 
     assert result.exit_code == 1
 
@@ -389,9 +378,7 @@ def test_monitor_no_logs_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "No event logs" in result.output
 
 
-def test_monitor_dispatches_to_monitor_run(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_monitor_dispatches_to_monitor_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     log = tmp_path / "ibge-XYZ.jsonl"
     log.write_text('{"event":"pipeline_start"}\n', encoding="utf-8")
     captured: dict = {}
@@ -447,9 +434,7 @@ def test_doctor_failure_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_backup_gold_calls_backup_run_with_settings(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
-    backup_run = MagicMock(
-        return_value=("2026-05-25T00-00-00Z", ["gs://b/backups/x.parquet"])
-    )
+    backup_run = MagicMock(return_value=("2026-05-25T00-00-00Z", ["gs://b/backups/x.parquet"]))
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli.backup, "run", backup_run)
 
@@ -504,9 +489,7 @@ def test_dbt_passthrough_no_args_defaults_to_help(
 def test_dbt_passthrough_propagates_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        cli.subprocess, "run", lambda *a, **kw: MagicMock(returncode=2)
-    )
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: MagicMock(returncode=2))
 
     result = runner.invoke(cli.app, ["dbt", "compile"])
 

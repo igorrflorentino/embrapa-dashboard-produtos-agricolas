@@ -133,9 +133,7 @@ def test_extract_delta_empty_returns_empty_df(settings: Settings) -> None:
             "embrapa_commodities.bcb.currency.latest_reference_date",
             return_value=date(2026, 1, 1),
         ),
-        patch(
-            "embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()
-        ),
+        patch("embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()),
     ):
         df = bcb_currency._extract(settings, bq, "proj.ds.tbl", full=False)
 
@@ -146,9 +144,7 @@ def test_extract_full_empty_raises(settings: Settings) -> None:
     bq = MagicMock()
     with (
         patch("embrapa_commodities.bcb.currency.latest_reference_date"),
-        patch(
-            "embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()
-        ),
+        patch("embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()),
         pytest.raises(RuntimeError, match="no currency data"),
     ):
         bcb_currency._extract(settings, bq, "proj.ds.tbl", full=True)
@@ -193,9 +189,7 @@ def test_run_delta_short_circuits_with_no_new_data(settings: Settings) -> None:
     with (
         patch("embrapa_commodities.bcb.currency.bigquery.Client"),
         patch("embrapa_commodities.bcb.currency.latest_reference_date") as latest,
-        patch(
-            "embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()
-        ),
+        patch("embrapa_commodities.bcb.currency.fetch_series", return_value=pd.DataFrame()),
         patch("embrapa_commodities.bcb.currency.storage.Client") as gcs_cls,
         patch("embrapa_commodities.bcb.currency.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.bcb.currency.upload_dataframe_as_parquet") as upload,
