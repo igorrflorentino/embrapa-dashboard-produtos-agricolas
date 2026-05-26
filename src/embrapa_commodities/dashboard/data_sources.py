@@ -121,8 +121,7 @@ def build_registry() -> dict[str, DataSource]:
         label="IBGE PEVS",
         long_label="IBGE PEVS · Produção extrativa vegetal",
         description=(
-            "Pesquisa da Extração Vegetal e da Silvicultura · "
-            "municipal · anual · 1986 em diante"
+            "Pesquisa da Extração Vegetal e da Silvicultura · municipal · anual · 1986 em diante"
         ),
         icon="eco",
         primary_views=(

@@ -18,9 +18,7 @@ from embrapa_commodities.dashboard.data_sources import DataSource
 
 # Single global sidebar section, always visible regardless of the
 # active source. `/status` is the only global page so far.
-_GLOBAL_SECTION = (
-    ("Saúde do sistema", "fact_check", "/status"),
-)
+_GLOBAL_SECTION = (("Saúde do sistema", "fact_check", "/status"),)
 
 
 def _topbar(source: DataSource | None, view_id: str | None) -> html.Header:

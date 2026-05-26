@@ -117,9 +117,7 @@ def get_credentials(settings: Settings | None = None):
     if not cfg.gcp_impersonation_sa:
         return None
 
-    source_creds, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
+    source_creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     return impersonated_credentials.Credentials(
         source_credentials=source_creds,
         target_principal=cfg.gcp_impersonation_sa,

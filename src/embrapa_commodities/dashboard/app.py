@@ -247,9 +247,7 @@ def _build_dash() -> Dash:
                 return (
                     no_update,
                     no_update,
-                    build_error_payload(
-                        exc, page=path, where="layout da página Saúde do sistema"
-                    ),
+                    build_error_payload(exc, page=path, where="layout da página Saúde do sistema"),
                 )
 
         source, view, canonical_path = _resolve(path)
