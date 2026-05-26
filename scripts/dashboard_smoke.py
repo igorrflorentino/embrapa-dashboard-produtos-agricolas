@@ -17,6 +17,13 @@ Checks:
 
 Exit code 0 only if all checks pass.
 
+Cloud Run auth:
+  When --url targets a ``*.run.app`` host (i.e. a private Cloud Run service),
+  the script auto-mints a Google identity token via ``gcloud auth
+  print-identity-token --audiences=<url>`` and sends it as a bearer header.
+  The caller must hold ``roles/run.invoker`` on the service. See
+  ``docs/auth.md``. Pass ``--no-auth`` to skip (e.g. testing the 403 path).
+
 Usage:
     python scripts/dashboard_smoke.py                 # launch + smoke
     python scripts/dashboard_smoke.py --no-launch --url https://...  # gate a deploy
@@ -27,10 +34,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -39,8 +48,10 @@ DEFAULT_VIEW_PATH = "/ibge-pevs/visao-geral"
 
 
 # ── HTTP helpers (stdlib) ───────────────────────────────────────────────────
-def http_get(url: str, timeout: float = 60.0) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, method="GET")
+def http_get(
+    url: str, timeout: float = 60.0, extra_headers: dict[str, str] | None = None
+) -> tuple[int, bytes]:
+    req = urllib.request.Request(url, method="GET", headers=extra_headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
@@ -48,19 +59,99 @@ def http_get(url: str, timeout: float = 60.0) -> tuple[int, bytes]:
         return e.code, e.read()
 
 
-def http_post_json(url: str, obj: dict, timeout: float = 120.0) -> tuple[int, bytes]:
+def http_post_json(
+    url: str,
+    obj: dict,
+    timeout: float = 120.0,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
     data = json.dumps(obj).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    headers = {"Content-Type": "application/json", **(extra_headers or {})}
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+# ── Cloud Run identity-token minting ────────────────────────────────────────
+# The dashboard service is deployed with --no-allow-unauthenticated. To gate a
+# deploy from a developer machine, we mint a Google-signed identity token via
+# gcloud and pass it as a bearer header. Two cases:
+#   - User account: `gcloud auth print-identity-token` (no --audiences). The
+#     token's aud is gcloud's OAuth client ID, which Cloud Run whitelists.
+#     Passing --audiences FAILS for user accounts ("Invalid account type").
+#   - Service account: must pass --audiences=<url> so the token's aud matches
+#     the receiving service URL; Cloud Run validates strictly.
+# See docs/auth.md.
+def _resolve_gcloud() -> str | None:
+    """Locate the gcloud executable. shutil.which respects PATHEXT on Windows
+    (where gcloud is a .cmd shim), so this works on both POSIX and Windows.
+    subprocess.run with a bare ``"gcloud"`` argv element does NOT respect
+    PATHEXT and fails with FileNotFoundError on Windows — hence this helper.
+    """
+    return shutil.which("gcloud")
+
+
+def _account_is_service_account(gcloud: str) -> bool:
+    """True if `gcloud config get-value account` returns a *.gserviceaccount.com."""
+    try:
+        result = subprocess.run(
+            [gcloud, "config", "get-value", "account"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+    return (result.stdout or "").strip().lower().endswith(".gserviceaccount.com")
+
+
+def _mint_identity_token(gcloud: str, audience: str) -> str | None:
+    """Mint an identity token via gcloud. Returns None on failure."""
+    cmd = [gcloud, "auth", "print-identity-token"]
+    if _account_is_service_account(gcloud):
+        cmd.append(f"--audiences={audience}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=True)
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or "").strip()[:300]
+        print(
+            f"WARN: `gcloud auth print-identity-token` failed: {stderr}\n"
+            "      Run `gcloud auth login` then retry, or pass --no-auth.",
+            file=sys.stderr,
+        )
+        return None
+    except subprocess.TimeoutExpired:
+        print("WARN: gcloud token mint timed out after 15s.", file=sys.stderr)
+        return None
+    return (result.stdout or "").strip() or None
+
+
+def cloud_run_auth_headers(base: str, *, enabled: bool = True) -> dict[str, str]:
+    """Return an Authorization header for Cloud Run targets; {} otherwise.
+
+    Auto-detects Cloud Run by the ``.run.app`` host suffix so localhost smoke
+    runs are untouched. Pass ``enabled=False`` to disable for custom domains
+    or to test unauthenticated behavior.
+    """
+    if not enabled:
+        return {}
+    host = (urllib.parse.urlparse(base).hostname or "").lower()
+    if not host.endswith(".run.app"):
+        return {}
+    gcloud = _resolve_gcloud()
+    if gcloud is None:
+        print(
+            "WARN: gcloud not on PATH — cannot mint identity token for Cloud Run.\n"
+            "      Install Google Cloud SDK or pass --no-auth to skip.",
+            file=sys.stderr,
+        )
+        return {}
+    token = _mint_identity_token(gcloud, base)
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 # ── Server lifecycle (reused by the visual checker) ─────────────────────────
@@ -163,12 +254,15 @@ def build_route_body(entry: dict, pathname: str) -> dict:
 
 
 # ── Checks ──────────────────────────────────────────────────────────────────
-def run_checks(base: str) -> list[tuple[str, bool, str]]:
+def run_checks(
+    base: str, extra_headers: dict[str, str] | None = None
+) -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
+    h = extra_headers or {}
 
     # 1. health
     try:
-        status, body = http_get(f"{base}/_health")
+        status, body = http_get(f"{base}/_health", extra_headers=h)
         ok = status == 200 and json.loads(body or b"{}").get("status") == "ok"
         results.append(("GET /_health -> {status: ok}", ok, f"HTTP {status} {body[:80]!r}"))
     except Exception as e:
@@ -176,7 +270,7 @@ def run_checks(base: str) -> list[tuple[str, bool, str]]:
 
     # 2. index / Dash bootstrap
     try:
-        status, body = http_get(f"{base}/")
+        status, body = http_get(f"{base}/", extra_headers=h)
         text = body.decode("utf-8", "replace")
         ok = status == 200 and ("_dash-config" in text or "react-entry-point" in text)
         results.append(("GET / -> Dash bootstrap", ok, f"HTTP {status}, {len(body)} bytes"))
@@ -186,7 +280,7 @@ def run_checks(base: str) -> list[tuple[str, bool, str]]:
     # 3. dependencies (init-error gate)
     deps: list[dict] = []
     try:
-        status, body = http_get(f"{base}/_dash-dependencies")
+        status, body = http_get(f"{base}/_dash-dependencies", extra_headers=h)
         deps = json.loads(body) if status == 200 else []
         ok = status == 200 and isinstance(deps, list) and len(deps) > 0
         results.append(
@@ -208,7 +302,7 @@ def run_checks(base: str) -> list[tuple[str, bool, str]]:
         return results
     try:
         body_obj = build_route_body(route, DEFAULT_VIEW_PATH)
-        status, raw = http_post_json(f"{base}/_dash-update-component", body_obj)
+        status, raw = http_post_json(f"{base}/_dash-update-component", body_obj, extra_headers=h)
         detail, ok = _interpret_route_response(status, raw)
         results.append((f"POST route render {DEFAULT_VIEW_PATH}", ok, detail))
     except Exception as e:
@@ -245,6 +339,7 @@ def run_smoke(
     port: int = 8051,
     timeout: float = 90.0,
     log_path: Path | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> list[tuple[str, bool, str]]:
     """Launch (or target) the dashboard, run the HTTP+callback smoke, return results.
 
@@ -255,6 +350,11 @@ def run_smoke(
     Keeping orchestration here — instead of in ``main()`` — lets the pytest
     wrapper reuse the exact same launch/check/teardown flow without re-implementing
     the server lifecycle, and guarantees both code paths surface the same failures.
+
+    ``extra_headers`` is forwarded to every check request — used by the CLI to
+    inject a Cloud Run bearer token when targeting a private ``*.run.app``
+    service; pytest can compute and pass its own headers (e.g. WIF-issued
+    identity token) the same way.
     """
     proc = None
     base = url
@@ -269,7 +369,7 @@ def run_smoke(
                     f"dashboard server did not become healthy within {timeout:.0f}s "
                     f"(see {resolved_log})"
                 )
-        return run_checks(base)
+        return run_checks(base, extra_headers=extra_headers)
     finally:
         if proc is not None:
             stop_server(proc)
@@ -313,6 +413,16 @@ def main() -> int:
         default=90.0,
         help="Seconds to wait for the server to become healthy.",
     )
+    parser.add_argument(
+        "--no-auth",
+        dest="auth",
+        action="store_false",
+        default=True,
+        help=(
+            "Skip Cloud Run identity-token minting. By default a token is auto-"
+            "minted via gcloud when --url targets a *.run.app host. See docs/auth.md."
+        ),
+    )
     args = parser.parse_args()
 
     log_path = REPO_ROOT / "artifacts" / "dashboard_smoke_server.log"
@@ -322,6 +432,12 @@ def main() -> int:
     else:
         print(f"Testing already-running server at {args.url} ...\n")
 
+    # Mint a Cloud Run identity token when targeting a *.run.app URL. The
+    # local launched-server path keeps {} headers (localhost is unaffected).
+    auth_headers = cloud_run_auth_headers(args.url, enabled=args.auth)
+    if auth_headers:
+        print("Auth: minted gcloud identity token for Cloud Run target.\n")
+
     try:
         results = run_smoke(
             url=args.url,
@@ -329,6 +445,7 @@ def main() -> int:
             port=args.port,
             timeout=args.timeout,
             log_path=log_path,
+            extra_headers=auth_headers,
         )
     except RuntimeError as e:
         print(f"FAILED: {e}")

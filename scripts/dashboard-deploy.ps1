@@ -2,7 +2,7 @@
 #
 # Required env: GCP_PROJECT_ID (project that owns the gold dataset).
 # Optional env:
-#   DASH_SERVICE  — Cloud Run service name (default: embrapa-commodities-dashboard)
+#   DASH_SERVICE  — Cloud Run service name (default: embrapa-dashboard-commodities)
 #   DASH_REGION   — Cloud Run region        (default: us-central1)
 #   BQ_LOCATION   — BigQuery location       (default: us-central1, matches gold dataset)
 #   DASH_SA       — runtime service account email. If unset, Cloud Run uses
@@ -15,7 +15,7 @@ if (-not $env:GCP_PROJECT_ID) {
     exit 1
 }
 
-$Service = if ($env:DASH_SERVICE) { $env:DASH_SERVICE } else { "embrapa-commodities-dashboard" }
+$Service = if ($env:DASH_SERVICE) { $env:DASH_SERVICE } else { "embrapa-dashboard-commodities" }
 $Region  = if ($env:DASH_REGION)  { $env:DASH_REGION }  else { "us-central1" }
 $BqLoc   = if ($env:BQ_LOCATION)  { $env:BQ_LOCATION }  else { "us-central1" }
 
@@ -26,7 +26,10 @@ $DeployArgs = @(
     "--source", ".",
     "--region", $Region,
     "--set-env-vars", "GCP_PROJECT_ID=$($env:GCP_PROJECT_ID),BQ_GOLD_DATASET=gold,BQ_LOCATION=$BqLoc,CLOUD_RUN_REGION=$Region",
-    "--allow-unauthenticated",
+    # Auth posture: private. Access is gated by roles/run.invoker — see
+    # docs/auth.md for how to grant a user or group. Do NOT switch to
+    # --allow-unauthenticated without re-auditing what Gold exposes.
+    "--no-allow-unauthenticated",
     "--memory", "1Gi",
     "--cpu", "1",
     "--min-instances", "0",

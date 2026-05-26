@@ -4,6 +4,15 @@ The dashboard is a Dash Plotly app that loads `gold.gold_commodity_matrix`
 into a pandas DataFrame at boot and serves the in-memory snapshot until the
 TTL expires (default 6 h) or the container is restarted.
 
+> **Auth posture: private.** The service is deployed with
+> `--no-allow-unauthenticated`. Access is gated by `roles/run.invoker`;
+> see [`docs/auth.md`](../docs/auth.md) for how to grant a user or group.
+> The data is public (IBGE SIDRA + BCB SGS), but gating the URL protects
+> against (a) unmetered BigQuery scan costs from scraped requests and
+> (b) accidentally exposing any internal-only column that lands in Gold.
+> Do not switch this to `--allow-unauthenticated` without re-auditing
+> what `gold.gold_commodity_matrix` contains.
+
 ## Prerequisites
 
 - A GCP project that already runs the ingestion / dbt pipeline (so
@@ -40,12 +49,12 @@ gcloud projects add-iam-policy-binding $PROJECT \
 From the repo root:
 
 ```bash
-gcloud run deploy embrapa-commodities-dashboard \
+gcloud run deploy embrapa-dashboard-commodities \
   --source . \
   --region us-central1 \
   --service-account dashboard-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com \
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=us-central1 \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --memory 1Gi --cpu 1 \
   --min-instances 0 --max-instances 5 \
   --port 8080
@@ -58,7 +67,7 @@ Cloud Run picks up `Dockerfile` automatically when present. The
 ## Verify
 
 ```bash
-URL=$(gcloud run services describe embrapa-commodities-dashboard \
+URL=$(gcloud run services describe embrapa-dashboard-commodities \
         --region us-central1 --format='value(status.url)')
 curl -fsS "$URL/_health"
 open "$URL"

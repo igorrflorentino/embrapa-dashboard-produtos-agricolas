@@ -33,14 +33,14 @@ make dashboard-deploy
 
 # 4. Post-deploy verification
 uv run --extra dashboard python scripts/dashboard_smoke.py \
-  --no-launch --url https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app
+  --no-launch --url https://embrapa-dashboard-commodities-aq63dvcryq-uc.a.run.app
 ```
 
 ## Cloud Run Configuration
 
 | Setting | Value |
 |---------|-------|
-| Service name | `embrapa-commodities-dashboard` |
+| Service name | `embrapa-dashboard-commodities` |
 | Region | `us-central1` |
 | Memory | 1 GiB |
 | CPU | 1 |
@@ -48,7 +48,7 @@ uv run --extra dashboard python scripts/dashboard_smoke.py \
 | Max instances | 5 |
 | Port | 8080 |
 | CPU boost | enabled |
-| Auth | `--allow-unauthenticated` |
+| Auth | `--no-allow-unauthenticated` (gated by `roles/run.invoker` — see [`docs/auth.md`](../../../docs/auth.md)) |
 
 Environment variables set on the service:
 ```
@@ -61,7 +61,7 @@ CLOUD_RUN_REGION=us-central1
 ## Production URL
 
 ```
-https://embrapa-dashboard-commodities-1085662235842.us-central1.run.app/
+https://embrapa-dashboard-commodities-aq63dvcryq-uc.a.run.app/
 ```
 
 Key routes:

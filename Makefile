@@ -68,7 +68,7 @@ clean:
 
 # ─── Dash dashboard (Cloud Run target) ─────────────────────────────────────
 DASH_IMAGE  ?= embrapa-dashboard:local
-DASH_SERVICE ?= embrapa-commodities-dashboard
+DASH_SERVICE ?= embrapa-dashboard-commodities
 DASH_REGION ?= us-central1
 
 dashboard-sync:    ## Install dashboard runtime deps
@@ -89,10 +89,13 @@ dashboard-build:    ## Build the Cloud Run image locally
 	docker build -t $(DASH_IMAGE) .
 
 dashboard-deploy:    ## Deploy the dashboard to Cloud Run (uses gcloud's active project)
+	# Auth posture: --no-allow-unauthenticated. The dashboard is gated by
+	# roles/run.invoker — grant it per-user via docs/auth.md. Do NOT flip
+	# this to --allow-unauthenticated without re-auditing what Gold exposes.
 	gcloud run deploy $(DASH_SERVICE) \
 	  --source . \
 	  --region $(DASH_REGION) \
-	  --allow-unauthenticated \
+	  --no-allow-unauthenticated \
 	  --memory 1Gi --cpu 1 --min-instances 0 --max-instances 5 \
 	  --port 8080 \
 	  --cpu-boost \
