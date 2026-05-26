@@ -98,6 +98,59 @@ def test_ensure_bucket_skips_patch_when_compliant() -> None:
     bucket.patch.assert_not_called()
 
 
+def test_lifecycle_backups_prefix_deletes_at_365d() -> None:
+    """`backups/` Gold snapshots must DELETE at 365d, not transition to ARCHIVE.
+
+    The chain of snapshots is itself the retention; old snapshots referencing
+    dropped Gold schemas are not restorable anyway, so paying Archive storage
+    indefinitely is pure waste.
+    """
+    delete_rules = [
+        r
+        for r in _LIFECYCLE_RULES
+        if r["action"]["type"] == "Delete" and "backups/" in r["condition"].get("matchesPrefix", [])
+    ]
+    assert len(delete_rules) == 1, "exactly one backups/ delete rule"
+    assert delete_rules[0]["condition"]["age"] == 365
+
+
+def test_lifecycle_landing_prefix_never_deletes_live_objects() -> None:
+    """`landing/` is the audit trail — transitions to ARCHIVE but never deletes live objects.
+
+    A regression that scoped the noncurrent-version delete to landing/ (or
+    added a live-object delete to landing/) would silently destroy Bronze
+    provenance. Pin the invariant explicitly.
+    """
+    landing_deletes = [
+        r
+        for r in _LIFECYCLE_RULES
+        if r["action"]["type"] == "Delete" and "landing/" in r["condition"].get("matchesPrefix", [])
+    ]
+    assert landing_deletes == [], "landing/ must never have a live-object Delete rule"
+
+    # The bucket-wide noncurrent-version cleanup is the only unscoped Delete.
+    unscoped_deletes = [
+        r
+        for r in _LIFECYCLE_RULES
+        if r["action"]["type"] == "Delete" and "matchesPrefix" not in r["condition"]
+    ]
+    assert len(unscoped_deletes) == 1
+    assert unscoped_deletes[0]["condition"].get("isLive") is False
+
+
+def test_lifecycle_transitions_are_prefix_scoped() -> None:
+    """Every SetStorageClass transition is prefix-scoped to exactly one of
+    landing/ or backups/. Without this, a transition rule would bind to objects
+    in the other prefix and cause unexpected storage-class flips."""
+    for rule in _LIFECYCLE_RULES:
+        if rule["action"]["type"] != "SetStorageClass":
+            continue
+        prefixes = rule["condition"].get("matchesPrefix")
+        assert prefixes is not None, f"transition rule must be prefix-scoped: {rule}"
+        assert len(prefixes) == 1
+        assert prefixes[0] in {"landing/", "backups/"}
+
+
 def test_upload_dataframe_as_parquet_writes_via_blob() -> None:
     """Parquet upload uses upload_from_file (in-memory, no local disk)."""
     client = MagicMock()

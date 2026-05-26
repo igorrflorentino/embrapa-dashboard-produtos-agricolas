@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -125,6 +126,89 @@ def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings
     assert "missing" in result.detail
 
 
+def _list_blobs_mock(prefixes: list[str]) -> MagicMock:
+    """Build a list_blobs() return-value that exposes ``prefixes`` after iteration.
+
+    The real GCS HTTPIterator only fills ``prefixes`` once the page iterator
+    has been drained, so the production code does ``list(blobs)`` before
+    reading ``.prefixes``. MagicMock's default ``__iter__`` already returns
+    an empty iterator, so we only need to set the prefixes attribute.
+    """
+    iterator = MagicMock()
+    iterator.prefixes = prefixes
+    return iterator
+
+
+def test_check_backup_freshness_reports_fresh_snapshot(settings: Settings) -> None:
+    """Recent snapshot (well within threshold): ok=True, no warn marker."""
+    now = datetime.now(UTC)
+    recent = (now - timedelta(days=2)).strftime("%Y%m%dT%H%M%SZ")
+    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([f"backups/run={recent}/"])
+        result = doctor._check_backup_freshness(settings)
+    assert result.ok is True
+    assert "⚠" not in result.detail
+    assert "2d ago" in result.detail or "1d ago" in result.detail
+
+
+def test_check_backup_freshness_warns_on_stale(settings: Settings) -> None:
+    """Snapshot older than BACKUP_STALENESS_DAYS: ok=True but ⚠ in detail."""
+    settings.backup_staleness_days = 14
+    stale_ts = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
+    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
+            [f"backups/run={stale_ts}/"]
+        )
+        result = doctor._check_backup_freshness(settings)
+    assert result.ok is True  # warn, not fail
+    assert "⚠" in result.detail
+    assert "stale" in result.detail
+
+
+def test_check_backup_freshness_picks_latest_of_many(settings: Settings) -> None:
+    """When multiple snapshots exist, freshness is measured from the most recent one."""
+    now = datetime.now(UTC)
+    old = (now - timedelta(days=400)).strftime("%Y%m%dT%H%M%SZ")
+    middle = (now - timedelta(days=100)).strftime("%Y%m%dT%H%M%SZ")
+    recent = (now - timedelta(days=3)).strftime("%Y%m%dT%H%M%SZ")
+    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
+            [
+                f"backups/run={old}/",
+                f"backups/run={recent}/",
+                f"backups/run={middle}/",
+            ]
+        )
+        result = doctor._check_backup_freshness(settings)
+    assert result.ok is True
+    assert "⚠" not in result.detail
+
+
+def test_check_backup_freshness_fails_when_no_snapshot(settings: Settings) -> None:
+    """Empty backups/ prefix is a hard fail with a recovery hint."""
+    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([])
+        result = doctor._check_backup_freshness(settings)
+    assert result.ok is False
+    assert "dbt-build-prod-with-backup" in result.detail
+
+
+def test_check_backup_freshness_ignores_malformed_prefixes(settings: Settings) -> None:
+    """Stray prefixes that don't match the run=<ts>/ pattern are skipped.
+
+    A human poking around with `gsutil cp` could land arbitrary objects under
+    `backups/`; the probe must not crash and must not let them count as a
+    snapshot.
+    """
+    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
+            ["backups/ad-hoc-thing/", "backups/run=not-a-timestamp/"]
+        )
+        result = doctor._check_backup_freshness(settings)
+    assert result.ok is False  # no valid snapshot → fail like the empty case
+    assert "no snapshot" in result.detail
+
+
 def test_run_all_executes_every_probe(settings: Settings) -> None:
     """run_all should call each probe exactly once in CHECKS order."""
     with (
@@ -137,6 +221,9 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         bq_cls.return_value.get_service_account_email.return_value = "sa@x"
         bq_cls.return_value.get_table.return_value = MagicMock()
         gcs_cls.return_value.bucket.return_value.exists.return_value = True
+        # list_blobs is consumed twice: once by _check_gcs (truthy iterator)
+        # and once by _check_backup_freshness (prefixes attribute).
+        gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([])
         get.return_value.status_code = 200
         get.return_value.raise_for_status.return_value = None
 
@@ -151,4 +238,5 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "IBGE SIDRA reachable",
         "BCB SGS reachable",
         "Bronze tables",
+        "Gold backup freshness",
     ]

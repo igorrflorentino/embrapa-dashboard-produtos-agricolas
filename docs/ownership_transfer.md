@@ -35,3 +35,40 @@ Em qualquer caso, o código não muda — apenas o trigger.
 | `roles/bigquery.dataEditor` | datasets `bronze_*`, `silver`, `gold` | escrita das tabelas |
 | `roles/bigquery.jobUser` | projeto | criar jobs de load e query |
 | `roles/storage.objectAdmin` | bucket `${project}-datalake` | escrita do Parquet raw |
+
+## Backup cold-storage do Gold (responsabilidade do operador)
+
+O comando `embrapa backup-gold` exporta as três tabelas Gold para
+`gs://${GCS_BUCKET}/backups/run=<timestamp>/...` em Parquet. Ele **não**
+roda automaticamente após `make dbt-build-prod` — isso é intencional, para
+que builds experimentais em prod não inflem o bucket de snapshots.
+
+**Caminho recomendado:** use `make dbt-build-prod-with-backup` em vez de
+`make dbt-build-prod` puro sempre que o resultado for digno de preservação
+(release de schema, novo código de produto, qualquer coisa em que você
+queira poder fazer roll-back). Plain `make dbt-build-prod` continua
+disponível para iterações descartáveis.
+
+**Cadência recomendada:** no mínimo **uma vez por fronteira de release** —
+ou seja, sempre que algo no comportamento ou no schema do Gold mudar de
+forma observável pelo Looker Studio / pelo dashboard. Em projetos com
+ingestão semanal, o padrão prático é rodar o caminho `-with-backup` na
+sexta-feira final de cada sprint.
+
+**Retenção automática:** o ciclo de vida do GCS aplicado ao prefixo
+`backups/` faz:
+
+| Idade | Ação |
+|---|---|
+| 30 dias | Transição para `NEARLINE` |
+| 90 dias | Transição para `COLDLINE` |
+| 365 dias | `DELETE` |
+
+(Configurado em `src/embrapa_commodities/gcp/storage.py` e aplicado na
+criação do bucket — o prefixo `landing/` segue um ciclo separado que
+termina em `ARCHIVE`, sem delete.)
+
+**Monitoramento:** `uv run embrapa doctor` inclui uma checagem
+`Gold backup freshness` que emite warning se o snapshot mais recente
+estiver com mais de `BACKUP_STALENESS_DAYS` (padrão 14) dias, e falha
+explicitamente quando nenhum snapshot existe.

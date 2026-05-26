@@ -67,9 +67,7 @@ def test_bronze_schema_skips_duplicate_timestamp_in_input() -> None:
 
 
 # ─── run() — happy path ──────────────────────────────────────────────────────
-def test_run_uploads_and_loads_with_proper_keys(
-    settings: Settings, sidra_df: pd.DataFrame
-) -> None:
+def test_run_uploads_and_loads_with_proper_keys(settings: Settings, sidra_df: pd.DataFrame) -> None:
     """Happy path: extract → parquet upload → BQ load with partition/cluster keys."""
     with (
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
