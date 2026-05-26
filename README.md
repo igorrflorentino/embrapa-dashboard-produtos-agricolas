@@ -1,5 +1,11 @@
 # Embrapa Commodities Dashboard
 
+[![CI](https://github.com/igorrflorentino/embrapa-dashboard-commodities/actions/workflows/ci.yml/badge.svg)](https://github.com/igorrflorentino/embrapa-dashboard-commodities/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3121/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](LICENSE)
+[![uv](https://img.shields.io/badge/pkg-uv-blueviolet)](https://docs.astral.sh/uv/)
+[![dbt](https://img.shields.io/badge/transform-dbt-FF694B)](https://www.getdbt.com/)
+
 Pipeline Medalhão (**Bronze → Silver → Gold → Looker Studio**) para análise histórica de produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil.
 
 ```
@@ -18,15 +24,9 @@ BCB Currency  ─┘                                              │
 
 ## Stack
 
-| Camada | Tecnologia |
-|---|---|
-| Versão Python | `pyenv` + `3.12.11` (arquivo `.python-version`) |
-| Gerenciamento de pacotes | `uv` |
-| Ingestão | Python puro (`requests`, `tenacity`, `pandas`, `pyarrow`) |
-| Data Lake | GCS (Parquet em `gs://${GCS_BUCKET}/${GCS_LANDING_PREFIX}/...`) |
-| Warehouse | BigQuery (datasets configuráveis via `.env`) |
-| Transformações | `dbt-core` + `dbt-bigquery` |
-| Dashboard | Looker Studio (conectar direto na tabela física `${gold}.gold_commodity_matrix`) |
+Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · Dash + Plotly · Cloud Run · GitHub Actions
+
+Tabela completa com justificativas técnicas em [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-de-tecnologias).
 
 ## Tudo é configurável via `.env`
 
@@ -147,19 +147,7 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 
 ## Estrutura
 
-```
-src/embrapa_commodities/    # ingestão (Python puro)
-  ├── config.py             # pydantic-settings + .env
-  ├── discover.py           # helpers auxiliares (não usados no pipeline)
-  ├── cli.py                # entrypoint typer (`embrapa`)
-  ├── gcp/                  # ADC + BigQuery + GCS
-  ├── ibge/                 # SIDRA client + Bronze pipeline
-  └── bcb/                  # SGS client + Bronze pipelines
-dbt/                        # transformações Silver + Gold
-scripts/                    # tooling auxiliar (setup, dashboard, IAM) — ver scripts/README.md
-tests/                      # pytest (clientes HTTP mockados)
-docs/ownership_transfer.md  # checklist para migrar para a empresa
-```
+Estrutura completa de pastas (arquivo-a-arquivo) em [`ARCHITECTURE.md`](ARCHITECTURE.md#estrutura-de-pastas).
 
 > Tooling auxiliar (setup do ambiente, run/build/deploy do dashboard, scripts de IAM) está em [`scripts/README.md`](scripts/README.md).
 
@@ -170,3 +158,46 @@ Veja [docs/ownership_transfer.md](docs/ownership_transfer.md). Nada está hardco
 ## Cost safety
 
 Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que protegem contra cobrança inesperada estão em [docs/cost_safety.md](docs/cost_safety.md). Recomendado fazer **antes** de habilitar BI Engine.
+
+---
+
+## 📚 Documentação
+
+| Documento | Descrição |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Guia para assistentes de IA (comandos, arquitetura, skills) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura técnica — stack, estrutura de pastas, fluxo de dados |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Guia de contribuição — commits, branches, PRs |
+| [CHANGELOG.md](CHANGELOG.md) | Histórico de versões |
+| [TODO.md](TODO.md) | Lista macro de tarefas pendentes e concluídas |
+| [ROADMAP.md](ROADMAP.md) | Visão de futuro (curto, médio e longo prazo) |
+| [SECURITY.md](SECURITY.md) | Política de segurança e reporte de vulnerabilidades |
+| [PLANS/](PLANS/) | Planos detalhados de features complexas |
+
+<details>
+<summary>Documentação detalhada (docs/)</summary>
+
+| Documento | Conteúdo |
+|---|---|
+| [docs/setup.md](docs/setup.md) | Guia completo de setup do ambiente |
+| [docs/architecture.md](docs/architecture.md) | Arquitetura de autenticação (Cadeia de Confiança) |
+| [docs/auth.md](docs/auth.md) | Autenticação do dashboard (Cloud Run IAM) |
+| [docs/iam_setup.md](docs/iam_setup.md) | Setup de IAM e Service Accounts |
+| [docs/cost_safety.md](docs/cost_safety.md) | Budget alerts e quotas |
+| [docs/testing.md](docs/testing.md) | Estratégia e guia de testes |
+| [docs/ownership_transfer.md](docs/ownership_transfer.md) | Checklist de transferência para a empresa |
+| [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Conexão Looker Studio → Gold |
+| [docs/migration_history.md](docs/migration_history.md) | Histórico de migrações |
+| [scripts/README.md](scripts/README.md) | Documentação dos scripts auxiliares |
+| [deploy/README.md](deploy/README.md) | Instruções de deploy Cloud Run |
+
+</details>
+
+---
+
+## 📄 Licença
+
+Este projeto é licenciado sob a [Apache License 2.0](LICENSE).
+
+Desenvolvido por [Igor Florentino](mailto:igorlopesc@gmail.com).
+

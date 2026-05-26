@@ -64,17 +64,16 @@
 name: Dashboard smoke
 
 on:
+  # Trigger on ALL pull requests (no path filter). The path check is done
+  # inside the job via dorny/paths-filter so the `smoke` job ALWAYS appears
+  # in the PR checks — satisfying the required status check even when no
+  # dashboard-relevant files changed (the job just succeeds instantly).
+  #
+  # Why not use workflow-level `paths:`?  Because GitHub treats a workflow
+  # that never triggers as "Expected — Waiting for status to be reported",
+  # which blocks merge when the check is required.
   pull_request:
-    paths:
-      # Only run when something that could break the dashboard changed. Editing
-      # docs or unrelated ingestion code shouldn't burn a CI minute on live BQ.
-      - "src/embrapa_commodities/dashboard/**"
-      - "scripts/dashboard_smoke.py"
-      - "tests/test_dashboard_smoke.py"
-      - "dbt/models/gold/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/dashboard-smoke.yml"
+    branches: [main]
   workflow_dispatch: {}  # allow manual re-run from the Actions tab
 
 # WIF requires id-token: write so GitHub will mint an OIDC token for us.
@@ -85,7 +84,7 @@ permissions:
 jobs:
   smoke:
     # Skip on forks — they can't reach the WIF provider (intentional security
-    # boundary). The workflow would just fail noisily without this guard.
+    # boundary). Skipped jobs satisfy required status checks in GitHub.
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-latest
@@ -94,21 +93,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Determine whether any dashboard-relevant files changed in this PR.
+      # If nothing changed, all subsequent steps are skipped and the job
+      # reports success — the required check is satisfied without burning
+      # a CI minute on live BigQuery.
+      - name: Check for dashboard-relevant changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            dashboard:
+              - 'src/embrapa_commodities/dashboard/**'
+              - 'scripts/dashboard_smoke.py'
+              - 'tests/test_dashboard_smoke.py'
+              - 'dbt/models/gold/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/dashboard-smoke.yml'
+
       - name: Auth to GCP via Workload Identity Federation
+        if: steps.changes.outputs.dashboard == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SMOKE_SERVICE_ACCOUNT }}
 
       - name: Install uv
+        if: steps.changes.outputs.dashboard == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
 
       - name: Pin Python to the project version
+        if: steps.changes.outputs.dashboard == 'true'
         run: uv python install 3.12.11
 
       - name: Run dashboard smoke (live BigQuery)
+        if: steps.changes.outputs.dashboard == 'true'
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           # Must match the Gold dataset's actual region. The dashboard config
@@ -125,3 +146,4 @@ jobs:
           name: dashboard-smoke-server-log
           path: artifacts/dashboard_smoke_server.log
           if-no-files-found: ignore
+
