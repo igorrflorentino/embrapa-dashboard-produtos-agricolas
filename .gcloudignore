@@ -43,7 +43,11 @@ htmlcov
 .DS_Store
 Thumbs.db
 
-# Design handoff (huge, not needed at runtime)
+# Design handoff (huge, not needed at runtime). The unzipped directory has
+# paths > Windows MAX_PATH (260), so leaving it in the build context crashes
+# the source upload on Windows. Match both the .zip and the unzipped tree;
+# pattern without a trailing slash matches files AND directories.
+Embrapa-Commodities-Design-System-handoff
 Embrapa-Commodities-Design-System-handoff.zip
 *Embrapa Commodities Design System*
 

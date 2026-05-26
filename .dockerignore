@@ -36,6 +36,9 @@ htmlcov
 .DS_Store
 Thumbs.db
 
-# The design handoff zip is huge and only needed at design time
+# The design handoff is huge and only needed at design time. Match both the
+# .zip and the unzipped directory; pattern without trailing slash matches
+# files AND directories.
+Embrapa-Commodities-Design-System-handoff
 Embrapa-Commodities-Design-System-handoff.zip
 "Embrapa Commodities Design System-handoff.zip"
