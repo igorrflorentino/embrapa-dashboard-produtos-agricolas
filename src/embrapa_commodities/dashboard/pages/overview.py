@@ -185,68 +185,105 @@ def _highlight(*, overline: str, title: str, body: str, badge: str, badge_tone: 
     )
 
 
+def _yoy_deltas(series) -> tuple[float | None, float | None, object | None]:
+    """Compute YoY deltas for value and quantity from a time series.
+
+    Returns (delta_value_pct, delta_quantity_pct, prev_row).
+    """
+    if len(series) < 2:
+        return None, None, None
+    last = series.iloc[-1]
+    prev = series.iloc[-2]
+    delta_v = (
+        (last["value"] - prev["value"]) / prev["value"] * 100.0
+        if prev["value"]
+        else None
+    )
+    delta_q = (
+        (last["quantity"] - prev["quantity"]) / prev["quantity"] * 100.0
+        if prev["quantity"]
+        else None
+    )
+    return delta_v, delta_q, prev
+
+
+def _build_kpi_cards(
+    *,
+    store: GoldStore,
+    series,
+    conv: str,
+    ccy: str,
+    states_value: str,
+    states_sub: str,
+    quality_value: str,
+    quality_sub: str,
+) -> list:
+    """Build the four standard KPI cards (value, quantity, coverage, quality).
+
+    Callers supply the pre-computed coverage and quality strings so the
+    unfiltered path (``_kpi_strip``) can use ``store.coverage_summary()``
+    while the filtered path can derive them from a scoped DataFrame.
+    """
+    last = series.iloc[-1]
+    delta_v, delta_q, prev = _yoy_deltas(series)
+
+    return [
+        kpi_card(
+            label=f"Valor ({convention_label(conv)}) · {ccy}",
+            value=fmt_currency(float(last["value"]), ccy),
+            delta=fmt_delta(delta_v) if delta_v is not None else None,
+            delta_positive=(delta_v or 0) >= 0,
+            sub=f"vs. {int(prev['reference_year'])}" if prev is not None else None,
+            spark_values=series["value"].tail(12).tolist(),
+            spark_color="#1D4D7E",
+        ),
+        kpi_card(
+            label="Quantidade total",
+            value=fmt_number(float(last["quantity"]), decimals=0),
+            delta=fmt_delta(delta_q) if delta_q is not None else None,
+            delta_positive=(delta_q or 0) >= 0,
+            sub=f"unidades em {int(last['reference_year'])}",
+            spark_values=series["quantity"].tail(12).tolist(),
+            spark_color="#006f35",
+        ),
+        kpi_card(
+            label="Cobertura geográfica",
+            value=states_value,
+            sub=states_sub,
+            spark_values=_coverage_spark(store, conv, ccy),
+            spark_color="#3A74B0",
+        ),
+        kpi_card(
+            label="Qualidade dos dados",
+            value=quality_value,
+            sub=quality_sub,
+            spark_values=_quality_spark(store),
+            spark_color="#006f35",
+        ),
+    ]
+
+
 def _kpi_strip(store: GoldStore, conv: str, ccy: str) -> html.Div:
     _, hi = store.year_range()
     series = store.time_series(convention=conv, currency=ccy)
     if series.empty:
         return html.Div(className="kpi-row", children=[])
 
-    last = series.iloc[-1]
-    prev = series.iloc[-2] if len(series) > 1 else None
-    delta_v = (
-        (last["value"] - prev["value"]) / prev["value"] * 100.0
-        if prev is not None and prev["value"]
-        else None
-    )
-    delta_q = (
-        (last["quantity"] - prev["quantity"]) / prev["quantity"] * 100.0
-        if prev is not None and prev["quantity"]
-        else None
-    )
-
     cov = store.coverage_summary(year=int(hi))
     q = store.quality_summary()
     states_total = store.df()["state_acronym"].nunique()
 
-    spark_years = series.tail(12)
-
-    return html.Div(
-        className="kpi-row",
-        children=[
-            kpi_card(
-                label=f"Valor real ({convention_label(conv)}) · {ccy}",
-                value=fmt_currency(float(last["value"]), ccy),
-                delta=fmt_delta(delta_v) if delta_v is not None else None,
-                delta_positive=(delta_v or 0) >= 0,
-                sub=f"vs. {int(prev['reference_year'])}" if prev is not None else None,
-                spark_values=spark_years["value"].tolist(),
-                spark_color="#1D4D7E",
-            ),
-            kpi_card(
-                label="Quantidade total",
-                value=fmt_number(float(last["quantity"]), decimals=0),
-                delta=fmt_delta(delta_q) if delta_q is not None else None,
-                delta_positive=(delta_q or 0) >= 0,
-                sub=f"unidades em {int(last['reference_year'])}",
-                spark_values=spark_years["quantity"].tolist(),
-                spark_color="#006f35",
-            ),
-            kpi_card(
-                label="Cobertura geográfica",
-                value=f"{cov['states']} / {states_total}",
-                sub=f"UFs com dados · {int(hi)}",
-                spark_values=_coverage_spark(store, conv, ccy),
-                spark_color="#3A74B0",
-            ),
-            kpi_card(
-                label="Qualidade dos dados",
-                value=f"{q['pct_ok']:.1f}%".replace(".", ","),
-                sub=f"linhas com flag OK · {fmt_number(q['rows_total'])} no total",
-                spark_values=_quality_spark(store),
-                spark_color="#006f35",
-            ),
-        ],
+    cards = _build_kpi_cards(
+        store=store,
+        series=series,
+        conv=conv,
+        ccy=ccy,
+        states_value=f"{cov['states']} / {states_total}",
+        states_sub=f"UFs com dados · {int(hi)}",
+        quality_value=f"{q['pct_ok']:.1f}%".replace(".", ","),
+        quality_sub=f"linhas com flag OK · {fmt_number(q['rows_total'])} no total",
     )
+    return html.Div(className="kpi-row", children=cards)
 
 
 def _coverage_spark(store: GoldStore, conv: str, ccy: str) -> list[float]:
@@ -477,17 +514,6 @@ def _kpi_strip_filtered(
         )
 
     last = series.iloc[-1]
-    prev = series.iloc[-2] if len(series) > 1 else None
-    delta_v = (
-        (last["value"] - prev["value"]) / prev["value"] * 100.0
-        if prev is not None and prev["value"]
-        else None
-    )
-    delta_q = (
-        (last["quantity"] - prev["quantity"]) / prev["quantity"] * 100.0
-        if prev is not None and prev["quantity"]
-        else None
-    )
 
     df_scope = store.filtered(
         years=years,
@@ -510,43 +536,17 @@ def _kpi_strip_filtered(
             1,
         )
 
-    return html.Div(
-        className="kpi-row",
-        children=[
-            kpi_card(
-                label=f"Valor ({convention_label(conv)}) · {ccy}",
-                value=fmt_currency(float(last["value"]), ccy),
-                delta=fmt_delta(delta_v) if delta_v is not None else None,
-                delta_positive=(delta_v or 0) >= 0,
-                sub=f"vs. {int(prev['reference_year'])}" if prev is not None else None,
-                spark_values=series["value"].tail(12).tolist(),
-                spark_color="#1D4D7E",
-            ),
-            kpi_card(
-                label="Quantidade total",
-                value=fmt_number(float(last["quantity"]), decimals=0),
-                delta=fmt_delta(delta_q) if delta_q is not None else None,
-                delta_positive=(delta_q or 0) >= 0,
-                sub=f"unidades em {int(last['reference_year'])}",
-                spark_values=series["quantity"].tail(12).tolist(),
-                spark_color="#006f35",
-            ),
-            kpi_card(
-                label="Cobertura geográfica",
-                value=f"{states_last} / {states_total}",
-                sub=f"UFs com dados · {int(last['reference_year'])}",
-                spark_values=_coverage_spark(store, conv, ccy),
-                spark_color="#3A74B0",
-            ),
-            kpi_card(
-                label="Qualidade dos dados",
-                value=f"{pct_ok:.1f}%".replace(".", ","),
-                sub=f"linhas com flag OK · {fmt_number(rows_total)} no recorte",
-                spark_values=_quality_spark(store),
-                spark_color="#006f35",
-            ),
-        ],
+    cards = _build_kpi_cards(
+        store=store,
+        series=series,
+        conv=conv,
+        ccy=ccy,
+        states_value=f"{states_last} / {states_total}",
+        states_sub=f"UFs com dados · {int(last['reference_year'])}",
+        quality_value=f"{pct_ok:.1f}%".replace(".", ","),
+        quality_sub=f"linhas com flag OK · {fmt_number(rows_total)} no recorte",
     )
+    return html.Div(className="kpi-row", children=cards)
 
 
 __all__ = ["PREFIX", "layout", "register_callbacks"]

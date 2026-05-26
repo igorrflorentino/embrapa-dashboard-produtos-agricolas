@@ -79,50 +79,93 @@ def _fmt_eta(seconds: float | None) -> str:
     return _fmt_duration(seconds)
 
 
+# Each entry is (patterns, message).  ``patterns`` is a tuple of lowercase
+# substrings; **any** match triggers the diagnosis.  Order matters — first
+# match wins, just like the old ``if/elif`` chain, but the loop reduces
+# cyclomatic complexity from D(30) to A(3).
+_DIAGNOSIS_PATTERNS: list[tuple[tuple[str, ...], str]] = [
+    (
+        ("read timed out", "read timeout"),
+        "SIDRA parou de enviar bytes (slow-byte) — pode ser sobrecarga ou conexão instável.",
+    ),
+    (
+        ("connection refused",),
+        "Conexão recusada — IBGE pode estar em manutenção ou bloqueando seu IP.",
+    ),
+    (
+        ("connection reset", "remotedisconnected"),
+        "Conexão resetada pelo servidor durante a resposta — SIDRA instável agora.",
+    ),
+    (
+        ("name or service not known", "nodename nor servname"),
+        "Falha de DNS — verifique sua conexão com a internet.",
+    ),
+    (
+        ("limite de valores", "limite excedido"),
+        "Limite de células do SIDRA estourado — reduza --chunk-years ou número de produtos.",
+    ),
+    (
+        ("retryerror", "stop_after_delay", "stop_after_attempt"),
+        "Deadline de 180s por estado esgotado após múltiplos retries — SIDRA muito lento.",
+    ),
+    (
+        ("401", "unauthorized"),
+        "Não autenticado — rode `gcloud auth application-default login`.",
+    ),
+    (
+        ("403", "forbidden"),
+        "Sem permissão — verifique IAM no GCP_PROJECT_ID.",
+    ),
+    (
+        ("404", "not found"),
+        "Recurso não encontrado — confira IBGE_TABLE_ID e códigos de produto.",
+    ),
+    (
+        ("500", "502", "503", "504"),
+        "Servidor SIDRA retornou erro 5xx — fora do ar temporariamente, "
+        "retente em alguns minutos.",
+    ),
+    (
+        ("ssl", "certificate"),
+        "Erro de SSL — verifique data/hora do sistema e certificados raiz.",
+    ),
+    (
+        ("memoryerror", "out of memory"),
+        "Memória insuficiente — reduza --chunk-years.",
+    ),
+    # Two-condition pattern: both "permission denied" AND "gs://" must appear.
+    # Handled specially in the loop below.
+    (
+        ("returned no rows", "no rows for the requested"),
+        "SIDRA retornou vazio — provavelmente o ano ainda não foi publicado "
+        "(PEVS tem ~1 ano de defasagem). Ajuste IBGE_END_YEAR.",
+    ),
+]
+
+_GCS_PERMISSION_DIAGNOSIS = "Sem permissão no bucket GCS — verifique IAM."
+_FALLBACK_DIAGNOSIS = "Sem diagnóstico automático — veja a mensagem completa."
+
+
 def _diagnose(error_text: str) -> str:
     """Map a raw error message to a probable-cause line in Portuguese.
 
     Heuristic-only; runs on every error event so keep the cost low (lowercased
-    substring matches). Returns a short sentence ending in a period.
+    substring matches against :data:`_DIAGNOSIS_PATTERNS`).  Returns a short
+    sentence ending in a period.
     """
     if not error_text:
         return "Sem mensagem de erro registrada."
     e = error_text.lower()
-    if "read timed out" in e or "read timeout" in e:
-        return "SIDRA parou de enviar bytes (slow-byte) — pode ser sobrecarga ou conexão instável."
-    if "connection refused" in e:
-        return "Conexão recusada — IBGE pode estar em manutenção ou bloqueando seu IP."
-    if "connection reset" in e or "remotedisconnected" in e:
-        return "Conexão resetada pelo servidor durante a resposta — SIDRA instável agora."
-    if "name or service not known" in e or "nodename nor servname" in e:
-        return "Falha de DNS — verifique sua conexão com a internet."
-    if "limite de valores" in e or "limite excedido" in e:
-        return "Limite de células do SIDRA estourado — reduza --chunk-years ou número de produtos."
-    if "retryerror" in e or "stop_after_delay" in e or "stop_after_attempt" in e:
-        return "Deadline de 180s por estado esgotado após múltiplos retries — SIDRA muito lento."
-    if "401" in e or "unauthorized" in e:
-        return "Não autenticado — rode `gcloud auth application-default login`."
-    if "403" in e or "forbidden" in e:
-        return "Sem permissão — verifique IAM no GCP_PROJECT_ID."
-    if "404" in e or "not found" in e:
-        return "Recurso não encontrado — confira IBGE_TABLE_ID e códigos de produto."
-    if any(code in e for code in ("500", "502", "503", "504")):
-        return (
-            "Servidor SIDRA retornou erro 5xx — fora do ar temporariamente, "
-            "retente em alguns minutos."
-        )
-    if "ssl" in e or "certificate" in e:
-        return "Erro de SSL — verifique data/hora do sistema e certificados raiz."
-    if "memoryerror" in e or "out of memory" in e:
-        return "Memória insuficiente — reduza --chunk-years."
+
+    # Two-condition special case (both substrings must match).
     if "permission denied" in e and "gs://" in e:
-        return "Sem permissão no bucket GCS — verifique IAM."
-    if "returned no rows" in e or "no rows for the requested" in e:
-        return (
-            "SIDRA retornou vazio — provavelmente o ano ainda não foi publicado "
-            "(PEVS tem ~1 ano de defasagem). Ajuste IBGE_END_YEAR."
-        )
-    return "Sem diagnóstico automático — veja a mensagem completa."
+        return _GCS_PERMISSION_DIAGNOSIS
+
+    for patterns, message in _DIAGNOSIS_PATTERNS:
+        if any(p in e for p in patterns):
+            return message
+
+    return _FALLBACK_DIAGNOSIS
 
 
 class MonitorState:
@@ -154,115 +197,178 @@ class MonitorState:
         self.error_history: deque[dict[str, Any]] = deque(maxlen=ERROR_HISTORY)
 
     def apply(self, ev: dict[str, Any]) -> None:
+        """Dispatch a single event dict to the appropriate handler."""
         ts = _parse_ts(ev.get("ts", ""))
         evt = ev.get("event", "?")
         self.last_event_at = ts
         summary = _summarize(ev)
         self.recent.append((datetime.fromtimestamp(ts, UTC).strftime("%H:%M:%S"), evt, summary))
 
-        if evt == "pipeline_start":
-            self.pipeline = ev.get("pipeline")
-            self.run_id = ev.get("run_id")
-            self.params = ev.get("params", {})
-            self.started_at = ts
-            self.chunks_total = int(ev.get("chunks_total", 0) or 0)
-        elif evt == "chunk_start":
-            self.active_chunk = ev.get("chunk_id")
-            self.active_chunk_started_at = ts
-            # New chunk → fresh state grid (each chunk is a new sweep of UFs).
-            self.states = {}
-        elif evt == "state_start":
-            uf = ev.get("state", "?")
-            self.states[uf] = {
-                "status": "running",
-                "rows": None,
-                "duration_s": None,
-                "started_at": ts,
-                "last_seen": ts,
-            }
-        elif evt == "state_end":
-            uf = ev.get("state", "?")
-            self.states.setdefault(uf, {"started_at": ts})
-            self.states[uf].update(
-                status="ok",
-                rows=ev.get("rows"),
-                duration_s=ev.get("duration_s"),
-                last_seen=ts,
-            )
-            d = ev.get("duration_s")
-            if isinstance(d, int | float):
-                self.state_durations.append(float(d))
-        elif evt == "state_error":
-            uf = ev.get("state", "?")
-            self.states.setdefault(uf, {"started_at": ts})
-            err = ev.get("error", "?")
-            self.states[uf].update(status="error", error=err, last_seen=ts)
-            self.errors += 1
-            self.error_history.append({"ts": ts, "kind": "state", "target": uf, "error": str(err)})
-        elif evt == "retry":
-            self.retries += 1
-            # Refresh the last_seen of the state so it doesn't go STUCK while retrying.
-            uf = ev.get("state")
-            if uf and uf in self.states:
-                self.states[uf]["last_seen"] = ts
-        elif evt == "ingest_loaded":
-            self.rows_total += int(ev.get("rows", 0) or 0)
-        elif evt == "chunk_end":
-            self.chunks_done += 1
-            self.rows_total += int(ev.get("rows", 0) or 0)
-            d = ev.get("duration_s")
-            if isinstance(d, int | float):
-                self.chunk_durations.append(float(d))
-            self.active_chunk = None
-            self.active_chunk_started_at = None
-        elif evt == "chunk_error":
-            self.chunks_failed += 1
-            err = ev.get("error", "?")
-            chunk_id = ev.get("chunk_id", "?")
-            self.errors += 1
-            self.error_history.append(
-                {"ts": ts, "kind": "chunk", "target": chunk_id, "error": str(err)}
-            )
-            d = ev.get("duration_s")
-            if isinstance(d, int | float):
-                # Count failed chunk durations too — they reflect real wall-clock cost.
-                self.chunk_durations.append(float(d))
-            self.active_chunk = None
-            self.active_chunk_started_at = None
-        elif evt == "pipeline_end":
-            self.ended_at = ts
+        handler = self._handlers.get(evt)
+        if handler is not None:
+            handler(self, ev, ts)
+
+    # ── Per-event handlers (private, called via dispatch table) ────────
+
+    def _on_pipeline_start(self, ev: dict[str, Any], ts: float) -> None:
+        self.pipeline = ev.get("pipeline")
+        self.run_id = ev.get("run_id")
+        self.params = ev.get("params", {})
+        self.started_at = ts
+        self.chunks_total = int(ev.get("chunks_total", 0) or 0)
+
+    def _on_chunk_start(self, ev: dict[str, Any], ts: float) -> None:
+        self.active_chunk = ev.get("chunk_id")
+        self.active_chunk_started_at = ts
+        # New chunk → fresh state grid (each chunk is a new sweep of UFs).
+        self.states = {}
+
+    def _on_state_start(self, ev: dict[str, Any], ts: float) -> None:
+        uf = ev.get("state", "?")
+        self.states[uf] = {
+            "status": "running",
+            "rows": None,
+            "duration_s": None,
+            "started_at": ts,
+            "last_seen": ts,
+        }
+
+    def _on_state_end(self, ev: dict[str, Any], ts: float) -> None:
+        uf = ev.get("state", "?")
+        self.states.setdefault(uf, {"started_at": ts})
+        self.states[uf].update(
+            status="ok",
+            rows=ev.get("rows"),
+            duration_s=ev.get("duration_s"),
+            last_seen=ts,
+        )
+        d = ev.get("duration_s")
+        if isinstance(d, int | float):
+            self.state_durations.append(float(d))
+
+    def _on_state_error(self, ev: dict[str, Any], ts: float) -> None:
+        uf = ev.get("state", "?")
+        self.states.setdefault(uf, {"started_at": ts})
+        err = ev.get("error", "?")
+        self.states[uf].update(status="error", error=err, last_seen=ts)
+        self.errors += 1
+        self.error_history.append({"ts": ts, "kind": "state", "target": uf, "error": str(err)})
+
+    def _on_retry(self, ev: dict[str, Any], ts: float) -> None:
+        self.retries += 1
+        # Refresh the last_seen of the state so it doesn't go STUCK while retrying.
+        uf = ev.get("state")
+        if uf and uf in self.states:
+            self.states[uf]["last_seen"] = ts
+
+    def _on_ingest_loaded(self, ev: dict[str, Any], ts: float) -> None:
+        self.rows_total += int(ev.get("rows", 0) or 0)
+
+    def _on_chunk_end(self, ev: dict[str, Any], ts: float) -> None:
+        self.chunks_done += 1
+        self.rows_total += int(ev.get("rows", 0) or 0)
+        d = ev.get("duration_s")
+        if isinstance(d, int | float):
+            self.chunk_durations.append(float(d))
+        self.active_chunk = None
+        self.active_chunk_started_at = None
+
+    def _on_chunk_error(self, ev: dict[str, Any], ts: float) -> None:
+        self.chunks_failed += 1
+        err = ev.get("error", "?")
+        chunk_id = ev.get("chunk_id", "?")
+        self.errors += 1
+        self.error_history.append(
+            {"ts": ts, "kind": "chunk", "target": chunk_id, "error": str(err)}
+        )
+        d = ev.get("duration_s")
+        if isinstance(d, int | float):
+            # Count failed chunk durations too — they reflect real wall-clock cost.
+            self.chunk_durations.append(float(d))
+        self.active_chunk = None
+        self.active_chunk_started_at = None
+
+    def _on_pipeline_end(self, ev: dict[str, Any], ts: float) -> None:
+        self.ended_at = ts
+
+    # Dispatch table — class-level, built once.
+    _handlers: dict[str, Any] = {
+        "pipeline_start": _on_pipeline_start,
+        "chunk_start": _on_chunk_start,
+        "state_start": _on_state_start,
+        "state_end": _on_state_end,
+        "state_error": _on_state_error,
+        "retry": _on_retry,
+        "ingest_loaded": _on_ingest_loaded,
+        "chunk_end": _on_chunk_end,
+        "chunk_error": _on_chunk_error,
+        "pipeline_end": _on_pipeline_end,
+    }
+
+
+# ── Event summarisers ────────────────────────────────────────────────────
+
+def _summarize_pipeline_start(ev: dict[str, Any]) -> str:
+    p = ev.get("pipeline")
+    params = ev.get("params", {})
+    return (
+        f"{p} years={params.get('start_year')}-{params.get('end_year')} "
+        f"chunks={ev.get('chunks_total', '?')}"
+    )
+
+
+def _summarize_chunk_start(ev: dict[str, Any]) -> str:
+    return f"chunk {ev.get('chunk_n', '?')}/{ev.get('chunk_total', '?')} → {ev.get('chunk_id')}"
+
+
+def _summarize_chunk_end(ev: dict[str, Any]) -> str:
+    return (
+        f"chunk {ev.get('chunk_id')} ok "
+        f"rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
+    )
+
+
+def _summarize_chunk_error(ev: dict[str, Any]) -> str:
+    return f"chunk {ev.get('chunk_id')} FAILED {str(ev.get('error', '?'))[:60]}"
+
+
+def _summarize_state_end(ev: dict[str, Any]) -> str:
+    return f"{ev.get('state')} ok rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
+
+
+def _summarize_state_error(ev: dict[str, Any]) -> str:
+    return f"{ev.get('state')} ERROR {str(ev.get('error', ''))[:60]}"
+
+
+def _summarize_retry(ev: dict[str, Any]) -> str:
+    return (
+        f"retry {ev.get('state', '?')} attempt={ev.get('attempt', '?')} "
+        f"reason={str(ev.get('reason', '?'))[:50]}"
+    )
+
+
+def _summarize_pipeline_end(ev: dict[str, Any]) -> str:
+    return f"done rows={ev.get('rows_total', 0):,} dur={ev.get('duration_s', 0):.1f}s"
+
+
+_SUMMARIZERS: dict[str, Any] = {
+    "pipeline_start": _summarize_pipeline_start,
+    "chunk_start": _summarize_chunk_start,
+    "chunk_end": _summarize_chunk_end,
+    "chunk_error": _summarize_chunk_error,
+    "state_end": _summarize_state_end,
+    "state_error": _summarize_state_error,
+    "retry": _summarize_retry,
+    "pipeline_end": _summarize_pipeline_end,
+}
 
 
 def _summarize(ev: dict[str, Any]) -> str:
     """Compress an event dict into a one-line human summary for the recent panel."""
     evt = ev.get("event", "")
-    if evt == "pipeline_start":
-        p = ev.get("pipeline")
-        params = ev.get("params", {})
-        return (
-            f"{p} years={params.get('start_year')}-{params.get('end_year')} "
-            f"chunks={ev.get('chunks_total', '?')}"
-        )
-    if evt == "chunk_start":
-        return f"chunk {ev.get('chunk_n', '?')}/{ev.get('chunk_total', '?')} → {ev.get('chunk_id')}"
-    if evt == "chunk_end":
-        return (
-            f"chunk {ev.get('chunk_id')} ok "
-            f"rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
-        )
-    if evt == "chunk_error":
-        return f"chunk {ev.get('chunk_id')} FAILED {str(ev.get('error', '?'))[:60]}"
-    if evt == "state_end":
-        return f"{ev.get('state')} ok rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
-    if evt == "state_error":
-        return f"{ev.get('state')} ERROR {str(ev.get('error', ''))[:60]}"
-    if evt == "retry":
-        return (
-            f"retry {ev.get('state', '?')} attempt={ev.get('attempt', '?')} "
-            f"reason={str(ev.get('reason', '?'))[:50]}"
-        )
-    if evt == "pipeline_end":
-        return f"done rows={ev.get('rows_total', 0):,} dur={ev.get('duration_s', 0):.1f}s"
+    fn = _SUMMARIZERS.get(evt)
+    if fn is not None:
+        return fn(ev)
     return ", ".join(f"{k}={v}" for k, v in ev.items() if k not in ("ts", "event"))[:80]
 
 

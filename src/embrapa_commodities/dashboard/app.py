@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import os
-import traceback
 
 from dash import Dash, Input, Output, dcc, html, no_update
 from flask import jsonify
@@ -29,6 +28,10 @@ from embrapa_commodities.dashboard.data_sources import (
     DEFAULT_SOURCE_ID,
     DataSource,
     build_registry,
+)
+from embrapa_commodities.dashboard.errors import (
+    build_error_payload as _errors_build_payload,
+    build_error_screen,
 )
 from embrapa_commodities.dashboard.health import health
 from embrapa_commodities.dashboard.pages import status as status_page
@@ -78,30 +81,6 @@ def _resolve(pathname: str) -> tuple[DataSource | None, object | None, str]:
     return source, view, path
 
 
-def build_error_payload(
-    exc: BaseException,
-    *,
-    page: str,
-    where: str,
-) -> dict[str, str]:
-    """Structured error payload written to the global-error `dcc.Store`.
-
-    Also tees a copy into the health registry so it shows up on /status.
-    `page` is a URL path; the label is resolved from the registry when
-    possible, falling back to the raw path.
-    """
-    payload = {
-        "page": _page_label(page),
-        "where": where,
-        "type": type(exc).__name__,
-        "message": str(exc) or "(sem mensagem)",
-        "cause": _infer_cause(exc),
-        "traceback": traceback.format_exc(limit=20),
-    }
-    health.record_error(payload)
-    return payload
-
-
 def _page_label(path: str) -> str:
     """Friendly label for an URL path, used in error overlays."""
     if path == "/status":
@@ -116,44 +95,115 @@ def _page_label(path: str) -> str:
     return f"{src.label} · {view.label}"
 
 
-def _infer_cause(exc: BaseException) -> str:
-    """Heuristic to translate common errors into operator-friendly causes."""
-    name = type(exc).__name__
-    msg = str(exc).lower()
-    module = type(exc).__module__
+def build_error_payload(
+    exc: BaseException,
+    *,
+    page: str,
+    where: str,
+) -> dict[str, str]:
+    """Structured error payload — thin facade over :mod:`errors`.
 
-    if "notfound" in name.lower() or "404" in msg:
-        return (
-            "Tabela, dataset ou location não encontrada no BigQuery. "
-            "Verifique BQ_GOLD_DATASET (nome do dataset) e BQ_LOCATION "
-            "(deve corresponder à região onde o dataset realmente está)."
-        )
-    if "forbidden" in name.lower() or "permission" in msg or "403" in msg:
-        return (
-            "A service account não tem permissão para ler o BigQuery. "
-            "Verifique as IAM bindings (bigquery.dataViewer + bigquery.jobUser)."
-        )
-    if "badrequest" in name.lower() or "400" in msg:
-        return (
-            "O BigQuery rejeitou a query. Pode ser inconsistência de "
-            "schema entre o que o dashboard espera e o que o dbt produziu."
-        )
-    if name in {"KeyError", "AttributeError"}:
-        return (
-            "Coluna ou propriedade esperada não existe no DataFrame. "
-            "O schema do Gold pode ter mudado sem o código acompanhar."
-        )
-    if "google.api_core" in module or "google.auth" in module:
-        return (
-            "Falha de comunicação ou autenticação com o BigQuery. "
-            "Verifique credenciais (ADC localmente ou SA no Cloud Run)."
-        )
-    if isinstance(exc, ConnectionError | TimeoutError):
-        return "Falha de rede ao contatar o BigQuery."
-    return (
-        "Causa não identificada automaticamente. Verifique os logs do "
-        "Cloud Run para o traceback completo."
+    Kept here so existing ``from embrapa_commodities.dashboard.app import
+    build_error_payload`` imports continue to work without changes.
+    """
+    return _errors_build_payload(
+        exc,
+        page=page,
+        where=where,
+        page_label_fn=_page_label,
+        health_recorder=health.record_error,
     )
+
+
+# ── Routing callback (extracted from _build_dash for readability) ────────
+
+
+def _register_route_callback(dash_app: Dash) -> None:
+    """Register the main URL → page-container routing callback."""
+
+    @dash_app.callback(
+        Output("page-container", "children"),
+        Output("url", "pathname"),
+        Output("global-error", "data"),
+        Input("url", "pathname"),
+    )
+    def _route(pathname):
+        path = (pathname or "/").rstrip("/") or "/"
+
+        # Special-cased global routes.
+        if path == "/":
+            target = _default_path()
+            # Redirect — pathname update will re-fire this callback.
+            return no_update, target, None
+        if path == "/status":
+            try:
+                content = status_page.layout(None)
+                return shell(content, path=path, source=None, view=None), no_update, None
+            except Exception as exc:
+                logger.exception("Failed to render layout for /status")
+                return (
+                    no_update,
+                    no_update,
+                    build_error_payload(exc, page=path, where="layout da página Saúde do sistema"),
+                )
+
+        source, view, canonical_path = _resolve(path)
+        if source is None:
+            return shell(_not_found(path), path=path, source=None, view=None), no_update, None
+        if view is None:
+            # /<source>/<unknown-view>
+            return (
+                shell(_not_found(path), path=path, source=source, view=None),
+                no_update,
+                None,
+            )
+        if canonical_path != path:
+            # /<source> with no view → redirect to default view URL.
+            return no_update, canonical_path, None
+        try:
+            content = view.layout_fn(source.store)
+            return shell(content, path=path, source=source, view=view), no_update, None
+        except Exception as exc:
+            logger.exception("Failed to render layout for %s", path)
+            return (
+                no_update,
+                no_update,
+                build_error_payload(
+                    exc,
+                    page=path,
+                    where=f"layout da view {source.label} · {view.label}",
+                ),
+            )
+
+
+def _register_error_overlay_callback(dash_app: Dash) -> None:
+    """Register the error overlay render + reload callbacks."""
+
+    @dash_app.callback(
+        Output("error-overlay", "children"),
+        Output("error-overlay", "className"),
+        Input("global-error", "data"),
+    )
+    def _render_error_overlay(err):
+        if err is None:
+            return [], "error-overlay hidden"
+        return build_error_screen(err), "error-overlay visible"
+
+    # JS hook on the Recarregar button — does a hard reload.
+    dash_app.clientside_callback(
+        """
+        function(n_clicks) {
+            if (n_clicks) { window.location.reload(); }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("error-overlay", "data-reloaded", allow_duplicate=True),
+        Input("error-reload-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+
+
+# ── App factory ──────────────────────────────────────────────────────────
 
 
 def _build_dash() -> Dash:
@@ -224,83 +274,8 @@ def _build_dash() -> Dash:
         health.stage_error("page_callbacks", str(exc))
         raise
 
-    @dash_app.callback(
-        Output("page-container", "children"),
-        Output("url", "pathname"),
-        Output("global-error", "data"),
-        Input("url", "pathname"),
-    )
-    def _route(pathname):
-        path = (pathname or "/").rstrip("/") or "/"
-
-        # Special-cased global routes.
-        if path == "/":
-            target = _default_path()
-            # Redirect — pathname update will re-fire this callback.
-            return no_update, target, None
-        if path == "/status":
-            try:
-                content = status_page.layout(None)
-                return shell(content, path=path, source=None, view=None), no_update, None
-            except Exception as exc:
-                logger.exception("Failed to render layout for /status")
-                return (
-                    no_update,
-                    no_update,
-                    build_error_payload(exc, page=path, where="layout da página Saúde do sistema"),
-                )
-
-        source, view, canonical_path = _resolve(path)
-        if source is None:
-            return shell(_not_found(path), path=path, source=None, view=None), no_update, None
-        if view is None:
-            # /<source>/<unknown-view>
-            return (
-                shell(_not_found(path), path=path, source=source, view=None),
-                no_update,
-                None,
-            )
-        if canonical_path != path:
-            # /<source> with no view → redirect to default view URL.
-            return no_update, canonical_path, None
-        try:
-            content = view.layout_fn(source.store)
-            return shell(content, path=path, source=source, view=view), no_update, None
-        except Exception as exc:
-            logger.exception("Failed to render layout for %s", path)
-            return (
-                no_update,
-                no_update,
-                build_error_payload(
-                    exc,
-                    page=path,
-                    where=f"layout da view {source.label} · {view.label}",
-                ),
-            )
-
-    @dash_app.callback(
-        Output("error-overlay", "children"),
-        Output("error-overlay", "className"),
-        Input("global-error", "data"),
-    )
-    def _render_error_overlay(err):
-        if err is None:
-            return [], "error-overlay hidden"
-        return _build_error_screen(err), "error-overlay visible"
-
-    # JS hook on the Recarregar button — does a hard reload.
-    dash_app.clientside_callback(
-        """
-        function(n_clicks) {
-            if (n_clicks) { window.location.reload(); }
-            return window.dash_clientside.no_update;
-        }
-        """,
-        Output("error-overlay", "data-reloaded", allow_duplicate=True),
-        Input("error-reload-btn", "n_clicks"),
-        prevent_initial_call=True,
-    )
-
+    _register_route_callback(dash_app)
+    _register_error_overlay_callback(dash_app)
     _attach_healthcheck(dash_app)
     return dash_app
 
@@ -312,70 +287,6 @@ def _not_found(path: str) -> html.Div:
             html.Div(className="overline", children="404"),
             html.H3(f"Página não encontrada: {path}", className="section-title"),
             dcc.Link("Voltar ao início", href=_default_path(), className="link"),
-        ],
-    )
-
-
-def _build_error_screen(err: dict[str, str]) -> html.Div:
-    """Full-screen blocking error overlay."""
-    return html.Div(
-        className="error-card",
-        children=[
-            html.Div(
-                className="error-head",
-                children=[
-                    html.Span("!", className="error-bang"),
-                    html.Div(
-                        children=[
-                            html.Div("Erro no dashboard", className="error-title"),
-                            html.Div(
-                                "O carregamento foi interrompido. O painel está congelado "
-                                "para evitar exibir dados parciais ou incorretos.",
-                                className="error-sub",
-                            ),
-                        ]
-                    ),
-                ],
-            ),
-            html.Div(
-                className="error-grid",
-                children=[
-                    _error_row("Página", err.get("page", "—")),
-                    _error_row("Onde", err.get("where", "—")),
-                    _error_row("Tipo", err.get("type", "—")),
-                    _error_row("Mensagem", err.get("message", "—"), mono=True),
-                    _error_row("Causa provável", err.get("cause", "—")),
-                ],
-            ),
-            html.Details(
-                className="error-trace",
-                children=[
-                    html.Summary("Traceback completo"),
-                    html.Pre(err.get("traceback", "")),
-                ],
-            ),
-            html.Div(
-                className="error-actions",
-                children=html.Button(
-                    "Recarregar página",
-                    id="error-reload-btn",
-                    n_clicks=0,
-                    className="btn-primary",
-                ),
-            ),
-        ],
-    )
-
-
-def _error_row(label: str, value: str, *, mono: bool = False) -> html.Div:
-    return html.Div(
-        className="error-row",
-        children=[
-            html.Div(label, className="error-row-label"),
-            html.Div(
-                value,
-                className="error-row-value" + (" mono" if mono else ""),
-            ),
         ],
     )
 
@@ -402,3 +313,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
