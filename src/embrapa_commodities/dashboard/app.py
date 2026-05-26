@@ -21,7 +21,7 @@ import logging
 import os
 
 from dash import Dash, Input, Output, dcc, html, no_update
-from flask import jsonify
+from flask import jsonify, request
 
 from embrapa_commodities.dashboard.components.shell import shell
 from embrapa_commodities.dashboard.data_sources import (
@@ -279,6 +279,7 @@ def _build_dash() -> Dash:
     _register_route_callback(dash_app)
     _register_error_overlay_callback(dash_app)
     _attach_healthcheck(dash_app)
+    _attach_iap_logging(dash_app)
     return dash_app
 
 
@@ -299,6 +300,14 @@ def _attach_healthcheck(dash_app: Dash) -> None:
     @dash_app.server.route("/_health")
     def _health():
         return jsonify(status="ok"), 200
+
+
+def _attach_iap_logging(dash_app: Dash) -> None:
+    @dash_app.server.before_request
+    def _log_iap_user():
+        user_email = request.headers.get("X-Goog-Authenticated-User-Email")
+        if user_email:
+            logger.info("Authorized request processed for: %s", user_email)
 
 
 # Module-level exports for Gunicorn (`-w 2 module:server`).

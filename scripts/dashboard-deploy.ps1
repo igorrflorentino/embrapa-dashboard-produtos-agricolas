@@ -76,3 +76,14 @@ if (-not $?) {
 }
 Write-Host "Post-deploy smoke passed." -ForegroundColor Green
 Write-Host "  Optional visual gate before release: scripts\dashboard-visual.ps1 --no-launch --url $Url" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Yellow
+Write-Host "IMPORTANTE: Ativação do Identity-Aware Proxy (IAP)" -ForegroundColor Yellow
+Write-Host "============================================================" -ForegroundColor Yellow
+Write-Host "Como configuramos o acesso via IAP nativo para o Cloud Run,"
+Write-Host "você precisa acessar o Console do Google Cloud e:"
+Write-Host " 1. Acessar a página de Segurança > Identity-Aware Proxy."
+Write-Host " 2. Ativar o IAP para o serviço do Cloud Run recém atualizado."
+Write-Host " 3. Adicionar os e-mails liberados com o papel:"
+Write-Host "    'Usuário de App da Web protegido pelo IAP' (iap.httpsResourceAccessor)"
+Write-Host "============================================================" -ForegroundColor Yellow
