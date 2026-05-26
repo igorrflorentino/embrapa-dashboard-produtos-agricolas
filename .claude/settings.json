@@ -1,6 +1,33 @@
 {
   "hooks": {
-"PostToolUse": [
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/claude-hooks/block-dangerous-commands.js",
+            "description": "Blocks dangerous shell commands (rm -rf ~, bq rm, gcloud delete, fork bombs, curl|sh)."
+          },
+          {
+            "type": "command",
+            "command": "node scripts/claude-hooks/protect-secrets.js",
+            "description": "Blocks exfiltration of secrets via Bash (cat .env, base64, curl upload)."
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/claude-hooks/protect-secrets.js",
+            "description": "Blocks reading/editing sensitive files (.env, SSH keys, GCP service accounts, dbt profiles.yml)."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
       {
         "matcher": "Write|Create|Edit",
         "hooks": [
