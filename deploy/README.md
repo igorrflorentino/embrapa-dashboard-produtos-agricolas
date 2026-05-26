@@ -5,12 +5,15 @@ into a pandas DataFrame at boot and serves the in-memory snapshot until the
 TTL expires (default 6 h) or the container is restarted.
 
 > **Auth posture: private.** The service is deployed with
-> `--no-allow-unauthenticated`. Access is gated by `roles/run.invoker`;
-> see [`docs/auth.md`](../docs/auth.md) for how to grant a user or group.
-> The data is public (IBGE SIDRA + BCB SGS), but gating the URL protects
-> against (a) unmetered BigQuery scan costs from scraped requests and
-> (b) accidentally exposing any internal-only column that lands in Gold.
-> Do not switch this to `--allow-unauthenticated` without re-auditing
+> `--no-allow-unauthenticated` **and** `--invoker-iam-check`. Access is
+> gated by `roles/run.invoker`; see [`docs/auth.md`](../docs/auth.md) for
+> how to grant a user or group. Both flags are required — Cloud Run
+> stores an `invoker-iam-disabled` annotation independently of the IAM
+> policy that bypasses ALL IAM checks, so `--no-allow-unauthenticated`
+> alone is not enough. The data is public (IBGE SIDRA + BCB SGS), but
+> gating the URL protects against (a) unmetered BigQuery scan costs from
+> scraped requests and (b) accidentally exposing any internal-only
+> column that lands in Gold. Do not flip either flag without re-auditing
 > what `gold.gold_commodity_matrix` contains.
 
 ## Prerequisites
@@ -55,6 +58,7 @@ gcloud run deploy embrapa-dashboard-commodities \
   --service-account dashboard-runtime@$GCP_PROJECT_ID.iam.gserviceaccount.com \
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID,BQ_GOLD_DATASET=gold,BQ_LOCATION=us-central1 \
   --no-allow-unauthenticated \
+  --invoker-iam-check \
   --memory 1Gi --cpu 1 \
   --min-instances 0 --max-instances 5 \
   --port 8080
