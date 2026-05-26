@@ -24,7 +24,7 @@ import time
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -291,7 +291,7 @@ class MonitorState:
         self.ended_at = ts
 
     # Dispatch table — class-level, built once.
-    _handlers: dict[str, Any] = {
+    _handlers: ClassVar[dict[str, Any]] = {
         "pipeline_start": _on_pipeline_start,
         "chunk_start": _on_chunk_start,
         "state_start": _on_state_start,

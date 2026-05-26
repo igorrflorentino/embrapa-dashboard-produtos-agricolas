@@ -31,6 +31,8 @@ from embrapa_commodities.dashboard.data_sources import (
 )
 from embrapa_commodities.dashboard.errors import (
     build_error_payload as _errors_build_payload,
+)
+from embrapa_commodities.dashboard.errors import (
     build_error_screen,
 )
 from embrapa_commodities.dashboard.health import health
