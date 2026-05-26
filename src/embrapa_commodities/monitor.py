@@ -122,8 +122,7 @@ _DIAGNOSIS_PATTERNS: list[tuple[tuple[str, ...], str]] = [
     ),
     (
         ("500", "502", "503", "504"),
-        "Servidor SIDRA retornou erro 5xx — fora do ar temporariamente, "
-        "retente em alguns minutos.",
+        "Servidor SIDRA retornou erro 5xx — fora do ar temporariamente, retente em alguns minutos.",
     ),
     (
         ("ssl", "certificate"),
@@ -308,6 +307,7 @@ class MonitorState:
 
 # ── Event summarisers ────────────────────────────────────────────────────
 
+
 def _summarize_pipeline_start(ev: dict[str, Any]) -> str:
     p = ev.get("pipeline")
     params = ev.get("params", {})
@@ -323,8 +323,7 @@ def _summarize_chunk_start(ev: dict[str, Any]) -> str:
 
 def _summarize_chunk_end(ev: dict[str, Any]) -> str:
     return (
-        f"chunk {ev.get('chunk_id')} ok "
-        f"rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
+        f"chunk {ev.get('chunk_id')} ok rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
     )
 
 
@@ -522,38 +521,67 @@ def _build_active_line(state: MonitorState, now: float) -> Text:
     return Text("Waiting for next chunk…", style="dim")
 
 
+def _render_state_running(
+    uf: str, info: dict[str, Any], state: MonitorState, now: float, last_seen: float
+) -> Text:
+    """Cyan ⏳ cell with elapsed + ETA, or yellow STUCK cell if last_seen is stale."""
+    elapsed = now - info["started_at"]
+    stuck = (now - last_seen) > STUCK_THRESHOLD_S
+    if stuck:
+        return Text.from_markup(f"[yellow]⏳ {uf}[/yellow]  STUCK {_fmt_duration(elapsed)}")
+    eta = _state_eta(info, state, now)
+    eta_str = f" ETA {_fmt_duration(eta)}" if eta is not None else ""
+    return Text.from_markup(f"[cyan]⏳ {uf}[/cyan]  {_fmt_duration(elapsed)}{eta_str}")
+
+
+def _render_state_ok(
+    uf: str, info: dict[str, Any], state: MonitorState, now: float, last_seen: float
+) -> Text:
+    """Green ✓ cell with row count + duration."""
+    rows = info.get("rows")
+    dur = info.get("duration_s")
+    rows_str = f"{int(rows):,}" if rows is not None else "?"
+    dur_str = f"{dur:.1f}s" if isinstance(dur, int | float) else "?"
+    return Text.from_markup(f"[green]✓ {uf}[/green]  [dim]{rows_str} {dur_str}[/dim]")
+
+
+def _render_state_error(
+    uf: str, info: dict[str, Any], state: MonitorState, now: float, last_seen: float
+) -> Text:
+    """Red ✗ cell with truncated error message."""
+    err = str(info.get("error", "?"))[:20]
+    return Text.from_markup(f"[red]✗ {uf}[/red]  [dim]{err}[/dim]")
+
+
+def _render_state_other(
+    uf: str, info: dict[str, Any], state: MonitorState, now: float, last_seen: float
+) -> Text:
+    """Fallback dim cell for unknown/transient statuses."""
+    return Text.from_markup(f"[dim]{uf}  {info['status']}[/dim]")
+
+
+# Status → renderer. Mirrors the dispatch pattern used elsewhere in this module
+# (_DIAGNOSIS_PATTERNS, MonitorState._handlers, _SUMMARIZERS). Falls back to
+# _render_state_other for any status not listed.
+_STATE_RENDERERS: dict[str, Any] = {
+    "running": _render_state_running,
+    "ok": _render_state_ok,
+    "error": _render_state_error,
+}
+
+
+def _render_state_cell(uf: str, info: dict[str, Any], state: MonitorState, now: float) -> Text:
+    """Render a single UF cell. Dispatches on ``info['status']``."""
+    last_seen = info.get("last_seen") or info.get("started_at") or now
+    renderer = _STATE_RENDERERS.get(info["status"], _render_state_other)
+    return renderer(uf, info, state, now, last_seen)
+
+
 def _build_state_grid(state: MonitorState, now: float) -> Table:
     grid = Table.grid(padding=(0, 2))
     for _ in range(4):
         grid.add_column()
-    cells: list[Text] = []
-    for uf, info in state.states.items():
-        status = info["status"]
-        last_seen = info.get("last_seen") or info.get("started_at") or now
-        if status == "running":
-            elapsed = now - info["started_at"]
-            stuck = (now - last_seen) > STUCK_THRESHOLD_S
-            colour = "yellow" if stuck else "cyan"
-            if stuck:
-                label = f"STUCK {_fmt_duration(elapsed)}"
-            else:
-                eta = _state_eta(info, state, now)
-                eta_str = f" ETA {_fmt_duration(eta)}" if eta is not None else ""
-                label = f"{_fmt_duration(elapsed)}{eta_str}"
-            cells.append(Text.from_markup(f"[{colour}]⏳ {uf}[/{colour}]  {label}"))
-        elif status == "ok":
-            rows = info.get("rows")
-            dur = info.get("duration_s")
-            rows_str = f"{int(rows):,}" if rows is not None else "?"
-            dur_str = f"{dur:.1f}s" if isinstance(dur, int | float) else "?"
-            cells.append(
-                Text.from_markup(f"[green]✓ {uf}[/green]  [dim]{rows_str} {dur_str}[/dim]")
-            )
-        elif status == "error":
-            err = str(info.get("error", "?"))[:20]
-            cells.append(Text.from_markup(f"[red]✗ {uf}[/red]  [dim]{err}[/dim]"))
-        else:
-            cells.append(Text.from_markup(f"[dim]{uf}  {status}[/dim]"))
+    cells = [_render_state_cell(uf, info, state, now) for uf, info in state.states.items()]
     for i in range(0, len(cells), 4):
         grid.add_row(*cells[i : i + 4])
     return grid
@@ -615,6 +643,28 @@ def _render(state: MonitorState, log_path: Path) -> Panel:
 # ── Main loop ────────────────────────────────────────────────────────────────
 
 
+def _tail_jsonl(log_path: Path, last_position: int) -> tuple[list[dict[str, Any]], int]:
+    """Read new JSONL events since *last_position*; return (events, new_position).
+
+    Silently skips blank lines and ``json.JSONDecodeError`` lines (matches the
+    previous inline behaviour — the monitor must keep rendering even if the
+    producer ever writes a torn line). Raises ``FileNotFoundError`` if the log
+    disappears mid-run so the caller can break the loop cleanly.
+    """
+    events: list[dict[str, Any]] = []
+    with log_path.open(encoding="utf-8") as f:
+        f.seek(last_position)
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                events.append(json.loads(stripped))
+            except json.JSONDecodeError:
+                continue
+        return events, f.tell()
+
+
 def run(
     log_path: Path,
     follow: bool = True,
@@ -637,21 +687,12 @@ def run(
     try:
         with Live(_render(state, log_path), refresh_per_second=4, console=console) as live:
             while True:
-                # Drain whatever lines have been appended since the last tick.
                 try:
-                    with log_path.open(encoding="utf-8") as f:
-                        f.seek(last_position)
-                        for line in f:
-                            stripped = line.strip()
-                            if not stripped:
-                                continue
-                            try:
-                                state.apply(json.loads(stripped))
-                            except json.JSONDecodeError:
-                                continue
-                        last_position = f.tell()
+                    events, last_position = _tail_jsonl(log_path, last_position)
                 except FileNotFoundError:
                     break
+                for ev in events:
+                    state.apply(ev)
 
                 live.update(_render(state, log_path))
 

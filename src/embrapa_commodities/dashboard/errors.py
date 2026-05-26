@@ -8,43 +8,83 @@ callbacks import it to wrap exceptions into the ``global-error`` ``dcc.Store``.
 from __future__ import annotations
 
 import traceback
+from collections.abc import Callable
 
 from dash import html
 
 # ── Cause-inference heuristic ────────────────────────────────────────────
 
-# Data-driven pattern list, same style as monitor._DIAGNOSIS_PATTERNS.
-# Each entry: (checker, message).  *checker* receives (exc_name_lower,
-# msg_lower, module) and returns True if the pattern matches.
-_CAUSE_PATTERNS: list[tuple[str, str]] = [
+# Data-driven (checker, message) pairs, same style as monitor._DIAGNOSIS_PATTERNS.
+# Each ``checker`` returns True when the exception matches its pattern. Order
+# matters — first match wins, which means narrower patterns must come first.
+# Refactored from a stringly-typed pattern_id dispatch in the 2026-05 audit:
+# the previous ``_check_cause(exc, pattern_id)`` scored CC C(12); the loop in
+# ``infer_cause`` now sits at A(2) because the branch logic moved into the data.
+
+
+def _is_notfound_or_404(exc: BaseException) -> bool:
+    """Match BigQuery 404 / NotFound shapes."""
+    return "notfound" in type(exc).__name__.lower() or "404" in str(exc).lower()
+
+
+def _is_forbidden_or_403(exc: BaseException) -> bool:
+    """Match BigQuery permission failures (Forbidden / 403 / 'permission')."""
+    name = type(exc).__name__.lower()
+    msg = str(exc).lower()
+    return "forbidden" in name or "permission" in msg or "403" in msg
+
+
+def _is_badrequest_or_400(exc: BaseException) -> bool:
+    """Match BigQuery query rejections (BadRequest / 400)."""
+    return "badrequest" in type(exc).__name__.lower() or "400" in str(exc).lower()
+
+
+def _is_key_or_attribute_error(exc: BaseException) -> bool:
+    """Match raw KeyError / AttributeError — preserves the original strict
+    ``type(exc).__name__ in {...}`` semantics (does NOT match subclasses)."""
+    return type(exc).__name__ in {"KeyError", "AttributeError"}
+
+
+def _is_google_api_error(exc: BaseException) -> bool:
+    """Match anything raised from google.api_core / google.auth modules."""
+    module = type(exc).__module__
+    return "google.api_core" in module or "google.auth" in module
+
+
+def _is_network_error(exc: BaseException) -> bool:
+    """Match transport-level failures."""
+    return isinstance(exc, ConnectionError | TimeoutError)
+
+
+_CAUSE_PATTERNS: list[tuple[Callable[[BaseException], bool], str]] = [
     (
-        "notfound_or_404",
+        _is_notfound_or_404,
         "Tabela, dataset ou location não encontrada no BigQuery. "
         "Verifique BQ_GOLD_DATASET (nome do dataset) e BQ_LOCATION "
         "(deve corresponder à região onde o dataset realmente está).",
     ),
     (
-        "forbidden_or_403",
+        _is_forbidden_or_403,
         "A service account não tem permissão para ler o BigQuery. "
         "Verifique as IAM bindings (bigquery.dataViewer + bigquery.jobUser).",
     ),
     (
-        "badrequest_or_400",
+        _is_badrequest_or_400,
         "O BigQuery rejeitou a query. Pode ser inconsistência de "
         "schema entre o que o dashboard espera e o que o dbt produziu.",
     ),
     (
-        "key_or_attribute_error",
+        _is_key_or_attribute_error,
         "Coluna ou propriedade esperada não existe no DataFrame. "
         "O schema do Gold pode ter mudado sem o código acompanhar.",
     ),
     (
-        "google_api_error",
+        _is_google_api_error,
         "Falha de comunicação ou autenticação com o BigQuery. "
         "Verifique credenciais (ADC localmente ou SA no Cloud Run).",
     ),
     (
-        "network_error",
+        _is_network_error,
         "Falha de rede ao contatar o BigQuery.",
     ),
 ]
@@ -55,31 +95,10 @@ _FALLBACK_CAUSE = (
 )
 
 
-def _check_cause(exc: BaseException, pattern_id: str) -> bool:
-    """Return True if *exc* matches the named pattern."""
-    name = type(exc).__name__.lower()
-    msg = str(exc).lower()
-    module = type(exc).__module__
-
-    if pattern_id == "notfound_or_404":
-        return "notfound" in name or "404" in msg
-    if pattern_id == "forbidden_or_403":
-        return "forbidden" in name or "permission" in msg or "403" in msg
-    if pattern_id == "badrequest_or_400":
-        return "badrequest" in name or "400" in msg
-    if pattern_id == "key_or_attribute_error":
-        return type(exc).__name__ in {"KeyError", "AttributeError"}
-    if pattern_id == "google_api_error":
-        return "google.api_core" in module or "google.auth" in module
-    if pattern_id == "network_error":
-        return isinstance(exc, ConnectionError | TimeoutError)
-    return False  # pragma: no cover
-
-
 def infer_cause(exc: BaseException) -> str:
     """Heuristic to translate common errors into operator-friendly causes."""
-    for pattern_id, message in _CAUSE_PATTERNS:
-        if _check_cause(exc, pattern_id):
+    for checker, message in _CAUSE_PATTERNS:
+        if checker(exc):
             return message
     return _FALLBACK_CAUSE
 
