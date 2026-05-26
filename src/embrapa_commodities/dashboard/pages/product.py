@@ -23,18 +23,10 @@ from embrapa_commodities.dashboard.formatting import (
     convention_label,
     fmt_currency,
     fmt_number,
+    period_to_years,
 )
 
 PREFIX = "product"
-
-
-def _table_style() -> dict:
-    return {
-        "fontFamily": "Univers, Verdana, Arial, sans-serif",
-        "fontSize": "13px",
-        "color": "var(--fg-2)",
-    }
-
 
 def _empty_card(message: str) -> html.Div:
     return html.Div(className="empty-state", children=message)
@@ -239,7 +231,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         try:
             conv = conv or "ipca"
             ccy = ccy or "BRL"
-            years = _period_to_years(store, period)
+            years = period_to_years(store.year_range(), period)
 
             if not product_code:
                 empty = _empty_card("Selecione um produto.")
@@ -280,7 +272,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
     def _download(n_clicks, product_code, period):
         if not n_clicks or not product_code:
             return no_update
-        years = _period_to_years(store, period)
+        years = period_to_years(store.year_range(), period)
         df = store.filtered(years=years, product_code=product_code)
         return download_payload(df, filename_prefix=f"embrapa-produto-{product_code}")
 
@@ -292,14 +284,6 @@ def _placeholder_fig():
 
     return _empty(go.Figure())
 
-
-def _period_to_years(store: GoldStore, period: str | None) -> tuple[int, int] | None:
-    lo, hi = store.year_range()
-    if period == "10":
-        return (max(lo, hi - 9), hi)
-    if period == "20":
-        return (max(lo, hi - 19), hi)
-    return None
 
 
 def _kpi_strip(

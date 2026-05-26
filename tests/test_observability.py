@@ -53,15 +53,13 @@ def test_emit_is_noop_before_init_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_latest_log_path_filters_by_pipeline(isolated_log_dir: Path) -> None:
     # Two runs of different pipelines.
-    observability.init_run("ibge")
-    ibge_path = observability.current_log_path()
+    _, ibge_path = observability.init_run("ibge")
     # Force a measurable mtime gap so the "newest first" assertion below
     # is deterministic on fast filesystems (Linux CI creates both files
     # within the same second otherwise — see test_list_log_paths_sorted_newest_first
     # which applies the same trick).
     os.utime(ibge_path, (ibge_path.stat().st_atime, ibge_path.stat().st_mtime - 100))
-    observability.init_run("bcb")
-    bcb_path = observability.current_log_path()
+    _, bcb_path = observability.init_run("bcb")
 
     assert observability.latest_log_path("ibge") == ibge_path
     assert observability.latest_log_path("bcb") == bcb_path
@@ -70,12 +68,10 @@ def test_latest_log_path_filters_by_pipeline(isolated_log_dir: Path) -> None:
 
 
 def test_list_log_paths_sorted_newest_first(isolated_log_dir: Path) -> None:
-    observability.init_run("ibge")
-    first = observability.current_log_path()
+    _, first = observability.init_run("ibge")
     # Force a measurable mtime gap.
     os.utime(first, (first.stat().st_atime, first.stat().st_mtime - 100))
-    observability.init_run("bcb")
-    second = observability.current_log_path()
+    _, second = observability.init_run("bcb")
 
     paths = observability.list_log_paths()
 

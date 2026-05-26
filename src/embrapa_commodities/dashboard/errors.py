@@ -8,12 +8,8 @@ callbacks import it to wrap exceptions into the ``global-error`` ``dcc.Store``.
 from __future__ import annotations
 
 import traceback
-from typing import TYPE_CHECKING
 
-from dash import dcc, html
-
-if TYPE_CHECKING:
-    pass
+from dash import html
 
 # ── Cause-inference heuristic ────────────────────────────────────────────
 

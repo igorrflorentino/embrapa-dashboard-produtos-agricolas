@@ -18,6 +18,7 @@ from embrapa_commodities.dashboard.components.export import (
 from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.section_header import section_header
 from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.formatting import period_to_years
 
 PREFIX = "export"
 
@@ -244,7 +245,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
 
 
 def _filtered(store: GoldStore, period, product, uf, only_ok):
-    years = _period_to_years(store, period)
+    years = period_to_years(store.year_range(), period)
     product_code = None if product in (None, "all") else product
     uf_code = None if uf in (None, "all") else uf
     only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
@@ -255,14 +256,6 @@ def _filtered(store: GoldStore, period, product, uf, only_ok):
         only_ok=only_ok_flag,
     )
 
-
-def _period_to_years(store: GoldStore, period: str | None) -> tuple[int, int] | None:
-    lo, hi = store.year_range()
-    if period == "10":
-        return (max(lo, hi - 9), hi)
-    if period == "20":
-        return (max(lo, hi - 19), hi)
-    return None
 
 
 __all__ = ["PREFIX", "layout", "register_callbacks"]

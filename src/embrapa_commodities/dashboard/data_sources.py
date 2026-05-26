@@ -60,8 +60,6 @@ class DataSource:
 
     id: str  # URL slug, e.g. "ibge-pevs"
     label: str  # short brand name, e.g. "IBGE PEVS"
-    long_label: str  # full institutional name, used on hero
-    description: str  # 1-line caption shown next to the source picker
     icon: str
     primary_views: tuple[View, ...]  # top nav
     sidebar_sections: tuple[SidebarSection, ...]  # secondary tools/docs
@@ -119,10 +117,6 @@ def build_registry() -> dict[str, DataSource]:
     ibge_pevs = DataSource(
         id="ibge-pevs",
         label="IBGE PEVS",
-        long_label="IBGE PEVS · Produção extrativa vegetal",
-        description=(
-            "Pesquisa da Extração Vegetal e da Silvicultura · municipal · anual · 1986 em diante"
-        ),
         icon="eco",
         primary_views=(
             View(

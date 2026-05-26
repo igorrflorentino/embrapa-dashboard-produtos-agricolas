@@ -15,9 +15,6 @@ from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_p
 
 logger = logging.getLogger(__name__)
 
-# Daily FX rates aren't usually revised, but a 1-month overlap absorbs any
-# delayed corrections without re-fetching decades of history.
-DELTA_OVERLAP_DAYS = 30
 
 BRONZE_SCHEMA: list[bigquery.SchemaField] = [
     bigquery.SchemaField("series_code", "STRING", mode="REQUIRED"),

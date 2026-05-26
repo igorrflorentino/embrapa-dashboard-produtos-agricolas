@@ -66,15 +66,6 @@ def fmt_number(value: float | int | None, unit: str | None = None, decimals: int
     return f"{rendered}{NBSP}{unit}" if unit else rendered
 
 
-def fmt_percent(value: float | None, decimals: int = 1, plus_sign: bool = False) -> str:
-    """Format a percentage value (already in percent units, e.g. 4.2 not 0.042)."""
-    if value is None:
-        return "—"
-    rendered = _ptbr_decimal(value, decimals)
-    if plus_sign and value > 0:
-        rendered = "+" + rendered
-    return f"{rendered}%"
-
 
 def fmt_delta(value: float | None, suffix: str = "%") -> str:
     """Format a signed delta with explicit + on positives."""
@@ -114,3 +105,20 @@ def value_column(convention: str, currency: str) -> str:
 
 def convention_label(convention: str) -> str:
     return {"ipca": "IPCA", "igpm": "IGP-M", "yearfx": "FX do ano"}[convention]
+
+
+def period_to_years(
+    year_range: tuple[int, int],
+    period: str | None,
+) -> tuple[int, int] | None:
+    """Translate a UI period selector ("10", "20", "all") into a year range.
+
+    Returns ``None`` for ``period="all"`` (meaning "no filter").
+    Used by every page that offers a period radio button.
+    """
+    lo, hi = year_range
+    if period == "10":
+        return (max(lo, hi - 9), hi)
+    if period == "20":
+        return (max(lo, hi - 19), hi)
+    return None

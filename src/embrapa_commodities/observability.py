@@ -74,12 +74,6 @@ def emit(event: str, **fields: object) -> None:
     _event_logger.info(json.dumps(record, default=str, ensure_ascii=False))
 
 
-def current_run_id() -> str | None:
-    return _current_run_id
-
-
-def current_log_path() -> Path | None:
-    return _current_log_path
 
 
 def latest_log_path(pipeline: str | None = None) -> Path | None:

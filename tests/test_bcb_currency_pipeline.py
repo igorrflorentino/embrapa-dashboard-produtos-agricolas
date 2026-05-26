@@ -28,11 +28,6 @@ def settings() -> Settings:
     )  # type: ignore[call-arg]
 
 
-# ─── DELTA_OVERLAP_DAYS — regression guard ───────────────────────────────────
-def test_delta_overlap_is_thirty_days() -> None:
-    """CLAUDE.md documents a 30-day overlap for FX. Drifting this changes pipeline behavior."""
-    assert bcb_currency.DELTA_OVERLAP_DAYS == 30
-
 
 # ─── _effective_start_year — month=1 boundary is the interesting case ────────
 def test_effective_start_year_returns_configured_when_table_empty() -> None:

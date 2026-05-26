@@ -28,6 +28,7 @@ from embrapa_commodities.dashboard.formatting import (
     fmt_datetime,
     fmt_delta,
     fmt_number,
+    period_to_years,
 )
 
 PREFIX = "overview"
@@ -425,7 +426,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         try:
             conv = conv or "ipca"
             ccy = ccy or "BRL"
-            years = _period_to_years(store, period)
+            years = period_to_years(store.year_range(), period)
             product_code = None if product in (None, "all") else product
             uf_code = None if uf in (None, "all") else uf
             only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
@@ -481,13 +482,6 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         return download_payload(df, filename_prefix="embrapa-visao-geral")
 
 
-def _period_to_years(store: GoldStore, period: str | None) -> tuple[int, int] | None:
-    lo, hi = store.year_range()
-    if period == "10":
-        return (max(lo, hi - 9), hi)
-    if period == "20":
-        return (max(lo, hi - 19), hi)
-    return None
 
 
 def _kpi_strip_filtered(

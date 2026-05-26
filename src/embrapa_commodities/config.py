@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     bq_bronze_ibge_table: str = Field(default="sidra_t289_raw")
     bq_bronze_bcb_inflation_table: str = Field(default="inflation_series_raw")
     bq_bronze_bcb_currency_table: str = Field(default="currency_series_raw")
-    bq_silver_dataset: str = Field(default="silver")
+    bq_silver_dataset: str = Field(default="silver")  # consumed by dbt, not Python runtime
     bq_gold_dataset: str = Field(default="gold")
 
     # ─── IBGE ─────────────────────────────────────────────────────────────────
