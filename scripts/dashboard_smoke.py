@@ -14,6 +14,12 @@ Checks:
   4. POST /_dash-update-component for the route callback rendering
      /ibge-pevs/visao-geral -> 200, global-error null, page-container
      populated. This forces the live BigQuery snapshot load.
+  5. Unauthenticated GET /_health -> 403 (Cloud Run targets only).
+     Sends NO bearer token to assert the IAM gate is actually closed.
+     Without this, checks 1-4 (which all carry the auto-minted token)
+     would happily pass even if a future deploy regressed and re-opened
+     the service. Silently skipped on localhost and when --no-auth is
+     passed. See docs/auth.md ("Gotcha: two flags, not one").
 
 Exit code 0 only if all checks pass.
 
@@ -255,7 +261,10 @@ def build_route_body(entry: dict, pathname: str) -> dict:
 
 # ── Checks ──────────────────────────────────────────────────────────────────
 def run_checks(
-    base: str, extra_headers: dict[str, str] | None = None
+    base: str,
+    extra_headers: dict[str, str] | None = None,
+    *,
+    auth_enabled: bool = True,
 ) -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
     h = extra_headers or {}
@@ -299,16 +308,68 @@ def run_checks(
                 "could not locate the url.pathname route callback",
             )
         )
-        return results
-    try:
-        body_obj = build_route_body(route, DEFAULT_VIEW_PATH)
-        status, raw = http_post_json(f"{base}/_dash-update-component", body_obj, extra_headers=h)
-        detail, ok = _interpret_route_response(status, raw)
-        results.append((f"POST route render {DEFAULT_VIEW_PATH}", ok, detail))
-    except Exception as e:
-        results.append((f"POST route render {DEFAULT_VIEW_PATH}", False, f"error: {e}"))
+    else:
+        try:
+            body_obj = build_route_body(route, DEFAULT_VIEW_PATH)
+            status, raw = http_post_json(
+                f"{base}/_dash-update-component", body_obj, extra_headers=h
+            )
+            detail, ok = _interpret_route_response(status, raw)
+            results.append((f"POST route render {DEFAULT_VIEW_PATH}", ok, detail))
+        except Exception as e:
+            results.append((f"POST route render {DEFAULT_VIEW_PATH}", False, f"error: {e}"))
+
+    # 5. auth gate closed (Cloud Run only). Silently skipped on localhost or
+    # when the caller opted out of auth (--no-auth) — both make the assertion
+    # meaningless. See _check_auth_gate_closed for the failure semantics.
+    if auth_enabled and _is_cloud_run_host(base):
+        results.append(_check_auth_gate_closed(base))
 
     return results
+
+
+def _is_cloud_run_host(base: str) -> bool:
+    """Mirror cloud_run_auth_headers's detection: hostname endswith '.run.app'."""
+    return (urllib.parse.urlparse(base).hostname or "").lower().endswith(".run.app")
+
+
+def _check_auth_gate_closed(base: str) -> tuple[str, bool, str]:
+    """Send an UNAUTHENTICATED GET /_health and assert it returns 403.
+
+    Why a fifth check at all: checks 1-4 all run with the auto-minted bearer
+    token, so they pass against a properly-gated service AND against one whose
+    gate has silently re-opened (e.g. a future deploy dropped --invoker-iam-
+    check, or a teammate re-bound allUsers, or the run.googleapis.com/invoker-
+    iam-disabled annotation flipped back to 'true'). This check proves the
+    server actually rejects callers without credentials.
+
+    HTTP 200 from the unauth request is the alarm condition: the gate is open
+    and the service is publicly reachable, regardless of the IAM policy. Any
+    other non-403 status (401, 404, 5xx) is also a fail — the gate is in an
+    unexpected state and the operator should look.
+    """
+    name = "GET /_health (unauth) -> 403 (Cloud Run gate closed)"
+    try:
+        status, body = http_get(f"{base}/_health", extra_headers={})
+    except Exception as e:
+        return name, False, f"error issuing unauthenticated request: {e}"
+    if status == 403:
+        return name, True, "HTTP 403 — IAM gate is closed (anonymous request rejected)"
+    if status == 200:
+        return (
+            name,
+            False,
+            "HTTP 200 — auth gate is OPEN, service is publicly accessible. "
+            "See docs/auth.md. Diagnose with: "
+            "`gcloud run services describe <svc> --region <r> --format=yaml "
+            "| grep invoker-iam-disabled` — if 'true', fix with "
+            "`gcloud run services update <svc> --region <r> --invoker-iam-check`.",
+        )
+    return (
+        name,
+        False,
+        f"unexpected HTTP {status} (want 403): {body[:200].decode('utf-8', 'replace')!r}",
+    )
 
 
 def _interpret_route_response(status: int, raw: bytes) -> tuple[str, bool]:
@@ -340,6 +401,7 @@ def run_smoke(
     timeout: float = 90.0,
     log_path: Path | None = None,
     extra_headers: dict[str, str] | None = None,
+    auth_enabled: bool = True,
 ) -> list[tuple[str, bool, str]]:
     """Launch (or target) the dashboard, run the HTTP+callback smoke, return results.
 
@@ -355,6 +417,12 @@ def run_smoke(
     inject a Cloud Run bearer token when targeting a private ``*.run.app``
     service; pytest can compute and pass its own headers (e.g. WIF-issued
     identity token) the same way.
+
+    ``auth_enabled`` controls whether the unauthenticated auth-gate check
+    runs. The CLI passes ``False`` when ``--no-auth`` is set so the gate
+    check (which intentionally sends no token) doesn't run in a context where
+    auth is not configured; pytest leaves it ``True`` and the check skips
+    automatically against localhost.
     """
     proc = None
     base = url
@@ -369,7 +437,7 @@ def run_smoke(
                     f"dashboard server did not become healthy within {timeout:.0f}s "
                     f"(see {resolved_log})"
                 )
-        return run_checks(base, extra_headers=extra_headers)
+        return run_checks(base, extra_headers=extra_headers, auth_enabled=auth_enabled)
     finally:
         if proc is not None:
             stop_server(proc)
@@ -437,6 +505,11 @@ def main() -> int:
     auth_headers = cloud_run_auth_headers(args.url, enabled=args.auth)
     if auth_headers:
         print("Auth: minted gcloud identity token for Cloud Run target.\n")
+    elif not args.auth and _is_cloud_run_host(args.url):
+        # Be loud about the skip: a Cloud Run smoke without --no-auth normally
+        # runs the gate check, so users running with --no-auth should see why
+        # the 5th check is missing rather than wonder if it silently broke.
+        print("Skip: auth-gate check disabled by --no-auth.\n")
 
     try:
         results = run_smoke(
@@ -446,6 +519,7 @@ def main() -> int:
             timeout=args.timeout,
             log_path=log_path,
             extra_headers=auth_headers,
+            auth_enabled=args.auth,
         )
     except RuntimeError as e:
         print(f"FAILED: {e}")
