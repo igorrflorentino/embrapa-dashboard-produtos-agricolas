@@ -59,6 +59,51 @@ def _rgba(color: str, alpha: float) -> str:
     return color  # already rgba() or var(--*) — fall through
 
 
+def _kpi_top_row(
+    label: str,
+    *,
+    has_spark: bool,
+    spark_values: Sequence[float] | None,
+    spark_color: str,
+) -> html.Div:
+    """Top row: label + optional sparkline. ``has_spark`` is resolved by the
+    caller so the className decision in ``kpi_card`` stays consistent with
+    the actual rendered children."""
+    children: list = [html.Div(label, className="kpi-ov")]
+    if has_spark:
+        children.append(
+            dcc.Graph(
+                figure=_sparkline_figure(list(spark_values or []), spark_color),
+                config={"displayModeBar": False, "staticPlot": True},
+                className="kpi-spark",
+            )
+        )
+    return html.Div(children, className="kpi-top")
+
+
+def _kpi_sub_row(
+    delta: str | None,
+    delta_positive: bool | None,
+    sub: str | None,
+) -> html.Div | None:
+    """Sub row: optional delta-arrow + optional caption. Returns None when
+    neither component is present so the caller can skip appending it."""
+    if delta is None and sub is None:
+        return None
+    children: list = []
+    if delta is not None:
+        arrow = "arrow_upward" if delta_positive else "arrow_downward"
+        children.append(
+            html.Span(
+                children=[icon(arrow, size=12), html.Span(delta)],
+                className=f"kpi-delta {'up' if delta_positive else 'down'}",
+            )
+        )
+    if sub is not None:
+        children.append(html.Span(sub))
+    return html.Div(children, className="kpi-sub")
+
+
 def kpi_card(
     *,
     label: str,
@@ -71,36 +116,15 @@ def kpi_card(
 ) -> html.Div:
     """Render a KPI card. Spark is optional; if provided, the card uses the `spark` variant."""
     has_spark = spark_values is not None and len(list(spark_values)) > 1
-
-    top_row: list = [html.Div(label, className="kpi-ov")]
-    if has_spark:
-        top_row.append(
-            dcc.Graph(
-                figure=_sparkline_figure(list(spark_values or []), spark_color),
-                config={"displayModeBar": False, "staticPlot": True},
-                className="kpi-spark",
-            )
-        )
-
     children: list = [
-        html.Div(top_row, className="kpi-top"),
+        _kpi_top_row(
+            label, has_spark=has_spark, spark_values=spark_values, spark_color=spark_color
+        ),
         html.Div(value, className="kpi-val tnum"),
     ]
-
-    if delta is not None or sub is not None:
-        sub_children: list = []
-        if delta is not None:
-            arrow = "arrow_upward" if delta_positive else "arrow_downward"
-            sub_children.append(
-                html.Span(
-                    children=[icon(arrow, size=12), html.Span(delta)],
-                    className=f"kpi-delta {'up' if delta_positive else 'down'}",
-                )
-            )
-        if sub is not None:
-            sub_children.append(html.Span(sub))
-        children.append(html.Div(sub_children, className="kpi-sub"))
-
+    sub_row = _kpi_sub_row(delta, delta_positive, sub)
+    if sub_row is not None:
+        children.append(sub_row)
     return html.Div(
         children=children,
         className="kpi-card spark" if has_spark else "kpi-card",

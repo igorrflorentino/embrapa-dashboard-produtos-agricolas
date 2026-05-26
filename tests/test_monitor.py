@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from embrapa_commodities.monitor import MonitorState, _diagnose, _fmt_duration, _summarize
+from embrapa_commodities.monitor import (
+    STUCK_THRESHOLD_S,
+    MonitorState,
+    _build_state_grid,
+    _diagnose,
+    _fmt_duration,
+    _render_state_cell,
+    _summarize,
+    _tail_jsonl,
+)
 
 
 def _evt(event: str, **fields: object) -> dict:
@@ -198,8 +209,12 @@ def test_diagnose_permission_denied_without_gcs_is_not_gcs_specific() -> None:
 
 
 def test_summarize_pipeline_start() -> None:
-    ev = _evt("pipeline_start", pipeline="ibge", params={"start_year": 2020, "end_year": 2024},
-              chunks_total=3)
+    ev = _evt(
+        "pipeline_start",
+        pipeline="ibge",
+        params={"start_year": 2020, "end_year": 2024},
+        chunks_total=3,
+    )
     result = _summarize(ev)
     assert "ibge" in result
     assert "2020" in result
@@ -262,3 +277,285 @@ def test_summarize_unknown_event_uses_generic_format() -> None:
 def test_fmt_duration_human_friendly(seconds: int, expected: str) -> None:
     assert _fmt_duration(seconds) == expected
 
+
+# ── _render_state_cell — per-status renderers (P1 refactor coverage) ────
+
+
+# NOTE: timestamps in these fixtures use 1000.0 (not 0.0) as the baseline.
+# ``_render_state_cell`` resolves ``last_seen`` via ``info.get("last_seen") or
+# info.get("started_at") or now`` — the ``or`` chain treats 0.0 as falsy and
+# would silently fall through to ``now``, defeating the stuck check. In
+# production this never matters (time.time() ≈ 1.7e9) but tests must respect
+# the implicit "timestamps are truthy" invariant.
+_T0 = 1000.0
+
+
+def _state_with_one_uf(uf: str, **info_fields: object) -> tuple[MonitorState, dict]:
+    """Build a MonitorState whose ``states`` dict has one UF with the given fields."""
+    state = MonitorState()
+    info: dict = {"status": "running", "started_at": _T0, "last_seen": _T0, **info_fields}
+    state.states[uf] = info
+    return state, info
+
+
+def test_render_state_running_normal_uses_cyan_with_elapsed() -> None:
+    state, info = _state_with_one_uf("SP", started_at=_T0, last_seen=_T0 + 10)
+    cell = _render_state_cell("SP", info, state, now=_T0 + 10)
+    text = cell.markup
+    assert "cyan" in text
+    assert "yellow" not in text
+    assert "10s" in text
+    assert "STUCK" not in text
+
+
+def test_render_state_running_stuck_uses_yellow_when_last_seen_stale() -> None:
+    # last_seen is older than STUCK_THRESHOLD_S → must flip to yellow STUCK.
+    state, info = _state_with_one_uf("BA", started_at=_T0, last_seen=_T0)
+    now = _T0 + STUCK_THRESHOLD_S + 5  # 5s past the stuck threshold
+    cell = _render_state_cell("BA", info, state, now=now)
+    text = cell.markup
+    assert "yellow" in text
+    assert "STUCK" in text
+
+
+def test_render_state_ok_uses_green_check_with_rows_and_duration() -> None:
+    state, info = _state_with_one_uf("MG", status="ok", rows=1234, duration_s=3.5)
+    cell = _render_state_cell("MG", info, state, now=10.0)
+    text = cell.markup
+    assert "green" in text
+    assert "✓" in text
+    assert "1,234" in text
+    assert "3.5s" in text
+
+
+def test_render_state_ok_handles_missing_rows_and_duration() -> None:
+    # state_end with no rows/duration → both render as '?'.
+    state, info = _state_with_one_uf("PR", status="ok")
+    cell = _render_state_cell("PR", info, state, now=10.0)
+    assert "?" in cell.markup
+
+
+def test_render_state_error_uses_red_cross_with_truncated_message() -> None:
+    long_err = "x" * 100  # truncation kicks in at 20 chars
+    state, info = _state_with_one_uf("RJ", status="error", error=long_err)
+    cell = _render_state_cell("RJ", info, state, now=10.0)
+    text = cell.markup
+    assert "red" in text
+    assert "✗" in text
+    # 20-char slice, no more.
+    assert "x" * 20 in text
+    assert "x" * 21 not in text
+
+
+def test_render_state_other_falls_through_to_dim_for_unknown_status() -> None:
+    state, info = _state_with_one_uf("AC", status="mystery")
+    cell = _render_state_cell("AC", info, state, now=10.0)
+    text = cell.markup
+    assert "dim" in text
+    assert "mystery" in text
+    # None of the four known styles should leak through.
+    assert "green" not in text
+    assert "red" not in text
+    assert "yellow" not in text
+    assert "cyan" not in text
+
+
+def test_build_state_grid_arranges_cells_in_four_column_rows() -> None:
+    # 27 Brazilian UFs → ceil(27/4) = 7 rows.
+    state = MonitorState()
+    ufs = [f"U{i:02d}" for i in range(27)]
+    for i, uf in enumerate(ufs):
+        state.states[uf] = {
+            "status": "ok",
+            "started_at": 0.0,
+            "last_seen": 0.0,
+            "rows": i,
+            "duration_s": 1.0,
+        }
+    grid = _build_state_grid(state, now=10.0)
+    assert len(grid.columns) == 4
+    assert grid.row_count == 7
+
+
+# ── _tail_jsonl — file tailing helper (P1 refactor coverage) ─────────────
+
+
+def _write_jsonl(path: Path, events: list[dict]) -> int:
+    """Append events to path, return the new end-of-file byte position."""
+    with path.open("a", encoding="utf-8") as f:
+        for ev in events:
+            f.write(json.dumps(ev) + "\n")
+        return f.tell()
+
+
+def test_tail_jsonl_reads_all_events_from_start(tmp_path: Path) -> None:
+    log = tmp_path / "run.jsonl"
+    _write_jsonl(log, [{"event": "a"}, {"event": "b"}, {"event": "c"}])
+    events, position = _tail_jsonl(log, last_position=0)
+    assert [e["event"] for e in events] == ["a", "b", "c"]
+    assert position == log.stat().st_size
+
+
+def test_tail_jsonl_resumes_from_last_position(tmp_path: Path) -> None:
+    log = tmp_path / "run.jsonl"
+    _write_jsonl(log, [{"event": "first"}])
+    _, position = _tail_jsonl(log, last_position=0)
+
+    # New events appended after our last read should be the only ones returned.
+    _write_jsonl(log, [{"event": "second"}, {"event": "third"}])
+    events, new_position = _tail_jsonl(log, last_position=position)
+
+    assert [e["event"] for e in events] == ["second", "third"]
+    assert new_position == log.stat().st_size
+
+
+def test_tail_jsonl_skips_blank_lines_and_invalid_json(tmp_path: Path) -> None:
+    log = tmp_path / "run.jsonl"
+    log.write_text(
+        '{"event": "ok"}\n'
+        "\n"  # blank
+        "{not json}\n"  # malformed
+        "   \n"  # whitespace-only
+        '{"event": "ok2"}\n',
+        encoding="utf-8",
+    )
+    events, _ = _tail_jsonl(log, last_position=0)
+    assert [e["event"] for e in events] == ["ok", "ok2"]
+
+
+def test_tail_jsonl_raises_filenotfound_for_missing_log(tmp_path: Path) -> None:
+    log = tmp_path / "does-not-exist.jsonl"
+    with pytest.raises(FileNotFoundError):
+        _tail_jsonl(log, last_position=0)
+
+
+# ── ETA computations + end-to-end render (coverage for builders) ─────────
+#
+# Function-local imports below keep the pre-commit "unused-import" hook from
+# stripping them between iterations. They could move to the top once the test
+# suite stabilises.
+
+
+def _make_running_state() -> MonitorState:
+    """Build a representative in-flight MonitorState the renderer can consume."""
+    state = MonitorState()
+    state.apply(
+        _evt(
+            "pipeline_start",
+            pipeline="ibge",
+            run_id="r1",
+            chunks_total=3,
+            params={"start_year": 2020, "end_year": 2024},
+        )
+    )
+    state.apply(_evt("chunk_start", chunk_id="2020-2021", chunk_n=1, chunk_total=3))
+    state.apply(_evt("state_start", state="SP"))
+    state.apply(_evt("state_end", state="SP", rows=1000, duration_s=2.0))
+    state.apply(_evt("state_start", state="MG"))
+    state.apply(_evt("state_error", state="RJ", error="Read timed out"))
+    state.apply(_evt("chunk_end", chunk_id="2020-2021", rows=1000, duration_s=10.0))
+    state.apply(_evt("chunk_start", chunk_id="2022-2024", chunk_n=2, chunk_total=3))
+    state.apply(_evt("state_start", state="BA"))
+    state.apply(_evt("retry", state="BA", attempt=2, reason="timeout"))
+    return state
+
+
+def test_pipeline_eta_returns_none_before_first_chunk_completes() -> None:
+    from embrapa_commodities.monitor import _pipeline_eta
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=3))
+    assert _pipeline_eta(state) is None
+
+
+def test_pipeline_eta_uses_average_of_completed_chunks() -> None:
+    from embrapa_commodities.monitor import _pipeline_eta
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=3))
+    state.apply(_evt("chunk_start", chunk_id="c1"))
+    state.apply(_evt("chunk_end", chunk_id="c1", duration_s=20.0))
+    # One chunk done at 20s, two remaining → ETA ≈ 40s (minus current-chunk burn = 0).
+    eta = _pipeline_eta(state)
+    assert eta is not None
+    assert 35 <= eta <= 45
+
+
+def test_pipeline_eta_zero_when_pipeline_ended() -> None:
+    from embrapa_commodities.monitor import _pipeline_eta
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=1))
+    state.apply(_evt("pipeline_end", rows_total=0, duration_s=1.0))
+    assert _pipeline_eta(state) == 0.0
+
+
+def test_chunk_eta_none_when_no_active_chunk() -> None:
+    from embrapa_commodities.monitor import _chunk_eta
+
+    state = MonitorState()
+    assert _chunk_eta(state) is None
+
+
+def test_chunk_eta_none_when_no_state_durations_yet() -> None:
+    from embrapa_commodities.monitor import _chunk_eta
+
+    state = MonitorState()
+    state.apply(_evt("chunk_start", chunk_id="c1"))
+    # active chunk but no completed states → no median → ETA unknowable.
+    assert _chunk_eta(state) is None
+
+
+def test_chunk_eta_returns_positive_when_data_available() -> None:
+    from embrapa_commodities.monitor import _chunk_eta
+
+    state = MonitorState()
+    state.apply(_evt("chunk_start", chunk_id="c1"))
+    state.apply(_evt("state_end", state="SP", rows=100, duration_s=5.0))
+    eta = _chunk_eta(state)
+    assert eta is not None
+    assert eta > 0
+
+
+def test_render_produces_panel_for_running_pipeline(tmp_path: Path) -> None:
+    """Smoke-level coverage for the full _render() composition path.
+
+    Doesn't assert on visual content (Rich Panels are nested object trees);
+    asserts the renderer doesn't crash on a representative state and that
+    every builder it calls executes. This single test reaches _build_header,
+    _build_progress, _build_active_line, _build_state_grid, _build_recent_panel,
+    and _build_errors_panel in one shot.
+    """
+    from rich.panel import Panel
+
+    from embrapa_commodities.monitor import _render
+
+    state = _make_running_state()
+    panel = _render(state, tmp_path / "fake-log.jsonl")
+    assert isinstance(panel, Panel)
+    # Title carries the log file basename.
+    assert "fake-log.jsonl" in str(panel.title)
+
+
+def test_render_handles_finished_pipeline(tmp_path: Path) -> None:
+    """``_build_active_line`` has a separate branch for state.ended_at — cover it."""
+    from rich.panel import Panel
+
+    from embrapa_commodities.monitor import _render
+
+    state = _make_running_state()
+    state.apply(_evt("pipeline_end", rows_total=1000, duration_s=30.0))
+    panel = _render(state, tmp_path / "fake-log.jsonl")
+    assert isinstance(panel, Panel)
+
+
+def test_render_handles_idle_pipeline_between_chunks(tmp_path: Path) -> None:
+    """``_build_active_line`` third branch: no active chunk, not ended."""
+    from rich.panel import Panel
+
+    from embrapa_commodities.monitor import _render
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
+    panel = _render(state, tmp_path / "fake-log.jsonl")
+    assert isinstance(panel, Panel)

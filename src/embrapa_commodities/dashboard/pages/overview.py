@@ -195,11 +195,7 @@ def _yoy_deltas(series) -> tuple[float | None, float | None, object | None]:
         return None, None, None
     last = series.iloc[-1]
     prev = series.iloc[-2]
-    delta_v = (
-        (last["value"] - prev["value"]) / prev["value"] * 100.0
-        if prev["value"]
-        else None
-    )
+    delta_v = (last["value"] - prev["value"]) / prev["value"] * 100.0 if prev["value"] else None
     delta_q = (
         (last["quantity"] - prev["quantity"]) / prev["quantity"] * 100.0
         if prev["quantity"]
@@ -469,7 +465,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
     def _download(n_clicks, period, product, uf, only_ok):
         if not n_clicks:
             return no_update
-        years = _period_to_years(store, period)
+        years = period_to_years(store.year_range(), period)
         product_code = None if product in (None, "all") else product
         uf_code = None if uf in (None, "all") else uf
         only_ok_flag = bool(only_ok) and "ok" in (only_ok or [])
@@ -480,8 +476,6 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
             only_ok=only_ok_flag,
         )
         return download_payload(df, filename_prefix="embrapa-visao-geral")
-
-
 
 
 def _kpi_strip_filtered(

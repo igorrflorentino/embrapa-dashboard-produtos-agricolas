@@ -409,5 +409,4 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         )
 
 
-
 __all__ = ["PREFIX", "layout", "register_callbacks"]

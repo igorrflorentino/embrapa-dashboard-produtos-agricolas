@@ -257,5 +257,4 @@ def _filtered(store: GoldStore, period, product, uf, only_ok):
     )
 
 
-
 __all__ = ["PREFIX", "layout", "register_callbacks"]
