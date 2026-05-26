@@ -1,0 +1,87 @@
+# Pull-request gate for the Embrapa commodities pipeline.
+#
+# Runs on every PR to main and on direct pushes to main (so the badge on
+# main stays meaningful). All three steps are credential-free: lint and
+# pytest never touch GCP, and `dbt parse` only compiles the manifest —
+# it does not open a BigQuery connection.
+#
+# To enforce this gate, enable "Require status checks to pass before
+# merging" on the `main` branch in repo Settings → Branches and select
+# the "Lint, test, dbt parse" check produced by this workflow.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR so we don't burn minutes on
+# stale commits when a contributor force-pushes a fixup.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint, test, dbt parse
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin to the exact interpreter used by the Dockerfile
+      # (python:3.12.11-slim) and required by pyproject.toml
+      # (requires-python = "==3.12.*"). Keeps CI ≡ prod runtime.
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.11"
+
+      # The Astral action wraps actions/cache under the hood, keyed on
+      # the resolved uv.lock — identical effect to a hand-rolled
+      # actions/cache step but maintained upstream.
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      # --frozen makes the sync fail if uv.lock is out of date with
+      # pyproject.toml — i.e. forces contributors to commit a refreshed
+      # lockfile rather than silently drifting in CI.
+      - name: Sync dependencies (reproducible via uv.lock)
+        run: uv sync --frozen
+
+      - name: Lint (ruff check + ruff format --check)
+        run: make lint
+
+      - name: Test (pytest)
+        run: make test
+
+      # `dbt parse` needs a profile to exist, but with method: oauth it
+      # does not actually authenticate during parse. The example profile
+      # is enough to satisfy the schema check.
+      - name: Stub dbt profile (no BQ credentials required for parse)
+        run: |
+          mkdir -p ~/.dbt
+          cp dbt/profiles.yml.example ~/.dbt/profiles.yml
+
+      # `dbt deps` installs dbt_utils (declared in dbt/packages.yml).
+      # Without it, any {{ dbt_utils.* }} reference in models would
+      # explode at parse time before reaching real syntax errors.
+      - name: dbt deps (install dbt_utils)
+        working-directory: dbt
+        run: uv run dbt deps
+
+      # Parse-only validation: compiles every Jinja template and
+      # resolves every ref()/source() without ever connecting to
+      # BigQuery. Catches typos, undefined macros, and bad refs cheaply.
+      - name: dbt parse (Jinja + ref/source validation, no warehouse)
+        working-directory: dbt
+        run: uv run dbt parse

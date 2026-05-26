@@ -55,6 +55,11 @@ def test_latest_log_path_filters_by_pipeline(isolated_log_dir: Path) -> None:
     # Two runs of different pipelines.
     observability.init_run("ibge")
     ibge_path = observability.current_log_path()
+    # Force a measurable mtime gap so the "newest first" assertion below
+    # is deterministic on fast filesystems (Linux CI creates both files
+    # within the same second otherwise — see test_list_log_paths_sorted_newest_first
+    # which applies the same trick).
+    os.utime(ibge_path, (ibge_path.stat().st_atime, ibge_path.stat().st_mtime - 100))
     observability.init_run("bcb")
     bcb_path = observability.current_log_path()
 
