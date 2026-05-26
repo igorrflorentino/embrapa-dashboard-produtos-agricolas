@@ -156,9 +156,12 @@ src/embrapa_commodities/    # ingestão (Python puro)
   ├── ibge/                 # SIDRA client + Bronze pipeline
   └── bcb/                  # SGS client + Bronze pipelines
 dbt/                        # transformações Silver + Gold
+scripts/                    # tooling auxiliar (setup, dashboard, IAM) — ver scripts/README.md
 tests/                      # pytest (clientes HTTP mockados)
 docs/ownership_transfer.md  # checklist para migrar para a empresa
 ```
+
+> Tooling auxiliar (setup do ambiente, run/build/deploy do dashboard, scripts de IAM) está em [`scripts/README.md`](scripts/README.md).
 
 ## Transferência futura para a empresa
 
