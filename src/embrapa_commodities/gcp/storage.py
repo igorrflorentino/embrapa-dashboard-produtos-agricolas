@@ -12,26 +12,82 @@ from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
-# Storage-class lifecycle: landing Parquet is rarely re-read after the first
-# Silver build. Tier down quickly to slash storage cost without losing audit.
+# Storage-class lifecycle.
+#
+# Two prefixes coexist in the bucket and need different retention:
+#
+#   landing/  → raw Parquet, rarely re-read after the Silver build. Tier
+#               aggressively down to ARCHIVE; never delete (audit trail).
+#   backups/  → Gold snapshots. Tier the same way but DELETE at 365d —
+#               the chain of snapshots itself is the retention, and old
+#               snapshots referencing dropped schemas are not restorable
+#               anyway.
+#
+# Every transition rule is prefix-scoped so the two streams stay
+# isolated; without that, the landing→ARCHIVE rule would silently bind to
+# backup objects and prevent the 365-day delete from firing.
+#
 #   age=30   → Nearline (~50% cheaper than Standard, free reads ≥30d)
 #   age=90   → Coldline (~70% cheaper than Standard)
-#   age=365  → Archive  (~85% cheaper than Standard)
-# Non-current versions (created by Object Versioning) are deleted at 30d so
-# accidental overwrites can be recovered for a month but don't bloat storage.
+#   age=365  → Archive (landing) / Delete (backups)
+#
+# Non-current versions (created by Object Versioning) are deleted at 30d
+# bucket-wide so accidental overwrites can be recovered for a month but
+# don't bloat storage.
+_LANDING_PREFIX = "landing/"
+_BACKUPS_PREFIX = "backups/"
+
 _LIFECYCLE_RULES: list[dict] = [
+    # ── landing/ — raw Bronze inputs, archive-at-365d, never delete ────────
     {
         "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
-        "condition": {"age": 30, "matchesStorageClass": ["STANDARD"]},
+        "condition": {
+            "age": 30,
+            "matchesStorageClass": ["STANDARD"],
+            "matchesPrefix": [_LANDING_PREFIX],
+        },
     },
     {
         "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-        "condition": {"age": 90, "matchesStorageClass": ["NEARLINE"]},
+        "condition": {
+            "age": 90,
+            "matchesStorageClass": ["NEARLINE"],
+            "matchesPrefix": [_LANDING_PREFIX],
+        },
     },
     {
         "action": {"type": "SetStorageClass", "storageClass": "ARCHIVE"},
-        "condition": {"age": 365, "matchesStorageClass": ["COLDLINE"]},
+        "condition": {
+            "age": 365,
+            "matchesStorageClass": ["COLDLINE"],
+            "matchesPrefix": [_LANDING_PREFIX],
+        },
     },
+    # ── backups/ — Gold cold-storage, delete-at-365d ──────────────────────
+    {
+        "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
+        "condition": {
+            "age": 30,
+            "matchesStorageClass": ["STANDARD"],
+            "matchesPrefix": [_BACKUPS_PREFIX],
+        },
+    },
+    {
+        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+        "condition": {
+            "age": 90,
+            "matchesStorageClass": ["NEARLINE"],
+            "matchesPrefix": [_BACKUPS_PREFIX],
+        },
+    },
+    {
+        "action": {"type": "Delete"},
+        "condition": {
+            "age": 365,
+            "matchesPrefix": [_BACKUPS_PREFIX],
+        },
+    },
+    # ── bucket-wide — non-current version cleanup ─────────────────────────
     {
         "action": {"type": "Delete"},
         "condition": {"age": 30, "isLive": False},

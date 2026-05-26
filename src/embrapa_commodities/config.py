@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     bcb_start_year: int = Field(default=1980)
     bcb_end_year: int = Field(default_factory=_current_year)
 
+    # ─── Cold-storage backup ──────────────────────────────────────────────────
+    # `embrapa doctor` warns when the most recent gs://${GCS_BUCKET}/backups/
+    # snapshot is older than this. Default 14d matches a typical bi-weekly
+    # release cadence — bump it for projects that ship monthly.
+    backup_staleness_days: int = Field(default=14)
+
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:
         if not self.gcs_bucket:

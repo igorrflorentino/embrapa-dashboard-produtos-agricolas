@@ -1,13 +1,16 @@
 """Manual snapshot of Gold tables to GCS for cold-storage / academic conformance.
 
-Triggered via ``embrapa backup-gold`` (always manual — no scheduler). Each
-backup lands at:
+Triggered via ``embrapa backup-gold`` or ``make backup-gold`` — the latter is
+also what ``make dbt-build-prod-with-backup`` chains after a prod dbt build.
+Each backup lands at:
 
     gs://${GCS_BUCKET}/backups/run=<UTC-timestamp>/<dataset>.<table>/<table>-*.parquet
 
-GCS lifecycle rules already transition objects to Nearline / Coldline / Archive
-as they age (see ``gcp/storage.py``), so old snapshots become near-free without
-extra config.
+GCS lifecycle rules scoped to the ``backups/`` prefix transition objects to
+Nearline at 30d and Coldline at 90d, then DELETE at 365d (see
+``gcp/storage.py``) — old snapshots referencing dropped schemas aren't
+restorable anyway. ``embrapa doctor`` raises when no snapshot exists and warns
+when the latest is older than ``BACKUP_STALENESS_DAYS``.
 """
 
 from __future__ import annotations

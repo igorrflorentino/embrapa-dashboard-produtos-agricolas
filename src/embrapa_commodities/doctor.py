@@ -9,8 +9,10 @@ of mid-run.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import google.auth
 import requests
@@ -159,6 +161,74 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
         return CheckResult("Bronze tables", False, str(exc)[:120])
 
 
+# `embrapa backup-gold` lays down prefixes shaped `backups/run=YYYYMMDDTHHMMSSZ/...`.
+# The trailing slash is important — without it `list_blobs(delimiter="/")` would
+# return individual blob names instead of the `run=*/` directory prefixes.
+_BACKUP_PREFIX = "backups/"
+_BACKUP_RUN_RE = re.compile(r"^backups/run=(\d{8}T\d{6}Z)/$")
+
+
+def _check_backup_freshness(settings: Settings) -> CheckResult:
+    """Warn when the most recent Gold snapshot is older than BACKUP_STALENESS_DAYS.
+
+    Fails (ok=False) when no snapshot exists at all — that means the operator
+    has never run ``make dbt-build-prod-with-backup`` (or its CLI equivalent),
+    which is a real gap for any project past its first prod build.
+
+    Stale (older than threshold) is reported with ok=True + a ⚠ marker so it
+    doesn't flip `doctor` to exit-1 — matching the soft-warning pattern in
+    `_check_bronze_tables`.
+    """
+    try:
+        creds = get_credentials(settings)
+        client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+        # delimiter="/" turns this into a directory listing: blobs.prefixes
+        # yields the run=*/ prefixes themselves, not the individual parquet
+        # parts beneath them. Far cheaper than enumerating every shard.
+        blobs = client.list_blobs(settings.gcs_bucket, prefix=_BACKUP_PREFIX, delimiter="/")
+        # Iterating the page iterator is what populates `prefixes` — the
+        # google-cloud-storage client only fetches them lazily.
+        _ = list(blobs)
+        run_prefixes = list(getattr(blobs, "prefixes", []) or [])
+
+        timestamps: list[datetime] = []
+        for prefix in run_prefixes:
+            match = _BACKUP_RUN_RE.match(prefix)
+            if not match:
+                continue
+            try:
+                ts = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+            except ValueError:
+                continue
+            timestamps.append(ts)
+
+        if not timestamps:
+            return CheckResult(
+                "Gold backup freshness",
+                False,
+                f"no snapshot under gs://{settings.gcs_bucket}/{_BACKUP_PREFIX} "
+                "(run `make dbt-build-prod-with-backup`)",
+            )
+
+        latest = max(timestamps)
+        age_days = (datetime.now(UTC) - latest).days
+        latest_str = latest.strftime("%Y-%m-%d %H:%M UTC")
+        threshold = settings.backup_staleness_days
+        if age_days > threshold:
+            return CheckResult(
+                "Gold backup freshness",
+                True,  # warn, not fail — matches _check_bronze_tables semantics
+                f"⚠ stale: latest={latest_str} ({age_days}d ago > {threshold}d threshold)",
+            )
+        return CheckResult(
+            "Gold backup freshness",
+            True,
+            f"latest={latest_str} ({age_days}d ago, threshold={threshold}d)",
+        )
+    except Exception as exc:
+        return CheckResult("Gold backup freshness", False, str(exc)[:120])
+
+
 CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
     ("adc", _check_adc),
@@ -167,6 +237,7 @@ CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
     ("bcb", _check_bcb),
     ("bronze", _check_bronze_tables),
+    ("backup", _check_backup_freshness),
 ]
 
 

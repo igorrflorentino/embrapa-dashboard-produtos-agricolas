@@ -1,5 +1,6 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        dbt-deps dbt-build dbt-build-prod dbt-test dbt-clean lint test test-smoke clean \
+        dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
+        dbt-test dbt-clean lint test test-smoke clean \
         precommit-install precommit-run \
         dashboard-sync dashboard-run dashboard-build dashboard-deploy \
         dashboard-smoke dashboard-visual
@@ -40,6 +41,12 @@ dbt-build: dbt-deps    ## Dev: silver+gold in dbt_dev_silver / dbt_dev_gold
 
 dbt-build-prod: dbt-deps    ## Prod: silver+gold in silver / gold (real datasets)
 	cd $(DBT_DIR) && $(PY) dbt build --target prod
+
+backup-gold:    ## Snapshot prod Gold tables to gs://${GCS_BUCKET}/backups/run=<ts>/
+	$(PY) embrapa backup-gold
+
+dbt-build-prod-with-backup: dbt-build-prod backup-gold    ## Recommended prod path: build then snapshot
+	@echo "[ok] prod build + Gold snapshot complete"
 
 dbt-test:
 	cd $(DBT_DIR) && $(PY) dbt test

@@ -28,11 +28,24 @@ forward (12 months for inflation, 30 days for FX) — this absorbs BCB
 revisions of preliminary readings without re-pulling the whole history.
 Use `--full` after schema changes or to backfill a new series.
 
-Cold-storage backup of the prod Gold tables (manual, run after each
-`make dbt-build-prod` you want to preserve):
+Cold-storage backup of the prod Gold tables. **The recommended prod path
+bundles build + snapshot in one target — reach for this instead of bare
+`dbt-build-prod` whenever the run is preservation-worthy:**
+
 ```bash
-uv run embrapa backup-gold      # → gs://${GCS_BUCKET}/backups/run=<ts>/...
+make dbt-build-prod-with-backup   # build prod, then snapshot Gold to GCS
+make backup-gold                  # snapshot only (after an existing prod build)
+uv run embrapa backup-gold        # same as above, direct CLI form
 ```
+
+Each snapshot lands at `gs://${GCS_BUCKET}/backups/run=<ts>/...`. Plain
+`make dbt-build-prod` is intentionally left un-chained so throwaway prod
+experiments don't accumulate snapshots. **Operator responsibility:** run
+`dbt-build-prod-with-backup` at least once per release boundary (after
+schema changes, new product codes, or anything you'd want to roll back
+to). `embrapa doctor` warns if the latest snapshot is more than
+`BACKUP_STALENESS_DAYS` (default 14) old, and fails clearly if no
+snapshot exists.
 
 dbt transforms (run from repo root via Makefile, or `cd dbt` to call dbt directly):
 ```bash
