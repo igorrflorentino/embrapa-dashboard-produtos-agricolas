@@ -64,6 +64,17 @@ jobs:
       - name: Test (pytest)
         run: make test
 
+      # Mirror of the local pre-commit hook (see .pre-commit-config.yaml).
+      # Defense in depth: pre-commit catches drift before push, CI catches
+      # it when a contributor bypassed pre-commit (--no-verify or didn't
+      # run `make precommit-install`). Runs against every dashboard .py in
+      # the repo, not just the diff — keeps the check stateless and the
+      # script's own ALLOWLIST is the source of truth for exceptions.
+      - name: Dashboard module size ceiling (soft 500 LOC)
+        run: |
+          git ls-files 'src/embrapa_commodities/dashboard/*.py' \
+            | xargs uv run python scripts/check_dashboard_size.py
+
       # `dbt parse` needs a profile to exist, but with method: oauth it
       # does not actually authenticate during parse. The example profile
       # is enough to satisfy the schema check.
