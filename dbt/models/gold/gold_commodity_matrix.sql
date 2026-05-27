@@ -32,10 +32,14 @@
 --
 --  • val_real_igpm_* = identical logic to IPCA, using IGP-M.
 --
+--  • val_real_igpdi_* = identical logic to IPCA, using IGP-DI (BCB SGS 190 —
+--                     general price index, broader basket than IGP-M, includes
+--                     wholesale + consumer + construction).
+--
 --  NULL semantics:
 --    - placeholders (-, ..., *) in the source → NULL in the Silver layer;
 --    - missing currency factor for unit_of_measure → NULL val_raw → NULL all monetary;
---    - missing IPCA / IGP-M index for that year → NULL real_* columns;
+--    - missing IPCA / IGP-M / IGP-DI index for that year → NULL real_* columns;
 --    - missing FX rate for that year (e.g. EUR pre-1999) → NULL val_yearfx_FX.
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -64,8 +68,9 @@ inflation_year_end as (
 
     select
         reference_year,
-        max(case when series_code = '{{ var("inflation_series_ipca") }}' then index_value end) as ipca_year_end,
-        max(case when series_code = '{{ var("inflation_series_igpm") }}' then index_value end) as igpm_year_end
+        max(case when series_code = '{{ var("inflation_series_ipca")  }}' then index_value end) as ipca_year_end,
+        max(case when series_code = '{{ var("inflation_series_igpm")  }}' then index_value end) as igpm_year_end,
+        max(case when series_code = '{{ var("inflation_series_igpdi") }}' then index_value end) as igpdi_year_end
     from (
         select reference_year, series_code, index_value
         from {{ ref('silver_bcb_inflation') }}
@@ -82,8 +87,9 @@ inflation_year_end as (
 inflation_latest as (
 
     select
-        max(case when series_code = '{{ var("inflation_series_ipca") }}' then index_value end) as ipca_current,
-        max(case when series_code = '{{ var("inflation_series_igpm") }}' then index_value end) as igpm_current
+        max(case when series_code = '{{ var("inflation_series_ipca")  }}' then index_value end) as ipca_current,
+        max(case when series_code = '{{ var("inflation_series_igpm")  }}' then index_value end) as igpm_current,
+        max(case when series_code = '{{ var("inflation_series_igpdi") }}' then index_value end) as igpdi_current
     from (
         select series_code, index_value
         from {{ ref('silver_bcb_inflation') }}
@@ -136,8 +142,10 @@ enriched as (
         fy.brl_per_cny_avg,
         iy.ipca_year_end,
         iy.igpm_year_end,
+        iy.igpdi_year_end,
         il.ipca_current,
         il.igpm_current,
+        il.igpdi_current,
         fxl.brl_per_usd_current,
         fxl.brl_per_eur_current,
         fxl.brl_per_cny_current,
@@ -145,9 +153,11 @@ enriched as (
         -- Real-IPCA BRL: val_raw is already in present-day BRL (Silver applied
         -- the historical_currency_factors seed); we now apply the IPCA chain
         -- ratio to bring the year-of-record purchasing power up to today.
-        b.val_raw * safe_divide(il.ipca_current, iy.ipca_year_end) as val_real_ipca_brl,
+        b.val_raw * safe_divide(il.ipca_current,  iy.ipca_year_end)  as val_real_ipca_brl,
         -- Real-IGPM BRL: same logic with the alternative series.
-        b.val_raw * safe_divide(il.igpm_current, iy.igpm_year_end) as val_real_igpm_brl
+        b.val_raw * safe_divide(il.igpm_current,  iy.igpm_year_end)  as val_real_igpm_brl,
+        -- Real-IGPDI BRL: same logic, broader index (wholesale + consumer + construction).
+        b.val_raw * safe_divide(il.igpdi_current, iy.igpdi_year_end) as val_real_igpdi_brl
 
     from base_pevs b
     left join fx_year            fy  on b.reference_year = fy.reference_year
@@ -203,6 +213,12 @@ select
     safe_divide(val_real_igpm_brl, brl_per_usd_current)      as val_real_igpm_usd,
     safe_divide(val_real_igpm_brl, brl_per_eur_current)      as val_real_igpm_eur,
     safe_divide(val_real_igpm_brl, brl_per_cny_current)      as val_real_igpm_cny,
+
+    -- ── Real via IGP-DI ──────────────────────────────────────────────────────
+    val_real_igpdi_brl                                       as val_real_igpdi_brl,
+    safe_divide(val_real_igpdi_brl, brl_per_usd_current)     as val_real_igpdi_usd,
+    safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
+    safe_divide(val_real_igpdi_brl, brl_per_cny_current)     as val_real_igpdi_cny,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
     {{ data_quality_flag('qty_tons', 'qty_m3', 'val_raw') }} as data_quality_flag,

@@ -95,8 +95,9 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 vars:
   ibge_variable_quantity: "144"
   ibge_variable_value: "145"
-  inflation_series_ipca: "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE', '433') }}"
-  inflation_series_igpm: "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE', '189') }}"
+  inflation_series_ipca:  "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE',  '433') }}"
+  inflation_series_igpm:  "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE',  '189') }}"
+  inflation_series_igpdi: "{{ env_var('BCB_INFLATION_SERIES_IGPDI_CODE', '190') }}"
 ```
 
 If you change BCB series codes in `.env`, also update these vars.

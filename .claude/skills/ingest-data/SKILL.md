@@ -76,7 +76,7 @@ The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_
    ```
 
 2. If the new series is an inflation index used for deflation in Gold:
-   - Update `BCB_INFLATION_SERIES_IPCA_CODE` or `BCB_INFLATION_SERIES_IGPM_CODE` in `.env`
+   - Update `BCB_INFLATION_SERIES_IPCA_CODE`, `BCB_INFLATION_SERIES_IGPM_CODE`, or `BCB_INFLATION_SERIES_IGPDI_CODE` in `.env`
    - These are read by `dbt_project.yml` via `env_var()` and used in Gold's `val_real_*` projections.
 
 ## Configuration (`config.py`)

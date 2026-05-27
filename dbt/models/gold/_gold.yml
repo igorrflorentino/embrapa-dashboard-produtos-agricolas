@@ -6,6 +6,11 @@ models:
       Wide, partitioned, clustered fact table feeding the Looker Studio dashboard.
       One row per (reference_year, state_acronym, city_name, product_code).
       Physical table (not a view) so BI Engine can cache it.
+
+      Value columns: val_yearfx_{brl,usd,eur,cny} (nominal at year-of-record FX),
+      val_real_ipca_{brl,usd,eur,cny} / val_real_igpm_{brl,usd,eur,cny} /
+      val_real_igpdi_{brl,usd,eur,cny} (deflated to today via the respective
+      BCB chain index, optionally converted to foreign currency at today's FX).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

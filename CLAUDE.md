@@ -121,8 +121,8 @@ Key facts for AI context:
 - **Bronze is append-only**; Silver dedupes on natural key by `ingestion_timestamp desc`.
 - All Bronze columns are `STRING` except `ingestion_timestamp`.
 - The seed `historical_currency_factors` absorbs currency reforms; without it, pre-1994 values are 10⁶–10⁹× too large.
-- `val_real_{ipca,igpm}_*` columns are for cross-year comparison; `val_yearfx_*` are nominal.
-- Config flows through `src/embrapa_commodities/config.py` (pydantic-settings + `.env`). `BCB_INFLATION_SERIES` uses `CODE:LABEL,CODE:LABEL` format — keep `BCB_INFLATION_SERIES_IPCA_CODE` / `BCB_INFLATION_SERIES_IGPM_CODE` in sync.
+- `val_real_{ipca,igpm,igpdi}_*` columns are for cross-year comparison; `val_yearfx_*` are nominal.
+- Config flows through `src/embrapa_commodities/config.py` (pydantic-settings + `.env`). `BCB_INFLATION_SERIES` uses `CODE:LABEL,CODE:LABEL` format — keep `BCB_INFLATION_SERIES_IPCA_CODE` / `BCB_INFLATION_SERIES_IGPM_CODE` / `BCB_INFLATION_SERIES_IGPDI_CODE` in sync (dbt reads each via `env_var()` to wire the right series into the Gold pivot).
 - `target=dev` → `dbt_dev_silver` / `dbt_dev_gold` (auto-expire 7 days). `target=prod` → `silver` / `gold`.
 
 ## Skills available

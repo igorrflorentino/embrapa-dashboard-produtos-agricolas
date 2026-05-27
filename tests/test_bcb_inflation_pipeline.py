@@ -24,7 +24,7 @@ def settings() -> Settings:
         gcs_bucket="test-bucket",
         bcb_start_year=1980,
         bcb_end_year=2026,
-        bcb_inflation_series="433:IPCA,189:IGPM",
+        bcb_inflation_series="433:IPCA,189:IGPM,190:IGPDI",
         _env_file=None,
     )  # type: ignore[call-arg]
 
@@ -105,7 +105,7 @@ def test_extract_full_mode_does_not_query_bigquery(settings: Settings) -> None:
     assert not df.empty
     # Each configured series is fetched from configured start.
     series_codes_requested = [call.args[0] for call in fetch.call_args_list]
-    assert set(series_codes_requested) == {"433", "189"}
+    assert set(series_codes_requested) == {"433", "189", "190"}
     # Full mode always uses settings.bcb_start_year as the start year.
     for call in fetch.call_args_list:
         assert call.args[1] == settings.bcb_start_year
@@ -118,7 +118,7 @@ def test_extract_delta_mode_uses_effective_start_per_series(settings: Settings) 
     with (
         patch(
             "embrapa_commodities.bcb.inflation.latest_reference_date",
-            side_effect=[date(2025, 6, 1), date(2023, 3, 1)],
+            side_effect=[date(2025, 6, 1), date(2023, 3, 1), date(2024, 9, 1)],
         ) as latest,
         patch(
             "embrapa_commodities.bcb.inflation.fetch_series", return_value=fake_series_df
@@ -126,10 +126,11 @@ def test_extract_delta_mode_uses_effective_start_per_series(settings: Settings) 
     ):
         bcb_inflation._extract(settings, bq, "proj.ds.tbl", full=False)
 
-    assert latest.call_count == 2
-    # Each series got its own start year: 2025-1=2024 for 433; 2023-1=2022 for 189.
+    assert latest.call_count == 3
+    # Each series got its own start year: 2025-1=2024 for 433 (IPCA);
+    # 2023-1=2022 for 189 (IGPM); 2024-1=2023 for 190 (IGPDI).
     starts = {call.args[0]: call.args[1] for call in fetch.call_args_list}
-    assert starts == {"433": 2024, "189": 2022}
+    assert starts == {"433": 2024, "189": 2022, "190": 2023}
 
 
 def test_extract_delta_empty_returns_empty_df_not_error(settings: Settings) -> None:
@@ -192,7 +193,7 @@ def test_extract_returns_canonical_column_set(settings: Settings) -> None:
         "ingestion_timestamp",
     }
     # Series-name labels propagate from the config map.
-    assert set(df["series_name"]) == {"IPCA", "IGPM"}
+    assert set(df["series_name"]) == {"IPCA", "IGPM", "IGPDI"}
 
 
 # ─── run() — delta branch end-to-end with all sinks mocked ───────────────────
