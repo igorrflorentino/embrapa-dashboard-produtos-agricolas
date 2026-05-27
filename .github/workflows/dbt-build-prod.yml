@@ -1,0 +1,206 @@
+# Auto-runs `dbt build --target prod` against BigQuery after merges to main
+# that touch dbt models, and on demand via `workflow_dispatch`.
+#
+# This is the bridge between "PR merged, dbt code lives in main" and "the
+# physical tables in `silver` / `gold` reflect that code". Without it, a
+# PR that adds a new model or column can be merged while the matching
+# BigQuery table is missing — exactly the failure mode that blocked
+# PR #19 (gold_commodity_state_total_year defined in #18 but not
+# materialized in prod, so the dashboard smoke 404'd on first read).
+#
+# Trigger model:
+#   • push to main + paths filter on dbt/** → runs automatically after merge
+#   • workflow_dispatch                      → manual fix-up runs (e.g. to
+#                                              materialize tables for a
+#                                              still-open PR's smoke check,
+#                                              or to opt into --full-refresh)
+#
+# Snapshot policy: this workflow runs PLAIN `dbt build --target prod` —
+# NOT `make dbt-build-prod-with-backup`. CLAUDE.md keeps the with-backup
+# variant intentionally manual ("Operator responsibility: run
+# dbt-build-prod-with-backup at least once per release boundary") so
+# automated runs don't accumulate GCS snapshots. Operators still snapshot
+# at meaningful release boundaries from their terminal.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ONE-TIME GCP SETUP (do this once per repo, then this workflow is hands-off):
+#
+#  1. Create a dedicated CI service account with write access to the Gold +
+#     Silver datasets. Keep it separate from `sa-dashboard-smoke-ci` (which
+#     is read-only on purpose — principle of least privilege).
+#
+#       gcloud iam service-accounts create sa-dbt-build-ci \
+#         --project="${GCP_PROJECT_ID}" \
+#         --display-name="dbt build prod (GitHub Actions CI)"
+#
+#  2. Grant the BigQuery roles dbt needs to read Bronze, write Silver/Gold,
+#     issue query jobs, and stream rows back via the Storage API. Granting
+#     dataEditor at the project level is the simplest correct scope —
+#     narrowing per-dataset is also valid if your org requires it.
+#
+#       gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+#         --member="serviceAccount:sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+#         --role="roles/bigquery.dataEditor"
+#       gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+#         --member="serviceAccount:sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+#         --role="roles/bigquery.jobUser"
+#       gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+#         --member="serviceAccount:sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+#         --role="roles/bigquery.readSessionUser"
+#
+#  3. Allow the existing GitHub Workload Identity Pool (set up for the
+#     dashboard-smoke workflow) to impersonate this new SA from this repo:
+#
+#       gcloud iam service-accounts add-iam-policy-binding \
+#         "sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+#         --role="roles/iam.workloadIdentityUser" \
+#         --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/OWNER/REPO"
+#
+#     If you haven't set up the Workload Identity Pool yet, follow steps
+#     1–3 of .github/workflows/dashboard-smoke.yml first — both workflows
+#     share the same pool/provider.
+#
+#  4. Set repo-level variables (Settings → Secrets and variables → Actions
+#     → Variables). The first three are shared with dashboard-smoke.yml;
+#     only the SA is new:
+#
+#       GCP_PROJECT_ID                  = your project id  (shared)
+#       GCP_WIF_PROVIDER                = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github-provider  (shared)
+#       BQ_LOCATION                     = e.g. us-central1  (shared; falls back to us-central1 if unset)
+#       GCP_DBT_BUILD_SERVICE_ACCOUNT   = sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com  (new)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# UNBLOCKING A PR WHOSE SMOKE FAILS ON A MISSING TABLE:
+#
+#  Symptom: a PR's `smoke` check fails with "404 Not found: Table … was not
+#  found in location …" because the merged dbt model that defines it hasn't
+#  yet been materialized in prod.
+#
+#  Fix:
+#    1. Make sure the workflow file (this one) is on main. If not, merge the
+#       PR that adds it first.
+#    2. Go to Actions → "dbt build prod" → Run workflow. Pick the default
+#       branch (main). Wait for the run to complete (typically ~3–5 min).
+#    3. Back on the blocked PR, re-trigger the smoke check (Actions tab →
+#       failing run → "Re-run failed jobs", or push an empty commit).
+#    4. Smoke now passes; merge as usual.
+
+name: dbt build prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dbt/**'
+      - 'src/embrapa_commodities/config.py'  # Settings defaults consumed by dbt env_var()
+      - '.github/workflows/dbt-build-prod.yml'
+  workflow_dispatch:
+    inputs:
+      full_refresh:
+        description: 'Add --full-refresh (rebuild incremental models like silver_ibge_pevs from scratch). Default off — opt in only after schema changes or partition re-anchoring.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+# Never run two prod builds in parallel — they would race on the same
+# physical tables. Don't cancel a running build either; mid-build cancels
+# can leave Silver/Gold in inconsistent state. Queue new pushes instead.
+concurrency:
+  group: dbt-build-prod
+  cancel-in-progress: false
+
+# WIF needs id-token: write so GitHub mints an OIDC token for the auth step.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    # Skip on forks — they can't reach the WIF provider (security boundary).
+    # Skipped jobs satisfy required status checks in GitHub.
+    if: github.event.repository.fork == false
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DBT_BUILD_SERVICE_ACCOUNT }}
+
+      # Pin to the exact interpreter used by Dockerfile and pyproject.toml
+      # (python:3.12.11-slim). Keeps CI ≡ prod runtime — same wheel set
+      # dbt resolves locally.
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.11"
+
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      # --frozen makes the sync fail if uv.lock drifts from pyproject.toml.
+      # No `--extra dashboard` needed: dbt only requires the base deps
+      # (dbt-core + dbt-bigquery), which are project dependencies.
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # Inline profile — does NOT use impersonate_service_account because
+      # WIF has already authenticated us AS the dbt-build SA. The example
+      # profile (dbt/profiles.yml.example) hard-codes impersonation for
+      # local dev where users authenticate as themselves; that flag would
+      # short-circuit our WIF identity here.
+      - name: Generate dbt profile (oauth via ADC from WIF)
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION || 'us-central1' }}
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<EOF
+          embrapa_commodities:
+            target: prod
+            outputs:
+              prod:
+                type: bigquery
+                method: oauth
+                project: ${GCP_PROJECT_ID}
+                dataset: prod
+                location: ${BQ_LOCATION}
+                threads: 8
+                job_execution_timeout_seconds: 600
+                job_retries: 1
+                priority: batch
+          EOF
+
+      - name: dbt deps (install dbt_utils)
+        working-directory: dbt
+        run: uv run dbt deps
+
+      # `dbt build` runs models + tests in dependency order. With --target
+      # prod we write to the `silver` and `gold` datasets (per
+      # BQ_*_DATASET defaults in dbt_project.yml). All gold_* tables are
+      # `materialized=table` so they fully rebuild every run — picking up
+      # any new columns from the merged PRs automatically.
+      #
+      # The full_refresh input is for cases where an incremental model
+      # (silver_ibge_pevs) needs a re-anchor — e.g. after schema or
+      # partition-key changes upstream.
+      - name: dbt build prod
+        working-directory: dbt
+        run: |
+          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
+            echo "::notice::Running with --full-refresh (incremental models will rebuild from scratch)"
+            uv run dbt build --target prod --full-refresh
+          else
+            uv run dbt build --target prod
+          fi
