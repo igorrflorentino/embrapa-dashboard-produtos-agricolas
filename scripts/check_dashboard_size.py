@@ -49,22 +49,27 @@ SOFT_LIMIT = 500
 WATCHED_PREFIX = "src/embrapa_commodities/dashboard/"
 
 # Files that exceeded the limit when the policy was introduced
-# (2026-05 audit). Modifications are still permitted, but they cannot
+# (2026-05 audit), or were grandfathered later with a documented
+# justification. Modifications are still permitted, but they cannot
 # grow indefinitely — once one is refactored under 500, remove it
 # from this list.
 #
 # Paths use forward slashes to match pre-commit's argv on every OS.
 ALLOWLIST: dict[str, str] = {
-    # 552 LOC at policy introduction. KPI + map + trend layout +
-    # callbacks all in one file; extraction into a callbacks module is
-    # tracked as a separate refactor task.
-    "src/embrapa_commodities/dashboard/pages/overview.py": (
-        "552 LOC at 2026-05 audit; refactor tracked separately."
-    ),
-    # 515 LOC at policy introduction. Choropleth + state drill-down
-    # logic; refactor into a `geography/` sub-package planned.
-    "src/embrapa_commodities/dashboard/pages/geography.py": (
-        "515 LOC at 2026-05 audit; refactor tracked separately."
+    # The data-access layer for the dashboard: 4 cached Gold-table
+    # snapshots + 14 purpose-built query methods (6 generic slicers used
+    # by all 4 primary views, 6 view-specific analytical helpers for
+    # Qualidade dos Dados / Geografia, plus metadata + cache internals).
+    # Splitting the analytical helpers into a sibling module would
+    # require either exposing the private `_cached`/`_T_*` constants or
+    # duplicating the cache contract — both worse than keeping the
+    # class intentionally dense. The complexity is in the number of
+    # methods, not in any individual method (every public method is
+    # under 20 LOC of body).
+    "src/embrapa_commodities/dashboard/data.py": (
+        "Single GoldRepository class with 14 small query methods + "
+        "per-table cache internals; splitting would fragment the cache "
+        "contract across files. Reviewed in PR for Task #5."
     ),
 }
 

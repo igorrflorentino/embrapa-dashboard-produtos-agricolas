@@ -23,6 +23,7 @@ import os
 from dash import Dash, Input, Output, dcc, html, no_update
 from flask import jsonify, request
 
+from embrapa_commodities.dashboard.components import global_filter_bar as gfb
 from embrapa_commodities.dashboard.components.shell import shell
 from embrapa_commodities.dashboard.data_sources import (
     DEFAULT_SOURCE_ID,
@@ -244,6 +245,12 @@ def _build_dash() -> Dash:
             # global error store + always-mounted overlay
             dcc.Store(id="global-error", data=None, storage_type="memory"),
             html.Div(id="error-overlay", className="error-overlay hidden"),
+            # global filter store — session-scoped, shared across all primary
+            # views. Each view's layout includes a `global_filter_bar(repo)`
+            # whose controls read/write this store; navigation between views
+            # preserves the user's commodity / period / currency / convention
+            # selections without per-page boilerplate.
+            gfb.global_filter_store(),
             # the dashboard itself
             html.Div(id="page-container"),
         ]
@@ -275,6 +282,11 @@ def _build_dash() -> Dash:
         logger.exception("Failed to register page callbacks at startup")
         health.stage_error("page_callbacks", str(exc))
         raise
+
+    # Global filter bar callbacks (controls ↔ store sync). Registered once,
+    # before route/overlay callbacks — Dash collects every @callback at
+    # startup, but the order matters for readability of the dependency graph.
+    gfb.register_callbacks(dash_app)
 
     _register_route_callback(dash_app)
     _register_error_overlay_callback(dash_app)
