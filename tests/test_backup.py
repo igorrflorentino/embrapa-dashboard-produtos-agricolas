@@ -21,7 +21,12 @@ def settings() -> Settings:
 
 
 def test_run_extracts_every_gold_table(settings: Settings) -> None:
-    """Happy path: 3 Gold tables → 3 extract jobs, 3 URIs returned."""
+    """Happy path: 4 Gold tables → 4 extract jobs, 4 URIs returned.
+
+    The fourth table (`gold_commodity_state_total_year`) was added in PR #18
+    of the dashboard refactor; this test guards against the backup script
+    silently regressing to the old 3-table list.
+    """
     with (
         patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
         patch("embrapa_commodities.backup.storage.Client"),
@@ -33,8 +38,8 @@ def test_run_extracts_every_gold_table(settings: Settings) -> None:
 
         run_id, uris = backup.run(settings)
 
-    assert client.extract_table.call_count == 3
-    assert len(uris) == 3
+    assert client.extract_table.call_count == 4
+    assert len(uris) == 4
     # All URIs land under the same run_id prefix.
     assert all(f"backups/run={run_id}/" in uri for uri in uris)
     # Each URI ends in a wildcard so BQ can shard the export.
@@ -50,13 +55,20 @@ def test_run_skips_missing_tables(settings: Settings) -> None:
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        client.get_table.side_effect = [MagicMock(), NotFound("missing"), MagicMock()]
+        # 4 tables: matrix, state_year, year_product, state_total_year.
+        # Mock state_year missing to exercise the skip-on-NotFound path.
+        client.get_table.side_effect = [
+            MagicMock(),
+            NotFound("missing"),
+            MagicMock(),
+            MagicMock(),
+        ]
         client.extract_table.return_value.result.return_value = None
 
         _, uris = backup.run(settings)
 
-    assert client.extract_table.call_count == 2
-    assert len(uris) == 2
+    assert client.extract_table.call_count == 3
+    assert len(uris) == 3
 
 
 def test_run_raises_when_no_tables_exist(settings: Settings) -> None:
