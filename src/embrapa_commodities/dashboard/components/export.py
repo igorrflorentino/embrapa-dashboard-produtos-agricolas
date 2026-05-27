@@ -35,6 +35,10 @@ DEFAULT_COLUMNS: tuple[str, ...] = (
     "val_real_igpm_usd",
     "val_real_igpm_eur",
     "val_real_igpm_cny",
+    "val_real_igpdi_brl",
+    "val_real_igpdi_usd",
+    "val_real_igpdi_eur",
+    "val_real_igpdi_cny",
     "val_yearfx_brl",
     "val_yearfx_usd",
     "val_yearfx_eur",
@@ -64,6 +68,10 @@ COLUMN_LABELS: dict[str, str] = {
     "val_real_igpm_usd": "Valor real IGP-M (USD)",
     "val_real_igpm_eur": "Valor real IGP-M (EUR)",
     "val_real_igpm_cny": "Valor real IGP-M (CNY)",
+    "val_real_igpdi_brl": "Valor real IGP-DI (BRL)",
+    "val_real_igpdi_usd": "Valor real IGP-DI (USD)",
+    "val_real_igpdi_eur": "Valor real IGP-DI (EUR)",
+    "val_real_igpdi_cny": "Valor real IGP-DI (CNY)",
     "val_yearfx_brl": "Valor FX do ano (BRL)",
     "val_yearfx_usd": "Valor FX do ano (USD)",
     "val_yearfx_eur": "Valor FX do ano (EUR)",
@@ -138,3 +146,34 @@ def export_button(
         ),
         dcc.Download(id=download_id),
     ]
+
+
+# IDs of the global header export — fixed (not pattern-matched) because there
+# is exactly one in the app shell. Pages contribute the actual filtered
+# dataset via a separate dispatcher callback wired in Task #5.
+HEADER_EXPORT_BUTTON_ID = "header-export-button"
+HEADER_EXPORT_DOWNLOAD_ID = "header-export-download"
+
+
+def header_export_button(*, label: str = "Exportar") -> html.Span:
+    """Render the global export button + download component for the app header.
+
+    Mount ONCE in the shell. The actual export payload is wired by a global
+    callback that reads the current view's filtered DataFrame — registered
+    by `app.py` when the page registry is built.
+    """
+    return html.Span(
+        className="header-export",
+        children=[
+            html.Button(
+                label,
+                id=HEADER_EXPORT_BUTTON_ID,
+                n_clicks=0,
+                className="btn-secondary",
+                type="button",
+                title="Exportar o recorte atual em CSV",
+                **{"data-export": "true"},
+            ),
+            dcc.Download(id=HEADER_EXPORT_DOWNLOAD_ID),
+        ],
+    )
