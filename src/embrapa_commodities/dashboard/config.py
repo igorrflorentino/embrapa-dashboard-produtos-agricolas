@@ -25,7 +25,7 @@ class DashboardSettings(BaseSettings):
     )
 
     cache_ttl_seconds: int = Field(
-        default=21_600,  # 6 hours
+        default=300,  # 5 minutes
         description="How long each cached Gold-table snapshot is reused before re-querying BQ.",
     )
 
