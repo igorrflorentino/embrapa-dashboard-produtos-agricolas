@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from dash import dcc, html
 
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 
 
 def _id(prefix: str, name: str) -> dict[str, str]:
     return {"section": prefix, "control": name}
 
 
-def filter_bar(prefix: str, store: GoldStore, *, show_uf: bool = True) -> html.Div:
+def filter_bar(prefix: str, store: GoldRepository, *, show_uf: bool = True) -> html.Div:
     """Render the filter row.
 
     `prefix` namespaces the dcc IDs (e.g. `"overview"` → `{"section":"overview","control":"conv"}`).

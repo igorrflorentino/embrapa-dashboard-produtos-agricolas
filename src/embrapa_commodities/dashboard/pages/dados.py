@@ -5,13 +5,13 @@ from __future__ import annotations
 from dash import dash_table, html
 
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import fmt_number
 
 PREFIX = "dados"
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     lo, hi = store.year_range()
     products = store.products()
     states = store.states()
@@ -312,7 +312,7 @@ def _bcb_series_table() -> object:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     """Static page — no callbacks."""
     return None
 

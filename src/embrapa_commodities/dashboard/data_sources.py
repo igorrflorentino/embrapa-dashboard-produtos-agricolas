@@ -12,7 +12,7 @@ mixed data, no shared filter state. The only truly global page is the
 
 To add a new source X:
 
-1. Build a store class for X (or reuse `GoldStore` if X is also a single
+1. Build a store class for X (or reuse `GoldRepository` if X is also a single
    BigQuery table with the same shape).
 2. Write source-specific page modules under `pages/x_*.py` whose `PREFIX`
    constants are unique across all sources — Dash uses callback Output IDs
@@ -99,7 +99,7 @@ def build_registry() -> dict[str, DataSource]:
     `app.py` imports this module.
     """
     from embrapa_commodities.dashboard.config import get_settings
-    from embrapa_commodities.dashboard.data import GoldStore
+    from embrapa_commodities.dashboard.data import GoldRepository
     from embrapa_commodities.dashboard.pages import (
         dados,
         export,
@@ -112,7 +112,7 @@ def build_registry() -> dict[str, DataSource]:
     )
 
     ingestion, dashboard = get_settings()
-    ibge_pevs_store = GoldStore(ingestion, dashboard)
+    ibge_pevs_store = GoldRepository(ingestion, dashboard)
 
     ibge_pevs = DataSource(
         id="ibge-pevs",

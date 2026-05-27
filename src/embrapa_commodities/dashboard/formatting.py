@@ -85,14 +85,17 @@ def fmt_datetime(value: datetime) -> str:
 
 
 def value_column(convention: str, currency: str) -> str:
-    """Map (convention, currency) → column name in gold_commodity_matrix.
+    """Map (convention, currency) → column name in the Gold tables.
 
-    Convention is one of "ipca", "igpm", "yearfx". Currency is "BRL", "USD",
-    "EUR", "CNY".
+    Convention is one of "ipca", "igpm", "igpdi", "yearfx". Currency is one
+    of "BRL", "USD", "EUR", "CNY". The four convention prefixes match the
+    column families materialized by every Gold table (matrix, state_year,
+    year_product, state_total_year).
     """
     conv_map = {
         "ipca": "val_real_ipca",
         "igpm": "val_real_igpm",
+        "igpdi": "val_real_igpdi",
         "yearfx": "val_yearfx",
     }
     if convention not in conv_map:
@@ -103,7 +106,12 @@ def value_column(convention: str, currency: str) -> str:
 
 
 def convention_label(convention: str) -> str:
-    return {"ipca": "IPCA", "igpm": "IGP-M", "yearfx": "FX do ano"}[convention]
+    return {
+        "ipca": "IPCA",
+        "igpm": "IGP-M",
+        "igpdi": "IGP-DI",
+        "yearfx": "FX do ano",
+    }[convention]
 
 
 def period_to_years(

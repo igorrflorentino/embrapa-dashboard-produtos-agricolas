@@ -1,13 +1,21 @@
-"""In-memory snapshot of `gold.gold_commodity_matrix` with TTL refresh.
+"""BigQuery-backed accessor for the Gold layer.
 
-A single `GoldStore` is instantiated lazily by `app.py` and shared across all
-Dash callbacks. The first request triggers a `SELECT * FROM gold` (small —
-one row per year/state/city/product), pandas holds it, and subsequent
-callbacks filter in-memory. The store re-queries BQ when `cache_ttl_seconds`
-has elapsed.
+`GoldRepository` is the single data-access surface for every Dash callback.
+Each public method targets the smallest Gold table that has the grain it
+needs, rather than wholesale-loading `gold_commodity_matrix` and filtering
+in pandas:
 
-All filtering / aggregation helpers return small DataFrames purpose-built for
-a specific chart. They never mutate the cached snapshot.
+- `time_series`, `top_states`, `product_mix`, `coverage_summary` (and the
+  metadata helpers `year_range`, `products`, `states`, `last_refresh`) hit
+  the small pre-aggregated tables (`gold_commodity_year_product`,
+  `gold_commodity_state_year`, `gold_commodity_state_total_year`).
+- `top_cities`, `filtered`, `quality_summary`, `df()` need municipal grain
+  or row-level quality flags and therefore hit `gold_commodity_matrix`.
+
+Tables are cached independently with the same TTL (`cache_ttl_seconds`).
+The first BQ load fires the `bq_snapshot` health stage; subsequent loads
+update it. Thread-safety is one lock shared across all caches —
+contention is low (callbacks are short-lived and most reads hit warm cache).
 """
 
 from __future__ import annotations
@@ -29,83 +37,94 @@ from embrapa_commodities.dashboard.health import health
 
 logger = logging.getLogger(__name__)
 
-Convention = Literal["ipca", "igpm", "yearfx"]
+Convention = Literal["ipca", "igpm", "igpdi", "yearfx"]
 Currency = Literal["BRL", "USD", "EUR", "CNY"]
+
+# Logical table names. Fixed by dbt model names — not user-configurable.
+_T_MATRIX = "gold_commodity_matrix"
+_T_STATE_YEAR = "gold_commodity_state_year"
+_T_YEAR_PRODUCT = "gold_commodity_year_product"
+_T_STATE_TOTAL_YEAR = "gold_commodity_state_total_year"
 
 
 @dataclass(frozen=True)
 class GoldSnapshot:
+    """A single cached Gold-table snapshot."""
+
     df: pd.DataFrame
     loaded_at: datetime
     rows: int
 
     @property
     def last_refresh(self) -> datetime | None:
-        """Max(last_refresh) across all rows — i.e. when ingestion last touched the table."""
+        """Max(last_refresh) across all rows — when ingestion last touched the data."""
         if "last_refresh" not in self.df.columns or self.df["last_refresh"].isna().all():
             return None
         return self.df["last_refresh"].max().to_pydatetime()
 
 
-class GoldStore:
-    """Thread-safe TTL cache around `gold.gold_commodity_matrix`."""
+class GoldRepository:
+    """Per-table TTL cache over the Gold layer.
+
+    Same public API as the legacy `GoldStore` so existing callbacks don't
+    need to change; the difference is that small queries (time series, top
+    states, product mix, coverage) now hit the pre-aggregated tables
+    instead of scanning `gold_commodity_matrix` in pandas.
+    """
 
     def __init__(self, ingestion: IngestionSettings, dashboard: DashboardSettings) -> None:
         self._ingestion = ingestion
         self._dashboard = dashboard
-        self._snapshot: GoldSnapshot | None = None
         self._lock = threading.Lock()
-        self._table_fqn = (
-            f"{ingestion.gcp_project_id}.{ingestion.bq_gold_dataset}.{dashboard.bq_gold_table}"
-        )
+        self._client: bigquery.Client | None = None
+        self._snapshots: dict[str, GoldSnapshot] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
     def snapshot(self) -> GoldSnapshot:
-        """Return the cached snapshot, refreshing if stale or absent."""
-        if self._is_fresh():
-            return self._snapshot  # type: ignore[return-value]
-        with self._lock:
-            if self._is_fresh():  # double-checked locking
-                return self._snapshot  # type: ignore[return-value]
-            self._snapshot = self._load()
-        return self._snapshot
+        """Snapshot of the matrix (kept for back-compat with code that inspects rows)."""
+        return self._cached(_T_MATRIX)
 
     def df(self) -> pd.DataFrame:
-        return self.snapshot().df
+        """Full matrix DataFrame. Use only for raw-data exports or row-level scans."""
+        return self._cached(_T_MATRIX).df
 
     def last_refresh(self) -> datetime | None:
-        return self.snapshot().last_refresh
+        """When the most recent ingestion run touched the Gold data.
+
+        Read from `gold_commodity_year_product` (smallest table with the
+        `last_refresh` column) so this never forces a full matrix load.
+        """
+        return self._cached(_T_YEAR_PRODUCT).last_refresh
 
     def loaded_at(self) -> datetime:
-        return self.snapshot().loaded_at
+        """When the year_product cache was populated (the metadata baseline)."""
+        return self._cached(_T_YEAR_PRODUCT).loaded_at
 
     def year_range(self) -> tuple[int, int]:
-        df = self.df()
+        df = self._cached(_T_YEAR_PRODUCT).df
         return int(df["reference_year"].min()), int(df["reference_year"].max())
 
     def products(self) -> pd.DataFrame:
         """Distinct products with description. Ordered by description."""
-        df = self.df()
-        out = (
+        df = self._cached(_T_YEAR_PRODUCT).df
+        return (
             df[["product_code", "product_description"]]
             .dropna()
             .drop_duplicates()
             .sort_values("product_description")
             .reset_index(drop=True)
         )
-        return out
 
     def states(self) -> pd.DataFrame:
         """Distinct states (UF acronym + name + region)."""
-        df = self.df()
-        out = (
+        df = self._cached(_T_STATE_TOTAL_YEAR).df
+        return (
             df[["state_acronym", "state_name", "region"]]
             .dropna(subset=["state_acronym"])
             .drop_duplicates()
             .sort_values("state_name")
             .reset_index(drop=True)
         )
-        return out
 
     # ── Slicers — small purpose-built frames for charts ───────────────────────
     def filtered(
@@ -116,7 +135,8 @@ class GoldStore:
         state_acronym: str | None = None,
         only_ok: bool = False,
     ) -> pd.DataFrame:
-        df = self.df()
+        """Filtered slice of the matrix. Used by the raw-data table and CSV export."""
+        df = self._cached(_T_MATRIX).df
         if years:
             lo, hi = years
             df = df[(df["reference_year"] >= lo) & (df["reference_year"] <= hi)]
@@ -137,21 +157,46 @@ class GoldStore:
         product_code: str | None = None,
         state_acronym: str | None = None,
     ) -> pd.DataFrame:
-        """Returns columns: reference_year, value, quantity."""
+        """Year-by-year value + quantity. Routes to the smallest table with the needed grain.
+
+        Filter combinations → source table:
+        - no filter / product only        → gold_commodity_year_product
+        - state only                       → gold_commodity_state_total_year
+        - state + product                  → gold_commodity_state_year
+
+        Returns columns: reference_year, value, quantity.
+        """
         col = value_column(convention, currency)
-        df = self.filtered(years=years, product_code=product_code, state_acronym=state_acronym)
+        if state_acronym and product_code:
+            df = self._cached(_T_STATE_YEAR).df
+            df = df[(df["state_acronym"] == state_acronym) & (df["product_code"] == product_code)]
+        elif state_acronym:
+            df = self._cached(_T_STATE_TOTAL_YEAR).df
+            df = df[df["state_acronym"] == state_acronym]
+        elif product_code:
+            df = self._cached(_T_YEAR_PRODUCT).df
+            df = df[df["product_code"] == product_code]
+        else:
+            df = self._cached(_T_YEAR_PRODUCT).df
+
+        if years:
+            lo, hi = years
+            df = df[(df["reference_year"] >= lo) & (df["reference_year"] <= hi)]
+
         if df.empty:
             return pd.DataFrame(columns=["reference_year", "value", "quantity"])
-        # Quantity: prefer tons, fall back to m³ (they are exclusive per product).
-        df = df.assign(
-            _qty=df["quantity_tons"].fillna(df["quantity_m3"]),
-        )
-        grouped = (
+
+        # Quantity: prefer tons, fall back to m³. In year_product / state_year
+        # for a single product, exactly one is non-null; in state_total_year
+        # (sums across all products) both can be non-null and the fillna
+        # collapses to "give a single representative number" — semantics are
+        # by definition imprecise for multi-commodity baskets.
+        df = df.assign(_qty=df["quantity_tons"].fillna(df["quantity_m3"]))
+        return (
             df.groupby("reference_year", as_index=False)
             .agg(value=(col, "sum"), quantity=("_qty", "sum"))
             .sort_values("reference_year")
         )
-        return grouped
 
     def top_states(
         self,
@@ -162,18 +207,31 @@ class GoldStore:
         product_code: str | None = None,
         n: int = 8,
     ) -> pd.DataFrame:
-        """Top-N states for a given year by total value. Cols: state_acronym, state_name, value."""
+        """Top-N states for a given year by total value.
+
+        Source: gold_commodity_state_year when filtering by product;
+        gold_commodity_state_total_year otherwise (avoids summing products
+        in pandas).
+
+        Returns columns: state_acronym, state_name, value.
+        """
         col = value_column(convention, currency)
-        df = self.filtered(years=(year, year), product_code=product_code)
+        if product_code:
+            df = self._cached(_T_STATE_YEAR).df
+            df = df[(df["reference_year"] == year) & (df["product_code"] == product_code)]
+        else:
+            df = self._cached(_T_STATE_TOTAL_YEAR).df
+            df = df[df["reference_year"] == year]
+
         if df.empty:
             return pd.DataFrame(columns=["state_acronym", "state_name", "value"])
-        grouped = (
+
+        return (
             df.groupby(["state_acronym", "state_name"], as_index=False)
             .agg(value=(col, "sum"))
             .sort_values("value", ascending=False)
             .head(n)
         )
-        return grouped
 
     def product_mix(
         self,
@@ -186,12 +244,22 @@ class GoldStore:
     ) -> pd.DataFrame:
         """Share-of-value by product for one year.
 
+        Source: gold_commodity_year_product (no state filter) or
+        gold_commodity_state_year (with state filter).
+
         Returns columns: product_code, product_description, value, share.
         """
         col = value_column(convention, currency)
-        df = self.filtered(years=(year, year), state_acronym=state_acronym)
+        if state_acronym:
+            df = self._cached(_T_STATE_YEAR).df
+            df = df[(df["reference_year"] == year) & (df["state_acronym"] == state_acronym)]
+        else:
+            df = self._cached(_T_YEAR_PRODUCT).df
+            df = df[df["reference_year"] == year]
+
         if df.empty:
             return pd.DataFrame(columns=["product_code", "product_description", "value", "share"])
+
         grouped = (
             df.groupby(["product_code", "product_description"], as_index=False)
             .agg(value=(col, "sum"))
@@ -227,25 +295,29 @@ class GoldStore:
         state_acronym: str | None = None,
         n: int = 20,
     ) -> pd.DataFrame:
+        """Top-N municipalities. Always queries the matrix — no pre-aggregate has city grain."""
         col = value_column(convention, currency)
-        df = self.filtered(
-            years=(year, year),
-            product_code=product_code,
-            state_acronym=state_acronym,
-        )
+        df = self._cached(_T_MATRIX).df
+        df = df[df["reference_year"] == year]
+        if product_code:
+            df = df[df["product_code"] == product_code]
+        if state_acronym:
+            df = df[df["state_acronym"] == state_acronym]
+
         if df.empty:
             return pd.DataFrame(columns=["city_name", "state_acronym", "value", "quantity"])
+
         df = df.assign(_qty=df["quantity_tons"].fillna(df["quantity_m3"]))
-        grouped = (
+        return (
             df.groupby(["city_name", "state_acronym"], as_index=False)
             .agg(value=(col, "sum"), quantity=("_qty", "sum"))
             .sort_values("value", ascending=False)
             .head(n)
         )
-        return grouped
 
     def quality_summary(self) -> dict[str, float | int]:
-        df = self.df()
+        """Row-level flag counts. Needs matrix (the pre-aggregates lose row-level flags)."""
+        df = self._cached(_T_MATRIX).df
         if df.empty:
             return {"pct_ok": 0.0, "rows_total": 0}
         flag = df["data_quality_flag"]
@@ -262,48 +334,79 @@ class GoldStore:
         }
 
     def coverage_summary(self, year: int | None = None) -> dict[str, int]:
-        df = self.df()
+        """Distinct counts of states, cities, and products.
+
+        Cities still need matrix (only table with `city_name`); state and
+        product counts come from the small pre-aggregates.
+        """
+        states_df = self._cached(_T_STATE_TOTAL_YEAR).df
+        products_df = self._cached(_T_YEAR_PRODUCT).df
+        matrix_df = self._cached(_T_MATRIX).df
         if year is not None:
-            df = df[df["reference_year"] == year]
+            states_df = states_df[states_df["reference_year"] == year]
+            products_df = products_df[products_df["reference_year"] == year]
+            matrix_df = matrix_df[matrix_df["reference_year"] == year]
         return {
-            "states": int(df["state_acronym"].nunique()),
-            "cities": int(df["city_name"].nunique()),
-            "products": int(df["product_code"].nunique()),
+            "states": int(states_df["state_acronym"].nunique()),
+            "cities": int(matrix_df["city_name"].nunique()),
+            "products": int(products_df["product_code"].nunique()),
         }
 
     # ── Internals ─────────────────────────────────────────────────────────────
-    def _is_fresh(self) -> bool:
-        if self._snapshot is None:
-            return False
-        age = (datetime.now() - self._snapshot.loaded_at).total_seconds()
+    def _cached(self, table_short: str) -> GoldSnapshot:
+        """Return the cached snapshot of a Gold table, refreshing if stale or absent."""
+        existing = self._snapshots.get(table_short)
+        if existing is not None and self._is_fresh(existing):
+            return existing
+        with self._lock:
+            existing = self._snapshots.get(table_short)
+            if existing is not None and self._is_fresh(existing):  # double-checked
+                return existing
+            self._snapshots[table_short] = self._load(table_short)
+        return self._snapshots[table_short]
+
+    def _is_fresh(self, snap: GoldSnapshot) -> bool:
+        age = (datetime.now() - snap.loaded_at).total_seconds()
         return age < self._dashboard.cache_ttl_seconds
 
-    def _load(self) -> GoldSnapshot:
-        creds = get_credentials(self._ingestion)
-        client = bigquery.Client(
-            project=self._ingestion.gcp_project_id,
-            location=self._ingestion.bq_location,
-            credentials=creds,
-        )
-        health.stage_started("bq_snapshot", detail=f"SELECT * FROM {self._table_fqn}")
+    def _bq(self) -> bigquery.Client:
+        if self._client is None:
+            self._client = bigquery.Client(
+                project=self._ingestion.gcp_project_id,
+                location=self._ingestion.bq_location,
+                credentials=get_credentials(self._ingestion),
+            )
+        return self._client
+
+    def _table_fqn(self, table_short: str) -> str:
+        return f"{self._ingestion.gcp_project_id}.{self._ingestion.bq_gold_dataset}.{table_short}"
+
+    def _load(self, table_short: str) -> GoldSnapshot:
+        fqn = self._table_fqn(table_short)
+        client = self._bq()
+        # All four Gold tables fire into the same `bq_snapshot` health stage —
+        # users see "BigQuery snapshot loaded" once per fresh-cache miss
+        # regardless of which table triggered it; the table name lands in
+        # the stage `detail` so the status page is still useful.
+        health.stage_started("bq_snapshot", detail=f"SELECT * FROM {fqn}")
         started = time.monotonic()
-        logger.info("Loading snapshot from %s", self._table_fqn)
-        query = f"SELECT * FROM `{self._table_fqn}`"
-        # Use the BigQuery Storage API for the row download — binary Arrow
-        # stream, 5–10x faster than the default REST/JSON path for tables
-        # of this size. Requires roles/bigquery.readSessionUser on the SA.
+        logger.info("Loading Gold table %s", fqn)
         try:
-            df = client.query(query).result().to_dataframe(create_bqstorage_client=True)
+            df = (
+                client.query(f"SELECT * FROM `{fqn}`")
+                .result()
+                .to_dataframe(create_bqstorage_client=True)
+            )
         except Exception as exc:
-            health.stage_error("bq_snapshot", str(exc))
+            health.stage_error("bq_snapshot", str(exc), table=fqn)
             raise
         elapsed = time.monotonic() - started
-        logger.info("Gold snapshot loaded: %d rows in %.1fs", len(df), elapsed)
+        logger.info("Gold table %s loaded: %d rows in %.1fs", table_short, len(df), elapsed)
         health.stage_ok(
             "bq_snapshot",
-            detail=f"{len(df):,} linhas em {elapsed:.1f}s",
+            detail=f"{table_short}: {len(df):,} linhas em {elapsed:.1f}s",
             rows=len(df),
             elapsed_seconds=round(elapsed, 2),
-            table=self._table_fqn,
+            table=fqn,
         )
         return GoldSnapshot(df=df, loaded_at=datetime.now(), rows=len(df))
