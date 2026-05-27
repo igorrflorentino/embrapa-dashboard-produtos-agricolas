@@ -105,3 +105,50 @@ models:
                 values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
       - name: product_code
         tests: [not_null]
+
+  - name: gold_commodity_state_total_year
+    description: |
+      Geographic-only roll-up of gold_commodity_matrix: one row per
+      (reference_year, state_acronym), aggregated across ALL products and
+      municipalities. ~1k rows total (~40 years × 27 UFs). Sized for the
+      dashboard's Geography view: choropleths, regional rankings,
+      concentration KPIs, state totals — all without runtime product
+      aggregation.
+
+      Sibling of gold_commodity_year_product (year × product) and
+      gold_commodity_state_year (year × state × product). All three derive
+      in parallel from gold_commodity_matrix.
+
+      Coverage counters use DISTINCT cardinality (count distinct city_name /
+      product_code) — summing n_municipalities_* from state_year would
+      double-count cities that produce multiple commodities.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - state_acronym
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: state_name
+        tests: [not_null]
+      - name: region
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: n_municipalities_total
+        description: "Distinct municipalities producing any commodity in this (year, state)."
+        tests: [not_null]
+      - name: n_municipalities_ok
+        description: "Distinct municipalities with data_quality_flag = 'OK'. Always ≤ n_municipalities_total."
+        tests: [not_null]
+      - name: n_products
+        description: "Distinct product_codes with data in this (year, state)."
+        tests: [not_null]
+      - name: last_refresh
+        tests: [not_null]
