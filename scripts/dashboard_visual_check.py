@@ -27,11 +27,13 @@ from dashboard_smoke import launch_server, stop_server, wait_for_health
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # (slug, screenshot filename). Canonical source-scoped paths under /ibge-pevs.
+# The 4 primary views after the Task #5 refactor — produto / tabela / export
+# / glossario / dados were absorbed (see plan: voc-um-especialista-lively-treasure.md).
 VIEWS = [
     ("visao-geral", "overview"),
-    ("produto", "product"),
+    ("qualidade-dados", "quality"),
+    ("valor-e-volume", "value-volume"),
     ("geografia", "geography"),
-    ("tabela", "tabela"),
 ]
 
 # Any of these marks "real content rendered" for a view (charts, tables, heroes).
