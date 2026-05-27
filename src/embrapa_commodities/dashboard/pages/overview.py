@@ -22,7 +22,7 @@ from embrapa_commodities.dashboard.components.global_filter_bar import (
     selected_commodity_codes,
     selected_convention,
     selected_currency,
-    selected_period,
+    selected_period_years,
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.monetary_legend import monetary_legend
@@ -34,7 +34,6 @@ from embrapa_commodities.dashboard.formatting import (
     fmt_datetime,
     fmt_delta,
     fmt_number,
-    period_to_years,
 )
 
 PREFIX = "overview"
@@ -217,8 +216,7 @@ def register_callbacks(app, repo: GoldRepository) -> None:
             commodities = selected_commodity_codes(global_filters)
             conv = selected_convention(global_filters)
             ccy = selected_currency(global_filters)
-            period = selected_period(global_filters)
-            years = period_to_years(repo.year_range(), period)
+            years = selected_period_years(global_filters)
 
             kpis = _build_kpis(repo, commodities=commodities, years=years, conv=conv, ccy=ccy)
             ts = repo.time_series(

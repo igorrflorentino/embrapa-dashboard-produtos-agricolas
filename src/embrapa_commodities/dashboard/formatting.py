@@ -110,7 +110,7 @@ def convention_label(convention: str) -> str:
         "ipca": "IPCA",
         "igpm": "IGP-M",
         "igpdi": "IGP-DI",
-        "yearfx": "FX do ano",
+        "yearfx": "Nominal",
     }[convention]
 
 

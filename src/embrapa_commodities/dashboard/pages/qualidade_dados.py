@@ -19,12 +19,13 @@ from embrapa_commodities.dashboard.components.charts_views import (
 from embrapa_commodities.dashboard.components.global_filter_bar import (
     global_filter_bar,
     selected_commodity_codes,
-    selected_period,
+    selected_data_quality,
+    selected_period_years,
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
 from embrapa_commodities.dashboard.data import GoldRepository
-from embrapa_commodities.dashboard.formatting import fmt_number, period_to_years
+from embrapa_commodities.dashboard.formatting import fmt_number
 
 PREFIX = "qualidade"
 
@@ -56,25 +57,7 @@ def _hero() -> html.Div:
     )
 
 
-def _local_filter() -> html.Div:
-    return html.Div(
-        className="filterbar",
-        children=[
-            html.Div(
-                className="filter",
-                children=[
-                    html.Label("Tag de qualidade (drill-down)"),
-                    dcc.Dropdown(
-                        id={"section": PREFIX, "control": "flag"},
-                        options=[{"label": f, "value": f} for f in _ALL_FLAGS],
-                        value=_ALL_FLAGS,
-                        multi=True,
-                        clearable=False,
-                    ),
-                ],
-            ),
-        ],
-    )
+
 
 
 def layout(repo: GoldRepository) -> html.Div:
@@ -83,7 +66,6 @@ def layout(repo: GoldRepository) -> html.Div:
         children=[
             _hero(),
             global_filter_bar(repo),
-            _local_filter(),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(
                 overline="Cobertura temporal",
@@ -215,20 +197,20 @@ def register_callbacks(app, repo: GoldRepository) -> None:
         Output({"section": PREFIX, "control": "table-container"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
         Input("global-filters", "data"),
-        Input({"section": PREFIX, "control": "flag"}, "value"),
         prevent_initial_call="initial_duplicate",
     )
-    def _update(global_filters, flags):
+    def _update(global_filters):
         try:
             commodities = selected_commodity_codes(global_filters)
-            period = selected_period(global_filters)
-            years = period_to_years(repo.year_range(), period)
+            years = selected_period_years(global_filters)
+            # data_quality is a list of tags. Defaults to _ALL_FLAGS if empty
+            data_quality = selected_data_quality(global_filters) or _ALL_FLAGS
 
             kpis = _build_kpis(repo)
             stacked = stacked_area_quality(repo.quality_breakdown_by_year(years=years))
             heatmap = heatmap_uf_year_quality(repo.quality_by_uf_year(years=years))
             table = _drill_table(
-                repo, commodities=commodities, years=years, flags=flags or _ALL_FLAGS
+                repo, commodities=commodities, years=years, flags=data_quality
             )
             return kpis, stacked, heatmap, table, no_update
         except Exception as exc:

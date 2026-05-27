@@ -93,10 +93,10 @@
   --pres-beau-blue:    #B4D0E7;
 
   /* ============ SEMANTIC TOKENS — light surface ============ */
-  --bg-page:           #FAFAF7;
+  --bg-page:           #F4F4F0;
   --bg-surface:        #FFFFFF;
-  --bg-surface-2:      #F4F4F0;
-  --bg-surface-3:      #ECECEC;
+  --bg-surface-2:      #ECECEC;
+  --bg-surface-3:      #E0E0E0;
   --bg-brand:          var(--embrapa-green);
   --bg-brand-deep:     var(--embrapa-green-darker);
 
