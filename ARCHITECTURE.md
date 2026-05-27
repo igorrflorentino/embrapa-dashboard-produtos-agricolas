@@ -112,9 +112,10 @@ embrapa-dashboard-commodities/
 │   │   │   └── silver_bcb_currency.sql   # Câmbio limpo
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
-│   │       ├── gold_commodity_matrix.sql          # Tabela principal (22 cols)
-│   │       ├── gold_commodity_state_year.sql      # Agregação por estado/ano
-│   │       └── gold_commodity_year_product.sql    # Agregação por produto/ano
+│   │       ├── gold_commodity_matrix.sql            # Tabela principal (município × produto × ano)
+│   │       ├── gold_commodity_state_year.sql        # Agregação por estado × produto × ano
+│   │       ├── gold_commodity_year_product.sql      # Agregação nacional por produto × ano
+│   │       └── gold_commodity_state_total_year.sql  # Agregação geográfica pura (UF × ano)
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
 │   │   ├── safe_numeric.sql          # Conversão segura (placeholders IBGE → NULL)
@@ -219,10 +220,10 @@ embrapa-dashboard-commodities/
 ### 3. Gold (dbt, `materialized=table`)
 
 - Tabela principal: `gold_commodity_matrix` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
-- Tabelas agregadas: `gold_commodity_state_year`, `gold_commodity_year_product`.
-- Duas convenções monetárias:
+- Tabelas agregadas (siblings, todas derivadas direto da matrix): `gold_commodity_state_year` (UF × produto × ano), `gold_commodity_year_product` (produto × ano nacional), `gold_commodity_state_total_year` (UF × ano sem produto — feeds a view Geografia).
+- Quatro convenções monetárias:
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
-  - `val_real_{ipca,igpm}_*` — valor deflacionado pela cadeia IPCA/IGP-M, projetado para hoje. **Use esta coluna para comparações entre anos.**
+  - `val_real_{ipca,igpm,igpdi}_*` — valor deflacionado pela cadeia IPCA / IGP-M / IGP-DI, projetado para hoje. **Use esta coluna para comparações entre anos.**
 
 ### 4. Consumo
 

@@ -30,16 +30,18 @@ BACKUP_PREFIX = "backups"
 
 
 def _gold_tables(settings: Settings) -> list[str]:
-    """The three physical Gold tables produced by dbt build (prod target).
+    """The four physical Gold tables produced by dbt build (prod target).
 
     Hardcoded list (rather than introspecting the dataset) so the command is
     deterministic — a stray ad-hoc table in `gold` does not silently get
-    backed up.
+    backed up. Must stay in sync with `dbt/models/gold/*.sql`.
     """
+    base = f"{settings.gcp_project_id}.{settings.bq_gold_dataset}"
     return [
-        f"{settings.gcp_project_id}.{settings.bq_gold_dataset}.gold_commodity_matrix",
-        f"{settings.gcp_project_id}.{settings.bq_gold_dataset}.gold_commodity_state_year",
-        f"{settings.gcp_project_id}.{settings.bq_gold_dataset}.gold_commodity_year_product",
+        f"{base}.gold_commodity_matrix",
+        f"{base}.gold_commodity_state_year",
+        f"{base}.gold_commodity_year_product",
+        f"{base}.gold_commodity_state_total_year",
     ]
 
 
