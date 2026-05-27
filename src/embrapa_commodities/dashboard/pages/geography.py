@@ -23,7 +23,7 @@ from embrapa_commodities.dashboard.components.export import (
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
     fmt_currency,
@@ -89,7 +89,7 @@ _CODE_TO_SIGLA = {
 }
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     uf_options = [{"label": "Brasil (todos)", "value": "all"}] + [
         {"label": f"{row.state_name} ({row.state_acronym})", "value": row.state_acronym}
         for row in store.states().itertuples(index=False)
@@ -273,7 +273,7 @@ def _spinner(child, *, name: str):
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -345,7 +345,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         return download_payload(df, filename_prefix=f"embrapa-geografia-{suffix}-{int(year)}")
 
 
-def _build_stacked(store: GoldStore, conv: str, ccy: str, state_acronym: str | None):
+def _build_stacked(store: GoldRepository, conv: str, ccy: str, state_acronym: str | None):
     import pandas as pd
 
     from embrapa_commodities.dashboard.formatting import value_column
@@ -371,7 +371,7 @@ def _build_stacked(store: GoldStore, conv: str, ccy: str, state_acronym: str | N
 
 
 def _kpi_strip(
-    store: GoldStore,
+    store: GoldRepository,
     state_acronym: str | None,
     conv: str,
     ccy: str,
@@ -454,7 +454,7 @@ def _kpi_strip(
 
 
 def _cities_table(
-    store: GoldStore,
+    store: GoldRepository,
     state_acronym: str | None,
     conv: str,
     ccy: str,

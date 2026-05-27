@@ -18,7 +18,7 @@ DataSource (ibge-pevs)
 ├── sidebar_sections:
 │   ├── Dados:   tabela, export, sobre-api
 │   └── Sobre:   glossário, dados
-└── store:           GoldStore (in-memory BigQuery snapshot)
+└── store:           GoldRepository (per-table BigQuery cache, routes queries to the smallest Gold table with the needed grain)
 ```
 
 The only global page is `/status`.
@@ -44,7 +44,7 @@ from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.monetary_legend import monetary_legend
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import convention_label, fmt_currency, fmt_number
 
 # CRITICAL: PREFIX must be globally unique across ALL pages.
@@ -52,7 +52,7 @@ from embrapa_commodities.dashboard.formatting import convention_label, fmt_curre
 PREFIX = "<unique_page_prefix>"
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     """Render the page layout. Called on route match."""
     return html.Div(
         className="screen",
@@ -65,7 +65,7 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     """Register all callbacks. Called ONCE at app startup (eagerly)."""
     from embrapa_commodities.dashboard.app import build_error_payload
 
@@ -165,9 +165,9 @@ All chart functions return `go.Figure`. They handle empty DataFrames gracefully 
 - **Template:** `install_template()` is called once at startup. All figures auto-inherit.
 - **CSS classes:** `screen`, `card`, `grid-2`, `kpi-row`, `highlights`, `page-hero`, `overline`, `section-title`, `page-title`, `caption`, `tnum`, `chip`, `meta-row`, `empty-state`.
 
-## GoldStore Slicers
+## GoldRepository Slicers
 
-Pages access data via the `GoldStore` instance:
+Pages access data via the `GoldRepository` instance:
 
 | Method | Returns |
 |--------|---------|

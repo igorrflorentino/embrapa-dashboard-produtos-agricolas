@@ -14,7 +14,7 @@ from typing import Any
 from dash import Input, Output, dcc, html
 
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import fmt_datetime
 from embrapa_commodities.dashboard.health import health
 
@@ -44,7 +44,7 @@ def _status_chip(status: str) -> html.Span:
     return html.Span(chip[1], className=f"chip {chip[0]}")
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     """Initial layout. Most content comes via the refresh callback."""
     return html.Div(
         className="screen",
@@ -303,7 +303,7 @@ def _section_errors(snap: dict[str, Any]) -> html.Div:
 # ── Callbacks ─────────────────────────────────────────────────────────────
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     @dash_app.callback(
         Output({"section": PREFIX, "control": "now"}, "children"),
         Output({"section": PREFIX, "control": "container"}, "children"),

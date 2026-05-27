@@ -18,7 +18,7 @@ from embrapa_commodities.dashboard.components.export import (
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
     fmt_currency,
@@ -33,7 +33,7 @@ def _empty_card(message: str) -> html.Div:
     return html.Div(className="empty-state", children=message)
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     products_df = store.products()
     options = [
         {"label": row.product_description, "value": row.product_code}
@@ -213,7 +213,7 @@ def _spinner(child, *, name: str):
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -287,7 +287,7 @@ def _placeholder_fig():
 
 
 def _kpi_strip(
-    store: GoldStore,
+    store: GoldRepository,
     product_code: str,
     conv: str,
     ccy: str,
@@ -353,7 +353,7 @@ def _kpi_strip(
 
 
 def _cities_table(
-    store: GoldStore,
+    store: GoldRepository,
     product_code: str,
     conv: str,
     ccy: str,

@@ -17,13 +17,13 @@ from embrapa_commodities.dashboard.components.export import (
 )
 from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import period_to_years
 
 PREFIX = "export"
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     lo, hi = store.year_range()
     column_options = [{"label": COLUMN_LABELS.get(c, c), "value": c} for c in DEFAULT_COLUMNS]
 
@@ -197,7 +197,7 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -244,7 +244,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
         return download_payload(df, filename_prefix=prefix, columns=columns)
 
 
-def _filtered(store: GoldStore, period, product, uf, only_ok):
+def _filtered(store: GoldRepository, period, product, uf, only_ok):
     years = period_to_years(store.year_range(), period)
     product_code = None if product in (None, "all") else product
     uf_code = None if uf in (None, "all") else uf

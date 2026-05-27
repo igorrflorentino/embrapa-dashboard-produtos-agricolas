@@ -5,7 +5,7 @@ from __future__ import annotations
 from dash import html
 
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 
 PREFIX = "sobre_api"
 
@@ -27,7 +27,7 @@ def _code_block(text: str) -> html.Pre:
     )
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
@@ -258,7 +258,7 @@ def _kv_card(label: str, value: str) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     """Static page — no callbacks."""
     return None
 

@@ -112,5 +112,5 @@ After presenting the report, propose a **prioritised refactoring plan** in order
 
 - **Do not auto-fix.** Every change must be proposed and approved explicitly.
 - **Dashboard pages have 0% coverage by design** — this is expected and should not be flagged as critical.
-- **`data.py` / `GoldStore`** — large MI debt is acceptable here; the class is intentionally dense (in-memory snapshot + 8 slicer methods). Flag only if CC > D.
+- **`data.py` / `GoldRepository`** — large MI debt is acceptable here; the class is intentionally dense (per-table TTL cache + 8 slicer methods that route to the smallest Gold table with the needed grain). Flag only if CC > D.
 - **dbt SQL is out of scope** for this audit — use `make dbt-test` + `sqlfluff` for SQL quality.

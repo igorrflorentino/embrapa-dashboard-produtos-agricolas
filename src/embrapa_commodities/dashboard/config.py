@@ -1,8 +1,10 @@
 """Dashboard runtime settings.
 
 Extends the ingestion-side `Settings` class so we share `GCP_PROJECT_ID`,
-`BQ_GOLD_DATASET`, `BQ_LOCATION`, and the impersonation helper. Adds a small
-set of dashboard-only knobs (gold table name, cache TTL).
+`BQ_GOLD_DATASET`, `BQ_LOCATION`, and the impersonation helper. Adds a
+single dashboard-only knob (cache TTL). Gold table names are hard-coded
+in `GoldRepository` — they are fixed by the dbt model names and there is
+no value in making them runtime-configurable.
 """
 
 from __future__ import annotations
@@ -22,13 +24,9 @@ class DashboardSettings(BaseSettings):
         extra="ignore",
     )
 
-    bq_gold_table: str = Field(
-        default="gold_commodity_matrix",
-        description="Name of the gold table inside BQ_GOLD_DATASET.",
-    )
     cache_ttl_seconds: int = Field(
         default=21_600,  # 6 hours
-        description="How long the in-memory gold snapshot is reused before re-querying BQ.",
+        description="How long each cached Gold-table snapshot is reused before re-querying BQ.",
     )
 
 

@@ -19,7 +19,7 @@ from embrapa_commodities.dashboard.components.export import (
 )
 from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import period_to_years
 
 # Hard cap on rows sent to the client. The DataTable paginates client-side,
@@ -161,7 +161,7 @@ def _prepare_for_table(df: pd.DataFrame, visible: list[str]) -> list[dict]:
     return out.to_dict("records")
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     lo, hi = store.year_range()
     column_options = [{"label": COLUMN_LABELS.get(c, c), "value": c} for c in DEFAULT_COLUMNS]
 
@@ -270,7 +270,7 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(

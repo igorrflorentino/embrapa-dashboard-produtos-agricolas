@@ -5,7 +5,7 @@ from __future__ import annotations
 from dash import html
 
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 
 PREFIX = "glossario"
 
@@ -52,7 +52,7 @@ def _section(*, title: str, overline: str, terms: list[html.Div]) -> html.Div:
     )
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
@@ -230,7 +230,7 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     """Static page — no callbacks."""
     return None
 

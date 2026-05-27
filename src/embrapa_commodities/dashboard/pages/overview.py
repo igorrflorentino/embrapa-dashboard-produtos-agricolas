@@ -21,7 +21,7 @@ from embrapa_commodities.dashboard.components.filter_bar import filter_bar
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.monetary_legend import monetary_legend
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.data import GoldStore
+from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
     fmt_currency,
@@ -34,7 +34,7 @@ from embrapa_commodities.dashboard.formatting import (
 PREFIX = "overview"
 
 
-def _hero(store: GoldStore) -> html.Div:
+def _hero(store: GoldRepository) -> html.Div:
     last_refresh = store.last_refresh()
     last_refresh_str = fmt_datetime(last_refresh) if last_refresh else "—"
     loaded_str = fmt_datetime(store.loaded_at())
@@ -94,7 +94,7 @@ def _meta_row(label: str, value: str) -> html.Div:
     )
 
 
-def _highlights(store: GoldStore, conv: str, ccy: str) -> html.Div:
+def _highlights(store: GoldRepository, conv: str, ccy: str) -> html.Div:
     """Three institutional 'destaques' derived directly from the data."""
     lo, hi = store.year_range()
     cards: list = []
@@ -206,7 +206,7 @@ def _yoy_deltas(series) -> tuple[float | None, float | None, object | None]:
 
 def _build_kpi_cards(
     *,
-    store: GoldStore,
+    store: GoldRepository,
     series,
     conv: str,
     ccy: str,
@@ -260,7 +260,7 @@ def _build_kpi_cards(
     ]
 
 
-def _kpi_strip(store: GoldStore, conv: str, ccy: str) -> html.Div:
+def _kpi_strip(store: GoldRepository, conv: str, ccy: str) -> html.Div:
     _, hi = store.year_range()
     series = store.time_series(convention=conv, currency=ccy)
     if series.empty:
@@ -283,7 +283,7 @@ def _kpi_strip(store: GoldStore, conv: str, ccy: str) -> html.Div:
     return html.Div(className="kpi-row", children=cards)
 
 
-def _coverage_spark(store: GoldStore, conv: str, ccy: str) -> list[float]:
+def _coverage_spark(store: GoldRepository, conv: str, ccy: str) -> list[float]:
     df = store.df()
     if df.empty:
         return []
@@ -291,7 +291,7 @@ def _coverage_spark(store: GoldStore, conv: str, ccy: str) -> list[float]:
     return coverage.astype(float).tolist()
 
 
-def _quality_spark(store: GoldStore) -> list[float]:
+def _quality_spark(store: GoldRepository) -> list[float]:
     df = store.df()
     if df.empty:
         return []
@@ -314,7 +314,7 @@ def _spinner(child, *, name: str):
     )
 
 
-def layout(store: GoldStore) -> html.Div:
+def layout(store: GoldRepository) -> html.Div:
     """Render the page. Filter callbacks are registered via `register_callbacks`."""
     return html.Div(
         className="screen",
@@ -400,7 +400,7 @@ def layout(store: GoldStore) -> html.Div:
     )
 
 
-def register_callbacks(dash_app, store: GoldStore) -> None:
+def register_callbacks(dash_app, store: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
     @dash_app.callback(
@@ -479,7 +479,7 @@ def register_callbacks(dash_app, store: GoldStore) -> None:
 
 
 def _kpi_strip_filtered(
-    store: GoldStore,
+    store: GoldRepository,
     conv: str,
     ccy: str,
     years: tuple[int, int] | None,
