@@ -166,7 +166,8 @@ product_code, product_description,
 quantity_tons, quantity_m3,
 val_nominal_brl,
 val_yearfx_brl, val_yearfx_usd, val_yearfx_eur, val_yearfx_cny,
-val_real_ipca_brl, val_real_ipca_usd, val_real_ipca_eur, val_real_ipca_cny,
-val_real_igpm_brl, val_real_igpm_usd, val_real_igpm_eur, val_real_igpm_cny,
+val_real_ipca_brl,  val_real_ipca_usd,  val_real_ipca_eur,  val_real_ipca_cny,
+val_real_igpm_brl,  val_real_igpm_usd,  val_real_igpm_eur,  val_real_igpm_cny,
+val_real_igpdi_brl, val_real_igpdi_usd, val_real_igpdi_eur, val_real_igpdi_cny,
 data_quality_flag, last_refresh
 ```

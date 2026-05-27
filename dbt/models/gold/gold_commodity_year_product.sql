@@ -44,6 +44,12 @@ select
     sum(val_real_igpm_eur)           as val_real_igpm_eur,
     sum(val_real_igpm_cny)           as val_real_igpm_cny,
 
+    -- ── Real via IGP-DI ──────────────────────────────────────────────────
+    sum(val_real_igpdi_brl)          as val_real_igpdi_brl,
+    sum(val_real_igpdi_usd)          as val_real_igpdi_usd,
+    sum(val_real_igpdi_eur)          as val_real_igpdi_eur,
+    sum(val_real_igpdi_cny)          as val_real_igpdi_cny,
+
     -- ── Coverage + provenance ────────────────────────────────────────────
     count(*)                                 as n_municipalities_total,
     countif(data_quality_flag = 'OK')        as n_municipalities_ok,

@@ -44,6 +44,7 @@ vars:
 
   # Codes consumed by the Gold deflation logic. If you change the keys in
   # BCB_INFLATION_SERIES (.env), set the matching env vars below so dbt picks
-  # the right series for IPCA/IGP-M projections.
-  inflation_series_ipca: "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE', '433') }}"
-  inflation_series_igpm: "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE', '189') }}"
+  # the right series for IPCA/IGP-M/IGP-DI projections.
+  inflation_series_ipca:  "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE',  '433') }}"
+  inflation_series_igpm:  "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE',  '189') }}"
+  inflation_series_igpdi: "{{ env_var('BCB_INFLATION_SERIES_IGPDI_CODE', '190') }}"
