@@ -7,17 +7,19 @@ in-memory store that the views' callbacks query.
 
 The dashboard is intentionally **source-scoped**: switching between
 sources should look like switching between different applications — no
-mixed data, no shared filter state. The only truly global page is the
-`/status` health view.
+mixed data, no shared filter state across sources. (Within a source,
+the four global filters — commodity / period / currency / convention —
+DO persist across views via the session-scoped store mounted in
+``app.py``.) The only truly global page is the `/status` health view.
 
 To add a new source X:
 
-1. Build a store class for X (or reuse `GoldRepository` if X is also a single
-   BigQuery table with the same shape).
+1. Build a store class for X (or reuse `GoldRepository` if X is also a
+   single BigQuery table with the same shape).
 2. Write source-specific page modules under `pages/x_*.py` whose `PREFIX`
    constants are unique across all sources — Dash uses callback Output IDs
    to dispatch, and two callbacks with the same Output ID would clash.
-3. Add an entry to `_build_registry()` describing X's views and sections.
+3. Add an entry to `build_registry()` describing X's views and sections.
 
 URLs are `/<source-id>/<view-id>`. View IDs are the URL slugs (e.g.
 `visao-geral`, `geografia`); they need not match the underlying page
@@ -101,14 +103,11 @@ def build_registry() -> dict[str, DataSource]:
     from embrapa_commodities.dashboard.config import get_settings
     from embrapa_commodities.dashboard.data import GoldRepository
     from embrapa_commodities.dashboard.pages import (
-        dados,
-        export,
         geography,
-        glossario,
         overview,
-        product,
+        qualidade_dados,
         sobre_api,
-        tabela,
+        valor_e_volume,
     )
 
     ingestion, dashboard = get_settings()
@@ -118,20 +117,30 @@ def build_registry() -> dict[str, DataSource]:
         id="ibge-pevs",
         label="IBGE PEVS",
         icon="eco",
+        # The 4 primary views from the dashboard refactor plan, in the order
+        # the user reads them — strategic overview first, integrity diagnostic
+        # second, deep analytical drill-downs last.
         primary_views=(
             View(
                 id="visao-geral",
-                label="Visão geral",
+                label="Visão Geral",
                 icon="dashboard",
                 layout_fn=overview.layout,
                 register_fn=overview.register_callbacks,
             ),
             View(
-                id="produto",
-                label="Produto",
-                icon="eco",
-                layout_fn=product.layout,
-                register_fn=product.register_callbacks,
+                id="qualidade-dados",
+                label="Qualidade dos Dados",
+                icon="fact_check",
+                layout_fn=qualidade_dados.layout,
+                register_fn=qualidade_dados.register_callbacks,
+            ),
+            View(
+                id="valor-e-volume",
+                label="Valor e Volume",
+                icon="trending_up",
+                layout_fn=valor_e_volume.layout,
+                register_fn=valor_e_volume.register_callbacks,
             ),
             View(
                 id="geografia",
@@ -142,48 +151,19 @@ def build_registry() -> dict[str, DataSource]:
             ),
         ),
         sidebar_sections=(
+            # Tabela bruta + Exportar CSV foram absorvidos nas 4 views novas
+            # (drill-down de Qualidade + botão Exportar global no header).
+            # Glossário + Sobre os dados viraram componentes inline.
+            # Sobre a API permanece como referência técnica isolada.
             SidebarSection(
-                title="Dados",
+                title="Referência",
                 views=(
-                    View(
-                        id="tabela",
-                        label="Tabela bruta",
-                        icon="database",
-                        layout_fn=tabela.layout,
-                        register_fn=tabela.register_callbacks,
-                    ),
-                    View(
-                        id="export",
-                        label="Exportar CSV",
-                        icon="download",
-                        layout_fn=export.layout,
-                        register_fn=export.register_callbacks,
-                    ),
                     View(
                         id="sobre-api",
                         label="Sobre a API",
                         icon="api",
                         layout_fn=sobre_api.layout,
                         register_fn=sobre_api.register_callbacks,
-                    ),
-                ),
-            ),
-            SidebarSection(
-                title="Sobre",
-                views=(
-                    View(
-                        id="glossario",
-                        label="Glossário",
-                        icon="help",
-                        layout_fn=glossario.layout,
-                        register_fn=glossario.register_callbacks,
-                    ),
-                    View(
-                        id="dados",
-                        label="Sobre os dados",
-                        icon="info",
-                        layout_fn=dados.layout,
-                        register_fn=dados.register_callbacks,
                     ),
                 ),
             ),

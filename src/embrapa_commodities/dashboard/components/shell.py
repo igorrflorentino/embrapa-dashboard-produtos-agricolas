@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dash import dcc, html
 
+from embrapa_commodities.dashboard.components.export import header_export_button
 from embrapa_commodities.dashboard.components.icons import icon
 from embrapa_commodities.dashboard.data_sources import DataSource
 
@@ -65,6 +66,11 @@ def _topbar(source: DataSource | None, view_id: str | None) -> html.Header:
                         source.label if source is not None else "Embrapa",
                         className="util-chip",
                     ),
+                    # Global "Exportar" — visible on every page; the actual
+                    # download payload is wired by the active view's callbacks
+                    # (Task #5+). On global pages without a source, the button
+                    # still renders so the topbar layout is stable.
+                    header_export_button(),
                 ],
             ),
         ],
