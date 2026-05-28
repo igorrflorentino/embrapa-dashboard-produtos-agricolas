@@ -1,9 +1,7 @@
 """/ibge-pevs/visao-geral — Visão Geral.
 
 Strategic snapshot of Brazilian extractive vegetable production.
-Filters (commodity, period, currency, correction) are view-local — changes
-here do not affect other views. Quality is fixed to OK rows (the trusted
-scoreboard; integrity analysis lives in Qualidade dos Dados).
+Filters are now globally managed.
 """
 
 from __future__ import annotations
@@ -19,15 +17,6 @@ from embrapa_commodities.dashboard.components.charts import (
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.monetary_legend import monetary_legend
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.components.view_filter_bar import (
-    get_commodity_codes,
-    get_convention,
-    get_currency,
-    get_period_years,
-    make_filter_bar,
-    make_store,
-    register_view_callbacks,
-)
 from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
@@ -92,9 +81,7 @@ def layout(repo: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
-            make_store(PREFIX, repo),
             _hero(repo),
-            make_filter_bar(PREFIX, repo, has_currency=True, has_quality=False),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(overline="Tendência", title="Evolução histórica"),
             html.Div(
@@ -156,17 +143,9 @@ def layout(repo: GoldRepository) -> html.Div:
 def _build_kpis(
     repo: GoldRepository,
     *,
-    commodities: list[str] | None,
-    years: tuple[int, int],
-    conv: str,
-    ccy: str,
+    filters: dict,
 ) -> list:
-    series = repo.time_series(
-        convention=conv,
-        currency=ccy,
-        years=years,
-        commodity_codes=commodities,
-    )
+    series = repo.time_series(filters=filters)
     if series.empty:
         return [_empty("Sem dados para os filtros selecionados.")]
     total_value = float(series["value"].sum() or 0.0)
@@ -177,12 +156,19 @@ def _build_kpis(
     yoy = None
     if not prev.empty and prev["value"].iloc[0]:
         yoy = (last_val - float(prev["value"].iloc[0])) / float(prev["value"].iloc[0]) * 100.0
-    cov = repo.coverage_summary(year=last_year)
+    
+    # Coverage summary expects filters
+    cov = repo.coverage_summary(filters=filters)
+    
+    conv = filters.get("convention", "ipca")
+    ccy = filters.get("currency", "BRL")
+    lo = filters.get("start_year", 1986)
+    
     return [
         kpi_card(
             label=f"Valor agregado · {convention_label(conv)} · {ccy}",
             value=fmt_currency(total_value, ccy),
-            sub=f"soma {years[0]}–{last_year}",
+            sub=f"soma {lo}–{last_year}",
         ),
         kpi_card(
             label="Volume agregado",
@@ -205,17 +191,16 @@ def _build_kpis(
 def _summary_table(
     repo: GoldRepository,
     *,
-    year: int,
-    conv: str,
-    ccy: str,
-    commodities: list[str] | None,
+    filters: dict,
 ) -> html.Div:
-    df = repo.product_mix(year=year, convention=conv, currency=ccy, top_n=20)
-    if commodities:
-        df = df[df["product_code"].isin(commodities)]
+    df = repo.product_mix(filters=filters, top_n=20)
     if df.empty:
         return _empty("Sem dados para os filtros selecionados.")
     cols_show = [c for c in ["product_description", "value", "share"] if c in df.columns]
+    
+    conv = filters.get("convention", "ipca")
+    ccy = filters.get("currency", "BRL")
+    
     col_labels = {
         "product_description": "Commodity",
         "value": f"Valor ({ccy}, {convention_label(conv)})",
@@ -252,8 +237,6 @@ def _empty(message: str) -> html.Div:
 def register_callbacks(app, repo: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
-    register_view_callbacks(app, PREFIX, has_currency=True, has_quality=False)
-
     @app.callback(
         Output({"section": PREFIX, "control": "kpi-row"}, "children"),
         Output({"section": PREFIX, "control": "time-series"}, "figure"),
@@ -261,32 +244,30 @@ def register_callbacks(app, repo: GoldRepository) -> None:
         Output({"section": PREFIX, "control": "top-states"}, "figure"),
         Output({"section": PREFIX, "control": "summary-table"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
-        Input(f"{PREFIX}-filters", "data"),
+        Input("global-filters", "data"),
         prevent_initial_call="initial_duplicate",
     )
     def _update(filters):
         try:
-            commodities = get_commodity_codes(filters)
-            conv = get_convention(filters)
-            ccy = get_currency(filters)
-            years = get_period_years(filters)
-            hi_year = years[1]
+            if not filters:
+                return no_update, no_update, no_update, no_update, no_update, no_update
+                
+            conv = filters.get("convention", "ipca")
+            ccy = filters.get("currency", "BRL")
 
-            kpis = _build_kpis(repo, commodities=commodities, years=years, conv=conv, ccy=ccy)
-            ts = repo.time_series(
-                convention=conv, currency=ccy, years=years, commodity_codes=commodities
-            )
+            kpis = _build_kpis(repo, filters=filters)
+            
+            ts = repo.time_series(filters=filters)
             ts_fig = line_time_series(ts, value_label=f"Valor ({ccy}, {convention_label(conv)})")
 
-            mix = repo.product_mix(year=hi_year, convention=conv, currency=ccy, top_n=6)
+            mix = repo.product_mix(filters=filters, top_n=6)
             donut_fig = donut_product_mix(mix)
 
-            top = repo.top_states(
-                year=hi_year, convention=conv, currency=ccy, commodity_codes=commodities, n=5
-            )
+            top = repo.top_states(filters=filters, n=5)
             top_fig = bar_top_states(top, value_label=f"Valor ({ccy}, {convention_label(conv)})")
 
-            table = _summary_table(repo, year=hi_year, conv=conv, ccy=ccy, commodities=commodities)
+            table = _summary_table(repo, filters=filters)
+            
             return kpis, ts_fig, donut_fig, top_fig, table, no_update
         except Exception as exc:
             err = build_error_payload(

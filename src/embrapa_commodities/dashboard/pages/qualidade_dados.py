@@ -2,8 +2,7 @@
 
 Transparência sobre integridade do banco: KPIs por flag, evolução
 temporal da composição, heatmap UF × ano, e tabela de drill-down.
-Moeda e correção monetária não se aplicam — esta view analisa
-cobertura estrutural, não valores monetários.
+Filtros gerenciados globalmente.
 """
 
 from __future__ import annotations
@@ -17,14 +16,6 @@ from embrapa_commodities.dashboard.components.charts_views import (
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.components.view_filter_bar import (
-    get_commodity_codes,
-    get_period_years,
-    get_quality_flags,
-    make_filter_bar,
-    make_store,
-    register_view_callbacks,
-)
 from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import fmt_number
 
@@ -75,9 +66,7 @@ def layout(repo: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
-            make_store(PREFIX, repo),
             _hero(),
-            make_filter_bar(PREFIX, repo, has_currency=False, has_quality=True),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(
                 overline="Cobertura temporal",
@@ -132,8 +121,8 @@ def layout(repo: GoldRepository) -> html.Div:
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 
 
-def _build_kpis(repo: GoldRepository) -> list:
-    q = repo.quality_summary()
+def _build_kpis(repo: GoldRepository, filters: dict) -> list:
+    q = repo.quality_summary(filters=filters)
     if not q.get("rows_total"):
         return [html.Div("Sem dados.", className="empty-state")]
     total = q["rows_total"]
@@ -161,8 +150,8 @@ def _build_kpis(repo: GoldRepository) -> list:
     ]
 
 
-def _drill_table(repo: GoldRepository, *, commodities, years, flags) -> html.Div:
-    df = repo.filtered(years=years, commodity_codes=commodities, flags=flags)
+def _drill_table(repo: GoldRepository, *, filters: dict) -> html.Div:
+    df = repo.filtered(filters=filters)
     if df.empty:
         return html.Div("Sem linhas para os filtros selecionados.", className="empty-state")
     raw_cols = [
@@ -213,27 +202,24 @@ def _drill_table(repo: GoldRepository, *, commodities, years, flags) -> html.Div
 def register_callbacks(app, repo: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
-    register_view_callbacks(app, PREFIX, has_currency=False, has_quality=True)
-
     @app.callback(
         Output({"section": PREFIX, "control": "kpi-row"}, "children"),
         Output({"section": PREFIX, "control": "stacked"}, "figure"),
         Output({"section": PREFIX, "control": "heatmap"}, "figure"),
         Output({"section": PREFIX, "control": "table-container"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
-        Input(f"{PREFIX}-filters", "data"),
+        Input("global-filters", "data"),
         prevent_initial_call="initial_duplicate",
     )
     def _update(filters):
         try:
-            commodities = get_commodity_codes(filters)
-            years = get_period_years(filters)
-            flags = get_quality_flags(filters)
-
-            kpis = _build_kpis(repo)
-            stacked = stacked_area_quality(repo.quality_breakdown_by_year(years=years))
-            heatmap = heatmap_uf_year_quality(repo.quality_by_uf_year(years=years))
-            table = _drill_table(repo, commodities=commodities, years=years, flags=flags)
+            if not filters:
+                return no_update, no_update, no_update, no_update, no_update
+                
+            kpis = _build_kpis(repo, filters=filters)
+            stacked = stacked_area_quality(repo.quality_breakdown_by_year(filters=filters))
+            heatmap = heatmap_uf_year_quality(repo.quality_by_uf_year(filters=filters))
+            table = _drill_table(repo, filters=filters)
             return kpis, stacked, heatmap, table, no_update
         except Exception as exc:
             err = build_error_payload(

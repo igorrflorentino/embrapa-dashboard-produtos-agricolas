@@ -1,8 +1,8 @@
 """/ibge-pevs/geografia — Geografia.
 
 Perspectiva espacial pura: choropleth nacional, treemap região → UF,
-heatmap região × ano, e tabela top-50 municípios. Commodity, período,
-moeda e estado são filtros locais desta view — não afetam outras views.
+heatmap região × ano, e tabela top-50 municípios. 
+Filtros são gerenciados globalmente.
 """
 
 from __future__ import annotations
@@ -21,16 +21,6 @@ from embrapa_commodities.dashboard.components.charts_views import (
 )
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
-from embrapa_commodities.dashboard.components.view_filter_bar import (
-    get_commodity_codes,
-    get_convention,
-    get_currency,
-    get_period_years,
-    get_states,
-    make_filter_bar,
-    make_store,
-    register_view_callbacks,
-)
 from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
@@ -84,7 +74,7 @@ def _hero() -> html.Div:
                     html.H1("Geografia", className="page-title"),
                     html.P(
                         "Onde a produção extrativa vegetal está concentrada — em quais "
-                        "UFs, regiões e municípios. Use os filtros abaixo para refinar "
+                        "UFs, regiões e municípios. Use os filtros globais para refinar "
                         "commodity, período, moeda e estados exibidos.",
                         className="page-sub",
                     ),
@@ -98,9 +88,7 @@ def layout(repo: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
-            make_store(PREFIX, repo),
             _hero(),
-            make_filter_bar(PREFIX, repo, has_currency=True, has_quality=False, has_states=True),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(overline="Distribuição estadual", title="Brasil por UF"),
             html.Div(
@@ -142,7 +130,7 @@ def layout(repo: GoldRepository) -> html.Div:
             ),
             about_data_panel(
                 sources=[
-                    "**`gold_commodity_state_total_year`** — agregado UF × ano sem produto, "
+                    "**`gold_commodity_matrix`** — tabela única para agregação UF × ano, "
                     "fonte primária do choropleth e do treemap.",
                     "**IBGE GeoJSON** — malha estadual (intrarregiao=UF) buscada em "
                     "runtime do `servicodados.ibge.gov.br`; fallback para barras "
@@ -165,32 +153,32 @@ def layout(repo: GoldRepository) -> html.Div:
 def _build_kpis(
     repo: GoldRepository,
     *,
-    commodities: list[str] | None,
-    conv: str,
-    ccy: str,
-    year: int,
-    state_filter: list[str] | None,
+    filters: dict,
 ) -> list:
-    top = repo.top_states(
-        year=year, convention=conv, currency=ccy, commodity_codes=commodities, n=27
-    )
-    if state_filter:
+    conv = filters.get("convention", "ipca")
+    ccy = filters.get("currency", "BRL")
+    year = filters.get("end_year", 2024)
+    state_filter = filters.get("states", [])
+
+    top = repo.top_states(filters=filters, n=27)
+    if not top.empty and state_filter:
         top = top[top["state_acronym"].isin(state_filter)]
     if top.empty:
         return [html.Div("Sem dados.", className="empty-state")]
+    
     total = float(top["value"].sum() or 0.0)
     top5 = float(top.head(5)["value"].sum() or 0.0)
     leader = top.iloc[0]
-    cov = repo.coverage_summary(year=year)
+    cov = repo.coverage_summary(filters=filters)
     return [
         kpi_card(
             label="UFs com produção",
             value=str(int((top["value"] > 0).sum())),
-            sub=f"de {cov['states']} no Gold",
+            sub=f"de {cov.get('states', 0)} no Gold",
         ),
         kpi_card(
             label="Municípios produtores",
-            value=fmt_number(cov["cities"], decimals=0),
+            value=fmt_number(cov.get("cities", 0), decimals=0),
             sub=f"distintos · ano {year}",
         ),
         kpi_card(
@@ -209,17 +197,13 @@ def _build_kpis(
 def _cities_table(
     repo: GoldRepository,
     *,
-    commodities: list[str] | None,
-    conv: str,
-    ccy: str,
-    year: int,
-    state_filter: list[str] | None,
+    filters: dict,
 ) -> html.Div:
-    df = repo.top_cities(
-        year=year, convention=conv, currency=ccy, commodity_codes=commodities, n=50
-    )
-    if state_filter and not df.empty and "state_acronym" in df.columns:
-        df = df[df["state_acronym"].isin(state_filter)]
+    df = repo.top_cities(filters=filters, n=50)
+    
+    conv = filters.get("convention", "ipca")
+    ccy = filters.get("currency", "BRL")
+    
     if df.empty:
         return html.Div("Sem municípios para os filtros selecionados.", className="empty-state")
     cols = [c for c in ["city_name", "state_acronym", "value", "quantity"] if c in df.columns]
@@ -261,8 +245,6 @@ def _cities_table(
 def register_callbacks(app, repo: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
 
-    register_view_callbacks(app, PREFIX, has_currency=True, has_quality=False, has_states=True)
-
     @app.callback(
         Output({"section": PREFIX, "control": "kpi-row"}, "children"),
         Output({"section": PREFIX, "control": "choropleth"}, "figure"),
@@ -270,49 +252,28 @@ def register_callbacks(app, repo: GoldRepository) -> None:
         Output({"section": PREFIX, "control": "heatmap-region"}, "figure"),
         Output({"section": PREFIX, "control": "cities-table"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
-        Input(f"{PREFIX}-filters", "data"),
+        Input("global-filters", "data"),
         prevent_initial_call="initial_duplicate",
     )
     def _update(filters):
         try:
-            commodities = get_commodity_codes(filters)
-            conv = get_convention(filters)
-            ccy = get_currency(filters)
-            years = get_period_years(filters)
-            state_filter = get_states(filters)
-            year = years[1]
+            if not filters:
+                return no_update, no_update, no_update, no_update, no_update, no_update
+                
+            conv = filters.get("convention", "ipca")
+            ccy = filters.get("currency", "BRL")
 
-            kpis = _build_kpis(
-                repo,
-                commodities=commodities,
-                conv=conv,
-                ccy=ccy,
-                year=year,
-                state_filter=state_filter,
-            )
+            kpis = _build_kpis(repo, filters=filters)
 
-            top = repo.top_states(
-                year=year, convention=conv, currency=ccy, commodity_codes=commodities, n=27
-            )
-            if state_filter:
-                top = top[top["state_acronym"].isin(state_filter)]
+            top = repo.top_states(filters=filters, n=27)
             value_label = f"Valor ({ccy}, {convention_label(conv)})"
             choro = choropleth_brazil(top, _load_brazil_geojson(), value_label=value_label)
             tree = treemap_region_state(top, value_label=value_label)
 
-            regional = repo.regional_aggregate(
-                convention=conv, currency=ccy, commodity_codes=commodities, years=years
-            )
+            regional = repo.regional_aggregate(filters=filters)
             heat = heatmap_region_year(regional, value_label=value_label)
 
-            cities = _cities_table(
-                repo,
-                commodities=commodities,
-                conv=conv,
-                ccy=ccy,
-                year=year,
-                state_filter=state_filter,
-            )
+            cities = _cities_table(repo, filters=filters)
             return kpis, choro, tree, heat, cities, no_update
         except Exception as exc:
             err = build_error_payload(

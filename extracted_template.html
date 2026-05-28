@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embrapa · Filtros · Commodities</title>
+  <style>/* ============================================================
+ * Embrapa Commodities Design System
+ * colors_and_type.css — foundations
+ *
+ * Two palettes coexist in the Embrapa universe:
+ *   1. CORPORATE palette (logo, mobile apps, signage)
+ *      Source: Manual de Identidade Visual + Guia Mobile
+ *      Anchored on Verde Embrapa #006f35 and Azul Embrapa #06617c
+ *   2. PRESENTATIONS palette (Embrapa 5.0 slide template, 2023+)
+ *      Source: Template Embrapa para apresentações
+ *      Anchored on Yale Blue #1D4D7E + grays — for slide decks,
+ *      data visualizations, and the Looker-style dashboards.
+ *
+ * The commodities dashboard sits at the intersection: it inherits
+ * the institutional brand (header/footer use corporate green), but
+ * the data surface uses the modern presentations palette for
+ * chart legibility on white.
+ * ============================================================ */
+
+/* ----- Webfonts -----------------------------------------------
+ * Embrapa brand fonts (per Manual de Identidade Visual):
+ *   • Univers — primary identity face (papelaria, sinalização)
+ *   • Arial   — internal documents (memos, formulários)
+ *   • Verdana — web / intranet
+ * We layer Univers first, with Verdana as the manual's prescribed
+ * web fallback, then Arial, then system. The wordmark uses Univers
+ * Extra Bold Italic; the closest cut we have is Univers 65 Bold
+ * Oblique, which we expose as the `.brand-italic` class.
+ *
+ * Note: Univers is shipped in 55 Roman / 55 Oblique / 65 Bold /
+ * 65 Bold Oblique only — no Light (45) or Medium. CSS-level
+ * font-synthesis-weight produces an acceptable faux-medium for
+ * weight 500 (used for .overline, buttons, etc.).
+ *
+ * Mono — IBM Plex Mono via Google Fonts. The brand has no mono
+ * specification; Plex Mono is institutional-warm and works well
+ * for the long numeric strings the commodity dashboard renders.
+ * ------------------------------------------------------------- */
+/* cyrillic-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("38b47d3c-d0ab-4757-b27f-120c6c3b0b88") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("14c8754f-a6b0-4173-859e-782bead8cc77") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("f2dcf71b-58bf-4669-ac81-8d010a780f62") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("21fe90dd-4f0d-4127-b8d7-4498b6a5826b") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("f759239d-d754-4dec-86a6-f28a7377a5a2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("38d12584-9da8-47bc-a215-09896c0eb478") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("c4ebd3b5-8d55-4cfa-a2c0-01ce365c532d") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("51e7b105-cd09-4314-9980-c5e3c12b0ab2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("ef42b651-9590-4c67-bccd-b13f9da88c52") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("a87df5c2-b993-4dc1-bf4a-bff2d5e3c001") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("03377f85-481b-4d99-ace7-1b3baa2eac02") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("eb56bd8a-4f43-425a-bff0-c239290736eb") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("9cd28fc6-33ce-4a5d-a27d-cbe5c0d63fa9") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("336f77f6-d0c5-47a7-8c50-511e6b5c2134") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("2c6eac6d-026a-4a82-b70a-83909096ab72") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+@font-face {
+  font-family: 'Univers';
+  src: url("5227b1fa-17a8-4528-b485-d324ca3a3047") format('opentype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url("1cca36db-5584-4e5e-b621-e08cd2f5caed") format('opentype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url("e3fd72c5-1628-4d27-b6f9-8af7869f7d4d") format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url("742e0d52-bc0b-4268-afaa-11a65240530a") format('opentype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+/* Univers 75 Black — extra-heavy weight, used for big display type. */
+@font-face {
+  font-family: 'Univers';
+  src: url("80a12048-6d4e-416d-b81f-c8029d734cb6") format('truetype');
+  font-weight: 800; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url("6dcd5488-ef9f-45c9-bfdb-8ccfb3ced77c") format('truetype');
+  font-weight: 800; font-style: italic; font-display: swap;
+}
+/* Univers 85 Extra Black — the wordmark cut. Reserved for hero / brand moments. */
+@font-face {
+  font-family: 'Univers';
+  src: url("b189ba44-1117-4cfa-b08c-e3d344f14f6a") format('truetype');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Univers';
+  src: url("74582f94-1db0-44f6-9641-f04c4d456116") format('truetype');
+  font-weight: 900; font-style: italic; font-display: swap;
+}
+
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url("edc72fb3-e963-4b60-8f3d-a01039c69127") format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url("c1605f65-9e3a-4b92-8ef9-531b999631e3") format('truetype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url("d6def0ca-9b99-45c3-a346-e2c658d583b8") format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Arial';
+  src: url("b8e0fc57-6752-4c36-b98c-37eeec1ca818") format('truetype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url("cfb77954-f56a-4913-80d4-3047cba1947a") format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url("92d524cb-d555-47db-bb45-36170402a3d6") format('truetype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url("74561a82-59f0-485f-a062-aff171993d0d") format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Embrapa Verdana';
+  src: url("75e9a381-cd7c-4b7c-bae4-322c82519f8b") format('truetype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+
+:root {
+  /* ============ CORPORATE PALETTE (institutional) ============ */
+  /* From Manual de Identidade Visual + Guia Mobile */
+  --embrapa-green:        #006f35; /* Verde Embrapa — primary brand */
+  --embrapa-green-dark:   #005529; /* darker shade, app icons */
+  --embrapa-green-darker: #003c1d; /* deepest, type on light */
+  --embrapa-green-light:  #00763d; /* slight lift, ui hover */
+  --embrapa-blue:         #06617c; /* Azul Embrapa — secondary brand */
+  --embrapa-blue-dark:    #004993; /* institutional blue, employee tag */
+  --embrapa-blue-darker:  #0e3b65; /* deepest blue */
+  --embrapa-blue-pale:    #cddee9; /* atmospheric blue tint */
+  --embrapa-graygreen:    #6e867d; /* muted brand-aligned neutral */
+  --embrapa-orange:       #cc4b10; /* RESTRICTED USE — internal/employee tag only */
+
+  /* ============ PRESENTATIONS PALETTE (data surface) ============ */
+  /* From Embrapa 5.0 presentation template, Jan 2023 */
+  --pres-black:        #000000;
+  --pres-gray-900:     #333333; /* "Cinza escuro" — body text */
+  --pres-gray-600:     #666666; /* "Cinza médio" — secondary text */
+  --pres-gray-200:     #ECECEC; /* "Cinza claro" — surfaces / dividers */
+  --pres-white:        #ffffff;
+  --pres-yale-blue:    #1D4D7E; /* primary chart color */
+  --pres-french-blue:  #3A74B0; /* secondary chart color */
+  --pres-beau-blue:    #B4D0E7; /* tertiary / fill */
+
+  /* ============ SEMANTIC TOKENS — light surface ============ */
+  /* Page surfaces */
+  --bg-page:           #FAFAF7;            /* warm off-white, paper-feel */
+  --bg-surface:        #FFFFFF;            /* cards, panels */
+  --bg-surface-2:      #F4F4F0;            /* nested / inset */
+  --bg-surface-3:      #ECECEC;            /* deep inset */
+  --bg-brand:          var(--embrapa-green);
+  --bg-brand-deep:     var(--embrapa-green-darker);
+
+  /* Foreground (text) */
+  --fg-1:              #1a1f1c;            /* primary text — slightly green-black */
+  --fg-2:              var(--pres-gray-900); /* body */
+  --fg-3:              var(--pres-gray-600); /* secondary */
+  --fg-4:              #9aa5a0;            /* tertiary, captions */
+  --fg-on-brand:       #ffffff;            /* on green/blue */
+  --fg-accent:         var(--embrapa-green);
+  --fg-link:           var(--pres-yale-blue);
+
+  /* Borders / dividers */
+  --border-subtle:     rgba(0, 60, 29, 0.08);
+  --border-default:    rgba(0, 60, 29, 0.14);
+  --border-strong:     rgba(0, 60, 29, 0.28);
+  --border-on-brand:   rgba(255, 255, 255, 0.18);
+
+  /* Semantic / status (for dashboards specifically) */
+  --status-ok:         var(--embrapa-green);
+  --status-warn:       #B7791F; /* amber, neutral institutional */
+  --status-error:      #B23A2B; /* not the brand orange — that's reserved */
+  --status-info:       var(--embrapa-blue);
+  --status-muted:      var(--pres-gray-600);
+
+  /* Data viz scale — derived from presentations palette + extensions
+   * Chosen to be color-blind passable and to print legibly. */
+  --viz-1: #1D4D7E; /* yale blue */
+  --viz-2: #006f35; /* embrapa green */
+  --viz-3: #B7791F; /* amber */
+  --viz-4: #3A74B0; /* french blue */
+  --viz-5: #6e867d; /* gray-green */
+  --viz-6: #B23A2B; /* terracotta */
+  --viz-7: #0e3b65; /* deep navy */
+  --viz-8: #B4D0E7; /* beau blue */
+
+  /* ============ TYPOGRAPHY ============ */
+  /* Univers is the manual's primary face; Verdana is its prescribed
+   * web fallback; Arial sits behind for internal documents. */
+  --font-display:  'Univers', 'Embrapa Verdana', 'Embrapa Arial', 'Helvetica Neue', Arial, sans-serif;
+  --font-body:     'Univers', 'Embrapa Verdana', 'Embrapa Arial', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:     'IBM Plex Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Scale — institutional, restrained. Body is 15px.
+   * The Embrapa mobile guide is explicit about "menos é mais" —
+   * we keep the scale tight and prefer weight over size for hierarchy. */
+  --fs-display:  56px;  --lh-display:  1.05;  --ls-display:  -0.02em;
+  --fs-h1:       40px;  --lh-h1:       1.12;  --ls-h1:       -0.015em;
+  --fs-h2:       30px;  --lh-h2:       1.18;  --ls-h2:       -0.01em;
+  --fs-h3:       22px;  --lh-h3:       1.28;  --ls-h3:       -0.005em;
+  --fs-h4:       17px;  --lh-h4:       1.35;  --ls-h4:       0;
+  --fs-body:     15px;  --lh-body:     1.55;  --ls-body:     0;
+  --fs-body-sm:  13px;  --lh-body-sm:  1.5;   --ls-body-sm:  0;
+  --fs-caption:  12px;  --lh-caption:  1.4;   --ls-caption:  0.01em;
+  --fs-overline: 11px;  --lh-overline: 1.2;   --ls-overline: 0.12em;  /* tracked, uppercase */
+  --fs-mono-lg:  28px;  --fs-mono:     14px;
+
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-bold:     700;
+  --fw-black:    800;   /* Univers 75 Black */
+  --fw-display:  900;   /* Univers 85 Extra Black — wordmark cut */
+
+  /* ============ SPACING (8pt baseline) ============ */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  /* ============ RADII ============ */
+  /* Embrapa's visual language is grounded and geometric — corners stay small.
+   * The leaf shape gives ALL the curve identity. UI corners are quiet. */
+  --radius-xs:  2px;
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  10px;
+  --radius-xl:  16px;
+  --radius-pill: 999px;
+
+  /* ============ SHADOWS ============ */
+  /* Soft, institutional — no neon, no high-blur fluff. */
+  --shadow-1: 0 1px 2px rgba(0, 60, 29, 0.06);
+  --shadow-2: 0 2px 6px rgba(0, 60, 29, 0.07), 0 1px 2px rgba(0, 60, 29, 0.05);
+  --shadow-3: 0 8px 24px rgba(0, 60, 29, 0.08), 0 2px 4px rgba(0, 60, 29, 0.05);
+  --shadow-4: 0 18px 48px rgba(0, 60, 29, 0.12), 0 4px 10px rgba(0, 60, 29, 0.06);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,60,29,0.04);
+
+  /* ============ MOTION ============ */
+  /* Slow, deliberate, institutional. No bounce. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.3, 0, 0, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:      120ms;
+  --dur-base:      200ms;
+  --dur-slow:      360ms;
+
+  /* ============ LAYOUT ============ */
+  --container-max: 1280px;
+  --gutter:        24px;
+  --sidebar-w:     260px;
+  --topbar-h:      56px;
+}
+
+/* ============ SEMANTIC ELEMENT STYLES ============ */
+html, body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
+  /* Univers ships in 400 + 700 only; let the browser synthesize the
+   * intermediate medium weight (500) used by overlines and buttons. */
+  font-synthesis-weight: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, .h1, h2, .h2, h3, .h3, h4, .h4 {
+  font-family: var(--font-display);
+  color: var(--fg-1);
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1, .h1 {
+  font-size: var(--fs-h1);
+  line-height: var(--lh-h1);
+  letter-spacing: var(--ls-h1);
+  font-weight: var(--fw-medium);
+}
+h2, .h2 {
+  font-size: var(--fs-h2);
+  line-height: var(--lh-h2);
+  letter-spacing: var(--ls-h2);
+  font-weight: var(--fw-medium);
+}
+h3, .h3 {
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  letter-spacing: var(--ls-h3);
+  font-weight: var(--fw-medium);
+}
+h4, .h4 {
+  font-size: var(--fs-h4);
+  line-height: var(--lh-h4);
+  font-weight: var(--fw-medium);
+}
+
+p, .p {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+small, .caption {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--fg-3);
+}
+
+.overline {
+  font-size: var(--fs-overline);
+  letter-spacing: var(--ls-overline);
+  text-transform: uppercase;
+  font-weight: var(--fw-medium);
+  color: var(--fg-3);
+}
+
+.display {
+  font-size: var(--fs-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--ls-display);
+  font-weight: var(--fw-medium);
+}
+
+/* Italic display — echoes the Univers Extra Black Italic of the
+ * wordmark. Use ONLY for hero / brand moments, never body. */
+.brand-italic {
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+code, kbd, samp, pre, .mono, .num {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+}
+
+a {
+  color: var(--fg-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--embrapa-green); }
+
+/* Tabular numerals helper — required for any column of values */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Focus ring — institutional, accessible */
+:focus-visible {
+  outline: 2px solid var(--embrapa-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+</style>
+  <style>/* Dashboard-specific styles — extends colors_and_type.css */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg-page);
+}
+
+/* ---------- Topbar ---------- */
+.topbar {
+  height: var(--topbar-h);
+  background: var(--embrapa-green);
+  display: flex;
+  align-items: stretch;
+  padding: 0 24px;
+  color: #fff;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.sep {
+  width: 1px;
+  background: rgba(255,255,255,0.22);
+  margin: 14px 0;
+  flex-shrink: 0;
+}
+.product-name {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 400;
+  opacity: 0.95;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.topnav {
+  display: flex;
+  gap: 4px;
+  margin-left: 16px;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.topnav-item {
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.85);
+  text-decoration: none;
+  cursor: pointer;
+  position: relative;
+  transition: color var(--dur-fast);
+}
+.topnav-item:hover { color: #fff; }
+.topnav-item.active {
+  color: #fff;
+  font-weight: 500;
+}
+.topnav-item.active::after {
+  content: ""; position: absolute;
+  left: 14px; right: 14px; bottom: 0;
+  height: 2px; background: #fff;
+}
+.util {
+  display: flex; align-items: center; gap: 10px;
+  margin-left: auto;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.util-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 400;
+}
+.icon-btn {
+  width: 32px; height: 32px;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.10); color: #fff; }
+.avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500;
+}
+
+/* ---------- Body / sidebar ---------- */
+.body {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  flex: 1;
+}
+.sidebar {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 13px;
+  min-height: calc(100vh - var(--topbar-h));
+}
+.side-section {
+  padding: 14px 18px 6px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.side-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px;
+  color: var(--fg-2);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.side-item:hover { background: var(--bg-surface-2); }
+.side-item.active {
+  color: var(--embrapa-green-darker);
+  background: rgba(0,111,53,0.05);
+  border-left-color: var(--embrapa-green);
+  font-weight: 500;
+}
+.side-item svg { opacity: 0.75; }
+.side-item.active svg { opacity: 1; color: var(--embrapa-green); }
+.side-foot {
+  margin-top: auto;
+  padding: 14px 18px;
+}
+.pill-emp {
+  background: var(--embrapa-orange);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-align: center;
+}
+
+/* ---------- Content ---------- */
+.content {
+  padding: 28px 32px 48px;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+.screen { display: flex; flex-direction: column; gap: 24px; }
+.section-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-bottom: 12px;
+}
+.section-title { font-size: 22px; line-height: 1.28; font-weight: 500; color: var(--fg-1); margin: 4px 0 0; }
+.section-action { display: flex; align-items: center; gap: 8px; }
+.link {
+  color: var(--embrapa-green);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+.link:hover { text-decoration: underline; }
+
+/* ---------- Filterbar ---------- */
+.filterbar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+  box-shadow: var(--shadow-1);
+  margin-bottom: 4px;
+}
+.filter { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.filter label {
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.filter select, .filter input {
+  height: 34px;
+  padding: 0 10px;
+  font: 400 13px var(--font-body);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--fg-1);
+}
+.filter select:focus, .filter input:focus {
+  outline: none;
+  border-color: var(--embrapa-blue);
+}
+.filter.actions { display: flex; flex-direction: row; gap: 6px; align-items: center; align-self: end; }
+.filter.check-inline { grid-column: span 2; flex-direction: row; align-items: center; }
+.checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--fg-2);
+  cursor: pointer;
+}
+.checkbox-row input { accent-color: var(--embrapa-green); }
+
+.seg {
+  display: inline-flex;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  height: 34px;
+}
+.seg-opt {
+  border: none; background: transparent;
+  padding: 0 12px;
+  font: 500 12px var(--font-body);
+  color: var(--fg-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.seg-opt.on { background: #fff; color: var(--embrapa-green-darker); box-shadow: var(--shadow-1); }
+.seg-opt:not(.on):hover { color: var(--fg-1); }
+
+.btn-primary {
+  height: 34px; padding: 0 14px;
+  background: var(--embrapa-green); color: #fff;
+  border: none; border-radius: var(--radius-sm);
+  font: 500 13px var(--font-body);
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--embrapa-green-light); }
+.btn-secondary {
+  height: 34px; padding: 0 14px;
+  background: #fff; color: var(--fg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: 500 13px var(--font-body);
+  cursor: pointer;
+}
+.btn-secondary:hover { background: var(--bg-surface-2); }
+.btn-ghost {
+  height: 34px; padding: 0 12px;
+  background: transparent; color: var(--embrapa-green);
+  border: none; border-radius: var(--radius-sm);
+  font: 500 13px var(--font-body);
+  cursor: pointer;
+}
+.btn-ghost:hover { background: rgba(0,111,53,0.06); }
+
+/* ---------- KPI cards ---------- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.kpi-card {
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-1);
+}
+.kpi-ov {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.kpi-val {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--fg-1);
+  letter-spacing: -0.01em;
+  margin-top: 8px;
+}
+.kpi-sub {
+  font-size: 12px;
+  color: var(--fg-3);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kpi-delta {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.kpi-delta.up { background: rgba(0,111,53,0.10); color: var(--embrapa-green-darker); }
+.kpi-delta.down { background: rgba(178,58,43,0.10); color: #8E2A1E; }
+
+/* ---------- Cards / grids ---------- */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-1);
+}
+.card.subtle { background: var(--bg-surface-2); box-shadow: none; }
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+}
+.grid-2-alt {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+}
+
+/* ---------- Charts ---------- */
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--border-subtle); stroke-dasharray: 0; }
+.chart .axis { font: 400 10px var(--font-mono); fill: var(--fg-4); }
+.chart .axis-val { font: 500 10px var(--font-mono); fill: var(--fg-2); }
+.chart .axis-label {
+  font: 500 10px var(--font-body);
+  fill: var(--fg-3);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+.donut-wrap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: center;
+}
+.donut-legend {
+  list-style: none;
+  padding: 0; margin: 0;
+  font-size: 12px;
+  display: flex; flex-direction: column;
+  gap: 6px;
+}
+.donut-legend li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+.donut-legend li:last-child { border-bottom: none; }
+.ldot { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.lname { color: var(--fg-2); }
+.lval { color: var(--fg-1); font-weight: 500; }
+
+/* ---------- Data table ---------- */
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  margin-top: 12px;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+.data-table th {
+  text-align: left;
+  font: 500 10px var(--font-body);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface-2);
+  position: sticky; top: 0;
+}
+.data-table th.num { text-align: right; }
+.data-table td {
+  font: 400 13px var(--font-body);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--fg-2);
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--bg-surface-2); }
+.data-table .num { text-align: right; font-family: var(--font-mono); color: var(--fg-1); }
+
+/* ---------- Status chips ---------- */
+.chip {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font: 500 10px var(--font-body);
+}
+.chip.ok   { background: rgba(0,111,53,0.10);  color: var(--embrapa-green-darker); }
+.chip.warn { background: rgba(183,121,31,0.12); color: #8B5A14; }
+.chip.err  { background: rgba(178,58,43,0.10); color: #8E2A1E; }
+.chip.info { background: rgba(6,97,124,0.10); color: var(--embrapa-blue-darker); }
+.chip.muted { background: var(--bg-surface-3); color: var(--fg-3); }
+
+/* ---------- Monetary-convention block ---------- */
+.conv-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 8px;
+}
+.conv {
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+.conv-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+.conv p { font-size: 12px; line-height: 1.5; color: var(--fg-2); margin: 0; }
+
+/* ---------- Geo / map placeholder ---------- */
+.map-card { padding: 0; overflow: hidden; }
+.map-placeholder {
+  height: 360px;
+  background: var(--bg-surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fg-4);
+  text-align: center;
+}
+.map-placeholder svg { opacity: 0.4; }
+
+/* ---------- Quality flag cards ---------- */
+.flag-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 24px;
+}
+.flag-bar {
+  height: 8px;
+  background: var(--bg-surface-3);
+  border-radius: 4px;
+  width: 240px;
+  overflow: hidden;
+}
+.flag-bar > div { height: 100%; border-radius: 4px; }
+
+/* ---------- Page hero ---------- */
+.page-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: flex-start;
+  padding: 8px 0 4px;
+}
+.page-title {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 500;
+  color: var(--fg-1);
+  margin: 6px 0 8px;
+  letter-spacing: -0.01em;
+  max-width: 720px;
+}
+.page-sub {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  max-width: 680px;
+}
+.page-sub strong { color: var(--fg-1); font-weight: 500; }
+
+.hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-1);
+}
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+}
+.meta-label {
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 500;
+}
+.meta-val {
+  color: var(--fg-1);
+  font-weight: 500;
+  font-size: 12px;
+}
+.meta-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.meta-actions button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* ---------- KPI sparkline variant ---------- */
+.kpi-card.spark {
+  padding: 16px 18px;
+}
+.kpi-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.kpi-card.spark .kpi-val {
+  font-size: 26px;
+  margin-top: 4px;
+}
+
+/* ---------- Highlights ---------- */
+.highlights {
+  display: flex;
+  flex-direction: column;
+}
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.highlight {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--embrapa-green);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-1);
+}
+.highlight:nth-child(2) { border-left-color: var(--status-error); }
+.highlight:nth-child(3) { border-left-color: var(--embrapa-blue); }
+.highlight-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.highlight-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-1);
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.highlight-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+
+/* ---------- Chart foot ---------- */
+.chart-foot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+}
+.chart-foot .caption strong { color: var(--fg-1); font-weight: 500; }
+
+/* ---------- Footer ---------- */
+.footer {
+  background: #fff;
+  border-top: 1px solid var(--border-default);
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+.triade {
+  height: 44px;
+  width: auto;
+  opacity: 0.85;
+}
+.foot-meta {
+  display: flex; flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.foot-meta a { color: var(--fg-3); }
+
+/* Material Symbols — fixed glyph box so the icon never spills as text */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+</style>
+  <style>/* Filter Menu v2 — expanded filter modal with Geografia cascade.
+ * Extends colors_and_type.css + dashboard.css. */
+
+/* ----- Backdrop ----------------------------------------------- */
+.fm-page {
+  min-height: 100vh;
+  background: var(--bg-page);
+  position: relative;
+}
+.fm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 60, 29, 0.45);
+  z-index: 40;
+  display: grid;
+  place-items: start center;
+  padding: 40px 24px;
+  overflow: auto;
+}
+
+/* ----- Modal shell -------------------------------------------- */
+.fm-modal {
+  width: 100%;
+  max-width: 920px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-4);
+  overflow: hidden;
+  animation: fm-rise var(--dur-slow) var(--ease-standard);
+}
+
+/* Body region — light warm bg behind the section cards, so each
+ * section reads as a distinct surface above the modal floor. */
+.fm-body {
+  background: var(--bg-surface-2);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.fm-modal.wide { max-width: 1180px; }
+@keyframes fm-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ----- Header ------------------------------------------------- */
+.fm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.fm-head-text { display: flex; flex-direction: column; gap: 6px; }
+.fm-head-over {
+  font-size: var(--fs-overline);
+  letter-spacing: var(--ls-overline);
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--fg-3);
+}
+.fm-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 500;
+  color: var(--fg-1);
+  letter-spacing: -0.005em;
+}
+.fm-summary {
+  font-size: 12.5px;
+  color: var(--fg-3);
+  margin-top: 2px;
+}
+.fm-summary strong { color: var(--fg-1); font-weight: 500; }
+.fm-close {
+  width: 32px; height: 32px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--fg-3);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.fm-close:hover { background: var(--bg-surface-2); color: var(--fg-1); }
+
+/* ----- Sections ----------------------------------------------
+ * Each section is its own card on the warm-gray body. Clear
+ * delimitation comes from: border, rounded corners, internal
+ * header band, and the gap between cards.
+ * ------------------------------------------------------------- */
+.fm-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+
+.fm-section-inner {
+  padding: 16px 22px 18px;
+}
+
+.fm-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 22px;
+  background: linear-gradient(180deg, rgba(0,60,29,0.04) 0%, rgba(0,60,29,0.015) 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+/* left accent rail in Embrapa green */
+.fm-section-head::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--embrapa-green);
+}
+.fm-section-head-l {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.fm-section-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--embrapa-green-darker);
+}
+.fm-section-label .fm-section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  margin-right: 8px;
+  background: var(--embrapa-green);
+  color: #fff;
+  border-radius: 50%;
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0;
+  vertical-align: -2px;
+}
+.fm-section-label .mono.lowercase {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg-2);
+  margin-left: 4px;
+}
+.fm-section-meta {
+  font: 500 11px var(--font-mono);
+  color: var(--fg-3);
+  font-feature-settings: 'tnum' 1;
+  flex-shrink: 0;
+}
+.fm-section-meta strong { color: var(--embrapa-green-darker); font-weight: 600; }
+.fm-section-meta a {
+  color: var(--embrapa-green);
+  text-decoration: none;
+  font-weight: 500;
+}
+.fm-section-meta a:hover { color: var(--embrapa-green-darker); text-decoration: underline; }
+
+/* cascade hint pill */
+.fm-cascade-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg-3);
+  padding: 3px 9px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+.fm-cascade-hint svg { color: var(--embrapa-green); }
+
+/* ----- Inline search ----------------------------------------- */
+.fm-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  background: #fff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition: border-color var(--dur-fast);
+  min-width: 220px;
+}
+.fm-search:focus-within {
+  border-color: var(--embrapa-blue);
+  border-width: 2px;
+  padding: 0 7px 0 9px;
+}
+.fm-search-icn {
+  display: inline-flex;
+  color: var(--fg-3);
+}
+.fm-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font: 400 12.5px var(--font-body);
+  color: var(--fg-1);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+.fm-search input::placeholder { color: var(--fg-4); }
+.fm-search-clear {
+  width: 18px; height: 18px;
+  border: none;
+  background: var(--bg-surface-2);
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--fg-3);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.fm-search-clear:hover { background: var(--border-subtle); color: var(--fg-1); }
+
+/* ----- Checkbox grid ----------------------------------------- */
+.fm-grid-scroll {
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 4px 8px 4px 4px;
+  margin: 0 -8px 0 -4px;
+  /* subtle inset edges so users perceive the scrollable region */
+  background:
+    linear-gradient(var(--bg-surface) 30%, rgba(255,255,255,0)) 0 0 / 100% 14px no-repeat,
+    linear-gradient(rgba(255,255,255,0), var(--bg-surface) 70%) 0 100% / 100% 14px no-repeat,
+    linear-gradient(rgba(0,60,29,0.10), rgba(0,60,29,0)) 0 0 / 100% 6px no-repeat,
+    linear-gradient(rgba(0,60,29,0), rgba(0,60,29,0.10)) 0 100% / 100% 6px no-repeat,
+    var(--bg-surface);
+  background-attachment: local, local, scroll, scroll, local;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.fm-grid-scroll::-webkit-scrollbar { width: 10px; }
+.fm-grid-scroll::-webkit-scrollbar-track {
+  background: var(--bg-surface-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.fm-grid-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid var(--bg-surface-2);
+  background-clip: padding-box;
+}
+.fm-grid-scroll::-webkit-scrollbar-thumb:hover { background: var(--embrapa-green); }
+
+.fm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 28px;
+}
+.fm-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13.5px;
+  color: var(--fg-2);
+  transition: background var(--dur-fast);
+  min-width: 0;
+}
+.fm-check:hover { background: var(--bg-surface-2); }
+.fm-check input {
+  width: 16px; height: 16px;
+  margin: 0;
+  accent-color: var(--embrapa-green);
+  flex-shrink: 0;
+}
+.fm-check.is-on { color: var(--fg-1); }
+.fm-check .fm-code {
+  font: 500 10.5px var(--font-mono);
+  color: var(--fg-4);
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+}
+.fm-check .fm-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fm-check .chip {
+  font-size: 10px;
+  padding: 1px 7px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.fm-empty-grid {
+  grid-column: 1 / -1;
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--fg-3);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-subtle);
+}
+
+/* ----- Bulk actions ------------------------------------------ */
+.fm-bulk {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+}
+.fm-bulk.compact {
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.fm-bulk button {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font: 500 12px var(--font-body);
+  color: var(--embrapa-green);
+  cursor: pointer;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color var(--dur-fast);
+}
+.fm-bulk.compact button { font-size: 11.5px; padding: 2px 0; }
+.fm-bulk button:hover { color: var(--embrapa-green-darker); }
+.fm-bulk button:disabled { color: var(--fg-4); cursor: not-allowed; }
+.fm-bulk .sep-dot {
+  align-self: center;
+  width: 3px; height: 3px;
+  background: var(--border-strong);
+  border-radius: 50%;
+}
+
+/* ----- Período + Financeiro row ------------------------------
+ * Two-up section card with a bold vertical divider so the user
+ * sees the split between Período and Financeiro cleanly.
+ * ------------------------------------------------------------- */
+.fm-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 28px;
+  padding: 22px 28px;
+}
+.fm-row-2 .fm-divider {
+  width: 1px;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    var(--border-default) 12%,
+    var(--border-default) 88%,
+    transparent 100%);
+}
+.fm-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.fm-col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.fm-date-row {
+  display: grid;
+  grid-template-columns: 1fr 18px 1fr;
+  gap: 8px;
+  align-items: end;
+}
+.fm-date-field { display: flex; flex-direction: column; gap: 4px; }
+.fm-date-field label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.fm-date {
+  height: 38px;
+  padding: 0 12px;
+  font: 500 14px var(--font-mono);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--fg-1);
+  font-feature-settings: 'tnum' 1;
+  width: 100%;
+  box-sizing: border-box;
+}
+.fm-date:focus {
+  outline: none;
+  border-color: var(--embrapa-blue);
+  border-width: 2px;
+  padding: 0 11px;
+}
+.fm-arrow {
+  display: flex; align-items: center; justify-content: center;
+  height: 38px;
+  color: var(--fg-4);
+}
+
+.fm-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.fm-quick button {
+  height: 26px;
+  padding: 0 10px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font: 500 11.5px var(--font-body);
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: all var(--dur-fast);
+}
+.fm-quick button:hover { background: #fff; color: var(--fg-1); border-color: var(--border-default); }
+.fm-quick button.on {
+  background: var(--embrapa-green);
+  border-color: var(--embrapa-green);
+  color: #fff;
+}
+
+/* Financeiro sub-sections */
+.fm-sub { display: flex; flex-direction: column; gap: 6px; }
+.fm-sub-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.fm-sub .seg {
+  width: 100%;
+  height: 38px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+.fm-sub .seg-opt {
+  height: auto;
+  padding: 0;
+  font-size: 13px;
+}
+.fm-sub .seg-opt small {
+  display: block;
+  font: 400 10px var(--font-mono);
+  color: var(--fg-4);
+  margin-top: 1px;
+}
+.fm-sub .seg-opt.on small { color: var(--embrapa-green); }
+
+/* ====================================================================
+   GEOGRAFIA — 4-column cascade
+   ==================================================================== */
+.fm-geo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.fm-geo-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 12px 10px;
+}
+.fm-geo-col-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fm-geo-title {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg-1);
+  letter-spacing: -0.005em;
+}
+.fm-geo-count {
+  font: 500 10.5px var(--font-mono);
+  color: var(--fg-3);
+  font-feature-settings: 'tnum' 1;
+}
+.fm-geo-count strong { color: var(--embrapa-green-darker); font-weight: 600; }
+
+/* tighter search inside geo columns */
+.fm-geo-col .fm-search {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  font-size: 12px;
+  background: #fff;
+}
+.fm-geo-col .fm-search input { font-size: 12px; }
+
+/* the scrollable list */
+.fm-geo-list {
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fm-geo-list::-webkit-scrollbar { width: 8px; }
+.fm-geo-list::-webkit-scrollbar-track { background: var(--bg-surface-2); border-radius: 4px; }
+.fm-geo-list::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+  border: 2px solid #fff;
+  background-clip: padding-box;
+}
+.fm-geo-list::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+.fm-check.geo {
+  font-size: 12.5px;
+  padding: 5px 8px 5px 6px;
+  gap: 8px;
+}
+.fm-check.geo .fm-code {
+  font-size: 9.5px;
+}
+
+.fm-geo-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.45;
+}
+.fm-geo-empty .fm-cascade-icn {
+  color: var(--fg-4);
+  display: inline-flex;
+}
+
+.fm-geo-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ----- Footer ------------------------------------------------- */
+.fm-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 28px;
+  background: #fff;
+  border-top: 2px solid var(--embrapa-green);
+  box-shadow: inset 0 1px 0 rgba(0,60,29,0.06);
+}
+.fm-foot-info {
+  font-size: 12px;
+  color: var(--fg-3);
+  flex: 1;
+}
+.fm-foot-info strong { color: var(--fg-1); font-weight: 500; }
+.fm-foot-info .fm-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--embrapa-green);
+  margin: 0 8px;
+  vertical-align: middle;
+}
+
+/* ----- Trigger row (dashboard chrome behind) ----------------- */
+.fm-stage {
+  padding: 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.fm-trigger-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-1);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fm-trigger-bar .fm-tb-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.fm-chip-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(0,111,53,0.06);
+  border: 1px solid rgba(0,111,53,0.18);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  color: var(--embrapa-green-darker);
+  font-weight: 500;
+}
+.fm-chip-filter .fm-chip-k {
+  color: var(--fg-3);
+  font-weight: 400;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.fm-trigger-bar .fm-spacer { flex: 1; }
+.fm-edit-btn {
+  height: 32px;
+  padding: 0 14px;
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: 500 12.5px var(--font-body);
+  color: var(--fg-1);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.fm-edit-btn:hover { background: var(--bg-surface-2); }
+.fm-edit-btn svg { color: var(--embrapa-green); }
+
+.fm-page-hero {
+  padding: 28px 32px 0;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.fm-page-hero .overline { color: var(--fg-3); }
+.fm-page-hero h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--fg-1);
+  letter-spacing: -0.01em;
+  margin: 6px 0 4px;
+}
+.fm-page-hero p {
+  font-size: 13.5px;
+  color: var(--fg-3);
+  max-width: 640px;
+}
+
+.fm-note {
+  max-width: 1180px;
+  margin: 0 auto 14px;
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.78);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+</style>
+
+  <script src="d081b595-00ec-4e9a-bf9d-1d5fd953785b" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="051ab081-30e3-4243-9bbc-5745b678b5ab" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="e9859b7d-7c4b-4fd1-bdf4-3a89b801178f" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  
+  <div id="root"></div>
+
+  <script type="text/babel" src="eddcd148-1aef-4eae-953d-7bc2fa4f40f0"></script>
+  <script type="text/babel">
+    function boot() {
+      if (!window.FilterMenu) return setTimeout(boot, 30);
+      ReactDOM.createRoot(document.getElementById('root')).render(<window.FilterMenu />);
+    }
+    boot();
+  </script>
+
+
+</body></html>

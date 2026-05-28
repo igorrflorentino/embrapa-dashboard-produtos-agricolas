@@ -1,21 +1,8 @@
 """BigQuery-backed accessor for the Gold layer.
 
 `GoldRepository` is the single data-access surface for every Dash callback.
-Each public method targets the smallest Gold table that has the grain it
-needs, rather than wholesale-loading `gold_commodity_matrix` and filtering
-in pandas:
-
-- `time_series`, `top_states`, `product_mix`, `coverage_summary` (and the
-  metadata helpers `year_range`, `products`, `states`, `last_refresh`) hit
-  the small pre-aggregated tables (`gold_commodity_year_product`,
-  `gold_commodity_state_year`, `gold_commodity_state_total_year`).
-- `top_cities`, `filtered`, `quality_summary`, `df()` need municipal grain
-  or row-level quality flags and therefore hit `gold_commodity_matrix`.
-
-Tables are cached independently with the same TTL (`cache_ttl_seconds`).
-The first BQ load fires the `bq_snapshot` health stage; subsequent loads
-update it. Thread-safety is one lock shared across all caches —
-contention is low (callbacks are short-lived and most reads hit warm cache).
+As per the new architectural requirement, it relies solely on `gold_commodity_matrix`
+for all views to ensure a consistent single-table approach.
 """
 
 from __future__ import annotations
@@ -40,11 +27,7 @@ logger = logging.getLogger(__name__)
 Convention = Literal["ipca", "igpm", "igpdi", "yearfx"]
 Currency = Literal["BRL", "USD", "EUR", "CNY"]
 
-# Logical table names. Fixed by dbt model names — not user-configurable.
 _T_MATRIX = "gold_commodity_matrix"
-_T_STATE_YEAR = "gold_commodity_state_year"
-_T_YEAR_PRODUCT = "gold_commodity_year_product"
-_T_STATE_TOTAL_YEAR = "gold_commodity_state_total_year"
 
 
 @dataclass(frozen=True)
@@ -57,20 +40,13 @@ class GoldSnapshot:
 
     @property
     def last_refresh(self) -> datetime | None:
-        """Max(last_refresh) across all rows — when ingestion last touched the data."""
         if "last_refresh" not in self.df.columns or self.df["last_refresh"].isna().all():
             return None
         return self.df["last_refresh"].max().to_pydatetime()
 
 
 class GoldRepository:
-    """Per-table TTL cache over the Gold layer.
-
-    Same public API as the legacy `GoldStore` so existing callbacks don't
-    need to change; the difference is that small queries (time series, top
-    states, product mix, coverage) now hit the pre-aggregated tables
-    instead of scanning `gold_commodity_matrix` in pandas.
-    """
+    """Per-table TTL cache over the Gold layer."""
 
     def __init__(self, ingestion: IngestionSettings, dashboard: DashboardSettings) -> None:
         self._ingestion = ingestion
@@ -79,34 +55,24 @@ class GoldRepository:
         self._client: bigquery.Client | None = None
         self._snapshots: dict[str, GoldSnapshot] = {}
 
-    # ── Public API ────────────────────────────────────────────────────────────
     def snapshot(self) -> GoldSnapshot:
-        """Snapshot of the matrix (kept for back-compat with code that inspects rows)."""
         return self._cached(_T_MATRIX)
 
     def df(self) -> pd.DataFrame:
-        """Full matrix DataFrame. Use only for raw-data exports or row-level scans."""
         return self._cached(_T_MATRIX).df
 
     def last_refresh(self) -> datetime | None:
-        """When the most recent ingestion run touched the Gold data.
-
-        Read from `gold_commodity_year_product` (smallest table with the
-        `last_refresh` column) so this never forces a full matrix load.
-        """
-        return self._cached(_T_YEAR_PRODUCT).last_refresh
+        return self._cached(_T_MATRIX).last_refresh
 
     def loaded_at(self) -> datetime:
-        """When the year_product cache was populated (the metadata baseline)."""
-        return self._cached(_T_YEAR_PRODUCT).loaded_at
+        return self._cached(_T_MATRIX).loaded_at
 
     def year_range(self) -> tuple[int, int]:
-        df = self._cached(_T_YEAR_PRODUCT).df
+        df = self._cached(_T_MATRIX).df
         return int(df["reference_year"].min()), int(df["reference_year"].max())
 
     def products(self) -> pd.DataFrame:
-        """Distinct products with description. Ordered by description."""
-        df = self._cached(_T_YEAR_PRODUCT).df
+        df = self._cached(_T_MATRIX).df
         return (
             df[["product_code", "product_description"]]
             .dropna()
@@ -115,9 +81,18 @@ class GoldRepository:
             .reset_index(drop=True)
         )
 
+    def regions(self) -> pd.DataFrame:
+        df = self._cached(_T_MATRIX).df
+        return (
+            df[["region"]]
+            .dropna()
+            .drop_duplicates()
+            .sort_values("region")
+            .reset_index(drop=True)
+        )
+
     def states(self) -> pd.DataFrame:
-        """Distinct states (UF acronym + name + region)."""
-        df = self._cached(_T_STATE_TOTAL_YEAR).df
+        df = self._cached(_T_MATRIX).df
         return (
             df[["state_acronym", "state_name", "region"]]
             .dropna(subset=["state_acronym"])
@@ -126,74 +101,68 @@ class GoldRepository:
             .reset_index(drop=True)
         )
 
-    # ── Slicers — small purpose-built frames for charts ───────────────────────
-    def filtered(
-        self,
-        *,
-        years: tuple[int, int] | None = None,
-        commodity_codes: list[str] | None = None,
-        state_acronym: str | None = None,
-        flags: list[str] | None = None,
-    ) -> pd.DataFrame:
-        """Filtered slice of the matrix. Used by the Qualidade drill-down table."""
+    def cities(self) -> pd.DataFrame:
         df = self._cached(_T_MATRIX).df
-        if years:
-            lo, hi = years
-            df = df[(df["reference_year"] >= lo) & (df["reference_year"] <= hi)]
-        if commodity_codes:
-            df = df[df["product_code"].isin(commodity_codes)]
-        if state_acronym:
-            df = df[df["state_acronym"] == state_acronym]
+        return (
+            df[["city_code", "city_name", "state_acronym"]]
+            .dropna(subset=["city_code"])
+            .drop_duplicates()
+            .sort_values("city_name")
+            .reset_index(drop=True)
+        )
+
+    def _apply_filters(self, df: pd.DataFrame, filters: dict) -> pd.DataFrame:
+        """Apply the global filter state to a dataframe."""
+        f = filters or {}
+        
+        # Qualidade
+        flags = f.get("quality_flags")
         if flags:
             df = df[df["data_quality_flag"].isin(flags)]
+            
+        # Período
+        y_start = f.get("start_year")
+        y_end = f.get("end_year")
+        if y_start and y_end:
+            df = df[(df["reference_year"] >= int(y_start)) & (df["reference_year"] <= int(y_end))]
+            
+        # Commodities
+        commodities = f.get("commodity")
+        if commodities:
+            df = df[df["product_code"].isin(commodities)]
+            
+        # Geografia
+        # Note: 'nations' is ignored as we only have BR in PEVS
+        regions = f.get("regions")
+        if regions:
+            df = df[df["region"].isin(regions)]
+            
+        states = f.get("states")
+        if states:
+            df = df[df["state_acronym"].isin(states)]
+            
+        munis = f.get("munis")
+        if munis:
+            df = df[df["city_code"].isin(munis)]
+            
         return df
+
+    def filtered(self, *, filters: dict) -> pd.DataFrame:
+        df = self._cached(_T_MATRIX).df
+        return self._apply_filters(df, filters)
 
     def time_series(
         self,
         *,
-        convention: Convention,
-        currency: Currency,
-        years: tuple[int, int] | None = None,
-        commodity_codes: list[str] | None = None,
-        state_acronym: str | None = None,
+        filters: dict,
     ) -> pd.DataFrame:
-        """Year-by-year value + quantity. Routes to the smallest table with the needed grain.
-
-        Filter combinations → source table:
-        - no filter / commodities only       → gold_commodity_year_product
-        - state only                          → gold_commodity_state_total_year
-        - state + commodities                 → gold_commodity_state_year
-
-        Returns columns: reference_year, value, quantity. With multi-commodity
-        baskets the row sums across the selected products.
-        """
-        col = value_column(convention, currency)
-        if state_acronym and commodity_codes:
-            df = self._cached(_T_STATE_YEAR).df
-            df = df[
-                (df["state_acronym"] == state_acronym) & (df["product_code"].isin(commodity_codes))
-            ]
-        elif state_acronym:
-            df = self._cached(_T_STATE_TOTAL_YEAR).df
-            df = df[df["state_acronym"] == state_acronym]
-        elif commodity_codes:
-            df = self._cached(_T_YEAR_PRODUCT).df
-            df = df[df["product_code"].isin(commodity_codes)]
-        else:
-            df = self._cached(_T_YEAR_PRODUCT).df
-
-        if years:
-            lo, hi = years
-            df = df[(df["reference_year"] >= lo) & (df["reference_year"] <= hi)]
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
+        df = self._cached(_T_MATRIX).df
+        df = self._apply_filters(df, filters)
 
         if df.empty:
             return pd.DataFrame(columns=["reference_year", "value", "quantity"])
 
-        # Quantity: prefer tons, fall back to m³. In year_product / state_year
-        # for a single product, exactly one is non-null; in state_total_year
-        # (sums across all products) both can be non-null and the fillna
-        # collapses to "give a single representative number" — semantics are
-        # by definition imprecise for multi-commodity baskets.
         df = df.assign(_qty=df["quantity_tons"].fillna(df["quantity_m3"]))
         return (
             df.groupby("reference_year", as_index=False)
@@ -204,26 +173,22 @@ class GoldRepository:
     def top_states(
         self,
         *,
-        year: int,
-        convention: Convention,
-        currency: Currency,
-        commodity_codes: list[str] | None = None,
+        filters: dict,
         n: int = 8,
     ) -> pd.DataFrame:
-        """Top-N states for a given year by total value.
-
-        Source: state_year when filtering by commodity; state_total_year
-        otherwise (avoids summing products in pandas).
-
-        Returns columns: state_acronym, state_name, region, value.
-        """
-        col = value_column(convention, currency)
-        if commodity_codes:
-            df = self._cached(_T_STATE_YEAR).df
-            df = df[(df["reference_year"] == year) & (df["product_code"].isin(commodity_codes))]
-        else:
-            df = self._cached(_T_STATE_TOTAL_YEAR).df
-            df = df[df["reference_year"] == year]
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
+        df = self._cached(_T_MATRIX).df
+        
+        # Ensure we filter exactly by the end year for "top N" (usually it's for a specific year)
+        # But if the view expects an aggregate across all selected years, we use all selected years.
+        # Let's filter by the dashboard's standard: usually it's the `end_year`.
+        # I'll modify the filters copy to ensure year == end_year.
+        f = dict(filters)
+        hi_year = int(f.get("end_year", 2024))
+        f["start_year"] = hi_year
+        f["end_year"] = hi_year
+        
+        df = self._apply_filters(df, f)
 
         if df.empty:
             return pd.DataFrame(columns=["state_acronym", "state_name", "region", "value"])
@@ -238,26 +203,18 @@ class GoldRepository:
     def product_mix(
         self,
         *,
-        year: int,
-        convention: Convention,
-        currency: Currency,
-        state_acronym: str | None = None,
+        filters: dict,
         top_n: int = 6,
     ) -> pd.DataFrame:
-        """Share-of-value by product for one year.
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
+        df = self._cached(_T_MATRIX).df
+        
+        f = dict(filters)
+        hi_year = int(f.get("end_year", 2024))
+        f["start_year"] = hi_year
+        f["end_year"] = hi_year
 
-        Source: gold_commodity_year_product (no state filter) or
-        gold_commodity_state_year (with state filter).
-
-        Returns columns: product_code, product_description, value, share.
-        """
-        col = value_column(convention, currency)
-        if state_acronym:
-            df = self._cached(_T_STATE_YEAR).df
-            df = df[(df["reference_year"] == year) & (df["state_acronym"] == state_acronym)]
-        else:
-            df = self._cached(_T_YEAR_PRODUCT).df
-            df = df[df["reference_year"] == year]
+        df = self._apply_filters(df, f)
 
         if df.empty:
             return pd.DataFrame(columns=["product_code", "product_description", "value", "share"])
@@ -290,24 +247,18 @@ class GoldRepository:
     def top_cities(
         self,
         *,
-        year: int,
-        convention: Convention,
-        currency: Currency,
-        commodity_codes: list[str] | None = None,
-        state_acronym: str | None = None,
+        filters: dict,
         n: int = 20,
     ) -> pd.DataFrame:
-        """Top-N municipalities. Always queries the matrix — no pre-aggregate has city grain.
-
-        Returns columns: city_code, city_name, state_acronym, value, quantity.
-        """
-        col = value_column(convention, currency)
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
         df = self._cached(_T_MATRIX).df
-        df = df[df["reference_year"] == year]
-        if commodity_codes:
-            df = df[df["product_code"].isin(commodity_codes)]
-        if state_acronym:
-            df = df[df["state_acronym"] == state_acronym]
+        
+        f = dict(filters)
+        hi_year = int(f.get("end_year", 2024))
+        f["start_year"] = hi_year
+        f["end_year"] = hi_year
+
+        df = self._apply_filters(df, f)
 
         if df.empty:
             return pd.DataFrame(
@@ -322,9 +273,14 @@ class GoldRepository:
             .head(n)
         )
 
-    def quality_summary(self) -> dict[str, float | int]:
-        """Row-level flag counts. Needs matrix (the pre-aggregates lose row-level flags)."""
+    def quality_summary(self, *, filters: dict) -> dict[str, float | int]:
         df = self._cached(_T_MATRIX).df
+        # Apply filters except quality flags!
+        # Because we want to show the quality distribution for the selected slice.
+        f = dict(filters)
+        f.pop("quality_flags", None)
+        df = self._apply_filters(df, f)
+        
         if df.empty:
             return {"pct_ok": 0.0, "rows_total": 0}
         flag = df["data_quality_flag"]
@@ -340,40 +296,35 @@ class GoldRepository:
             "rows_incomplete": int((flag == "INCOMPLETE").sum()),
         }
 
-    def coverage_summary(self, year: int | None = None) -> dict[str, int]:
-        """Distinct counts of states, cities, and products.
+    def coverage_summary(self, *, filters: dict) -> dict[str, int]:
+        df = self._cached(_T_MATRIX).df
+        
+        f = dict(filters)
+        hi_year = int(f.get("end_year", 2024))
+        f["start_year"] = hi_year
+        f["end_year"] = hi_year
+        df = self._apply_filters(df, f)
 
-        Cities still need matrix (only table with `city_name`); state and
-        product counts come from the small pre-aggregates.
-        """
-        states_df = self._cached(_T_STATE_TOTAL_YEAR).df
-        products_df = self._cached(_T_YEAR_PRODUCT).df
-        matrix_df = self._cached(_T_MATRIX).df
-        if year is not None:
-            states_df = states_df[states_df["reference_year"] == year]
-            products_df = products_df[products_df["reference_year"] == year]
-            matrix_df = matrix_df[matrix_df["reference_year"] == year]
         return {
-            "states": int(states_df["state_acronym"].nunique()),
-            "cities": int(matrix_df["city_name"].nunique()),
-            "products": int(products_df["product_code"].nunique()),
+            "states": int(df["state_acronym"].nunique()),
+            "cities": int(df["city_name"].nunique()),
+            "products": int(df["product_code"].nunique()),
         }
 
-    # ── Analytical helpers for the new views (Qualidade / Valor e Volume / Geografia) ──
-    def quality_breakdown_by_year(self, years: tuple[int, int] | None = None) -> pd.DataFrame:
-        """Row count by (year, data_quality_flag). Feeds the Qualidade stacked area."""
+    def quality_breakdown_by_year(self, *, filters: dict) -> pd.DataFrame:
         df = self._cached(_T_MATRIX).df
-        if years:
-            df = df[(df["reference_year"] >= years[0]) & (df["reference_year"] <= years[1])]
+        f = dict(filters)
+        f.pop("quality_flags", None)
+        df = self._apply_filters(df, f)
         if df.empty:
             return pd.DataFrame(columns=["reference_year", "data_quality_flag", "count"])
         return df.groupby(["reference_year", "data_quality_flag"]).size().reset_index(name="count")
 
-    def quality_by_uf_year(self, years: tuple[int, int] | None = None) -> pd.DataFrame:
-        """% of OK rows by (UF, year). Feeds the Qualidade heatmap (diverging green→red)."""
+    def quality_by_uf_year(self, *, filters: dict) -> pd.DataFrame:
         df = self._cached(_T_MATRIX).df
-        if years:
-            df = df[(df["reference_year"] >= years[0]) & (df["reference_year"] <= years[1])]
+        f = dict(filters)
+        f.pop("quality_flags", None)
+        df = self._apply_filters(df, f)
         if df.empty:
             return pd.DataFrame(columns=["state_acronym", "reference_year", "pct_ok"])
         grouped = df.groupby(["state_acronym", "reference_year"], as_index=False).agg(
@@ -383,9 +334,11 @@ class GoldRepository:
         grouped["pct_ok"] = grouped["ok"] / grouped["total"]
         return grouped[["state_acronym", "reference_year", "pct_ok"]]
 
-    def top_quality_problem_products(self, *, top_n: int = 10) -> pd.DataFrame:
-        """Products with worst data quality (% of non-OK rows). Feeds the Qualidade ranking."""
+    def top_quality_problem_products(self, *, filters: dict, top_n: int = 10) -> pd.DataFrame:
         df = self._cached(_T_MATRIX).df
+        f = dict(filters)
+        f.pop("quality_flags", None)
+        df = self._apply_filters(df, f)
         if df.empty:
             return pd.DataFrame(
                 columns=["product_code", "product_description", "pct_problem", "rows"]
@@ -401,9 +354,9 @@ class GoldRepository:
             .head(top_n)
         )
 
-    def last_refresh_by_uf(self) -> pd.DataFrame:
-        """Days since `last_refresh` per UF. Feeds the Qualidade defasagem bar."""
-        df = self._cached(_T_STATE_TOTAL_YEAR).df
+    def last_refresh_by_uf(self, *, filters: dict) -> pd.DataFrame:
+        df = self._cached(_T_MATRIX).df
+        df = self._apply_filters(df, filters)
         if df.empty:
             return pd.DataFrame(
                 columns=["state_acronym", "state_name", "last_refresh", "days_since"]
@@ -411,7 +364,6 @@ class GoldRepository:
         grouped = df.groupby(["state_acronym", "state_name"], as_index=False).agg(
             last_refresh=("last_refresh", "max"),
         )
-        # Use the timestamp tz from the column so we don't mix naive/aware.
         ref = grouped["last_refresh"].iloc[0]
         now = pd.Timestamp.now(tz=ref.tz) if getattr(ref, "tz", None) else pd.Timestamp.now()
         grouped["days_since"] = (now - grouped["last_refresh"]).dt.days
@@ -420,20 +372,11 @@ class GoldRepository:
     def regional_aggregate(
         self,
         *,
-        convention: Convention,
-        currency: Currency,
-        commodity_codes: list[str] | None = None,
-        years: tuple[int, int] | None = None,
+        filters: dict,
     ) -> pd.DataFrame:
-        """Value by (region, year). Feeds the Geografia heatmap_region_year."""
-        col = value_column(convention, currency)
-        if commodity_codes:
-            df = self._cached(_T_STATE_YEAR).df
-            df = df[df["product_code"].isin(commodity_codes)]
-        else:
-            df = self._cached(_T_STATE_TOTAL_YEAR).df
-        if years:
-            df = df[(df["reference_year"] >= years[0]) & (df["reference_year"] <= years[1])]
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
+        df = self._cached(_T_MATRIX).df
+        df = self._apply_filters(df, filters)
         if df.empty:
             return pd.DataFrame(columns=["region", "reference_year", "value"])
         return df.groupby(["region", "reference_year"], as_index=False).agg(value=(col, "sum"))
@@ -441,18 +384,19 @@ class GoldRepository:
     def municipal_breakdown(
         self,
         *,
+        filters: dict,
         state_acronym: str,
-        year: int,
-        convention: Convention,
-        currency: Currency,
-        commodity_codes: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Value by city within a state. Feeds the Geografia municipal choropleth drill-down."""
-        col = value_column(convention, currency)
+        col = value_column(filters.get("convention", "ipca"), filters.get("currency", "BRL"))
         df = self._cached(_T_MATRIX).df
-        df = df[(df["state_acronym"] == state_acronym) & (df["reference_year"] == year)]
-        if commodity_codes:
-            df = df[df["product_code"].isin(commodity_codes)]
+        
+        f = dict(filters)
+        hi_year = int(f.get("end_year", 2024))
+        f["start_year"] = hi_year
+        f["end_year"] = hi_year
+        f["states"] = [state_acronym]  # override to just this state
+        
+        df = self._apply_filters(df, f)
         if df.empty:
             return pd.DataFrame(columns=["city_code", "city_name", "value"])
         return (
@@ -461,15 +405,13 @@ class GoldRepository:
             .sort_values("value", ascending=False)
         )
 
-    # ── Internals ─────────────────────────────────────────────────────────────
     def _cached(self, table_short: str) -> GoldSnapshot:
-        """Return the cached snapshot of a Gold table, refreshing if stale or absent."""
         existing = self._snapshots.get(table_short)
         if existing is not None and self._is_fresh(existing):
             return existing
         with self._lock:
             existing = self._snapshots.get(table_short)
-            if existing is not None and self._is_fresh(existing):  # double-checked
+            if existing is not None and self._is_fresh(existing):
                 return existing
             self._snapshots[table_short] = self._load(table_short)
         return self._snapshots[table_short]
@@ -493,10 +435,6 @@ class GoldRepository:
     def _load(self, table_short: str) -> GoldSnapshot:
         fqn = self._table_fqn(table_short)
         client = self._bq()
-        # All four Gold tables fire into the same `bq_snapshot` health stage —
-        # users see "BigQuery snapshot loaded" once per fresh-cache miss
-        # regardless of which table triggered it; the table name lands in
-        # the stage `detail` so the status page is still useful.
         health.stage_started("bq_snapshot", detail=f"SELECT * FROM {fqn}")
         started = time.monotonic()
         logger.info("Loading Gold table %s", fqn)

@@ -16,6 +16,7 @@ from dash import dcc, html
 from embrapa_commodities.dashboard.components.export import header_export_button
 from embrapa_commodities.dashboard.components.icons import icon
 from embrapa_commodities.dashboard.data_sources import DataSource
+from embrapa_commodities.dashboard.components import global_filter
 
 # Single global sidebar section, always visible regardless of the
 # active source. `/status` is the only global page so far.
@@ -211,7 +212,18 @@ def shell(
                 className="body",
                 children=[
                     _sidebar(sources, source, view_id, path),
-                    html.Main(className="content", children=content),
+                    html.Main(
+                        className="content",
+                        children=[
+                            (
+                                html.Div([
+                                    global_filter.trigger_bar_layout(),
+                                    global_filter.modal_layout(source.store)
+                                ]) if source is not None else None
+                            ),
+                            content
+                        ]
+                    ),
                 ],
             ),
             _footer(),

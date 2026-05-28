@@ -38,6 +38,7 @@ from embrapa_commodities.dashboard.errors import (
 from embrapa_commodities.dashboard.health import health
 from embrapa_commodities.dashboard.pages import status as status_page
 from embrapa_commodities.dashboard.theme import install_template
+from embrapa_commodities.dashboard.components import global_filter
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -244,6 +245,8 @@ def _build_dash() -> Dash:
             # global error store + always-mounted overlay
             dcc.Store(id="global-error", data=None, storage_type="memory"),
             html.Div(id="error-overlay", className="error-overlay hidden"),
+            # global filter store (initialized empty, hydrated by global_filter.py if needed, or initialized via make_global_store)
+            dcc.Store(id="global-filters", data={}, storage_type="session"),
             # the dashboard itself — per-view filter stores live inside each
             # view's layout, not here, so each view carries its own lens.
             html.Div(id="page-container"),
@@ -268,9 +271,14 @@ def _build_dash() -> Dash:
         # separately. Its register_fn accepts an unused store arg for API
         # symmetry.
         status_page.register_callbacks(dash_app, None)
+        
+        # Register global filter callbacks once
+        if DEFAULT_SOURCE_ID in DATA_SOURCES:
+            global_filter.register_callbacks(dash_app, DATA_SOURCES[DEFAULT_SOURCE_ID].store)
+
         health.stage_ok(
             "page_callbacks",
-            detail=f"{len(DATA_SOURCES)} fonte(s), {view_count} view(s) + /status",
+            detail=f"{len(DATA_SOURCES)} fonte(s), {view_count} view(s) + /status + global filters",
         )
     except Exception as exc:
         logger.exception("Failed to register page callbacks at startup")
