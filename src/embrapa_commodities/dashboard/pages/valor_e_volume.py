@@ -1,15 +1,12 @@
 """/ibge-pevs/valor-e-volume — Valor e Volume.
 
-Eixo tempo × produto × métricas monetárias e de volume. **Sem geografia**
-— sem mapas, sem rankings de UF. A view responde "como evoluíram valor e
-quantidade das commodities selecionadas, em qual convenção monetária".
-
-Substitui a antiga ``/produto`` (que misturava geografia via top-states).
+Eixo tempo × produto × métricas monetárias e de volume. Sem dimensão
+geográfica — para isso, abra a view Geografia.
 """
 
 from __future__ import annotations
 
-from dash import Input, Output, dcc, html, no_update
+from dash import Input, Output, dash_table, dcc, html, no_update
 
 from embrapa_commodities.dashboard.components.about_data_panel import about_data_panel
 from embrapa_commodities.dashboard.components.charts import (
@@ -17,15 +14,17 @@ from embrapa_commodities.dashboard.components.charts import (
     line_time_series,
     line_with_secondary,
 )
-from embrapa_commodities.dashboard.components.global_filter_bar import (
-    global_filter_bar,
-    selected_commodity_codes,
-    selected_convention,
-    selected_currency,
-    selected_period_years,
-)
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
+from embrapa_commodities.dashboard.components.view_filter_bar import (
+    get_commodity_codes,
+    get_convention,
+    get_currency,
+    get_period_years,
+    make_filter_bar,
+    make_store,
+    register_view_callbacks,
+)
 from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import (
     convention_label,
@@ -64,8 +63,9 @@ def layout(repo: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
+            make_store(PREFIX, repo),
             _hero(),
-            global_filter_bar(repo),
+            make_filter_bar(PREFIX, repo, has_currency=True, has_quality=False),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(overline="Tendências", title="Valor e volume ao longo do tempo"),
             html.Div(
@@ -87,16 +87,21 @@ def layout(repo: GoldRepository) -> html.Div:
                     ),
                 ],
             ),
-            section_header(
-                overline="Ranking",
-                title="Commodities por valor no último ano",
-            ),
+            section_header(overline="Ranking", title="Commodities por valor no último ano"),
             html.Div(
                 className="card",
                 children=dcc.Graph(
                     id={"section": PREFIX, "control": "ranking"},
                     config={"displayModeBar": False},
                 ),
+            ),
+            section_header(
+                overline="Tabela de ranking",
+                title="Commodities por valor e volume — período selecionado",
+            ),
+            html.Div(
+                className="card",
+                children=html.Div(id={"section": PREFIX, "control": "ranking-table"}),
             ),
             about_data_panel(
                 sources=[
@@ -117,22 +122,14 @@ def layout(repo: GoldRepository) -> html.Div:
     )
 
 
-# ── Callbacks ─────────────────────────────────────────────────────────────
-
-
-def _commodities_sub(commodities: list[str] | None) -> str:
-    if not commodities:
-        return "sem filtro"
-    head = ", ".join(commodities[:3])
-    suffix = "…" if len(commodities) > 3 else ""
-    return f"filtro: {head}{suffix}"
+# ── Callbacks ─────────────────────────────────────────────────────────────────
 
 
 def _build_kpis(
     repo: GoldRepository,
     *,
     commodities: list[str] | None,
-    years: tuple[int, int] | None,
+    years: tuple[int, int],
     conv: str,
     ccy: str,
 ) -> list:
@@ -164,29 +161,87 @@ def _build_kpis(
         kpi_card(
             label="Commodities no recorte",
             value=str(len(commodities)) if commodities else "todas",
-            sub=_commodities_sub(commodities),
+            sub="sem filtro"
+            if not commodities
+            else ", ".join(commodities[:3]) + ("…" if len(commodities) > 3 else ""),
         ),
     ]
 
 
+def _ranking_table(
+    repo: GoldRepository,
+    *,
+    year: int,
+    conv: str,
+    ccy: str,
+    commodities: list[str] | None,
+) -> html.Div:
+    df = repo.product_mix(year=year, convention=conv, currency=ccy, top_n=20)
+    if commodities:
+        df = df[df["product_code"].isin(commodities)]
+    if df.empty:
+        return html.Div("Sem dados para os filtros selecionados.", className="empty-state")
+    cols = [c for c in ["product_description", "value", "share"] if c in df.columns]
+    value_label = f"Valor ({ccy}, {convention_label(conv)}) — {year}"
+    col_labels = {
+        "product_description": "Commodity",
+        "value": value_label,
+        "share": "Share (%)",
+    }
+    return dash_table.DataTable(
+        data=df[cols].to_dict("records"),
+        columns=[
+            {
+                "name": col_labels.get(c, c),
+                "id": c,
+                "type": "numeric" if c != "product_description" else "text",
+            }
+            for c in cols
+        ],
+        page_size=20,
+        sort_action="native",
+        style_as_list_view=True,
+        style_cell={"fontFamily": "Univers, Arial, sans-serif", "fontSize": "13px"},
+        style_data_conditional=[
+            {
+                "if": {"column_id": "share"},
+                "fontFamily": "var(--font-mono)",
+                "color": "var(--embrapa-green-darker)",
+            },
+        ],
+        style_header={
+            "fontFamily": "Univers, Arial, sans-serif",
+            "fontSize": "11px",
+            "textTransform": "uppercase",
+            "letterSpacing": "0.08em",
+            "color": "#888",
+            "fontWeight": "500",
+        },
+    )
+
+
 def register_callbacks(app, repo: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
+
+    register_view_callbacks(app, PREFIX, has_currency=True, has_quality=False)
 
     @app.callback(
         Output({"section": PREFIX, "control": "kpi-row"}, "children"),
         Output({"section": PREFIX, "control": "value-line"}, "figure"),
         Output({"section": PREFIX, "control": "volume-line"}, "figure"),
         Output({"section": PREFIX, "control": "ranking"}, "figure"),
+        Output({"section": PREFIX, "control": "ranking-table"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
-        Input("global-filters", "data"),
+        Input(f"{PREFIX}-filters", "data"),
         prevent_initial_call="initial_duplicate",
     )
-    def _update(global_filters):
+    def _update(filters):
         try:
-            commodities = selected_commodity_codes(global_filters)
-            conv = selected_convention(global_filters)
-            ccy = selected_currency(global_filters)
-            years = selected_period_years(global_filters)
+            commodities = get_commodity_codes(filters)
+            conv = get_convention(filters)
+            ccy = get_currency(filters)
+            years = get_period_years(filters)
+            hi_year = years[1]
 
             kpis = _build_kpis(repo, commodities=commodities, years=years, conv=conv, ccy=ccy)
             ts = repo.time_series(
@@ -198,25 +253,19 @@ def register_callbacks(app, repo: GoldRepository) -> None:
                 ts, value_label=value_label, quantity_label="Volume agregado"
             )
 
-            hi_year = int(years[1] if years else repo.year_range()[1])
-            # Ranking: query year_product directly to get all commodities (not
-            # limited by the global filter — the user wants to see WHERE their
-            # selection sits in the overall market).
             ranking_src = repo.product_mix(year=hi_year, convention=conv, currency=ccy, top_n=15)
-            # product_mix returns columns: product_code, product_description, value, share.
-            # Adapt to bar_top_states' expected shape (state_name, value) — reuse the bar
-            # builder so the visual language stays the same.
             ranking_src = ranking_src.rename(columns={"product_description": "state_name"})
             ranking_fig = bar_top_states(ranking_src, value_label=value_label)
 
-            return kpis, value_fig, volume_fig, ranking_fig, no_update
+            table = _ranking_table(repo, year=hi_year, conv=conv, ccy=ccy, commodities=commodities)
+            return kpis, value_fig, volume_fig, ranking_fig, table, no_update
         except Exception as exc:
             err = build_error_payload(
                 exc,
                 page="/ibge-pevs/valor-e-volume",
                 where="callback de atualização de Valor e Volume",
             )
-            return no_update, no_update, no_update, no_update, err
+            return no_update, no_update, no_update, no_update, no_update, err
 
 
 __all__ = ["PREFIX", "layout", "register_callbacks"]

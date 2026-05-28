@@ -33,7 +33,11 @@
       "PowerShell(Stop-Process *)",
       "PowerShell(Add-Type *)",
       "PowerShell(cd \"C:\\\\Users\\\\Igor Lopes\\\\Documents\\\\GitHub\\\\embrapa-dashboard-commodities\"; *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(unzip -l \"Embrapa Commodities Design System-handoff.zip\")",
+      "Bash(unzip -o \"Embrapa Commodities Design System-handoff.zip\" -d /tmp/design-system)",
+      "Bash(unzip *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('location','?'\\)\\)\")"
     ]
   }
 }

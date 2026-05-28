@@ -1,10 +1,9 @@
 """/ibge-pevs/qualidade-dados — Qualidade dos Dados.
 
 Transparência sobre integridade do banco: KPIs por flag, evolução
-temporal da composição, heatmap UF × ano, top produtos com pior
-cobertura, e tabela bruta de drill-down. Absorve as antigas páginas
-``/tabela`` e ``/glossario`` via tabela embutida e modal de ajuda
-(modal será incrementado em uma sessão futura — Task #6).
+temporal da composição, heatmap UF × ano, e tabela de drill-down.
+Moeda e correção monetária não se aplicam — esta view analisa
+cobertura estrutural, não valores monetários.
 """
 
 from __future__ import annotations
@@ -16,22 +15,37 @@ from embrapa_commodities.dashboard.components.charts_views import (
     heatmap_uf_year_quality,
     stacked_area_quality,
 )
-from embrapa_commodities.dashboard.components.global_filter_bar import (
-    global_filter_bar,
-    selected_commodity_codes,
-    selected_data_quality,
-    selected_period_years,
-)
 from embrapa_commodities.dashboard.components.kpi import kpi_card
 from embrapa_commodities.dashboard.components.section_header import section_header
+from embrapa_commodities.dashboard.components.view_filter_bar import (
+    get_commodity_codes,
+    get_period_years,
+    get_quality_flags,
+    make_filter_bar,
+    make_store,
+    register_view_callbacks,
+)
 from embrapa_commodities.dashboard.data import GoldRepository
 from embrapa_commodities.dashboard.formatting import fmt_number
 
 PREFIX = "qualidade"
 
-# Local filter: quality-flag multi-select. Defaults to ALL flags (the
-# diagnostic view: show everything). Other views default to OK-only.
-_ALL_FLAGS = ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
+_FLAG_CHIP = {
+    "OK": "ok",
+    "MISSING_VALUE": "warn",
+    "MISSING_QUANTITY": "warn",
+    "INCOMPLETE": "err",
+}
+_COL_LABELS = {
+    "reference_year": "Ano",
+    "state_acronym": "UF",
+    "city_name": "Município",
+    "product_description": "Commodity",
+    "data_quality_flag": "Flag de qualidade",
+    "val_yearfx_brl": "Valor nominal (R$)",
+    "quantity_tons": "Qtd. (t)",
+    "quantity_m3": "Qtd. (m³)",
+}
 
 
 def _hero() -> html.Div:
@@ -57,15 +71,13 @@ def _hero() -> html.Div:
     )
 
 
-
-
-
 def layout(repo: GoldRepository) -> html.Div:
     return html.Div(
         className="screen",
         children=[
+            make_store(PREFIX, repo),
             _hero(),
-            global_filter_bar(repo),
+            make_filter_bar(PREFIX, repo, has_currency=False, has_quality=True),
             html.Div(id={"section": PREFIX, "control": "kpi-row"}, className="kpi-row"),
             section_header(
                 overline="Cobertura temporal",
@@ -91,13 +103,11 @@ def layout(repo: GoldRepository) -> html.Div:
             ),
             section_header(
                 overline="Drill-down",
-                title="Tabela bruta filtrada por commodity / período / flag",
+                title="Registros filtrados por commodity, período e flag",
             ),
             html.Div(
                 className="card",
-                children=html.Div(
-                    id={"section": PREFIX, "control": "table-container"},
-                ),
+                children=html.Div(id={"section": PREFIX, "control": "table-container"}),
             ),
             about_data_panel(
                 sources=[
@@ -119,7 +129,7 @@ def layout(repo: GoldRepository) -> html.Div:
     )
 
 
-# ── Callbacks ─────────────────────────────────────────────────────────────
+# ── Callbacks ─────────────────────────────────────────────────────────────────
 
 
 def _build_kpis(repo: GoldRepository) -> list:
@@ -151,16 +161,11 @@ def _build_kpis(repo: GoldRepository) -> list:
     ]
 
 
-def _drill_table(repo: GoldRepository, *, commodities, years, flags) -> dash_table.DataTable:
-    df = repo.filtered(
-        years=years,
-        commodity_codes=commodities,
-        flags=flags,
-    )
+def _drill_table(repo: GoldRepository, *, commodities, years, flags) -> html.Div:
+    df = repo.filtered(years=years, commodity_codes=commodities, flags=flags)
     if df.empty:
         return html.Div("Sem linhas para os filtros selecionados.", className="empty-state")
-    # Keep the most relevant columns; full export remains via the header button.
-    cols = [
+    raw_cols = [
         "reference_year",
         "state_acronym",
         "city_name",
@@ -170,25 +175,45 @@ def _drill_table(repo: GoldRepository, *, commodities, years, flags) -> dash_tab
         "quantity_tons",
         "quantity_m3",
     ]
-    cols = [c for c in cols if c in df.columns]
+    cols = [c for c in raw_cols if c in df.columns]
+    columns = [{"name": _COL_LABELS.get(c, c), "id": c} for c in cols]
     return dash_table.DataTable(
         data=df[cols].head(1000).to_dict("records"),
-        columns=[{"name": c, "id": c} for c in cols],
+        columns=columns,
         page_size=20,
         sort_action="native",
+        filter_action="native",
         style_as_list_view=True,
         style_cell={"fontFamily": "Univers, Arial, sans-serif", "fontSize": "13px"},
         style_data_conditional=[
             {
                 "if": {"filter_query": '{data_quality_flag} != "OK"'},
                 "backgroundColor": "rgba(178,58,43,0.06)",
-            }
+            },
+            {
+                "if": {
+                    "column_id": "data_quality_flag",
+                    "filter_query": '{data_quality_flag} = "OK"',
+                },
+                "color": "var(--embrapa-green-darker)",
+                "fontWeight": "500",
+            },
         ],
+        style_header={
+            "fontFamily": "Univers, Arial, sans-serif",
+            "fontSize": "11px",
+            "textTransform": "uppercase",
+            "letterSpacing": "0.08em",
+            "color": "#888",
+            "fontWeight": "500",
+        },
     )
 
 
 def register_callbacks(app, repo: GoldRepository) -> None:
     from embrapa_commodities.dashboard.app import build_error_payload
+
+    register_view_callbacks(app, PREFIX, has_currency=False, has_quality=True)
 
     @app.callback(
         Output({"section": PREFIX, "control": "kpi-row"}, "children"),
@@ -196,22 +221,19 @@ def register_callbacks(app, repo: GoldRepository) -> None:
         Output({"section": PREFIX, "control": "heatmap"}, "figure"),
         Output({"section": PREFIX, "control": "table-container"}, "children"),
         Output("global-error", "data", allow_duplicate=True),
-        Input("global-filters", "data"),
+        Input(f"{PREFIX}-filters", "data"),
         prevent_initial_call="initial_duplicate",
     )
-    def _update(global_filters):
+    def _update(filters):
         try:
-            commodities = selected_commodity_codes(global_filters)
-            years = selected_period_years(global_filters)
-            # data_quality is a list of tags. Defaults to _ALL_FLAGS if empty
-            data_quality = selected_data_quality(global_filters) or _ALL_FLAGS
+            commodities = get_commodity_codes(filters)
+            years = get_period_years(filters)
+            flags = get_quality_flags(filters)
 
             kpis = _build_kpis(repo)
             stacked = stacked_area_quality(repo.quality_breakdown_by_year(years=years))
             heatmap = heatmap_uf_year_quality(repo.quality_by_uf_year(years=years))
-            table = _drill_table(
-                repo, commodities=commodities, years=years, flags=data_quality
-            )
+            table = _drill_table(repo, commodities=commodities, years=years, flags=flags)
             return kpis, stacked, heatmap, table, no_update
         except Exception as exc:
             err = build_error_payload(

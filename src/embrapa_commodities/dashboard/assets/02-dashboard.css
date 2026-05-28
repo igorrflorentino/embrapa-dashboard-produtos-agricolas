@@ -137,117 +137,271 @@
 }
 .link:hover { text-decoration: underline; }
 
-/* ---------- Filterbar ----------
-   `auto-fit` lets the base class serve both the 4-column global filter
-   bar AND view-local 1- or 2-control filterbars (e.g. the quality-flag
-   selector in Qualidade dos Dados) without per-variant tuning. The
-   `.global-filterbar` modifier below pins a deliberate grid that gives
-   commodity (multi-select) more horizontal real estate. */
-.filterbar {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px 16px;
-  align-items: end;
-  box-shadow: var(--shadow-1);
-  margin-bottom: 4px;
-}
-/* Global filter bar (period | currency | convention).
-   Subtle green-tinted top border signals "session-wide analytical lens". */
-.global-filterbar {
-  grid-template-columns: 1fr max-content max-content;
-  border-top: 2px solid rgba(0, 111, 53, 0.18);
-}
-/* ============================================================
-   CHECKLISTS SECTIONS
-   ============================================================ */
-.global-filters-container {
+/* ---------- Per-view filter bar (vf-*) ----------
+   Each primary view carries its own analytical lens: a .vf-card with
+   numbered section cards (.vf-section), mirroring the Embrapa
+   Commodities Design System FM sections. Sections that don't apply
+   to a given view are rendered as a .vf-section-na placeholder — same
+   layout, clear "não se aplica" label — for UX consistency.            */
+
+.vf-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 16px;
-}
-
-.checklist-section {
-  background: var(--surface-0);
-  border: 1px solid var(--border-neutral);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  box-shadow: var(--shadow-1);
-}
-
-.checklist-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 8px;
 }
 
-.checklist-header label {
-  font-size: 11px;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  color: var(--fg-3);
-  font-weight: 600;
+/* ----- Section card ----- */
+.vf-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+.vf-section-na {
+  opacity: 0.72;
 }
 
-.checklist-buttons {
+/* ----- Section header ----- */
+.vf-section-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, rgba(0,60,29,0.04) 0%, rgba(0,60,29,0.015) 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+.vf-section-head::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--embrapa-green);
+}
+.vf-section-na .vf-section-head::before {
+  background: var(--border-strong);
+}
+.vf-section-head-l {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  min-width: 0;
 }
-
-.btn-link {
-  background: transparent;
-  border: none;
-  color: var(--brand-embrapa);
-  font: 500 11px var(--font-body);
-  cursor: pointer;
-  padding: 0;
+.vf-section-label {
+  font-size: 11px;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: opacity 0.2s;
-}
-
-.btn-link:hover {
-  opacity: 0.7;
-}
-
-.checklist-scroll-area {
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--border-neutral-light);
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  background: var(--surface-1);
-}
-
-.quality-scroll-area {
-  max-height: 120px;
-}
-
-.multi-column-checklist {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 8px;
-}
-
-.checklist-item-label {
+  font-weight: 600;
+  color: var(--embrapa-green-darker);
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 400 13px var(--font-body);
+}
+.vf-section-na .vf-section-label {
+  color: var(--fg-3);
+}
+.vf-section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  background: var(--embrapa-green);
+  color: #fff;
+  border-radius: 50%;
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.vf-section-na .vf-section-num {
+  background: var(--fg-4);
+}
+
+/* ----- Section body ----- */
+.vf-section-inner {
+  padding: 14px 18px 16px;
+}
+
+/* ----- Checkbox grid + scroll area ----- */
+.vf-grid-scroll {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--bg-surface);
+}
+.vf-grid-scroll::-webkit-scrollbar { width: 8px; }
+.vf-grid-scroll::-webkit-scrollbar-track { background: var(--bg-surface-2); border-radius: 4px; }
+.vf-grid-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+  border: 2px solid var(--bg-surface-2);
+  background-clip: padding-box;
+}
+.vf-grid-scroll::-webkit-scrollbar-thumb:hover { background: var(--embrapa-green); }
+
+.vf-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px 20px;
+}
+.vf-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 980px) {
+  .vf-grid     { grid-template-columns: repeat(2, 1fr); }
+  .vf-grid-4   { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .vf-grid, .vf-grid-4 { grid-template-columns: 1fr; }
+}
+
+/* Dash Checklist renders <label> elements wrapping the checkbox + text.
+   .vf-check is applied via labelClassName to each label. */
+.vf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
   color: var(--fg-2);
   cursor: pointer;
+  transition: background var(--dur-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vf-check:hover { background: var(--bg-surface-2); }
+.vf-check-input {
+  accent-color: var(--embrapa-green);
+  flex-shrink: 0;
 }
 
-.checklist-item-input {
+/* ----- Bulk actions ----- */
+.vf-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.vf-bulk-btn {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: 500 11px var(--font-body);
+  color: var(--embrapa-green);
   cursor: pointer;
-  accent-color: var(--brand-embrapa);
+  transition: color var(--dur-fast);
+  white-space: nowrap;
+}
+.vf-bulk-btn:hover { color: var(--embrapa-green-darker); }
+.vf-sep-dot {
+  width: 3px; height: 3px;
+  background: var(--border-strong);
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
+/* ----- Período + Financeiro two-column row ----- */
+.vf-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 24px;
+  padding: 16px 18px;
+}
+@media (max-width: 760px) {
+  .vf-row-2 {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .vf-divider { display: none; }
+}
+.vf-divider {
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, var(--border-default) 15%, var(--border-default) 85%, transparent 100%);
+}
+.vf-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.vf-col-na { justify-content: center; }
+.vf-sub-label {
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.vf-sub-label-sm {
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+  font-weight: 500;
+}
+.vf-sub { display: flex; flex-direction: column; gap: 4px; }
+
+/* Year inputs */
+.vf-date-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.vf-date-field { display: flex; flex-direction: column; gap: 3px; }
+.vf-date-label {
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+  font-weight: 500;
+}
+.vf-date-input {
+  width: 80px;
+  height: 34px;
+  padding: 0 10px;
+  font: 500 14px var(--font-mono);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--fg-1);
+  font-feature-settings: 'tnum' 1;
+}
+.vf-date-input:focus {
+  outline: none;
+  border-color: var(--embrapa-blue);
+  border-width: 2px;
+}
+.vf-arrow {
+  color: var(--fg-4);
+  font-size: 14px;
+  padding-bottom: 6px;
+  flex-shrink: 0;
+}
+
+/* ----- N/A placeholder ----- */
+.vf-na-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--fg-3);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.vf-na-reason {
+  font-size: 12px;
+  color: var(--fg-4);
+  line-height: 1.5;
+  margin: 0;
+  font-style: italic;
+}
+
+/* Legacy .filter kept for dcc.DatePickerRange usage elsewhere */
 .filter { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .filter label {
   font-size: 10px;
@@ -264,15 +418,6 @@
   border-radius: var(--radius-sm);
   background: #fff;
   color: var(--fg-1);
-}
-/* On viewports too narrow to fit all 4 global filters in a row, collapse to
-   a 2-up grid (commodity still spans full width because of its multi-select
-   height) and then to single-column on phones. */
-@media (max-width: 980px) {
-  .global-filterbar { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 560px) {
-  .global-filterbar { grid-template-columns: 1fr; }
 }
 
 .seg {
