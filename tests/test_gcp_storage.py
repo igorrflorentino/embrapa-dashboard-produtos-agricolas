@@ -54,6 +54,28 @@ def test_apply_protections_is_idempotent() -> None:
     assert changed is False
 
 
+def test_apply_protections_idempotent_against_gcs_normalized_rules() -> None:
+    """GCS echoes lifecycle rules back with reordered keys / extra defaults.
+
+    The semantic _rule_key comparison must still recognize them as unchanged so
+    we don't patch() (and log "Updating protections") on every single ingestion.
+    A naive dict-equality check would see the extra field and patch forever.
+    """
+    echoed = [
+        {
+            "action": dict(rule["action"]),
+            # GCS-style echo: keys reordered + a benign field we never set.
+            "condition": {**rule["condition"], "daysSinceNoncurrentTime": None},
+        }
+        for rule in _LIFECYCLE_RULES
+    ]
+    bucket = _make_bucket_mock(uniform_iam=True, versioning=True, lifecycle_rules=echoed)
+
+    changed = _apply_protections(bucket)
+
+    assert changed is False
+
+
 def test_ensure_bucket_creates_when_missing() -> None:
     """ensure_bucket calls create_bucket() with protections pre-set for new buckets."""
     client = MagicMock()
