@@ -10,5 +10,6 @@ respective ``ibge/`` / ``bcb/`` packages.
 """
 
 from embrapa_commodities.core.exceptions import SourceTransientError
+from embrapa_commodities.core.observability_helpers import pipeline_run
 
-__all__ = ["SourceTransientError"]
+__all__ = ["SourceTransientError", "pipeline_run"]

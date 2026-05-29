@@ -89,10 +89,25 @@ bq_bronze_<fonte>_<tabela>_table: str = Field(default="<tabela>_raw")
 | `doctor.SOURCE_CHECKS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) (fim do arquivo) | `("<fonte>", _check_<fonte>)` |
 | `doctor.BRONZE_TARGETS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) | `("bq_bronze_<fonte>_dataset", "bq_bronze_<fonte>_<tabela>_table")` |
 
-E escreva o `@ingest_app.command("<fonte>")` manuscrito no `cli.py` — observabilidade não é compartilhada via registry (cada fonte emite eventos próprios). Use as commands existentes como template:
+E escreva o `@ingest_app.command("<fonte>")` manuscrito no `cli.py` — o `ingest all` usa o registry, mas cada comando individual é escrito à mão (mensagens próprias). Para a **visibilidade no `embrapa monitor`**, envolva o trabalho no context manager `pipeline_run` de [`core/observability_helpers.py`](../src/embrapa_commodities/core/observability_helpers.py):
 
-- Fonte com chunks parciais e progresso por unidade (estado/série/mês): copie [`ingest_ibge_batch`](../src/embrapa_commodities/cli.py) (linhas 135-277).
-- Fonte single-shot delta: copie [`ingest_bcb_inflation`](../src/embrapa_commodities/cli.py) (linhas 103-116).
+```python
+from embrapa_commodities.core import pipeline_run
+
+@ingest_app.command("<fonte>")
+def ingest_<fonte>(full: bool = typer.Option(False, "--full")) -> None:
+    settings = get_settings()
+    with pipeline_run("<fonte>", params={"full": full}) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
+        destination = <fonte>_pipeline.run(settings, full=full)
+    if destination:
+        console.print(f"[green]✓[/green] <Fonte> bronze loaded → {destination}")
+    else:
+        console.print("[dim]<fonte>: nothing new since last ingest.[/dim]")
+```
+
+- **Single-shot** (uma varredura, como IBGE/BCB): use `pipeline_run` como acima. Ele emite a sequência `pipeline_start → chunk_start → chunk_end/chunk_error → pipeline_end` e a fonte aparece no monitor.
+- **Multi-chunk** (progresso por estado/série/mês, como `ingest ibge-batch`): NÃO use `pipeline_run`; copie a estrutura manuscrita de `ingest_ibge_batch` em [`cli.py`](../src/embrapa_commodities/cli.py), que emite `chunk_start`/`chunk_end`/`chunk_error` por chunk e `state_*` por unidade.
 
 Para fontes sem API pública (NFe via XML em lote), o `_check_<fonte>` pode ser um stub: `return CheckResult("<fonte>", True, "sem probe público (ingestão por lote)")`.
 

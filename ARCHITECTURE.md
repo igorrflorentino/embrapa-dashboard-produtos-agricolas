@@ -76,7 +76,8 @@ embrapa-dashboard-commodities/
 │   ├── observability.py              # Logging estruturado
 │   │
 │   ├── core/                         # ⭐ Primitivos compartilhados entre fontes
-│   │   └── exceptions.py             # SourceTransientError (marker p/ retry)
+│   │   ├── exceptions.py             # SourceTransientError (marker p/ retry)
+│   │   └── observability_helpers.py  # pipeline_run (eventos p/ embrapa monitor)
 │   │
 │   ├── gcp/                          # Clientes GCP
 │   │   ├── bigquery.py               # Load Parquet → BQ, auto-create datasets
@@ -214,6 +215,7 @@ embrapa-dashboard-commodities/
 `src/embrapa_commodities/core/` concentra os primitivos genuinamente compartilhados, mantendo IBGE/BCB/… enxutas:
 
 - **`SourceTransientError`** (em `core/exceptions.py`): marker para falhas transitórias upstream. `SidraTransientError` e `BcbTransientError` herdam via mixin, e qualquer fonte nova faz o mesmo. Isso permite escrever, no futuro, um decorator `core/http.retry_http` que captura todas as transientes sem precisar listar cada classe por nome.
+- **`pipeline_run`** (em `core/observability_helpers.py`): context manager que encapsula a sequência de eventos de um ingest de chunk-único (`pipeline_start → chunk_start → chunk_end/chunk_error → pipeline_end`). Os comandos `ingest ibge`, `ingest bcb-inflation` e `ingest bcb-currency` usam o mesmo caminho, então toda fonte single-shot aparece de forma idêntica no `embrapa monitor`. Fluxos multi-chunk (`ingest ibge-batch`) emitem a sequência por estado/chunk à mão e **não** usam este helper.
 
 Ponto importante: **não migrar** clientes existentes (IBGE/BCB) para abstrações compartilhadas só pelo gosto da DRY — o slow-byte / period-halving do SIDRA é defesa hard-won que está bem onde está. Os primitivos de `core/` são adotados conscientemente, fonte a fonte, conforme convém. Veja a seção "Itens deferidos" do plano de prep.
 
