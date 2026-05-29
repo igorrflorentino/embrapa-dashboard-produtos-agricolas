@@ -105,8 +105,8 @@ embrapa-dashboard-commodities/
 │   │   │   └── silver_bcb_currency.sql   # Câmbio limpo
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
-│   │       └── gold_commodity_matrix.sql  # Gold IBGE PEVS — (município × produto × ano)
-│   │                                      # Novas fontes ganham gold_<fonte>_* siblings
+│   │       └── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
+│   │                                     # Novas fontes: gold_<fonte>_<forma> (ex. gold_comex_flows)
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
 │   │   ├── safe_numeric.sql          # Conversão segura (placeholders IBGE → NULL)
@@ -197,15 +197,15 @@ embrapa-dashboard-commodities/
 
 ### 3. Gold (dbt, `materialized=table`)
 
-- Tabela canônica do IBGE PEVS: `gold_commodity_matrix` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
-- **Gold é por fonte.** Cada nova fonte (MDIC COMEX, UN COMTRADE, SEFAZ NFe, …) tem sua própria linhagem `gold_<fonte>_*` consumindo as mesmas Silver de deflação/FX. Não é desejável forçar fontes com grão incompatível (mensal × país × HS code para COMEX, evento × UF para NFe) na `gold_commodity_matrix` — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+- Tabela do IBGE PEVS: `gold_pevs_production` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
+- **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. Qualquer agregação (estado-ano, nacional) é derivada **em tempo de query** via `GROUP BY` — deliberadamente NÃO mantemos tabelas pré-agregadas (simplicidade sobre eficiência por ora). Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — valor deflacionado pela cadeia IPCA / IGP-M / IGP-DI, projetado para hoje. **Use esta coluna para comparações entre anos.**
 
 ### 4. Consumo
 
-- **Looker Studio**: conexão direta na tabela `gold.gold_commodity_matrix`.
+- **Looker Studio**: conexão direta na tabela `gold.gold_pevs_production`.
 - **Frontend dedicado**: em reconstrução com Claude Design System. Até lá, o novo agente do handoff vai reintroduzir a camada de UI consumindo as mesmas tabelas Gold.
 
 ---

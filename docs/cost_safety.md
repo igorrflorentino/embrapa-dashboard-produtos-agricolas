@@ -55,7 +55,7 @@ Se o dashboard for compartilhado com terceiros que **não** deveriam consumir
 custos do projeto:
 
 1. Crie um dataset `gold_readonly` num projeto separado (`embrapa-readers`).
-2. **Create authorized view** apontando para `gold.gold_commodity_matrix`.
+2. **Create authorized view** apontando para `gold.gold_pevs_production`.
 3. Compartilhe esse projeto separado com os readers.
 
 Os readers consomem do projeto deles; o seu fica isolado.

@@ -35,7 +35,7 @@ Before running any ad-hoc or generated query, validate syntax and check estimate
 ```powershell
 bq query --dry_run --use_legacy_sql=false '
   SELECT reference_year, SUM(val_real_ipca_brl) AS total
-  FROM `<project>.gold.gold_commodity_matrix`
+  FROM `<project>.gold.gold_pevs_production`
   GROUP BY 1
 '
 # Output: "Query successfully validated. Estimated 12345678 bytes processed."
@@ -67,7 +67,7 @@ SELECT
   MIN(reference_year) AS year_min,
   MAX(reference_year) AS year_max,
   MAX(last_refresh) AS last_refresh
-FROM `<project>.gold.gold_commodity_matrix`;
+FROM `<project>.gold.gold_pevs_production`;
 ```
 
 ### Data quality flags
@@ -76,7 +76,7 @@ SELECT
   data_quality_flag,
   COUNT(*) AS n,
   ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(), 1) AS pct
-FROM `<project>.gold.gold_commodity_matrix`
+FROM `<project>.gold.gold_pevs_production`
 GROUP BY 1
 ORDER BY 2 DESC;
 ```
@@ -143,9 +143,9 @@ Ensure `BQ_LOCATION` in `.env` matches the actual dataset location.
 
 **Fix:** Check the Gold table schema:
 ```powershell
-bq show --format=prettyjson <project>:gold.gold_commodity_matrix | Select-String "fields" -Context 0,50
+bq show --format=prettyjson <project>:gold.gold_pevs_production | Select-String "fields" -Context 0,50
 ```
-Compare with the expected columns in `gold_commodity_matrix.sql`.
+Compare with the expected columns in `gold_pevs_production.sql`.
 
 ### Slow queries / high costs
 
@@ -157,7 +157,7 @@ Always filter by partition column in ad-hoc queries to avoid full scans.
 
 ## Table Schemas (key columns)
 
-### `gold.gold_commodity_matrix` (22 columns)
+### `gold.gold_pevs_production` (22 columns)
 ```
 reference_year, reference_date,
 state_acronym, state_name, region,

@@ -13,7 +13,14 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 <!-- Novas features que ainda não foram lançadas -->
 
 ### Changed
-<!-- Mudanças em features existentes -->
+- **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a
+  convenção `gold_<fonte>_<forma>` (`production` para medição de saída como PEVS;
+  `flows` para fluxo origem→destino dos bancos de comércio futuros). Reforça a
+  regra de **uma tabela Gold comprehensiva por fonte** (sem siblings
+  pré-agregadas; agregação em tempo de query — simplicidade sobre eficiência).
+  **Ação externa necessária:** reapontar a fonte do Looker Studio para
+  `gold.gold_pevs_production` e dropar a tabela órfã `gold.gold_commodity_matrix`
+  no prod após o próximo `make dbt-build-prod` (ver `docs/migration_history.md`).
 
 ### Fixed
 <!-- Correções de bugs -->

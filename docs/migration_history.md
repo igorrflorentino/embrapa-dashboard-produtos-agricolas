@@ -23,3 +23,29 @@ Versioning and lifecycle rules are now applied idempotently on `ensure_bucket` �
 ## `val_nominal_*` → `val_yearfx_*`
 
 The 4 BRL/USD/EUR/CNY columns were renamed because "nominal" was misleading (Silver already converts everything to current BRL numerary via the currency reform seed). Looker Studio reports need to rebind the 4 metrics — see `docs/looker_studio_setup.md`.
+
+## Gold table rename: `gold_commodity_matrix` → `gold_pevs_production` (2026-05-29)
+
+Adopted the `gold_<fonte>_<forma>` naming convention. The single PEVS Gold table
+was renamed from `gold_commodity_matrix` to `gold_pevs_production` (`production` =
+output-measurement grain). The dbt model file, `_gold.yml`, and the
+`assert_gold_has_rows` test were updated; `dbt build` recreates the table under
+the new name automatically.
+
+Two manual cleanups outside this repo (dbt does NOT do these for you):
+
+1. **Looker Studio** — repoint the report's data source from
+   `gold.gold_commodity_matrix` to `gold.gold_pevs_production`. Column names are
+   unchanged, so metric/dimension bindings survive once the table is rebound.
+
+2. **Orphaned prod table** — after the next `make dbt-build-prod`, the new
+   `gold.gold_pevs_production` exists but the old `gold.gold_commodity_matrix`
+   lingers (dbt only manages models it knows about; a renamed model leaves the
+   old physical table behind). Drop it once the new table is verified:
+
+   ```bash
+   bq rm -f -t "${GCP_PROJECT_ID}:gold.gold_commodity_matrix"
+   ```
+
+   Do this only AFTER confirming `gold_pevs_production` built and Looker is
+   repointed — the drop is irreversible.

@@ -30,7 +30,7 @@ def _fake_table(table_id: str, table_type: str = "TABLE") -> MagicMock:
 def test_run_extracts_every_gold_table(settings: Settings) -> None:
     """Happy path: introspect Gold → 1 extract per `gold_*` table → URIs returned.
 
-    Today only `gold_commodity_matrix` exists in the dbt project; this test
+    Today only `gold_pevs_production` exists in the dbt project; this test
     exercises the multi-table path with a synthetic list so the contract
     survives when new Gold lineages (per-source: `gold_comex_*`,
     `gold_nfe_*`) are added later.
@@ -42,9 +42,9 @@ def test_run_extracts_every_gold_table(settings: Settings) -> None:
     ):
         client = bq_cls.return_value
         client.list_tables.return_value = [
-            _fake_table("gold_commodity_matrix"),
-            _fake_table("gold_comex_monthly"),
-            _fake_table("gold_nfe_transactions"),
+            _fake_table("gold_pevs_production"),
+            _fake_table("gold_comex_flows"),
+            _fake_table("gold_nfe_flows"),
         ]
         client.extract_table.return_value.result.return_value = None
 
@@ -72,7 +72,7 @@ def test_run_filters_by_prefix_and_table_type(settings: Settings) -> None:
     ):
         client = bq_cls.return_value
         client.list_tables.return_value = [
-            _fake_table("gold_commodity_matrix"),  # backed up
+            _fake_table("gold_pevs_production"),  # backed up
             _fake_table("gold_explore_temp"),  # backed up (matches prefix)
             _fake_table("staging_temp"),  # filtered: wrong prefix
             _fake_table("gold_legacy_view", table_type="VIEW"),  # filtered: VIEW
@@ -111,7 +111,7 @@ def test_run_uses_parquet_snappy_format(settings: Settings) -> None:
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        client.list_tables.return_value = [_fake_table("gold_commodity_matrix")]
+        client.list_tables.return_value = [_fake_table("gold_pevs_production")]
         client.extract_table.return_value.result.return_value = None
 
         backup.run(settings)

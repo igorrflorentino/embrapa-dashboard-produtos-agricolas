@@ -86,7 +86,7 @@ make dbt-build           # dev target — writes to dbt_dev_silver, dbt_dev_gold
 make dbt-build-prod      # prod target — writes to silver, gold (full-refresh)
 make dbt-test
 cd dbt && uv run dbt run --select silver_ibge_pevs+    # single model + downstream
-cd dbt && uv run dbt test --select gold_commodity_matrix
+cd dbt && uv run dbt test --select gold_pevs_production
 cd dbt && uv run dbt build --full-refresh              # force rebuild incremental models
 ```
 
@@ -125,7 +125,7 @@ Key facts for AI context:
 - `val_real_{ipca,igpm,igpdi}_*` columns are for cross-year comparison; `val_yearfx_*` are nominal.
 - Config flows through `src/embrapa_commodities/config.py` (pydantic-settings + `.env`). `BCB_INFLATION_SERIES` uses `CODE:LABEL,CODE:LABEL` format — keep `BCB_INFLATION_SERIES_IPCA_CODE` / `BCB_INFLATION_SERIES_IGPM_CODE` / `BCB_INFLATION_SERIES_IGPDI_CODE` in sync (dbt reads each via `env_var()` to wire the right series into the Gold pivot).
 - `target=dev` → `dbt_dev_silver` / `dbt_dev_gold` (auto-expire 7 days). `target=prod` → `silver` / `gold`.
-- **Adding a new data source**: follow [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md). The registries that need new entries: `cli.INGESTS`, `doctor.SOURCE_CHECKS`, `doctor.BRONZE_TARGETS`. Shared primitives live in `src/embrapa_commodities/core/`. **Gold is per-source** — new sources get their own `gold_<source>_*` lineage; `gold_commodity_matrix` remains exclusive to IBGE PEVS.
+- **Adding a new data source**: follow [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md). The registries that need new entries: `cli.INGESTS`, `doctor.SOURCE_CHECKS`, `doctor.BRONZE_TARGETS`. Shared primitives live in `src/embrapa_commodities/core/`. **Gold is per-source, ONE comprehensive table per source** named `gold_<source>_<form>` (`<form>` = `production` for output measurement like PEVS, or `flows` for origin→destination trade like COMEX/COMTRADE/NFe). Aggregations are derived at query time via `GROUP BY` — no pre-aggregated sibling tables. `gold_pevs_production` is the PEVS table.
 
 ## Skills available
 

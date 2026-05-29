@@ -16,7 +16,7 @@ Este projeto foi desenhado para ser portável: nada no código tem o `GCP_PROJEC
 5. **`profiles.yml` da empresa** — copie `dbt/profiles.yml.example` para `~/.dbt/profiles.yml` e troque `project:` pelo novo projeto.
 6. **Primeira carga** — `uv run embrapa ingest all` cria automaticamente o bucket e os datasets `bronze_ibge` / `bronze_bcb` no novo projeto.
 7. **Primeira transformação** — `make dbt-build` materializa Silver e Gold.
-8. **Looker Studio** — duplique o relatório existente e reaponte a fonte de dados para `embrapa-commodities-prod.gold.gold_commodity_matrix`.
+8. **Looker Studio** — duplique o relatório existente e reaponte a fonte de dados para `embrapa-commodities-prod.gold.gold_pevs_production`.
 
 ## Quando migrar a orquestração para a nuvem
 

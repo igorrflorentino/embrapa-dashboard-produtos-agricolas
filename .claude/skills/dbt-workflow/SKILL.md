@@ -15,7 +15,7 @@ description: >-
 # Dev (sandboxed in dbt_dev_silver / dbt_dev_gold):
 make dbt-build               # build all models
 cd dbt && uv run dbt run --select silver_ibge_pevs+   # single model + downstream
-cd dbt && uv run dbt test --select gold_commodity_matrix
+cd dbt && uv run dbt test --select gold_pevs_production
 
 # Prod (writes to silver / gold — only after dev validation):
 make dbt-build-prod           # full-refresh against real datasets
@@ -57,12 +57,12 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 
 ### Gold — `dbt/models/gold/`
 
-- **Materialization:** `table` (current). The main model is `gold_commodity_matrix`.
+- **Materialization:** `table` (current). One comprehensive table per source — the PEVS model is `gold_pevs_production`. No pre-aggregated sibling tables; aggregate at query time.
 - **Columns:** 22 columns per `(reference_year, state_acronym, city_name, product_code)`.
 - **Monetary conventions:**
   - `val_yearfx_*` — raw value ÷ year's average FX. NULL pre-1994.
   - `val_real_{ipca,igpm}_*` — value projected to today via chain-linked IPCA/IGP-M index. **Use this for cross-year comparison.**
-- **Naming:** `gold_<entity>` (e.g. `gold_commodity_matrix`, `gold_commodity_state_year`).
+- **Naming:** `gold_<fonte>_<forma>` where `<forma>` is `production` (output measurement, e.g. `gold_pevs_production`) or `flows` (origin→destination trade, e.g. `gold_comex_flows`).
 
 ### Seeds — `dbt/seeds/`
 
