@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 import logging
-import time
-from typing import cast
 
 import pandas as pd
-import requests
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    stop_after_delay,
-    wait_exponential,
-)
 
 from embrapa_commodities.core import SourceTransientError
+from embrapa_commodities.core import http as core_http
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +26,6 @@ REQUEST_TOTAL_DEADLINE_S: float = 60.0
 # stalled series from blocking the whole inflation/currency ingest.
 PER_SERIES_DEADLINE_S: float = 120.0
 
-# Status codes worth retrying — transient/server-side or rate limits.
-# 4xx other than these (400, 401, 403, 404...) won't recover by retrying.
-RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
-
 
 class BcbRequestError(Exception):
     """Non-200 response from the BCB SGS API (base class)."""
@@ -53,12 +40,12 @@ class BcbTransientError(BcbRequestError, SourceTransientError):
 MAX_YEARS_PER_REQUEST = 10
 
 
-@retry(
-    reraise=True,
+@core_http.http_retry_policy(
+    transient_exc=BcbTransientError,
     # Stop on either attempt count OR cumulative time — same pattern as IBGE.
-    stop=stop_after_attempt(5) | stop_after_delay(PER_SERIES_DEADLINE_S),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type((requests.RequestException, BcbTransientError)),
+    deadline_s=PER_SERIES_DEADLINE_S,
+    # before_sleep deliberately omitted — preserves the pre-D1 behaviour.
+    # Symmetric observability with IBGE's `_emit_retry` is tracked as D1.1.
 )
 def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
     """One atomic HTTP call to SGS. Empty payload → empty DataFrame."""
@@ -68,31 +55,19 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
         end=f"31/12/{end_year}",
     )
     logger.info("BCB SGS fetch code=%s window=%d-%d", code, start_year, end_year)
-    # stream=True + manual drain enforces a total wall-clock budget on the body
-    # read — same slow-byte defense as in the IBGE client.
-    deadline = time.monotonic() + REQUEST_TOTAL_DEADLINE_S
-    response = requests.get(
+    # The drain-under-deadline + Connection: close + slow-byte defense live in
+    # ``core_http.get_drained``. Year-chunking stays in ``fetch_series`` below
+    # so the helper doesn't grow API knowledge.
+    response = core_http.get_drained(
         url,
-        timeout=REQUEST_TIMEOUT,
-        headers={"Connection": "close", "User-Agent": "embrapa-commodities/0.1"},
-        stream=True,
+        total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
+        transient_exc=BcbTransientError,
+        context=f"SGS {code} {start_year}-{end_year}",
     )
     try:
-        buf = bytearray()
-        for chunk in response.iter_content(chunk_size=64 * 1024):
-            if time.monotonic() > deadline:
-                raise BcbTransientError(
-                    f"HTTP request exceeded {REQUEST_TOTAL_DEADLINE_S}s total budget "
-                    f"(slow-byte hang) for SGS {code} {start_year}-{end_year}"
-                )
-            if chunk:
-                buf.extend(chunk)
-        response._content = bytes(buf)  # type: ignore[attr-defined]
-        response._content_consumed = True  # type: ignore[attr-defined]
-
         if response.status_code != 200:
             msg = f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}"
-            if response.status_code in RETRYABLE_STATUS_CODES:
+            if response.status_code in core_http.RETRYABLE_STATUS_CODES:
                 raise BcbTransientError(msg)
             raise BcbRequestError(msg)
 
@@ -102,7 +77,9 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
             return pd.DataFrame(columns=["data", "valor"])
         return pd.DataFrame(payload)
     except BaseException:
-        cast("requests.Response", response).close()
+        # ``get_drained`` already closes on its own exceptions; this guards
+        # the status-check branch.
+        response.close()
         raise
 
 

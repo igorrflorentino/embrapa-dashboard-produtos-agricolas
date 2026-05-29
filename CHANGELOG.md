@@ -10,7 +10,19 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Unreleased]
 
 ### Added
-<!-- Novas features que ainda não foram lançadas -->
+- **`core/http.py` — primitivos HTTP compartilhados (D1).** Nova fábrica
+  `http_retry_policy(transient_exc, deadline_s, max_attempts=5, before_sleep=None)`
+  e helper `get_drained(url, *, total_deadline_s, transient_exc, context, ...)`
+  encapsulam a política de retry tenacity e o drain manual do body sob deadline
+  wall-clock (defesa slow-byte) que antes estavam duplicados nos clients IBGE e
+  BCB. Constantes compartilhadas: `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS`,
+  `RETRYABLE_STATUS_CODES`. Comportamento observável preservado byte-a-byte —
+  deadlines source-specific (75s/180s no IBGE, 60s/120s no BCB) permanecem nos
+  clients; lógica defensiva única (period-halving do IBGE, year-chunking do
+  BCB) também não migrou. Cobertura: 11 testes novos em
+  `tests/test_core_http.py` (inclui o slow-byte deadline test migrado de
+  `test_ibge_client.py`) + 2 "delegate" tests assertando os kwargs passados ao
+  `get_drained` em cada client.
 
 ### Changed
 - **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a

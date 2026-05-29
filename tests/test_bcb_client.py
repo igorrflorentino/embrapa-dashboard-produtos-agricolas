@@ -74,6 +74,37 @@ def test_fetch_series_chunks_windows_larger_than_max() -> None:
     assert len(df) == 3  # one row per chunk, since each mock returns 1 row
 
 
+def test_fetch_window_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_fetch_window`` must call ``core_http.get_drained`` with the BCB-specific
+    transient class, deadline, and a context that names the SGS series. Drain
+    semantics themselves are covered in ``test_core_http.py``; this protects
+    against accidentally rewiring the source-specific kwargs.
+    """
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self) -> list:
+            return [{"data": "01/01/2020", "valor": "5.20"}]
+
+        def close(self) -> None:
+            pass
+
+    def fake_get_drained(url: str, **kwargs: object) -> _FakeResponse:
+        captured["url"] = url
+        captured.update(kwargs)
+        return _FakeResponse()
+
+    monkeypatch.setattr(client.core_http, "get_drained", fake_get_drained)
+
+    df = client._fetch_window.__wrapped__("433", 2020, 2020)  # type: ignore[attr-defined]
+    assert len(df) == 1
+    assert captured["transient_exc"] is client.BcbTransientError
+    assert captured["total_deadline_s"] == client.REQUEST_TOTAL_DEADLINE_S
+    assert captured["context"] == "SGS 433 2020-2020"
+
+
 @responses.activate
 def test_sample_bcb_series_returns_latest_observations() -> None:
     payload = [{"data": "01/05/2026", "valor": "5.10"}]
