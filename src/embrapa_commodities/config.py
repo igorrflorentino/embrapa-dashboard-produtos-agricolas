@@ -74,6 +74,13 @@ class Settings(BaseSettings):
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
+    # The 3 series codes the Gold pivot wires into val_real_{ipca,igpm,igpdi}_*.
+    # dbt reads each via env_var(); each MUST appear in bcb_inflation_series or
+    # the matching Gold columns silently come out NULL. `embrapa doctor`
+    # validates this (see doctor._check_inflation_pivot_codes).
+    bcb_inflation_series_ipca_code: str = Field(default="433")
+    bcb_inflation_series_igpm_code: str = Field(default="189")
+    bcb_inflation_series_igpdi_code: str = Field(default="190")
     bcb_currency_series: str = Field(default="3694:USD,4393:EUR,20542:CNY")
     bcb_start_year: int = Field(default=1980)
     bcb_end_year: int = Field(default_factory=_current_year)
@@ -106,6 +113,16 @@ class Settings(BaseSettings):
     @property
     def inflation_series_map(self) -> dict[str, str]:
         return _parse_code_label(self.bcb_inflation_series)
+
+    @property
+    def inflation_pivot_codes(self) -> dict[str, str]:
+        """{label: code} the Gold val_real_* pivot uses; each must be a key in
+        ``inflation_series_map`` or the corresponding column comes out NULL."""
+        return {
+            "IPCA": self.bcb_inflation_series_ipca_code,
+            "IGPM": self.bcb_inflation_series_igpm_code,
+            "IGPDI": self.bcb_inflation_series_igpdi_code,
+        }
 
     @property
     def currency_series_map(self) -> dict[str, str]:
