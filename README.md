@@ -6,9 +6,13 @@
 [![uv](https://img.shields.io/badge/pkg-uv-blueviolet)](https://docs.astral.sh/uv/)
 [![dbt](https://img.shields.io/badge/transform-dbt-FF694B)](https://www.getdbt.com/)
 
-Pipeline Medalhão (**Bronze → Silver → Gold → Looker Studio**) para análise histórica de produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil.
+Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e científica** da produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil. Ferramenta voltada a **pesquisadores da Embrapa** — o foco é em séries históricas e exploração de dados, **não** em métricas de negócio nem em análise em tempo real (os dados são ingeridos e transformados em lote).
 
-> ⚠️ **Frontend em reconstrução** com [Claude Design System](https://claude.ai/). A UI anterior (Dash + Plotly servida via Cloud Run) foi removida em 2026-05-29 para preparar um handoff limpo. O backend (pipeline Medallion + dbt + CLI `embrapa`) está 100% funcional e independente da camada de visualização — Looker Studio segue conectando direto à tabela Gold. O próximo handoff fará a junção do novo design system com este backend.
+> 📊 **Dois caminhos de consumo, em paralelo.** As tabelas Gold são servidas por dois frontends de primeira classe, ambos lendo os mesmos dados:
+> 1. **Looker Studio** — conexão no-code direta na tabela Gold; disponível agora.
+> 2. **Dashboard dedicado (HTML/CSS + Dash) com deploy no Google Cloud Run** — frontend sob medida, atualmente **em reconstrução com o [Claude Design System](https://claude.ai/)** (a UI Dash anterior foi removida em 2026-05-29 para um handoff limpo).
+>
+> O backend (pipeline Medallion + dbt + CLI `embrapa`) é independente da camada de visualização e já alimenta os dois caminhos. Nenhum dos dois é exclusivo — podem coexistir.
 
 ```
 IBGE PEVS API ─┐
@@ -20,13 +24,17 @@ BCB Currency  ─┘                                              │
                                                               ▼
                                              gold_pevs_production (tabela física)
                                                               │
-                                                              ▼
-                                                       Looker Studio
+                                          ┌───────────────────┴───────────────────┐
+                                          ▼                                        ▼
+                                   Looker Studio                    Dashboard Dash @ Cloud Run
+                                  (conexão direta)                  (em reconstrução · Claude DS)
 ```
 
 ## Stack
 
-Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · Looker Studio · GitHub Actions
+Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · GitHub Actions
+
+**Consumo (paralelo):** Looker Studio (direto na Gold) · Dashboard Dash + HTML/CSS no Cloud Run (em reconstrução)
 
 Tabela completa com justificativas técnicas em [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-de-tecnologias).
 
@@ -145,7 +153,7 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 
 - Conectar **diretamente** na tabela `${BQ_GOLD_DATASET}.gold_pevs_production` (não em views nem em "custom query").
 - Habilite **BI Engine** com 1–2 GB cobrindo o dataset Gold — corta latência e custos de queries repetitivas.
-- Filtro padrão sugerido para o dashboard executivo: `data_quality_flag = 'OK'`.
+- Filtro padrão sugerido para análises exploratórias: `data_quality_flag = 'OK'`.
 
 ## Estrutura
 

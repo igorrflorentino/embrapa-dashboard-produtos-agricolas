@@ -102,7 +102,7 @@ Na tela de configuração da fonte de dados, ajuste:
 
 ## 3. Filtro padrão recomendado
 
-Adicione um **filtro de relatório** para o dashboard executivo:
+Adicione um **filtro de relatório** para análises exploratórias:
 
 - Campo: `data_quality_flag`
 - Condição: **Igual a** `OK`

@@ -202,7 +202,7 @@ Role on sa-secret-reader-prod:
 |---|---|---|
 | `sa-secret-reader-prod` | `roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser`<br/>`roles/storage.objectViewer` | Impersonation target for developers (dbt + ad-hoc queries) |
 | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | Ingest data (IBGE, BCB) |
-| `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Looker Studio read-only access |
+| `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Read-only on Gold for the dedicated Cloud Run dashboard (under reconstruction). Looker Studio uses end-user OAuth, not this SA. |
 | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectCreator` | Data analysis + report generation |
 
 ## Credential Management

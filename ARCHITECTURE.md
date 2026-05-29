@@ -2,7 +2,7 @@
 
 > Documento técnico de "capô aberto": estrutura de pastas, decisões de stack, fluxo de dados e diagramas.
 
-> ⚠️ **Frontend em reconstrução com Claude Design System.** A camada de visualização Dash + Plotly (Cloud Run) foi removida em 2026-05-29. O backend descrito abaixo está intacto e operacional. O próximo handoff trará o novo frontend; até lá, o consumo do Gold se dá via Looker Studio ou queries diretas no BigQuery.
+> 📊 **Ferramenta de análise histórica e científica** (pesquisadores da Embrapa) — não é um produto de métricas de negócio nem de tempo real; os dados são processados em lote. O Gold é consumido por **dois caminhos paralelos e de primeira classe**: (1) **Looker Studio** direto na tabela Gold, disponível agora; (2) **dashboard dedicado Dash + HTML/CSS com deploy no Cloud Run**, atualmente em reconstrução com o Claude Design System (a UI Dash anterior foi removida em 2026-05-29 para um handoff limpo). O backend descrito abaixo é independente da visualização e já alimenta ambos.
 
 ---
 
@@ -30,9 +30,10 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
  └───────────────────────┬─────────────────────────────┘
                          ▼
  ┌─────────────────────────────────────────────────────┐
- │  Consumo                                            │
+ │  Consumo (dois caminhos paralelos)                  │
  │  • Looker Studio (direto na tabela Gold)             │
- │  • (frontend dedicado em reconstrução)               │
+ │  • Dashboard Dash + HTML/CSS @ Cloud Run             │
+ │    (em reconstrução · Claude Design System)          │
  └─────────────────────────────────────────────────────┘
 ```
 
@@ -55,8 +56,9 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
 | Pre-commit | gitleaks, ruff, file-hygiene hooks | Segurança de credenciais + qualidade de código |
 | Testes | pytest, responses, pytest-cov | Mocks HTTP, cobertura, markers customizados |
 | Configuração | pydantic-settings + `.env` | Validação tipada, zero hardcode |
+| Consumo / Visualização | Looker Studio · Dash + HTML/CSS @ Cloud Run | Dois caminhos paralelos sobre as mesmas tabelas Gold (ver seção Consumo) |
 
-> A camada de **visualização** (anteriormente Dash + Plotly + Gunicorn em Cloud Run) está sendo refeita no Claude Design System em um fluxo separado. Quando o novo frontend chegar via handoff, a tabela acima será atualizada com a nova stack de UI/deploy.
+> A camada de **visualização dedicada** (Dash + HTML/CSS, deploy no Cloud Run via Gunicorn) está sendo refeita no Claude Design System em um fluxo separado — é um alvo real, não abandonado. O Looker Studio é o segundo caminho de consumo e permanece disponível em paralelo. Quando o novo frontend chegar via handoff, a stack de UI/deploy (Dockerfile, Cloud Run, SA read-only) será reintroduzida e esta tabela atualizada.
 
 ---
 
@@ -205,8 +207,10 @@ embrapa-dashboard-commodities/
 
 ### 4. Consumo
 
-- **Looker Studio**: conexão direta na tabela `gold.gold_pevs_production`.
-- **Frontend dedicado**: em reconstrução com Claude Design System. Até lá, o novo agente do handoff vai reintroduzir a camada de UI consumindo as mesmas tabelas Gold.
+Dois caminhos paralelos, ambos lendo as mesmas tabelas Gold — não são exclusivos e podem coexistir:
+
+- **Looker Studio** (no-code): conexão direta na tabela `gold.gold_pevs_production`. Bom para relatórios padronizados e exploração rápida sem deploy. Disponível agora.
+- **Dashboard dedicado (HTML/CSS + Dash) no Cloud Run**: frontend sob medida para os pesquisadores, em reconstrução com o Claude Design System. Consome as mesmas tabelas Gold via BigQuery; deploy no Cloud Run com SA read-only e IAM. É um alvo de primeira classe — quando o handoff chegar, o Dockerfile/Cloud Run e a SA de leitura voltam ao repo.
 
 ---
 
@@ -270,7 +274,7 @@ Modelo de **Service Account Impersonation** (OAuth 2.0) sem keyfiles distribuíd
 - **`sa-data-pipeline-prod`**: pipelines de ingestão (write GCS + BQ)
 - **`sa-ai-agent-admin-prod`**: agentes de IA (BQ editor + GCS)
 
-> A SA `sa-web-dashboard-prod` (read-only para o Cloud Run anterior) foi descomissionada junto com a remoção da UI Dash. Quando o novo frontend chegar, uma nova SA será documentada aqui.
+> A SA `sa-web-dashboard-prod` é a **runtime read-only do dashboard dedicado no Cloud Run** (`roles/bigquery.dataViewer` na Gold). Está dormente enquanto o frontend é reconstruído no Claude Design System e volta a ser usada quando ele for redeployado. O **Looker Studio não usa esta SA** — consome a Gold via OAuth do usuário final (caminho de consumo independente).
 
 Detalhes completos em [`docs/architecture.md`](docs/architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
