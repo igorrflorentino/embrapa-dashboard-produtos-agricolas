@@ -7,6 +7,7 @@
 
 ## ✅ Concluídas
 
+### Backend (pipeline de dados)
 - [x] Pipeline Medallion completo (Bronze → Silver → Gold)
 - [x] Ingestão IBGE PEVS via API SIDRA
 - [x] Ingestão BCB (inflação IPCA/IGP-M/IGP-DI + câmbio USD/EUR/CNY)
@@ -16,20 +17,28 @@
 - [x] Seed `historical_currency_factors` para reformas monetárias
 - [x] Separação dev/prod nos schemas dbt (`dbt_dev_*` vs `silver`/`gold`)
 - [x] Auto-expiração de tabelas dev (7 dias via `apply_dev_ttl`)
-- [x] CLI unificado com Typer (`embrapa ingest|discover|dbt|doctor|backup-gold`)
-- [x] Dockerfile multi-stage (builder + runtime non-root)
-- [x] Deploy Cloud Run com IAM (`--no-allow-unauthenticated`)
-- [x] Dashboard Dash + Plotly (multi-page)
+- [x] CLI unificado com Typer (`embrapa ingest|discover|dbt|doctor|backup-gold|monitor`)
 - [x] Service Account Impersonation (OAuth, sem keyfiles)
 - [x] Pre-commit hooks (gitleaks + ruff + file-hygiene)
 - [x] CI/CD GitHub Actions (lint + test + dbt parse)
-- [x] Smoke test do dashboard (live BQ)
-- [x] Visual check com Playwright (headless screenshots)
-- [x] Backup Gold → GCS (`embrapa backup-gold`)
+- [x] Backup Gold → GCS (`embrapa backup-gold`, introspectivo por prefixo)
 - [x] `embrapa doctor` para diagnóstico de saúde
-- [x] Soft 500-LOC ceiling para módulos do dashboard
+- [x] Observabilidade JSONL + `embrapa monitor` (IBGE e BCB)
 - [x] Setup automatizado cross-platform (`setup.sh`, `setup.bat`, `setup.ps1`)
-- [x] Documentação de setup, IAM, cost safety, auth, ownership transfer
+- [x] Documentação de setup, IAM, cost safety, ownership transfer
+- [x] Convenção Gold `gold_<fonte>_<forma>` + uma tabela comprehensiva por fonte
+- [x] Terreno pronto para multi-fonte (registries `cli.INGESTS` / `doctor.*`, `core/`, guia `adding_a_data_source.md`)
+
+### Camada de visualização
+
+> A UI Dash + Plotly e o deploy Cloud Run **foram entregues na v0.1.0 e removidos
+> em 2026-05-29** para reconstrução no Claude Design System (ver [`CHANGELOG.md`](CHANGELOG.md)).
+> Não são "pendências" nem "concluídas" — são um caminho de consumo **em
+> reconstrução**. O backend já alimenta os **dois caminhos paralelos** de
+> consumo (Looker Studio + dashboard Dash/Cloud Run); ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumo.
+
+- [x] Consumo via **Looker Studio** (conexão direta na Gold) — disponível
+- [ ] **Dashboard dedicado (HTML/CSS + Dash) no Cloud Run** — em reconstrução (Claude Design System); reintroduz Dockerfile + deploy Cloud Run + SA read-only
 
 ---
 

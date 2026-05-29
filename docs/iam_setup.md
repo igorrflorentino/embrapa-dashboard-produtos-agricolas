@@ -103,7 +103,7 @@ gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
 ```bash
 gcloud iam service-accounts create sa-web-dashboard-prod \
   --display-name="Web Dashboard (Prod)" \
-  --description="Read-only access for Looker Studio and web apps."
+  --description="Read-only on Gold for the dedicated Cloud Run dashboard app."
 ```
 
 Grant read-only access:
@@ -387,7 +387,7 @@ gcloud auth login florenciaitalo@gmail.com
 | **Developer Local** | (user email) | `roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod` | Can impersonate developer workflow SA |
 | **Developer Workflow** | `sa-secret-reader-prod` | `roles/bigquery.user`<br/>`roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/serviceusage.serviceUsageConsumer` | dbt builds + ad-hoc queries |
 | **Data Pipeline** | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | IBGE/BCB ingestion |
-| **Web Dashboard** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Looker Studio read-only |
+| **Web Dashboard (Cloud Run)** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Read-only on Gold for the dedicated Cloud Run dashboard (Looker uses end-user OAuth) |
 | **AI Agent Admin** | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/storage.objectCreator` | Data analysis + reporting |
 
 ## Common Commands
