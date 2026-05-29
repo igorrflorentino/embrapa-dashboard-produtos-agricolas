@@ -151,34 +151,35 @@ def test_recommended_chunk_years_rejects_zero_or_negative() -> None:
         client.recommended_chunk_years(-1)
 
 
-@responses.activate
-def test_http_get_aborts_on_total_request_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A slow-byte response that exceeds REQUEST_TOTAL_DEADLINE_S must raise
-    SidraTransientError (which tenacity retries) instead of hanging."""
-    responses.add(
-        method=responses.GET,
-        url=re.compile(r"https://apisidra\.ibge\.gov\.br/.*"),
-        body=b"x" * (200 * 1024),  # 200 KiB, so iter_content actually iterates
-        status=200,
-        content_type="application/json",
-    )
-    # Force the deadline to fire on the very first iter_content chunk: zero
-    # the budget and have each time.monotonic() call jump 100s.
-    monkeypatch.setattr(client, "REQUEST_TOTAL_DEADLINE_S", 0.0)
-    counter = [0.0]
+def test_http_get_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_http_get`` must call ``core_http.get_drained`` with the SIDRA-specific
+    transient class and deadline. Slow-byte deadline semantics themselves are
+    covered in ``test_core_http.py`` — this is a wiring/regression guard against
+    accidentally swapping ``SidraTransientError`` for some other transient class.
+    """
+    captured: dict[str, object] = {}
 
-    def fake_monotonic() -> float:
-        counter[0] += 100.0
-        return counter[0]
+    class _FakeResponse:
+        status_code = 200
 
-    monkeypatch.setattr(client.time, "monotonic", fake_monotonic)
+        def close(self) -> None:
+            pass
 
-    # Skip the tenacity wrapper so the test exits in milliseconds; we only care
-    # that the deadline branch raises.
-    with pytest.raises(client.SidraTransientError, match="slow-byte hang"):
-        client._http_get.__wrapped__(  # type: ignore[attr-defined]
-            "https://apisidra.ibge.gov.br/values/t/289/p/2020/v/all/n6/all/c193/3405"
-        )
+    def fake_get_drained(url: str, **kwargs: object) -> _FakeResponse:
+        captured["url"] = url
+        captured.update(kwargs)
+        return _FakeResponse()
+
+    monkeypatch.setattr(client.core_http, "get_drained", fake_get_drained)
+
+    url = "https://apisidra.ibge.gov.br/values/t/289/p/2020/v/all/n6/all/c193/3405"
+    result = client._http_get.__wrapped__(url)  # type: ignore[attr-defined]
+    assert isinstance(result, _FakeResponse)
+
+    assert captured["url"] == url
+    assert captured["transient_exc"] is client.SidraTransientError
+    assert captured["total_deadline_s"] == client.REQUEST_TOTAL_DEADLINE_S
+    assert captured["context"] == url[:200]
 
 
 @responses.activate

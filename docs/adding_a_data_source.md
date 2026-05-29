@@ -28,11 +28,36 @@ class <Fonte>TransientError(<Fonte>RequestError, SourceTransientError):
     """Retryable error (5xx, 408, 429, …)."""
 ```
 
-A mixin com `SourceTransientError` permite que decorators futuros em `core/http.py` peguem todas as transientes sem listar cada classe nominalmente.
+A mixin com `SourceTransientError` permite que o decorator compartilhado em [`core/http.py`](../src/embrapa_commodities/core/http.py) (`http_retry_policy`) pegue todas as transientes sem listar cada classe nominalmente.
 
-**Retry padrão** (5 tentativas + exponencial 2-30s + timeout `(10, 30)`): por enquanto inline com tenacity, espelhando o decorator `@retry(...)` em [`bcb/client.py`](../src/embrapa_commodities/bcb/client.py) (procure por `@retry`).
+**Retry padrão + drain slow-byte** (5 tentativas, exponencial 2-30s, timeout `(10, 30)`, `Connection: close`, defesa contra slow-byte via `iter_content` sob deadline wall-clock): use os primitivos compartilhados de `core/http.py`:
 
-**Defesa contra slow-byte / period-halving** (caso a API apresente): modele a função `_http_get` + a recursão de `SidraLimitExceeded` em [`ibge/client.py`](../src/embrapa_commodities/ibge/client.py) — esse código é hard-won e **não** deve ser compartilhado via `core/`.
+```python
+from embrapa_commodities.core import http as core_http
+
+@core_http.http_retry_policy(
+    transient_exc=<Fonte>TransientError,
+    deadline_s=PER_REQUEST_DEADLINE_S,   # source-specific (180s no IBGE, 120s no BCB)
+    before_sleep=_emit_retry,            # opcional — para observabilidade (ver IBGE)
+)
+def _http_get(url: str) -> requests.Response:
+    response = core_http.get_drained(
+        url,
+        total_deadline_s=REQUEST_TOTAL_DEADLINE_S,  # source-specific (75s IBGE, 60s BCB)
+        transient_exc=<Fonte>TransientError,
+        context=...,                                 # string para a mensagem de erro
+    )
+    try:
+        # status-code handling source-specific
+        ...
+    except BaseException:
+        response.close()
+        raise
+```
+
+`http_retry_policy` aceita `transient_exc`, `deadline_s`, `max_attempts=5` e `before_sleep=None`. `get_drained` retorna a `Response` já com body em `_content` — preserva `.json()` / `.text`. Veja [`ibge/client.py:_http_get`](../src/embrapa_commodities/ibge/client.py) e [`bcb/client.py:_fetch_window`](../src/embrapa_commodities/bcb/client.py) para os dois call-sites de referência. Constantes de deadline ficam no client (são source-specific).
+
+**Lógica que NÃO deve ir para `core/`** (caso a API apresente): period-halving recursivo (como `SidraLimitExceeded` no IBGE), chunking por ano (como o `MAX_YEARS_PER_REQUEST` do BCB), paralelismo por entidade — código hard-won que merece ficar no client da fonte.
 
 ### 2. Pipeline (Bronze writer)
 
