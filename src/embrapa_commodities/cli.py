@@ -294,7 +294,13 @@ def ingest_all(
     for spec in INGESTS:
         console.print(f"[bold]→ {spec.label}[/bold]")
         kwargs = {"full": full} if spec.accepts_full else {}
-        spec.module.run(settings, **kwargs)
+        # Wrap each pipeline in the same observability lifecycle the individual
+        # `ingest <source>` commands use, so `ingest all` shows up in
+        # `embrapa monitor` and a mid-batch failure leaves a chunk_error in the
+        # event log instead of running completely silent.
+        with pipeline_run(spec.name, params=kwargs) as (_run_id, log_path):
+            console.print(f"[dim]event log:[/dim] {log_path}")
+            spec.module.run(settings, **kwargs)
     console.print("[green bold]✓ All Bronze pipelines completed[/green bold]")
 
 

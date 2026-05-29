@@ -292,6 +292,30 @@ def test_ingest_all_full_flag_propagates_to_bcb_only(
     assert seen_full == [True, True]
 
 
+def test_ingest_all_wraps_each_pipeline_in_observability(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """`ingest all` must open an event log per pipeline (via pipeline_run), so the
+    batch is visible in `embrapa monitor` like the individual ingest commands —
+    not run silently with no event log as it did before."""
+    init_calls: list[str] = []
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
+    monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: "")
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: "")
+    monkeypatch.setattr(
+        cli.observability,
+        "init_run",
+        lambda pipeline: init_calls.append(pipeline) or ("rid", Path(f"{pipeline}.jsonl")),
+    )
+
+    result = runner.invoke(cli.app, ["ingest", "all"])
+
+    assert result.exit_code == 0, result.output
+    # One event log opened per registered pipeline, in INGESTS order.
+    assert init_calls == ["ibge", "bcb-inflation", "bcb-currency"]
+
+
 # ─── discover ────────────────────────────────────────────────────────────────
 def test_discover_ibge_products_prints_matches(monkeypatch: pytest.MonkeyPatch) -> None:
     from embrapa_commodities.discover import ProductMatch
