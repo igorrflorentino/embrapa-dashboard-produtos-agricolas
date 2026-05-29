@@ -6,12 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI assista
 
 **Embrapa Commodities Dashboard** — Medallion pipeline (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR, CNY) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
 
+Built for **Embrapa researchers** — the purpose is historical/scientific exploration of time series, **not** business metrics or real-time analytics (data is ingested and transformed in batch).
+
 - **Language**: Python 3.12 · **Package manager**: uv · **Build**: hatchling
 - **Data transforms**: dbt-core + dbt-bigquery
 - **Infrastructure**: GCS + BigQuery + GitHub Actions
+- **Consumption (two parallel paths)**: Looker Studio (no-code, direct on Gold) · custom Dash + HTML/CSS dashboard deployed to Cloud Run (under reconstruction). Both read the same Gold tables; neither is exclusive.
 - **License**: Apache 2.0
 
-> ⚠️ **Frontend em reconstrução com Claude Design System.** The previous Dash + Plotly UI was removed on 2026-05-29 to prepare a clean handoff. The backend (ingestion + dbt + CLI) is fully functional and independent of any UI. The next agent will integrate the new design system with this backend — do **not** scaffold a new Dash app, create chart components, or restore Cloud Run deploy targets unless the user explicitly asks.
+> ⚠️ **Frontend em reconstrução com Claude Design System.** The custom Dash + HTML/CSS dashboard (deployed to Cloud Run) was removed on 2026-05-29 for a clean handoff and is being rebuilt in a separate flow. It is **one of two first-class consumption paths** — the other is Looker Studio, which connects directly to Gold and works today. **Cloud Run is a real deploy target, not abandoned.** The backend (ingestion + dbt + CLI) is independent of any UI and already feeds both paths. Guardrail: **do not preemptively scaffold the new Dash app, chart components, or the Cloud Run/Dockerfile here** — those arrive with the design-system handoff; build them only when the user explicitly asks.
 
 ## Documentation Map
 
@@ -114,7 +117,7 @@ uv run pytest tests/test_ibge_client.py::test_name   # single test
 
 ## Architecture
 
-Medallion pipeline: data sources (today IBGE PEVS + BCB SGS; see `cli.INGESTS` registry — extensible) → Python (Bronze) → dbt (Silver → Gold) → Looker Studio.
+Medallion pipeline: data sources (today IBGE PEVS + BCB SGS; see `cli.INGESTS` registry — extensible) → Python (Bronze) → dbt (Silver → Gold) → consumed in parallel by **Looker Studio** (direct) and the **custom Dash/Cloud Run dashboard** (under reconstruction).
 
 For the full technical deep-dive (folder structure, data flow diagrams, stack decisions, Bronze/Silver/Gold details, configuration model, dev/prod separation), see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 

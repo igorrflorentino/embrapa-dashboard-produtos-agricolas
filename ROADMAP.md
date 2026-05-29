@@ -15,10 +15,16 @@ Foco: **estabilização, observabilidade e automação básica**.
 - [ ] Integrar SQLFluff no CI (atualmente rodado manualmente)
 - [ ] Testes de integridade end-to-end (row counts Bronze → Silver → Gold)
 
-### Dashboard
+### Visualização (dois caminhos paralelos)
+
+> O Gold é consumido por **Looker Studio** (no-code, direto na Gold) **e** por um
+> **dashboard dedicado Dash + HTML/CSS no Cloud Run** (em reconstrução no Claude
+> Design System). Os itens abaixo aplicam-se ao dashboard dedicado; o Looker cobre
+> o caminho no-code em paralelo. Ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumo.
+
 - [ ] Exportação de dados (CSV/Excel) diretamente do dashboard
-- [ ] Melhorias de UX baseadas em feedback de usuários
-- [ ] Cache layer para queries repetitivas (in-memory ou Redis)
+- [ ] Melhorias de UX baseadas em feedback de pesquisadores
+- [ ] Cache layer (TTL in-memory) para queries repetitivas no dashboard dedicado
 
 ### Qualidade
 - [ ] Aumentar cobertura de testes para ≥ 80%
@@ -56,7 +62,7 @@ Foco: **novas fontes de dados, IaC e melhorias de dashboard**.
 
 ### Dados
 - [ ] Particionamento otimizado das tabelas Gold (clustering por product_code + state_acronym)
-- [ ] Materialização de tabelas agregadas para queries frequentes do dashboard
+- [ ] (Deferido) Materialização de tabelas agregadas — apenas **se** a agregação em query-time se mostrar lenta na prática. Postura atual: **uma tabela Gold comprehensiva por fonte**, agregação em query-time (simplicidade > eficiência; ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Gold)
 - [ ] Data freshness monitoring (dbt source freshness)
 
 ---
