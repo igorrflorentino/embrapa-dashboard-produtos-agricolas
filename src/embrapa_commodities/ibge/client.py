@@ -92,11 +92,8 @@ def recommended_chunk_years(n_products: int, safety: float = 0.7) -> int:
     return max(1, safe_cells // denom)
 
 
-# (connect_timeout, read_timeout). 30s read is the per-chunk byte-idle deadline.
-# Combined with REQUEST_TOTAL_DEADLINE_S below this caps total time spent on a
-# single HTTP request — slow-byte hangs (server trickles 1 byte per ~29s to keep
-# the read timer alive forever) can't strand a worker thread.
-REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+# The (connect, read) timeout for the actual GET lives in
+# ``core_http.DEFAULT_TIMEOUT`` — see ``_http_get`` -> ``core_http.get_drained``.
 
 # Hard wall-clock ceiling for one HTTP request, enforced by manually iterating
 # response.iter_content() with a deadline check. Without this, slow-byte

@@ -15,8 +15,8 @@ SGS_URL = (
     "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
     "?formato=json&dataInicial={start}&dataFinal={end}"
 )
-# (connect_timeout, read_timeout). Same per-chunk byte-idle deadline as IBGE.
-REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+# The (connect, read) timeout for the actual GET lives in
+# ``core_http.DEFAULT_TIMEOUT`` — see ``_fetch_window`` -> ``core_http.get_drained``.
 # Hard wall-clock ceiling for one HTTP request. Mirrors the IBGE client: the
 # per-read timeout only fires on full byte-idle gaps, so a server that trickles
 # 1 byte every ~29s could bypass it forever. We drain the body manually with

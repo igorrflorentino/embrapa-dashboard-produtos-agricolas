@@ -116,7 +116,7 @@ def get_drained(
     # Copy defensively so a caller mutating the returned dict (or future
     # code mutating module-level DEFAULT_HEADERS) doesn't poison subsequent
     # requests.
-    headers = dict(headers) if headers else dict(DEFAULT_HEADERS)
+    headers = dict(headers) if headers is not None else dict(DEFAULT_HEADERS)
     deadline = time.monotonic() + total_deadline_s
     response = requests.get(url, timeout=timeout, headers=headers, stream=True)
     try:
