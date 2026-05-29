@@ -280,6 +280,38 @@ def test_get_drained_does_not_share_default_headers(
 
 
 @responses.activate
+def test_get_drained_respects_explicit_empty_headers() -> None:
+    """``headers={}`` means 'send no custom headers', NOT 'fall back to defaults'.
+
+    The sentinel for "use DEFAULT_HEADERS" is ``None``; an explicit empty dict
+    must be honoured. A truthiness guard (``if headers``) would wrongly collapse
+    ``{}`` into the defaults — this pins the ``is not None`` check.
+    """
+    seen_headers: list[dict[str, str]] = []
+
+    def callback(request):  # type: ignore[no-untyped-def]
+        seen_headers.append(dict(request.headers))
+        return (200, {}, b"{}")
+
+    responses.add_callback(
+        method=responses.GET,
+        url=re.compile(r"https://example\.test/.*"),
+        callback=callback,
+    )
+
+    core_http.get_drained(
+        "https://example.test/x",
+        total_deadline_s=10.0,
+        transient_exc=_FakeTransient,
+        headers={},
+    )
+    # With the defaults bypassed, neither our custom User-Agent nor
+    # Connection: close should be present (requests' own defaults apply).
+    assert "embrapa-commodities" not in seen_headers[0].get("User-Agent", "")
+    assert seen_headers[0].get("Connection") != "close"
+
+
+@responses.activate
 def test_get_drained_default_headers_include_connection_close() -> None:
     """``Connection: close`` is part of the slow-byte abort contract."""
     seen_headers: list[dict[str, str]] = []
