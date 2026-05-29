@@ -18,7 +18,7 @@ BCB Currency  ─┘                                              │
                               dbt-bigquery ──► Silver (tipada + IPCA encadeado)
                                                               │
                                                               ▼
-                                             gold_commodity_matrix (tabela física)
+                                             gold_pevs_production (tabela física)
                                                               │
                                                               ▼
                                                        Looker Studio
@@ -119,7 +119,7 @@ Os comandos `discover` são **auxiliares e não fazem parte do pipeline em produ
 
 Placeholders do IBGE (`-`, `...`, `..`, `*`, `X`) são convertidos para `NULL` na Silver pelo macro `safe_numeric`.
 
-## Saída final — `gold.gold_commodity_matrix`
+## Saída final — `gold.gold_pevs_production`
 
 Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Colunas:
 
@@ -143,7 +143,7 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 
 ## Looker Studio — recomendações
 
-- Conectar **diretamente** na tabela `${BQ_GOLD_DATASET}.gold_commodity_matrix` (não em views nem em "custom query").
+- Conectar **diretamente** na tabela `${BQ_GOLD_DATASET}.gold_pevs_production` (não em views nem em "custom query").
 - Habilite **BI Engine** com 1–2 GB cobrindo o dataset Gold — corta latência e custos de queries repetitivas.
 - Filtro padrão sugerido para o dashboard executivo: `data_quality_flag = 'OK'`.
 

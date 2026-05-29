@@ -9,7 +9,7 @@ não para os de dev (`dbt_dev_silver`, `dbt_dev_gold`). Certifique-se de ter rod
 make dbt-build-prod
 ```
 
-Isso cria `embrapa-dashboard-commodities.gold.gold_commodity_matrix` com os dados completos.
+Isso cria `embrapa-dashboard-commodities.gold.gold_pevs_production` com os dados completos.
 
 ---
 
@@ -44,22 +44,23 @@ Custo estimado: ~U$ 30/mês/Gb.
 1. Vá para [lookerstudio.google.com](https://lookerstudio.google.com)
 2. Clique em **+ Criar → Relatório**
 
-### 2b. Conectar à(s) tabela(s) Gold
+### 2b. Conectar à tabela Gold
 
-Há **três Gold físicas**, cada uma otimizada para uma granularidade. Conecte
-a que servir cada página do dashboard (Looker permite múltiplas fontes):
+Há **uma única Gold física por fonte** — para o IBGE PEVS é
+`gold_pevs_production` (~95 mil linhas, uma por ano × UF × município × produto).
+As agregações por estado/ano ou Brasil-total são derivadas no próprio Looker
+Studio (campos calculados / GROUP BY na fonte), em vez de tabelas
+pré-agregadas separadas. Simplicidade de manutenção sobre eficiência de query.
 
-| Tabela | Linhas (aprox.) | Use para |
+| Tabela | Linhas (aprox.) | Grão |
 |---|---|---|
-| `gold_commodity_year_product` | ~400 | Brasil-total por produto/ano (página executiva, scorecards, linhas históricas) |
-| `gold_commodity_state_year` | ~3 mil | Comparação por estado/região (mapa coroplético do Brasil, drill-down por UF) |
-| `gold_commodity_matrix` | ~95 mil | Drill-down municipal (tabelas detalhadas, top municípios) |
+| `gold_pevs_production` | ~95 mil | ano × UF × município × produto (drill-down completo) |
 
-Para cada fonte:
+Conecte:
 
 1. Em "Adicionar dados ao relatório", selecione **BigQuery**
 2. Faça login com a conta que tem acesso ao projeto
-3. Navegue: **Meus projetos → embrapa-dashboard-commodities → gold → <tabela>**
+3. Navegue: **Meus projetos → embrapa-dashboard-commodities → gold → gold_pevs_production**
 4. Clique em **Adicionar** → **Adicionar ao relatório**
 
 > **Importante:** conecte diretamente à tabela, não via "Custom Query".

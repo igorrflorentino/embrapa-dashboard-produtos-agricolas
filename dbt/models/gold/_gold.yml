@@ -1,10 +1,16 @@
 version: 2
 
 models:
-  - name: gold_commodity_matrix
+  - name: gold_pevs_production
     description: |
-      Wide, partitioned, clustered fact table feeding the Looker Studio dashboard.
-      One row per (reference_year, state_acronym, city_name, product_code).
+      Gold table for IBGE PEVS — the single, comprehensive `production` table
+      for this source (naming convention: gold_<fonte>_<forma>; `production` =
+      one row per produced/extracted measurement, no origin→destination).
+      Wide, partitioned, clustered fact table. One row per
+      (reference_year, state_acronym, city_name, product_code).
+      Any state/year/national aggregation is derived at query time via GROUP BY
+      — we deliberately keep ONE table per source instead of pre-aggregated
+      siblings (simplicity over query efficiency for now).
       Physical table (not a view) so BI Engine can cache it.
 
       Value columns: val_yearfx_{brl,usd,eur,cny} (nominal at year-of-record FX),
