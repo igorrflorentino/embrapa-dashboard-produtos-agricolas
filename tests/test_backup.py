@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from google.cloud.exceptions import NotFound
 
 from embrapa_commodities import backup
 from embrapa_commodities.config import Settings
@@ -20,12 +19,21 @@ def settings() -> Settings:
     )  # type: ignore[call-arg]
 
 
-def test_run_extracts_every_gold_table(settings: Settings) -> None:
-    """Happy path: 4 Gold tables → 4 extract jobs, 4 URIs returned.
+def _fake_table(table_id: str, table_type: str = "TABLE") -> MagicMock:
+    """Stand-in for a `google.cloud.bigquery.table.TableListItem`."""
+    t = MagicMock()
+    t.table_id = table_id
+    t.table_type = table_type
+    return t
 
-    The fourth table (`gold_commodity_state_total_year`) was added in PR #18
-    of the dashboard refactor; this test guards against the backup script
-    silently regressing to the old 3-table list.
+
+def test_run_extracts_every_gold_table(settings: Settings) -> None:
+    """Happy path: introspect Gold → 1 extract per `gold_*` table → URIs returned.
+
+    Today only `gold_commodity_matrix` exists in the dbt project; this test
+    exercises the multi-table path with a synthetic list so the contract
+    survives when new Gold lineages (per-source: `gold_comex_*`,
+    `gold_nfe_*`) are added later.
     """
     with (
         patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
@@ -33,53 +41,63 @@ def test_run_extracts_every_gold_table(settings: Settings) -> None:
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        client.get_table.return_value = MagicMock()
+        client.list_tables.return_value = [
+            _fake_table("gold_commodity_matrix"),
+            _fake_table("gold_comex_monthly"),
+            _fake_table("gold_nfe_transactions"),
+        ]
         client.extract_table.return_value.result.return_value = None
 
         run_id, uris = backup.run(settings)
 
-    assert client.extract_table.call_count == 4
-    assert len(uris) == 4
+    assert client.extract_table.call_count == 3
+    assert len(uris) == 3
     # All URIs land under the same run_id prefix.
     assert all(f"backups/run={run_id}/" in uri for uri in uris)
     # Each URI ends in a wildcard so BQ can shard the export.
     assert all(uri.endswith("-*.parquet") for uri in uris)
 
 
-def test_run_skips_missing_tables(settings: Settings) -> None:
-    """If only some tables exist (e.g. year_product was never built), we back
-    up what's there instead of failing."""
+def test_run_filters_by_prefix_and_table_type(settings: Settings) -> None:
+    """Introspection skips: (a) tables outside the prefix, (b) views.
+
+    Replaces the old `test_run_skips_missing_tables` — the new flow can't see
+    missing tables (`list_tables` only returns extant), so we test the filter
+    that protects against backing up unrelated artefacts.
+    """
     with (
         patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
         patch("embrapa_commodities.backup.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        # 4 tables: matrix, state_year, year_product, state_total_year.
-        # Mock state_year missing to exercise the skip-on-NotFound path.
-        client.get_table.side_effect = [
-            MagicMock(),
-            NotFound("missing"),
-            MagicMock(),
-            MagicMock(),
+        client.list_tables.return_value = [
+            _fake_table("gold_commodity_matrix"),  # backed up
+            _fake_table("gold_explore_temp"),  # backed up (matches prefix)
+            _fake_table("staging_temp"),  # filtered: wrong prefix
+            _fake_table("gold_legacy_view", table_type="VIEW"),  # filtered: VIEW
         ]
         client.extract_table.return_value.result.return_value = None
 
         _, uris = backup.run(settings)
 
-    assert client.extract_table.call_count == 3
-    assert len(uris) == 3
+    assert client.extract_table.call_count == 2
+    assert len(uris) == 2
+    # Filtered names never reach extract_table.
+    extracted_names = [call.args[0] for call in client.extract_table.call_args_list]
+    assert all("staging_temp" not in n for n in extracted_names)
+    assert all("legacy_view" not in n for n in extracted_names)
 
 
-def test_run_raises_when_no_tables_exist(settings: Settings) -> None:
-    """All Gold tables missing → RuntimeError pointing at dbt-build-prod."""
+def test_run_raises_when_dataset_is_empty(settings: Settings) -> None:
+    """Gold dataset has no matching tables → RuntimeError pointing at dbt-build-prod."""
     with (
         patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
         patch("embrapa_commodities.backup.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        client.get_table.side_effect = NotFound("nope")
+        client.list_tables.return_value = []
 
         with pytest.raises(RuntimeError, match="dbt-build-prod"):
             backup.run(settings)
@@ -93,7 +111,7 @@ def test_run_uses_parquet_snappy_format(settings: Settings) -> None:
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
-        client.get_table.return_value = MagicMock()
+        client.list_tables.return_value = [_fake_table("gold_commodity_matrix")]
         client.extract_table.return_value.result.return_value = None
 
         backup.run(settings)

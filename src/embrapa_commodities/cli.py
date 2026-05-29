@@ -7,7 +7,9 @@ import logging
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import typer
 from google.cloud import bigquery, storage
@@ -42,6 +44,32 @@ discover_app = typer.Typer(
     help="Auxiliary lookups — inspect IBGE / BCB before committing codes to .env",
 )
 app.add_typer(discover_app, name="discover")
+
+
+# ─── ingest registry ──────────────────────────────────────────────────────────
+# ★ Único ponto de extensão para `ingest all`. Cada @ingest_app.command()
+# permanece manuscrito (observabilidade e mensagens heterogêneas entre fontes).
+# Quando adicionar uma fonte: insira IngestSpec aqui + entry em
+# doctor.SOURCE_CHECKS / doctor.BRONZE_TARGETS. Veja
+# docs/adding_a_data_source.md.
+
+
+@dataclass(frozen=True)
+class IngestSpec:
+    name: str  # subcomando ('ibge', 'bcb-inflation', ...)
+    module: ModuleType  # módulo com .run(settings, **kwargs) -> str
+    accepts_full: bool  # True quando .run aceita full=bool (pipelines delta-aware)
+    label: str  # rótulo exibido em `ingest all`
+
+
+# Atributo `module`, não função: spec.module.run(...) faz lookup em tempo de
+# chamada, mantendo monkeypatch.setattr(cli.bcb_inflation, "run", ...)
+# funcional (ver tests/test_cli.py).
+INGESTS: list[IngestSpec] = [
+    IngestSpec("ibge", ibge_pipeline, accepts_full=False, label="IBGE PEVS"),
+    IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflação"),
+    IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB câmbio"),
+]
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
@@ -282,17 +310,15 @@ def ingest_all(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Force full refetch on the BCB pipelines (IBGE always fetches its full window).",
+        help="Force full refetch on delta-aware pipelines (IBGE always fetches its full window).",
     ),
 ) -> None:
-    """Run all three Bronze pipelines sequentially."""
+    """Run every registered Bronze pipeline sequentially in INGESTS order."""
     settings = get_settings()
-    console.print("[bold]→ IBGE PEVS[/bold]")
-    ibge_pipeline.run(settings)
-    console.print("[bold]→ BCB inflation[/bold]")
-    bcb_inflation.run(settings, full=full)
-    console.print("[bold]→ BCB currency[/bold]")
-    bcb_currency.run(settings, full=full)
+    for spec in INGESTS:
+        console.print(f"[bold]→ {spec.label}[/bold]")
+        kwargs = {"full": full} if spec.accepts_full else {}
+        spec.module.run(settings, **kwargs)
     console.print("[green bold]✓ All Bronze pipelines completed[/green bold]")
 
 

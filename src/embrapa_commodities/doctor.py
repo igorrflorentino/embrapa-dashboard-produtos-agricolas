@@ -131,7 +131,11 @@ def _check_bcb(settings: Settings) -> CheckResult:
 
 
 def _check_bronze_tables(settings: Settings) -> CheckResult:
-    """Report whether Bronze tables already exist (informational, never fails)."""
+    """Report whether Bronze tables already exist (informational, never fails).
+
+    Iterates ``BRONZE_TARGETS`` so new sources extend the check by appending a
+    single tuple — see ``docs/adding_a_data_source.md``.
+    """
     try:
         client = bigquery.Client(
             project=settings.gcp_project_id,
@@ -139,9 +143,8 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
             credentials=get_credentials(settings),
         )
         targets = [
-            (settings.bq_bronze_ibge_dataset, settings.bq_bronze_ibge_table),
-            (settings.bq_bronze_bcb_dataset, settings.bq_bronze_bcb_inflation_table),
-            (settings.bq_bronze_bcb_dataset, settings.bq_bronze_bcb_currency_table),
+            (getattr(settings, dataset_attr), getattr(settings, table_attr))
+            for dataset_attr, table_attr in BRONZE_TARGETS
         ]
         existing: list[str] = []
         missing: list[str] = []
@@ -229,16 +232,38 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
         return CheckResult("Gold backup freshness", False, str(exc)[:120])
 
 
-CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
+_INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
     ("adc", _check_adc),
     ("bq", _check_bq),
     ("gcs", _check_gcs),
+]
+
+# ★ Ponto de extensão: para registrar uma nova fonte, acrescente aqui +
+# em BRONZE_TARGETS acima. Para fontes sem API pública (ex. SEFAZ NFe via
+# download em lote), o "check" pode ser um stub que retorna
+# CheckResult(name, ok=True, detail="sem probe público"). Veja
+# docs/adding_a_data_source.md.
+SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
     ("bcb", _check_bcb),
+]
+
+# ★ Ponto de extensão: cada (dataset_attr, table_attr) referencia um campo
+# em Settings. _check_bronze_tables itera sobre esta lista.
+BRONZE_TARGETS: list[tuple[str, str]] = [
+    ("bq_bronze_ibge_dataset", "bq_bronze_ibge_table"),
+    ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
+    ("bq_bronze_bcb_dataset", "bq_bronze_bcb_currency_table"),
+]
+
+_POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("bronze", _check_bronze_tables),
     ("backup", _check_backup_freshness),
 ]
+
+# Ordem total dos checks. Cada bloco pode ser estendido sem mudar este alias.
+CHECKS = _INFRA_CHECKS + SOURCE_CHECKS + _POSTCHECKS
 
 
 def run_all(settings: Settings | None = None) -> list[CheckResult]:

@@ -23,19 +23,6 @@ dependencies = [
     "dbt-bigquery>=1.8",
 ]
 
-[project.optional-dependencies]
-dashboard = [
-    "dash>=2.17",
-    "plotly>=5.22",
-    "gunicorn>=22.0",
-    "google-cloud-bigquery-storage>=2.25",
-]
-# Headless-browser visual checks (Tier 2). Kept out of `dashboard` so the
-# Cloud Run runtime image stays lean — only needed for pre-release validation.
-visual = [
-    "playwright>=1.40",
-]
-
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
 
@@ -73,11 +60,3 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-markers = [
-    # Opt-in marker for tests that need live GCP credentials (BigQuery, GCS).
-    # `make test` runs with `-m 'not smoke'` to keep the default test loop
-    # fast and credential-free; `make test-smoke` runs with `-m smoke` and
-    # HARD-FAILS if credentials are missing (no silent skips — see the 2026-05
-    # audit action item #4 and tests/test_dashboard_smoke.py).
-    "smoke: live-BigQuery dashboard smoke test; opt-in via `make test-smoke`",
-]

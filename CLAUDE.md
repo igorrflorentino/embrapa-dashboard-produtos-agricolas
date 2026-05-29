@@ -7,9 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI assista
 **Embrapa Commodities Dashboard** — Medallion pipeline (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR, CNY) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
 
 - **Language**: Python 3.12 · **Package manager**: uv · **Build**: hatchling
-- **Data transforms**: dbt-core + dbt-bigquery · **Dashboard**: Dash + Plotly
-- **Infrastructure**: GCS + BigQuery + Cloud Run + GitHub Actions
+- **Data transforms**: dbt-core + dbt-bigquery
+- **Infrastructure**: GCS + BigQuery + GitHub Actions
 - **License**: Apache 2.0
+
+> ⚠️ **Frontend em reconstrução com Claude Design System.** The previous Dash + Plotly UI was removed on 2026-05-29 to prepare a clean handoff. The backend (ingestion + dbt + CLI) is fully functional and independent of any UI. The next agent will integrate the new design system with this backend — do **not** scaffold a new Dash app, create chart components, or restore Cloud Run deploy targets unless the user explicitly asks.
 
 ## Documentation Map
 
@@ -23,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI assista
 | `ROADMAP.md` | Short/medium/long-term project vision |
 | `SECURITY.md` | Vulnerability reporting policy |
 | `PLANS/` | Detailed feature plans (one .md per feature) |
-| `docs/` | Deep-dive docs (setup, IAM, auth, testing, cost safety, etc.) |
+| `docs/` | Deep-dive docs (setup, IAM, testing, cost safety, etc.) |
 
 ## Code Style
 
@@ -32,7 +34,6 @@ This file provides guidance to Claude Code (claude.ai/code) and other AI assista
 - **Docstrings**: Portuguese (technical comments may be in English)
 - **SQL**: SQLFluff for dbt models
 - **Pre-commit**: gitleaks + ruff + file-hygiene hooks (install with `make precommit-install`)
-- **Dashboard modules**: soft 500-LOC ceiling (enforced by pre-commit + CI)
 
 ## Commands
 
@@ -113,7 +114,7 @@ uv run pytest tests/test_ibge_client.py::test_name   # single test
 
 ## Architecture
 
-Medallion pipeline: IBGE PEVS + BCB SGS → Python (Bronze) → dbt (Silver → Gold) → Looker Studio / Dash.
+Medallion pipeline: data sources (today IBGE PEVS + BCB SGS; see `cli.INGESTS` registry — extensible) → Python (Bronze) → dbt (Silver → Gold) → Looker Studio.
 
 For the full technical deep-dive (folder structure, data flow diagrams, stack decisions, Bronze/Silver/Gold details, configuration model, dev/prod separation), see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -124,6 +125,7 @@ Key facts for AI context:
 - `val_real_{ipca,igpm,igpdi}_*` columns are for cross-year comparison; `val_yearfx_*` are nominal.
 - Config flows through `src/embrapa_commodities/config.py` (pydantic-settings + `.env`). `BCB_INFLATION_SERIES` uses `CODE:LABEL,CODE:LABEL` format — keep `BCB_INFLATION_SERIES_IPCA_CODE` / `BCB_INFLATION_SERIES_IGPM_CODE` / `BCB_INFLATION_SERIES_IGPDI_CODE` in sync (dbt reads each via `env_var()` to wire the right series into the Gold pivot).
 - `target=dev` → `dbt_dev_silver` / `dbt_dev_gold` (auto-expire 7 days). `target=prod` → `silver` / `gold`.
+- **Adding a new data source**: follow [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md). The registries that need new entries: `cli.INGESTS`, `doctor.SOURCE_CHECKS`, `doctor.BRONZE_TARGETS`. Shared primitives live in `src/embrapa_commodities/core/`. **Gold is per-source** — new sources get their own `gold_<source>_*` lineage; `gold_commodity_matrix` remains exclusive to IBGE PEVS.
 
 ## Skills available
 
@@ -131,15 +133,13 @@ Each skill in `.claude/skills/` provides deep context for a specific workflow. C
 
 | Skill | When to use |
 |-------|------------|
-| `run-dashboard` | Run, serve, smoke-test, or screenshot the Dash web app |
 | `dbt-workflow` | Create/modify dbt models, run transforms, understand Silver/Gold patterns |
-| `dash-page-scaffold` | Create a new page or view in the dashboard |
-| `deploy-cloud-run` | Deploy to Cloud Run, build Docker image, verify production |
 | `lint-and-test` | Run ruff, pytest, sqlfluff, or pre-commit hooks |
 | `ingest-data` | Ingest from IBGE/BCB, add products or series, debug pipelines |
 | `bigquery-debug` | Debug BQ errors (404/403/400), inspect data, diagnostic queries |
-| `new-chart-component` | Create new Plotly chart types or Dash components |
 | `code-audit` | Strategic health audit: complexity, maintainability, coverage (run periodically, not on every change) |
+
+> The frontend-specific skills (`run-dashboard`, `dash-page-scaffold`, `new-chart-component`, `deploy-cloud-run`) were removed alongside the old Dash UI. New UI-related skills will be (re)introduced as part of the Claude Design System handoff.
 
 ## Migration history
 

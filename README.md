@@ -8,6 +8,8 @@
 
 Pipeline Medalhão (**Bronze → Silver → Gold → Looker Studio**) para análise histórica de produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil.
 
+> ⚠️ **Frontend em reconstrução** com [Claude Design System](https://claude.ai/). A UI anterior (Dash + Plotly servida via Cloud Run) foi removida em 2026-05-29 para preparar um handoff limpo. O backend (pipeline Medallion + dbt + CLI `embrapa`) está 100% funcional e independente da camada de visualização — Looker Studio segue conectando direto à tabela Gold. O próximo handoff fará a junção do novo design system com este backend.
+
 ```
 IBGE PEVS API ─┐
 BCB Inflation ─┼─► Python (src/embrapa_commodities) ─► GCS Bronze (Parquet)
@@ -24,7 +26,7 @@ BCB Currency  ─┘                                              │
 
 ## Stack
 
-Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · Dash + Plotly · Cloud Run · GitHub Actions
+Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · Looker Studio · GitHub Actions
 
 Tabela completa com justificativas técnicas em [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-de-tecnologias).
 
@@ -149,7 +151,7 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 
 Estrutura completa de pastas (arquivo-a-arquivo) em [`ARCHITECTURE.md`](ARCHITECTURE.md#estrutura-de-pastas).
 
-> Tooling auxiliar (setup do ambiente, run/build/deploy do dashboard, scripts de IAM) está em [`scripts/README.md`](scripts/README.md).
+> Tooling auxiliar (setup do ambiente, scripts de IAM) está em [`scripts/README.md`](scripts/README.md).
 
 ## Transferência futura para a empresa
 
@@ -181,7 +183,6 @@ Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que p
 |---|---|
 | [docs/setup.md](docs/setup.md) | Guia completo de setup do ambiente |
 | [docs/architecture.md](docs/architecture.md) | Arquitetura de autenticação (Cadeia de Confiança) |
-| [docs/auth.md](docs/auth.md) | Autenticação do dashboard (Cloud Run IAM) |
 | [docs/iam_setup.md](docs/iam_setup.md) | Setup de IAM e Service Accounts |
 | [docs/cost_safety.md](docs/cost_safety.md) | Budget alerts e quotas |
 | [docs/testing.md](docs/testing.md) | Estratégia e guia de testes |
@@ -189,7 +190,6 @@ Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que p
 | [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Conexão Looker Studio → Gold |
 | [docs/migration_history.md](docs/migration_history.md) | Histórico de migrações |
 | [scripts/README.md](scripts/README.md) | Documentação dos scripts auxiliares |
-| [deploy/README.md](deploy/README.md) | Instruções de deploy Cloud Run |
 
 </details>
 
@@ -200,4 +200,3 @@ Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que p
 Este projeto é licenciado sob a [Apache License 2.0](LICENSE).
 
 Desenvolvido por [Igor Florentino](mailto:igorlopesc@gmail.com).
-

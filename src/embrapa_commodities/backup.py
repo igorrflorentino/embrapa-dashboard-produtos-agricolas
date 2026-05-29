@@ -19,7 +19,6 @@ import logging
 from datetime import UTC, datetime
 
 from google.cloud import bigquery, storage
-from google.cloud.exceptions import NotFound
 
 from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.gcp.storage import ensure_bucket
@@ -29,27 +28,33 @@ logger = logging.getLogger(__name__)
 BACKUP_PREFIX = "backups"
 
 
-def _gold_tables(settings: Settings) -> list[str]:
-    """The four physical Gold tables produced by dbt build (prod target).
+def _gold_tables(settings: Settings, bq_client: bigquery.Client) -> list[str]:
+    """Lista as tabelas Gold a serem snapshotadas, derivada por introspecção do dataset.
 
-    Hardcoded list (rather than introspecting the dataset) so the command is
-    deterministic — a stray ad-hoc table in `gold` does not silently get
-    backed up. Must stay in sync with `dbt/models/gold/*.sql`.
+    Substitui a antiga lista hardcoded — ela silenciou um bug real quando o
+    commit a078a24 removeu 3 dos 4 modelos Gold do dbt sem ninguém atualizar
+    o backup. Agora a verdade vem do BigQuery em tempo de execução.
+
+    Filtros:
+    - ``settings.backup_gold_prefix`` (default ``"gold_"``) exclui tabelas
+      ad-hoc / temp que o operador possa ter criado para exploração.
+    - ``table_type == "TABLE"`` exclui views (não há views Gold hoje, mas a
+      guarda evita surpresa quando alguém adicionar uma).
     """
-    base = f"{settings.gcp_project_id}.{settings.bq_gold_dataset}"
-    return [
-        f"{base}.gold_commodity_matrix",
-        f"{base}.gold_commodity_state_year",
-        f"{base}.gold_commodity_year_product",
-        f"{base}.gold_commodity_state_total_year",
-    ]
+    dataset_ref = f"{settings.gcp_project_id}.{settings.bq_gold_dataset}"
+    prefix = settings.backup_gold_prefix
+    return sorted(
+        f"{dataset_ref}.{t.table_id}"
+        for t in bq_client.list_tables(dataset_ref)
+        if t.table_id.startswith(prefix) and t.table_type == "TABLE"
+    )
 
 
 def run(settings: Settings) -> tuple[str, list[str]]:
     """Extract every Gold table to GCS Parquet. Returns (run_id, list of GCS URIs).
 
-    Raises ``RuntimeError`` if no table was found at all (typical when the user
-    runs ``backup-gold`` before any ``make dbt-build-prod``).
+    Raises ``RuntimeError`` if the Gold dataset has no matching tables (typical
+    when the user runs ``backup-gold`` before any ``make dbt-build-prod``).
     """
     creds = get_credentials(settings)
     storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
@@ -58,16 +63,14 @@ def run(settings: Settings) -> tuple[str, list[str]]:
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
 
+    table_fqns = _gold_tables(settings, bq_client)
+    if not table_fqns:
+        raise RuntimeError("No Gold tables found to back up. Run `make dbt-build-prod` first.")
+
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     uris: list[str] = []
 
-    for table_fqn in _gold_tables(settings):
-        try:
-            bq_client.get_table(table_fqn)
-        except NotFound:
-            logger.warning("Skipping missing table %s", table_fqn)
-            continue
-
+    for table_fqn in table_fqns:
         table_name = table_fqn.split(".")[-1]
         # Wildcard suffix is required so BigQuery can shard the export when
         # the table grows past a single-file limit (~1 GB Parquet).
@@ -90,8 +93,5 @@ def run(settings: Settings) -> tuple[str, list[str]]:
         )
         extract_job.result()
         uris.append(destination_uri)
-
-    if not uris:
-        raise RuntimeError("No Gold tables found to back up. Run `make dbt-build-prod` first.")
 
     return run_id, uris
