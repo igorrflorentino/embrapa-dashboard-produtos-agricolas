@@ -16,6 +16,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from embrapa_commodities.core import SourceTransientError
+
 logger = logging.getLogger(__name__)
 
 SGS_URL = (
@@ -42,7 +44,7 @@ class BcbRequestError(Exception):
     """Non-200 response from the BCB SGS API (base class)."""
 
 
-class BcbTransientError(BcbRequestError):
+class BcbTransientError(BcbRequestError, SourceTransientError):
     """Transient (retryable) response from the BCB SGS API."""
 
 

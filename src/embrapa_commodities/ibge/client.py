@@ -20,6 +20,7 @@ from tenacity import (
 )
 
 from embrapa_commodities import observability
+from embrapa_commodities.core import SourceTransientError
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class SidraRequestError(Exception):
     """Raised on any non-200, non-limit-exceeded SIDRA error (base class)."""
 
 
-class SidraTransientError(SidraRequestError):
+class SidraTransientError(SidraRequestError, SourceTransientError):
     """Retryable SIDRA error (5xx, 408, 429, etc.)."""
 
 

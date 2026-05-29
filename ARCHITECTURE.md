@@ -67,13 +67,16 @@ embrapa-dashboard-commodities/
 │
 ├── src/embrapa_commodities/          # Pacote Python principal
 │   ├── __init__.py
-│   ├── cli.py                        # Entrypoint Typer (`embrapa`)
+│   ├── cli.py                        # Entrypoint Typer (`embrapa`) + registry INGESTS
 │   ├── config.py                     # pydantic-settings — lê .env
 │   ├── discover.py                   # Helpers auxiliares (não usados no pipeline)
-│   ├── doctor.py                     # Diagnóstico de saúde (embrapa doctor)
-│   ├── backup.py                     # Snapshot Gold → GCS
+│   ├── doctor.py                     # Diagnóstico + registry SOURCE_CHECKS / BRONZE_TARGETS
+│   ├── backup.py                     # Snapshot Gold → GCS (introspecção via list_tables)
 │   ├── monitor.py                    # Monitoramento de métricas
 │   ├── observability.py              # Logging estruturado
+│   │
+│   ├── core/                         # ⭐ Primitivos compartilhados entre fontes
+│   │   └── exceptions.py             # SourceTransientError (marker p/ retry)
 │   │
 │   ├── gcp/                          # Clientes GCP
 │   │   ├── bigquery.py               # Load Parquet → BQ, auto-create datasets
@@ -101,10 +104,8 @@ embrapa-dashboard-commodities/
 │   │   │   └── silver_bcb_currency.sql   # Câmbio limpo
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
-│   │       ├── gold_commodity_matrix.sql            # Tabela principal (município × produto × ano)
-│   │       ├── gold_commodity_state_year.sql        # Agregação por estado × produto × ano
-│   │       ├── gold_commodity_year_product.sql      # Agregação nacional por produto × ano
-│   │       └── gold_commodity_state_total_year.sql  # Agregação geográfica pura (UF × ano)
+│   │       └── gold_commodity_matrix.sql  # Gold IBGE PEVS — (município × produto × ano)
+│   │                                      # Novas fontes ganham gold_<fonte>_* siblings
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
 │   │   ├── safe_numeric.sql          # Conversão segura (placeholders IBGE → NULL)
@@ -195,9 +196,9 @@ embrapa-dashboard-commodities/
 
 ### 3. Gold (dbt, `materialized=table`)
 
-- Tabela principal: `gold_commodity_matrix` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
-- Tabelas agregadas (siblings, todas derivadas direto da matrix): `gold_commodity_state_year` (UF × produto × ano), `gold_commodity_year_product` (produto × ano nacional), `gold_commodity_state_total_year` (UF × ano sem produto).
-- Quatro convenções monetárias:
+- Tabela canônica do IBGE PEVS: `gold_commodity_matrix` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
+- **Gold é por fonte.** Cada nova fonte (MDIC COMEX, UN COMTRADE, SEFAZ NFe, …) tem sua própria linhagem `gold_<fonte>_*` consumindo as mesmas Silver de deflação/FX. Não é desejável forçar fontes com grão incompatível (mensal × país × HS code para COMEX, evento × UF para NFe) na `gold_commodity_matrix` — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+- Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — valor deflacionado pela cadeia IPCA / IGP-M / IGP-DI, projetado para hoje. **Use esta coluna para comparações entre anos.**
 
@@ -205,6 +206,30 @@ embrapa-dashboard-commodities/
 
 - **Looker Studio**: conexão direta na tabela `gold.gold_commodity_matrix`.
 - **Frontend dedicado**: em reconstrução com Claude Design System. Até lá, o novo agente do handoff vai reintroduzir a camada de UI consumindo as mesmas tabelas Gold.
+
+---
+
+## Camada `core/` — contrato comum entre fontes
+
+`src/embrapa_commodities/core/` concentra os primitivos genuinamente compartilhados, mantendo IBGE/BCB/… enxutas:
+
+- **`SourceTransientError`** (em `core/exceptions.py`): marker para falhas transitórias upstream. `SidraTransientError` e `BcbTransientError` herdam via mixin, e qualquer fonte nova faz o mesmo. Isso permite escrever, no futuro, um decorator `core/http.retry_http` que captura todas as transientes sem precisar listar cada classe por nome.
+
+Ponto importante: **não migrar** clientes existentes (IBGE/BCB) para abstrações compartilhadas só pelo gosto da DRY — o slow-byte / period-halving do SIDRA é defesa hard-won que está bem onde está. Os primitivos de `core/` são adotados conscientemente, fonte a fonte, conforme convém. Veja a seção "Itens deferidos" do plano de prep.
+
+Não mora em `core/`: lógica source-specific (parallelism por UF do IBGE, chunking de séries do BCB, etc.) — fica em `<fonte>/`.
+
+---
+
+## Pontos de extensão para adicionar fontes
+
+Adicionar uma fonte nova mexe em três registries leves + criar dois arquivos. Tudo está documentado em [docs/adding_a_data_source.md](docs/adding_a_data_source.md). Os registries são:
+
+- `cli.INGESTS` (`src/embrapa_commodities/cli.py`) — registra a fonte em `embrapa ingest all`.
+- `doctor.SOURCE_CHECKS` (`src/embrapa_commodities/doctor.py`) — adiciona o probe `embrapa doctor` para a nova API.
+- `doctor.BRONZE_TARGETS` (`src/embrapa_commodities/doctor.py`) — faz a checagem de "Bronze table existe?" incluir a nova tabela.
+
+Cada `@ingest_app.command()` continua manuscrito (observabilidade heterogênea entre fontes — IBGE emite eventos de estado, BCB não). Apenas o `ingest all` usa o registry.
 
 ---
 

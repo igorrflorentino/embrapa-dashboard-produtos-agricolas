@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     # release cadence — bump it for projects that ship monthly.
     backup_staleness_days: int = Field(default=14)
 
+    # `embrapa backup-gold` lists the Gold dataset and snapshots every table
+    # whose name starts with this prefix. "gold_" matches every dbt-produced
+    # Gold table while excluding ad-hoc / temp exploration tables.
+    backup_gold_prefix: str = Field(default="gold_")
+
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:
         if not self.gcs_bucket:

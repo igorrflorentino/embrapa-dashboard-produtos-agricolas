@@ -79,7 +79,7 @@ Utilizamos [Conventional Commits](https://www.conventionalcommits.org/) para men
 feat(ibge): adicionar ingestão de dados de silvicultura
 fix(bcb): corrigir parsing de datas no SGS API
 docs: atualizar README com instruções de deploy
-refactor(dashboard): extrair componente de filtros para módulo próprio
+refactor(core): extrair SourceTransientError para módulo compartilhado
 test(pipeline): adicionar testes para delta ingestion
 ci: adicionar step de SQLFluff no workflow
 chore(deps): atualizar dbt-core para 1.9
@@ -87,7 +87,9 @@ chore(deps): atualizar dbt-core para 1.9
 
 ### Escopos comuns
 
-`ibge`, `bcb`, `gcp`, `dbt`, `dashboard`, `cli`, `config`, `docker`, `ci`, `deps`, `docs`
+`ibge`, `bcb`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
+
+Esta lista é aberta — adicione novos escopos quando criar um módulo ou fonte nova (ex.: `comex`, `comtrade`, `nfe`).
 
 ---
 
@@ -118,7 +120,7 @@ make dbt-test
 
 ### 3. Abra o PR
 
-- **Título**: siga o padrão de Conventional Commits (ex.: `feat(dashboard): adicionar página de comparação`)
+- **Título**: siga o padrão de Conventional Commits (ex.: `feat(ibge): adicionar nova série temporal de PEVS`)
 - **Descrição**: explique O QUE mudou e POR QUÊ
 - **Checklist**:
   - [ ] `make lint` passa sem erros
@@ -129,7 +131,7 @@ make dbt-test
 
 ### 4. Code Review
 
-- O CI (GitHub Actions) deve passar: **`Lint, test, dbt parse`** + **`smoke`** (quando aplicável).
+- O CI (GitHub Actions) deve passar: **`Lint, test, dbt parse`**.
 - A branch deve estar **atualizada com `main`** antes do merge (branch protection exige isso).
 - Aprovações de review são recomendadas mas não obrigatórias pela branch protection atual.
 - Use **Squash and Merge** para manter o histórico limpo.
@@ -146,7 +148,7 @@ Referência completa em [`CLAUDE.md` → Commands](CLAUDE.md#commands). Os mais 
 make lint               # Ruff check + format
 make test               # pytest (sem credenciais GCP)
 make dbt-build          # Transformações dev
-make dashboard-run      # Dashboard local em http://localhost:8080
+make ingest-all         # Ingestão Bronze de todas as fontes em cli.INGESTS
 ```
 
 ### Qualidade de código
@@ -158,8 +160,7 @@ Regras de estilo (Ruff, SQLFluff, pre-commit) estão documentadas em [`CLAUDE.md
 Referência completa de comandos de teste em [`CLAUDE.md` → Commands](CLAUDE.md#commands). Resumo:
 
 ```bash
-make test                                        # unitários (sem GCP)
-make test-smoke                                  # smoke com BQ real
+make test                                            # toda a suíte (sem GCP)
 uv run pytest tests/test_ibge_client.py::test_name   # teste específico
 ```
 
@@ -176,11 +177,11 @@ uv run pytest tests/test_ibge_client.py::test_name   # teste específico
 
 | Tipo de mudança | Local |
 |---|---|
+| **Adicionar uma nova fonte de dados** | Siga o checklist em [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md) |
 | Novo pipeline de ingestão | `src/embrapa_commodities/<fonte>/` |
-| Novo modelo dbt | `dbt/models/<camada>/` |
+| Primitivos compartilhados entre fontes | `src/embrapa_commodities/core/` |
+| Novo modelo dbt | `dbt/models/<camada>/` (Gold é por fonte: `gold_<fonte>_*`) |
 | Novo macro dbt | `dbt/macros/` |
-| Nova página do dashboard | `src/embrapa_commodities/dashboard/pages/` |
-| Novo componente do dashboard | `src/embrapa_commodities/dashboard/components/` |
 | Testes Python | `tests/` |
 | Scripts auxiliares | `scripts/` |
 | Documentação técnica | `docs/` |
@@ -192,10 +193,9 @@ uv run pytest tests/test_ibge_client.py::test_name   # teste específico
 
 1. **Nunca commite credenciais** — `.gitignore` cobre `.env`, `sa-*.json`, `sa-*.b64`.
 2. **Nunca commite `dbt/profiles.yml`** — use o template `profiles.yml.example`.
-3. **Módulos do dashboard: máximo 500 LOC** — verificado via pre-commit e CI.
-4. **Sem hardcode** — tudo via `.env` e `config.py`.
-5. **Sempre adicione testes** para nova lógica de negócio.
-6. **Docstrings em português** — comentários técnicos podem ser em inglês.
+3. **Sem hardcode** — tudo via `.env` e `config.py`.
+4. **Sempre adicione testes** para nova lógica de negócio.
+5. **Docstrings em português** — comentários técnicos podem ser em inglês.
 
 ---
 
