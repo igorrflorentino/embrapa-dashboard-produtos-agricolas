@@ -2,6 +2,8 @@
 
 > Documento técnico de "capô aberto": estrutura de pastas, decisões de stack, fluxo de dados e diagramas.
 
+> ⚠️ **Frontend em reconstrução com Claude Design System.** A camada de visualização Dash + Plotly (Cloud Run) foi removida em 2026-05-29. O backend descrito abaixo está intacto e operacional. O próximo handoff trará o novo frontend; até lá, o consumo do Gold se dá via Looker Studio ou queries diretas no BigQuery.
+
 ---
 
 ## Visão Geral do Pipeline
@@ -30,7 +32,7 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
  ┌─────────────────────────────────────────────────────┐
  │  Consumo                                            │
  │  • Looker Studio (direto na tabela Gold)             │
- │  • Dash web app (Cloud Run)                         │
+ │  • (frontend dedicado em reconstrução)               │
  └─────────────────────────────────────────────────────┘
 ```
 
@@ -47,15 +49,14 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
 | Data Lake | Google Cloud Storage (Parquet) | Armazenamento object-store, particionado por fonte/data |
 | Data Warehouse | BigQuery | Serverless, SQL padrão, integração nativa com Looker |
 | Transformações | `dbt-core` + `dbt-bigquery` | Transformações versionadas, testáveis, incrementais |
-| Dashboard (web) | Dash + Plotly + Gunicorn | Python full-stack, gráficos interativos, deploy Cloud Run |
-| Containerização | Docker (multi-stage) | Imagem slim, non-root, cache de layers |
-| Deploy | Google Cloud Run | Serverless, auto-scaling, IAM nativo |
 | CI/CD | GitHub Actions | Lint + test + dbt parse em cada PR |
 | Lint / Format | Ruff | Substitui flake8 + isort + black; extremamente rápido |
 | SQL Lint | SQLFluff | Validação de estilo SQL nos modelos dbt |
 | Pre-commit | gitleaks, ruff, file-hygiene hooks | Segurança de credenciais + qualidade de código |
 | Testes | pytest, responses, pytest-cov | Mocks HTTP, cobertura, markers customizados |
 | Configuração | pydantic-settings + `.env` | Validação tipada, zero hardcode |
+
+> A camada de **visualização** (anteriormente Dash + Plotly + Gunicorn em Cloud Run) está sendo refeita no Claude Design System em um fluxo separado. Quando o novo frontend chegar via handoff, a tabela acima será atualizada com a nova stack de UI/deploy.
 
 ---
 
@@ -82,22 +83,10 @@ embrapa-dashboard-commodities/
 │   │   ├── client.py                 # HTTP client SIDRA API
 │   │   └── pipeline.py               # Orquestração Bronze
 │   │
-│   ├── bcb/                          # Pipelines Banco Central
-│   │   ├── client.py                 # HTTP client SGS API
-│   │   ├── inflation.py              # Pipeline IPCA/IGP-M/IGP-DI
-│   │   └── currency.py               # Pipeline USD/EUR/CNY
-│   │
-│   └── dashboard/                    # Dash web application
-│       ├── app.py                    # Servidor Dash + layout
-│       ├── config.py                 # Configuração do dashboard
-│       ├── data.py                   # Camada de dados (BQ → DataFrame)
-│       ├── data_sources.py           # Fontes de dados abstraídas
-│       ├── formatting.py             # Formatação de números/moedas
-│       ├── health.py                 # Health check endpoint
-│       ├── theme.py                  # Design tokens / tema visual
-│       ├── assets/                   # CSS, favicons, imagens estáticas
-│       ├── components/               # Componentes Dash reutilizáveis
-│       └── pages/                    # Páginas do dashboard (multi-page)
+│   └── bcb/                          # Pipelines Banco Central
+│       ├── client.py                 # HTTP client SGS API
+│       ├── inflation.py              # Pipeline IPCA/IGP-M/IGP-DI
+│       └── currency.py               # Pipeline USD/EUR/CNY
 │
 ├── dbt/                              # Transformações dbt (Silver + Gold)
 │   ├── dbt_project.yml               # Configuração do projeto dbt
@@ -141,23 +130,17 @@ embrapa-dashboard-commodities/
 │   ├── test_backup.py
 │   ├── test_doctor.py
 │   ├── test_monitor.py
-│   ├── test_observability.py
-│   └── test_dashboard_smoke.py       # Smoke test (requer GCP, marker `smoke`)
+│   └── test_observability.py
 │
 ├── scripts/                          # Tooling auxiliar
 │   ├── README.md                     # Documentação dos scripts
 │   ├── setup_dev_env.py              # Setup unificado cross-platform
 │   ├── test_setup.py                 # Testes do setup
-│   ├── dashboard_smoke.py            # Smoke test do dashboard
-│   ├── dashboard_visual_check.py     # Visual check com Playwright
-│   ├── check_dashboard_size.py       # Soft 500-LOC ceiling
-│   ├── dashboard-*.ps1               # Scripts PowerShell (Windows)
 │   ├── grant-sa-iam-roles.ps1        # IAM roles
 │   └── setup-claude-code-web-sa.sh   # SA para Claude Code Web
 │
 ├── docs/                             # Documentação detalhada
 │   ├── architecture.md               # Arquitetura de autenticação (Cadeia de Confiança)
-│   ├── auth.md                       # Guia de autenticação do dashboard
 │   ├── cost_safety.md                # Budget alert + custom quota
 │   ├── iam_setup.md                  # Setup de IAM e Service Accounts
 │   ├── looker_studio_setup.md        # Conexão Looker Studio → Gold
@@ -166,19 +149,13 @@ embrapa-dashboard-commodities/
 │   ├── setup.md                      # Guia completo de setup
 │   └── testing.md                    # Estratégia e guia de testes
 │
-├── deploy/                           # Artefatos de deploy
-│   └── README.md                     # Instruções de deploy
-│
-├── design system/                    # Design system do dashboard
-│   └── embrapa-commodities-design-system/
-│
 ├── .github/workflows/                # CI/CD
 │   ├── ci.yml                        # PR gate: lint + test + dbt parse
-│   └── dashboard-smoke.yml           # Smoke test do dashboard
+│   └── dbt-build-prod.yml            # Build prod automatizado em push para main
 │
 ├── .claude/                          # Configuração Claude Code
 │   ├── settings.json
-│   └── skills/                       # Skills para Claude Code
+│   └── skills/                       # Skills para Claude Code (backend)
 │
 ├── CLAUDE.md                         # Guia para assistentes de IA
 ├── README.md                         # Documentação principal
@@ -186,18 +163,17 @@ embrapa-dashboard-commodities/
 ├── pyproject.toml                    # Manifest Python (deps, scripts, tools)
 ├── uv.lock                           # Lockfile determinístico
 ├── Makefile                          # Atalhos de desenvolvimento
-├── Dockerfile                        # Imagem Docker multi-stage
 ├── LICENSE                           # Apache License 2.0
 ├── .env.example                      # Template de variáveis de ambiente
 ├── .pre-commit-config.yaml           # Hooks de pré-commit
 ├── .python-version                   # Pin do Python (3.12.11)
 ├── .gitignore                        # Exclusões do Git
-├── .dockerignore                     # Exclusões do Docker build
-├── .gcloudignore                     # Exclusões do gcloud deploy
 ├── setup.sh / setup.bat / setup.ps1  # Setup automatizado por plataforma
 ├── test.sh / test.bat                # Atalhos para testes
 └── init_dev_env.sh                   # Inicialização para sandboxes
 ```
+
+> Apagados em 2026-05-29 junto com a UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, e os skills do Claude Code `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`. Caminhos legados que ainda existem mas só faziam sentido para a UI antiga: `deploy/`, `artifacts/`, `.dockerignore`, `.gcloudignore` — podem ser removidos com segurança quando conveniente.
 
 ---
 
@@ -220,7 +196,7 @@ embrapa-dashboard-commodities/
 ### 3. Gold (dbt, `materialized=table`)
 
 - Tabela principal: `gold_commodity_matrix` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
-- Tabelas agregadas (siblings, todas derivadas direto da matrix): `gold_commodity_state_year` (UF × produto × ano), `gold_commodity_year_product` (produto × ano nacional), `gold_commodity_state_total_year` (UF × ano sem produto — feeds a view Geografia).
+- Tabelas agregadas (siblings, todas derivadas direto da matrix): `gold_commodity_state_year` (UF × produto × ano), `gold_commodity_year_product` (produto × ano nacional), `gold_commodity_state_total_year` (UF × ano sem produto).
 - Quatro convenções monetárias:
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — valor deflacionado pela cadeia IPCA / IGP-M / IGP-DI, projetado para hoje. **Use esta coluna para comparações entre anos.**
@@ -228,7 +204,7 @@ embrapa-dashboard-commodities/
 ### 4. Consumo
 
 - **Looker Studio**: conexão direta na tabela `gold.gold_commodity_matrix`.
-- **Dash web app**: aplicação Python (Dash + Plotly) servida via Gunicorn no Cloud Run.
+- **Frontend dedicado**: em reconstrução com Claude Design System. Até lá, o novo agente do handoff vai reintroduzir a camada de UI consumindo as mesmas tabelas Gold.
 
 ---
 
@@ -264,8 +240,9 @@ Modelo de **Service Account Impersonation** (OAuth 2.0) sem keyfiles distribuíd
 
 - **`sa-secret-reader-prod`**: target de impersonação para desenvolvedores (dbt + queries)
 - **`sa-data-pipeline-prod`**: pipelines de ingestão (write GCS + BQ)
-- **`sa-web-dashboard-prod`**: dashboard read-only (BQ viewer)
 - **`sa-ai-agent-admin-prod`**: agentes de IA (BQ editor + GCS)
+
+> A SA `sa-web-dashboard-prod` (read-only para o Cloud Run anterior) foi descomissionada junto com a remoção da UI Dash. Quando o novo frontend chegar, uma nova SA será documentada aqui.
 
 Detalhes completos em [`docs/architecture.md`](docs/architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
@@ -278,16 +255,14 @@ Detalhes completos em [`docs/architecture.md`](docs/architecture.md) e [`docs/ia
 Executa em cada PR para `main`:
 1. `make lint` — Ruff check + format
 2. `make test` — pytest (sem credenciais GCP)
-3. Dashboard module size ceiling (soft 500 LOC)
-4. `dbt deps` + `dbt parse` — validação Jinja + ref/source sem warehouse
+3. `dbt deps` + `dbt parse` — validação Jinja + ref/source sem warehouse
 
-### Dashboard Smoke (`dashboard-smoke.yml`)
+### dbt build prod (`dbt-build-prod.yml`)
 
-Smoke test que requer credenciais GCP (execução separada).
+Push para `main` que toque `dbt/**` ou `config.py` dispara um build do Silver/Gold em prod via Workload Identity Federation. Snapshots Gold seguem manuais (`make dbt-build-prod-with-backup` localmente, antes de release boundaries).
 
 ---
 
 ## Documentação Relacionada
 
 Índice completo de toda a documentação do projeto (root + `docs/`) disponível no [`README.md`](README.md#-documentação).
-

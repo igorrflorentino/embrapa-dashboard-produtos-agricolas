@@ -19,7 +19,20 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 <!-- Correções de bugs -->
 
 ### Removed
-<!-- Features ou código removido -->
+- **Camada de UI Dash + Plotly removida (2026-05-29).** O frontend está sendo
+  reconstruído com o Claude Design System em fluxo separado. Foram apagados:
+  o pacote `src/embrapa_commodities/dashboard/`, os testes
+  `tests/test_dashboard_*`, os scripts `scripts/dashboard_*` /
+  `scripts/check_dashboard_size.py` / `scripts/dashboard-*.ps1`, o
+  `Dockerfile`, o workflow `.github/workflows/dashboard-smoke.yml`, o
+  `docs/auth.md` e os skills do Claude Code `run-dashboard`,
+  `dash-page-scaffold`, `new-chart-component`, `deploy-cloud-run`. Os extras
+  `dashboard` e `visual` em `pyproject.toml`, o hook `check-dashboard-size`
+  em `.pre-commit-config.yaml`, o `--extra dashboard` em `ci.yml` e os
+  alvos `dashboard-*` / `test-smoke` no `Makefile` também foram retirados.
+  Backend (pipeline Medallion + dbt + CLI `embrapa`) permanece 100%
+  funcional. O próximo handoff fará a junção do novo design system com
+  este backend.
 
 ---
 

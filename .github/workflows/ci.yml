@@ -35,9 +35,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pin to the exact interpreter used by the Dockerfile
-      # (python:3.12.11-slim) and required by pyproject.toml
-      # (requires-python = "==3.12.*"). Keeps CI ≡ prod runtime.
+      # Pin to the exact interpreter required by pyproject.toml
+      # (requires-python = "==3.12.*").
       - name: Set up Python 3.12.11
         uses: actions/setup-python@v5
         with:
@@ -55,35 +54,14 @@ jobs:
       # --frozen makes the sync fail if uv.lock is out of date with
       # pyproject.toml — i.e. forces contributors to commit a refreshed
       # lockfile rather than silently drifting in CI.
-      #
-      # --extra dashboard installs dash + plotly + gunicorn so that any
-      # test which imports from embrapa_commodities.dashboard.* can be
-      # collected (errors.py / components do top-level `from dash import
-      # html`, so collection fails without the extra even if the test
-      # itself never renders). Without this flag, unit tests for
-      # dashboard-side pure logic (cause inference, formatting helpers)
-      # would have to skip via `pytest.importorskip("dash")` or be marked
-      # `smoke`, defeating the coverage gain. The extra is locked in
-      # uv.lock, so this keeps reproducibility.
       - name: Sync dependencies (reproducible via uv.lock)
-        run: uv sync --frozen --extra dashboard
+        run: uv sync --frozen
 
       - name: Lint (ruff check + ruff format --check)
         run: make lint
 
       - name: Test (pytest)
         run: make test
-
-      # Mirror of the local pre-commit hook (see .pre-commit-config.yaml).
-      # Defense in depth: pre-commit catches drift before push, CI catches
-      # it when a contributor bypassed pre-commit (--no-verify or didn't
-      # run `make precommit-install`). Runs against every dashboard .py in
-      # the repo, not just the diff — keeps the check stateless and the
-      # script's own ALLOWLIST is the source of truth for exceptions.
-      - name: Dashboard module size ceiling (soft 500 LOC)
-        run: |
-          git ls-files 'src/embrapa_commodities/dashboard/*.py' \
-            | xargs uv run python scripts/check_dashboard_size.py
 
       # `dbt parse` needs a profile to exist, but with method: oauth it
       # does not actually authenticate during parse. The example profile

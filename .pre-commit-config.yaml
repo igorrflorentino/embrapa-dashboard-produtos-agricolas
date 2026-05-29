@@ -26,16 +26,3 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
-
-  # Soft 500-LOC ceiling for dashboard modules (2026-05 audit § 2.1).
-  # Two files are grandfathered via ALLOWLIST in the script; new files
-  # or modifications that push a file over 500 LOC fail here. Edit
-  # scripts/check_dashboard_size.py to adjust the allowlist.
-  - repo: local
-    hooks:
-      - id: check-dashboard-size
-        name: Soft 500-LOC ceiling for dashboard modules
-        entry: python scripts/check_dashboard_size.py
-        language: system
-        files: ^src/embrapa_commodities/dashboard/.*\.py$
-        pass_filenames: true
