@@ -20,6 +20,7 @@ from embrapa_commodities import backup, discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.config import get_credentials, get_settings
+from embrapa_commodities.core import pipeline_run
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
 
@@ -77,55 +78,24 @@ INGESTS: list[IngestSpec] = [
 def ingest_ibge() -> None:
     """Ingest IBGE PEVS into the configured Bronze table."""
     settings = get_settings()
-    run_id, log_path = observability.init_run("ibge")
-    console.print(f"[dim]event log:[/dim] {log_path}")
-    observability.emit(
-        "pipeline_start",
-        pipeline="ibge",
-        run_id=run_id,
-        chunks_total=1,
+    with pipeline_run(
+        "ibge",
         params={
             "start_year": settings.ibge_start_year,
             "end_year": settings.ibge_end_year,
             "products": settings.product_codes,
         },
-    )
-    observability.emit(
-        "chunk_start",
-        chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
-        chunk_n=1,
-        chunk_total=1,
-    )
-    started = time.monotonic()
-    try:
+    ) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
         destination = ibge_pipeline.run(settings)
-        observability.emit(
-            "chunk_end",
-            chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
-            duration_s=round(time.monotonic() - started, 2),
+    if destination:
+        console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
+    else:
+        console.print(
+            f"[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no rows for "
+            f"{settings.ibge_start_year}-{settings.ibge_end_year}. "
+            "Lower IBGE_END_YEAR in .env to the latest published year."
         )
-        observability.emit(
-            "pipeline_end",
-            duration_s=round(time.monotonic() - started, 2),
-            chunks_ok=1,
-            chunks_failed=0,
-        )
-        if destination:
-            console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
-        else:
-            console.print(
-                f"[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no rows for "
-                f"{settings.ibge_start_year}-{settings.ibge_end_year}. "
-                "Lower IBGE_END_YEAR in .env to the latest published year."
-            )
-    except Exception as exc:
-        observability.emit(
-            "chunk_error",
-            chunk_id=f"{settings.ibge_start_year}-{settings.ibge_end_year}",
-            error=str(exc)[:300],
-        )
-        observability.emit("pipeline_end", chunks_ok=0, chunks_failed=1)
-        raise
 
 
 @ingest_app.command("bcb-inflation")
@@ -137,7 +107,10 @@ def ingest_bcb_inflation(
     ),
 ) -> None:
     """Ingest configured BCB SGS inflation series."""
-    destination = bcb_inflation.run(get_settings(), full=full)
+    settings = get_settings()
+    with pipeline_run("bcb-inflation", params={"full": full}) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
+        destination = bcb_inflation.run(settings, full=full)
     if destination:
         console.print(f"[green]✓[/green] BCB inflation bronze loaded → {destination}")
     else:
@@ -153,7 +126,10 @@ def ingest_bcb_currency(
     ),
 ) -> None:
     """Ingest configured BCB SGS FX series."""
-    destination = bcb_currency.run(get_settings(), full=full)
+    settings = get_settings()
+    with pipeline_run("bcb-currency", params={"full": full}) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
+        destination = bcb_currency.run(settings, full=full)
     if destination:
         console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
     else:
