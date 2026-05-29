@@ -95,6 +95,28 @@ _LIFECYCLE_RULES: list[dict] = [
 ]
 
 
+def _rule_key(rule: dict) -> tuple:
+    """Canonical, order-insensitive identity of a lifecycle rule.
+
+    Reduces a rule to a hashable tuple of only the fields we actually set. GCS
+    echoes lifecycle rules back in a normalized shape (reordered keys, occasional
+    extra defaults) that rarely dict-equals our hand-written literal — a naive
+    `current != _LIFECYCLE_RULES` would therefore patch the bucket on EVERY
+    ingestion. Comparing canonical keys makes the idempotency check actually
+    short-circuit.
+    """
+    action = rule.get("action") or {}
+    cond = rule.get("condition") or {}
+    return (
+        action.get("type"),
+        action.get("storageClass"),
+        cond.get("age"),
+        tuple(sorted(cond.get("matchesStorageClass") or [])),
+        tuple(sorted(cond.get("matchesPrefix") or [])),
+        cond.get("isLive"),
+    )
+
+
 def _apply_protections(bucket: storage.Bucket) -> bool:
     """Idempotently enable uniform IAM, versioning, lifecycle. Returns True if changed."""
     changed = False
@@ -104,9 +126,11 @@ def _apply_protections(bucket: storage.Bucket) -> bool:
     if not bucket.versioning_enabled:
         bucket.versioning_enabled = True
         changed = True
-    # Compare lifecycle by normalized list of dicts.
-    current = [dict(rule) for rule in (bucket.lifecycle_rules or [])]
-    if current != _LIFECYCLE_RULES:
+    # Compare lifecycle semantically (canonical keys), not by raw dict equality —
+    # see _rule_key. Only patch when the rule SET actually differs.
+    current = {_rule_key(dict(rule)) for rule in (bucket.lifecycle_rules or [])}
+    desired = {_rule_key(rule) for rule in _LIFECYCLE_RULES}
+    if current != desired:
         bucket.lifecycle_rules = _LIFECYCLE_RULES
         changed = True
     return changed

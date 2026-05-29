@@ -52,6 +52,37 @@ def _check_env(settings: Settings) -> CheckResult:
         return CheckResult(".env parsed", False, str(exc)[:120])
 
 
+def _check_inflation_pivot_codes(settings: Settings) -> CheckResult:
+    """Each Gold inflation pivot code must be present in BCB_INFLATION_SERIES.
+
+    The Gold ``val_real_{ipca,igpm,igpdi}_*`` columns are built from these codes
+    (read by dbt via ``env_var``). A pivot code that is not among the ingested
+    series → those columns silently come out NULL. Catch the drift here instead
+    of discovering empty real-value columns in the dashboard.
+    """
+    try:
+        available = set(settings.inflation_series_map)
+        missing = {
+            label: code
+            for label, code in settings.inflation_pivot_codes.items()
+            if code not in available
+        }
+        if missing:
+            return CheckResult(
+                "Inflation pivot codes",
+                False,
+                f"not in BCB_INFLATION_SERIES: {missing} "
+                f"(available={sorted(available)}) → Gold val_real_* would be NULL",
+            )
+        return CheckResult(
+            "Inflation pivot codes",
+            True,
+            f"{settings.inflation_pivot_codes} all present",
+        )
+    except Exception as exc:
+        return CheckResult("Inflation pivot codes", False, str(exc)[:120])
+
+
 def _check_adc(settings: Settings) -> CheckResult:
     """Application Default Credentials are present; reports impersonation target when set."""
     try:
@@ -234,6 +265,7 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
 
 _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
+    ("inflation-codes", _check_inflation_pivot_codes),
     ("adc", _check_adc),
     ("bq", _check_bq),
     ("gcs", _check_gcs),

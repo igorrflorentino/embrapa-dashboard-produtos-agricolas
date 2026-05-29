@@ -37,6 +37,26 @@ def test_check_env_fails_on_bad_format(settings: Settings) -> None:
     assert result.ok is False
 
 
+def test_check_inflation_pivot_codes_pass(settings: Settings) -> None:
+    """All three Gold pivot codes present in BCB_INFLATION_SERIES → ok."""
+    settings.bcb_inflation_series = "433:IPCA,189:IGPM,190:IGPDI"
+    result = doctor._check_inflation_pivot_codes(settings)
+    assert result.ok is True
+
+
+def test_check_inflation_pivot_codes_fails_when_code_not_ingested(settings: Settings) -> None:
+    """A pivot code absent from BCB_INFLATION_SERIES → fail.
+
+    The fixture ingests only 433:IPCA, but the IGP-M (189) and IGP-DI (190)
+    pivot codes default on, so they are missing from the ingested series —
+    exactly the drift that would silently NULL the Gold val_real_igpm/igpdi_*
+    columns.
+    """
+    result = doctor._check_inflation_pivot_codes(settings)
+    assert result.ok is False
+    assert "189" in result.detail or "190" in result.detail
+
+
 def test_check_adc_returns_project_when_ok(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.google.auth.default") as auth:
         auth.return_value = (MagicMock(), "test-project")
@@ -232,6 +252,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
     assert len(results) == len(doctor.CHECKS)
     assert [r.name for r in results] == [
         ".env parsed",
+        "Inflation pivot codes",
         "ADC credentials",
         "BigQuery reachable",
         "GCS bucket",
