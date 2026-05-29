@@ -7,20 +7,13 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import cast
 
 import pandas as pd
 import requests
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    stop_after_delay,
-    wait_exponential,
-)
 
 from embrapa_commodities import observability
 from embrapa_commodities.core import SourceTransientError
+from embrapa_commodities.core import http as core_http
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +113,6 @@ PER_STATE_DEADLINE_S: float = 180.0
 MAX_PARALLEL_STATE_FETCHES = 4
 
 
-RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
-
-
 class SidraLimitExceeded(Exception):
     """Raised when SIDRA refuses the request because it would return too many cells."""
 
@@ -177,51 +167,26 @@ def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
     )
 
 
-@retry(
-    reraise=True,
+@core_http.http_retry_policy(
+    transient_exc=SidraTransientError,
     # Stop on either attempt count OR cumulative time — the OR means a slow-
     # byte hang can't keep the worker alive past PER_STATE_DEADLINE_S even if
     # it never exhausts attempts.
-    stop=stop_after_attempt(5) | stop_after_delay(PER_STATE_DEADLINE_S),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type((requests.RequestException, SidraTransientError)),
+    deadline_s=PER_STATE_DEADLINE_S,
     before_sleep=_emit_retry,
 )
 def _http_get(url: str) -> requests.Response:
-    # `Connection: close` forces a new TCP socket per request. Slower handshake
-    # (~200ms) but avoids both urllib3 pool deadlocks AND server-side connection
-    # staleness — both observed in benchmarks against SIDRA.
-    #
-    # stream=True defers the body read so we can drain it manually under a
-    # wall-clock deadline. Without this, `requests` would happily drain a
-    # trickle-byte response for hours since the per-read timeout (30s) only
-    # fires on full byte-idle gaps.
-    deadline = time.monotonic() + REQUEST_TOTAL_DEADLINE_S
-    response = requests.get(
+    # The drain-under-deadline + Connection: close + slow-byte defense live in
+    # ``core_http.get_drained``. SIDRA-specific status handling (the
+    # ``SidraLimitExceeded`` branch that drives period-halving in
+    # ``_fetch_block``) stays here so the helper doesn't grow API knowledge.
+    response = core_http.get_drained(
         url,
-        timeout=REQUEST_TIMEOUT,
-        headers={"Connection": "close", "User-Agent": "embrapa-commodities/0.1"},
-        stream=True,
+        total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
+        transient_exc=SidraTransientError,
+        context=url[:200],
     )
     try:
-        # Drain the body manually so we can enforce a total wall-clock budget.
-        # Done for both happy and error paths so the same slow-byte defense
-        # applies to error responses (BCB/SIDRA sometimes trickle error bodies).
-        buf = bytearray()
-        for chunk in response.iter_content(chunk_size=64 * 1024):
-            if time.monotonic() > deadline:
-                raise SidraTransientError(
-                    f"HTTP request exceeded {REQUEST_TOTAL_DEADLINE_S}s total budget "
-                    f"(slow-byte hang) for {url[:200]}"
-                )
-            if chunk:
-                buf.extend(chunk)
-        # Stash the drained body so the caller's response.json() and
-        # response.text work without re-reading from the network. Private attrs
-        # of requests.Response, but the names are stable.
-        response._content = bytes(buf)  # type: ignore[attr-defined]
-        response._content_consumed = True  # type: ignore[attr-defined]
-
         if response.status_code == 200:
             return response
         if response.status_code in (400, 403):
@@ -229,13 +194,14 @@ def _http_get(url: str) -> requests.Response:
             if "limite" in body or "valores" in body:
                 raise SidraLimitExceeded(body[:200])
         msg = f"HTTP {response.status_code} for {url}: {response.text[:200]}"
-        if response.status_code in RETRYABLE_STATUS_CODES:
+        if response.status_code in core_http.RETRYABLE_STATUS_CODES:
             raise SidraTransientError(msg)
         raise SidraRequestError(msg)
     except BaseException:
         # Ensure the underlying socket is released on any exit other than the
-        # happy-path return above.
-        cast("requests.Response", response).close()
+        # happy-path return above. ``get_drained`` already closes on its own
+        # exceptions; this guards the status-check branch.
+        response.close()
         raise
 
 
