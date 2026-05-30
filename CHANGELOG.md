@@ -10,6 +10,34 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Unreleased]
 
 ### Added
+- **Fonte COMEX (MDIC Comex Stat) — pipeline Bronze→Silver→Gold completo.**
+  Nova fonte de *comércio exterior* (a primeira da forma `flows` —
+  origem→destino), cruzando produção × comércio × câmbio × inflação do mesmo
+  produto. Escopo: export **e** import, castanha-do-brasil (NCM `08012100`/
+  `08012200`) + capítulo 44 inteiro (madeira/carvão), no grão mês×NCM×país×UF.
+  - **Bronze (`src/embrapa_commodities/comex/`):** `client.py` baixa os CSVs
+    anuais em massa do Comex Stat (`EXP_<ano>.csv`/`IMP_<ano>.csv`; `;`/latin-1)
+    — *stream para disco* (arquivos de 100+ MB), parse pandas em chunks, filtro
+    coluna-preciso em `CO_NCM`/`CO_NCM[:2]`. EXP (11 col) e IMP (13 col: +
+    `VL_FRETE`/`VL_SEGURO`) unificados em schema-union (export grava NULL nas
+    duas). **NÃO** usa a API JSON (retornava o total Brasil agregado em filtro
+    malformado, HTTP 200). `pipeline.py` tem `run()` próprio com delta por
+    `(fluxo, ano)` (re-busca o ano corrente, pula anos já em Bronze). Comando
+    `embrapa ingest comex` multi-chunk (eventos por `(fluxo, ano)` no monitor);
+    registrado em `cli.INGESTS`, `doctor.SOURCE_CHECKS` (`_check_comex`) e
+    `doctor.BRONZE_TARGETS`. Config `COMEX_*` em `config.py`/`.env.example`.
+  - **TLS:** o host `balanca.economia.gov.br` omite a CA intermediária do
+    handshake (`requests`/certifi falha; curl passa via AIA). A intermediária
+    pública (Sectigo R36) está vendorizada em `comex/_ca.py` e anexada ao bundle
+    do certifi em runtime — **sem desabilitar verificação**.
+  - **Silver/Gold (dbt):** `silver_comex_flows` (dedup no grão-fonte completo);
+    `gold_comex_flows` (UMA tabela comprehensiva `flows`, grão
+    flow×mês×NCM×país×UF, agregação por `GROUP BY` em query). Aplica as 4
+    convenções monetárias sobre `VL_FOB` (US$): `val_yearfx_*` no FX do mês e
+    `val_real_{ipca,igpm,igpdi}_*` (US$→BRL no FX do mês → índice BCB → hoje).
+  - Cobertura: `tests/test_comex_client.py` + `tests/test_comex_pipeline.py`;
+    testes de schema em `_silver.yml`/`_gold.yml`. Plano em
+    `PLANS/comex_flows.md`.
 - **`core/bronze.py` — primitivo de aterrissagem Bronze compartilhado (D4).**
   Nova função `land_and_load(df, *, settings, storage_client, bq_client, source,
   table, object_basename, destination, schema, clustering_fields, ...)`

@@ -15,20 +15,26 @@ Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e
 > O backend (pipeline Medallion + dbt + CLI `embrapa`) é independente da camada de visualização e já alimenta os dois caminhos. Nenhum dos dois é exclusivo — podem coexistir.
 
 ```
-IBGE PEVS API ─┐
-BCB Inflation ─┼─► Python (src/embrapa_commodities) ─► GCS Bronze (Parquet)
-BCB Currency  ─┘                                              │
+IBGE PEVS API   ─┐
+BCB Inflation   ─┤
+BCB Currency    ─┼─► Python (src/embrapa_commodities) ─► GCS Bronze (Parquet)
+COMEX bulk CSV  ─┘                                            │
                                                               ▼
                               dbt-bigquery ──► Silver (tipada + IPCA encadeado)
                                                               │
                                                               ▼
-                                             gold_pevs_production (tabela física)
+                          gold_pevs_production · gold_comex_flows (tabelas físicas)
                                                               │
                                           ┌───────────────────┴───────────────────┐
                                           ▼                                        ▼
                                    Looker Studio                    Dashboard Dash @ Cloud Run
                                   (conexão direta)                  (em reconstrução · Claude DS)
 ```
+
+> **Fontes hoje:** IBGE PEVS (`gold_pevs_production`, produção) e MDIC COMEX
+> (`gold_comex_flows`, comércio exterior export+import), ambas enriquecidas com
+> câmbio/inflação do BCB. O design `gold_<fonte>_<forma>` é extensível —
+> veja [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 
 ## Stack
 
@@ -97,7 +103,8 @@ make dbt-build
 ## CLI
 
 ```text
-embrapa ingest ibge | bcb-inflation | bcb-currency | all
+embrapa ingest ibge | bcb-inflation | bcb-currency | comex | all
+embrapa ingest comex [--full]                      # delta por (fluxo, ano); --full refaz tudo
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
 embrapa discover bcb-series     <code>            # ex: 433

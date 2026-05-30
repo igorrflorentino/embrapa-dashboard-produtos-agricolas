@@ -1,10 +1,13 @@
 # Fonte COMEX — `gold_comex_flows`
 
-> **Status:** gate de validação ao vivo **CONCLUÍDO** (2026-05-30, Claude Code
-> local). Shape do CSV confirmado contra `EXP_*.csv` / `IMP_*.csv` reais
-> (headers 1997→2026, linhas de castanha + cap.44). Pronto para PR-1 (Bronze).
-> Achado principal: **IMP traz 2 colunas a mais que EXP** (`VL_FRETE`,
-> `VL_SEGURO`) — Bronze precisa de schema-union. Ver "Validação ao vivo" abaixo.
+> **Status:** **PR-1 + PR-2 + PR-3 implementados** (2026-05-30, Claude Code
+> local). Gate de validação ao vivo concluído; pipeline Bronze→Silver→Gold
+> codado, testado (274 testes Python verdes; `dbt parse`/`compile` verdes) e
+> documentado. **Pendência única:** rodar `embrapa ingest comex` real contra o
+> GCP do usuário e então `dbt build` em dev (escreve no BQ do usuário, baixa
+> GBs do cap. 44 — precisa de go-ahead + `.env`). Achados-chave registrados:
+> IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host omite a intermediária
+> TLS (cadeia vendorizada em `comex/_ca.py`).
 
 ## Contexto
 
@@ -146,7 +149,9 @@ runtime (`verify=`). Re-vendorizar se o host rotacionar a CA (válida até 2036)
       em dev (depende do Bronze COMEX real — mesmo gate do ingest).
       Seeds (`hs_ncm`/`country_iso`) deixados como follow-up (CO_PAIS continua
       código numérico do MDIC; NCM continua código).
-- [ ] **PR-3 (docs):** README/ARCHITECTURE/CONTRIBUTING/CHANGELOG.
+- [x] **PR-3 (docs):** README (diagrama de pipeline + fontes + CLI),
+      ARCHITECTURE (caixas de fluxo, estrutura `comex/`, Silver/Gold/Consumo),
+      CONTRIBUTING (escopo `comex`), CHANGELOG (`[Unreleased]/Added`).
 
 ## Riscos & Mitigações
 
