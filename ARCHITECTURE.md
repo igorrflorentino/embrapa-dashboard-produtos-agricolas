@@ -177,7 +177,7 @@ embrapa-dashboard-commodities/
 └── init_dev_env.sh                   # Inicialização para sandboxes
 ```
 
-> Apagados em 2026-05-29 junto com a UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, e os skills do Claude Code `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`. Caminhos legados que ainda existem mas só faziam sentido para a UI antiga: `deploy/`, `artifacts/`, `.dockerignore`, `.gcloudignore` — podem ser removidos com segurança quando conveniente.
+> Apagados em 2026-05-29 junto com a UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, e os skills do Claude Code `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`.
 
 ---
 
