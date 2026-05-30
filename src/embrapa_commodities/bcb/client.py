@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 
+from embrapa_commodities import observability
 from embrapa_commodities.core import SourceTransientError
 from embrapa_commodities.core import http as core_http
 
@@ -40,12 +41,43 @@ class BcbTransientError(BcbRequestError, SourceTransientError):
 MAX_YEARS_PER_REQUEST = 10
 
 
+def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
+    """Tenacity before_sleep hook: emit a structured retry event + warn.
+
+    Mirrors the IBGE client's hook so BCB retries also surface in
+    ``embrapa monitor``. Unlike IBGE — where the observable unit (the UF) lives
+    one frame up in ``_fetch_one_state`` and needs a contextvar — the retried
+    function here IS ``_fetch_window``, so the (code, window) context comes
+    straight off the call args carried on ``retry_state``.
+    """
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    args = retry_state.args
+    kwargs = retry_state.kwargs
+    code = args[0] if len(args) > 0 else kwargs.get("code", "?")
+    start = args[1] if len(args) > 1 else kwargs.get("start_year", "?")
+    end = args[2] if len(args) > 2 else kwargs.get("end_year", "?")
+    observability.emit(
+        "retry",
+        series=code,
+        window=f"{start}-{end}",
+        attempt=retry_state.attempt_number,
+        reason=str(exc)[:200] if exc else "?",
+    )
+    logger.warning(
+        "Retrying BCB SGS fetch code=%s window=%s-%s attempt=%d: %s",
+        code,
+        start,
+        end,
+        retry_state.attempt_number,
+        exc,
+    )
+
+
 @core_http.http_retry_policy(
     transient_exc=BcbTransientError,
     # Stop on either attempt count OR cumulative time — same pattern as IBGE.
     deadline_s=PER_SERIES_DEADLINE_S,
-    # before_sleep deliberately omitted — preserves the pre-D1 behaviour.
-    # Symmetric observability with IBGE's `_emit_retry` is tracked as D1.1.
+    before_sleep=_emit_retry,
 )
 def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
     """One atomic HTTP call to SGS. Empty payload → empty DataFrame."""

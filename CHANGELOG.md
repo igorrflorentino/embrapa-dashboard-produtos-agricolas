@@ -23,6 +23,14 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   `tests/test_core_http.py` (inclui o slow-byte deadline test migrado de
   `test_ibge_client.py`) + 2 "delegate" tests assertando os kwargs passados ao
   `get_drained` em cada client.
+- **Observabilidade de retry no client BCB (D1.1).** O `_fetch_window` agora
+  cabeia um hook `before_sleep=_emit_retry` na política tenacity, simétrico ao
+  IBGE — os retries de séries SGS passam a emitir um evento `retry`
+  (`series`, `window`, `attempt`, `reason`) que aparece no `embrapa monitor`.
+  Diferente do IBGE (que usa contextvar porque a UF vive um frame acima), o
+  contexto `(code, window)` vem direto de `retry_state.args`, já que a própria
+  `_fetch_window` é a função retried. Cobertura: teste da lógica do hook +
+  guard de regressão da fiação (`before_sleep`).
 
 ### Changed
 - **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a
