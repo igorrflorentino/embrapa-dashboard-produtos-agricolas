@@ -82,3 +82,20 @@ def test_list_log_paths_sorted_newest_first(isolated_log_dir: Path) -> None:
 def test_log_dir_respects_env_var(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EMBRAPA_LOG_DIR", str(tmp_path / "custom"))
     assert observability.log_dir() == tmp_path / "custom"
+
+
+def test_init_run_closes_previous_handler_on_reinit(isolated_log_dir: Path) -> None:
+    """Re-initialising the same pipeline name must CLOSE the stale handler, not
+    just detach it. logging caches loggers by name, so without close() each
+    re-init would leak an open RotatingFileHandler file. A unique pipeline name
+    keeps this isolated from the logger cache other tests populate."""
+    observability.init_run("leak-test")
+    assert observability._event_logger is not None
+    first_handler = observability._event_logger.handlers[0]
+    first_stream = first_handler.stream  # capture now — close() sets .stream = None
+    assert not first_stream.closed
+
+    # Same name → init_run finds the cached logger's handler and must close it.
+    observability.init_run("leak-test")
+
+    assert first_stream.closed, "stale RotatingFileHandler file must be closed, not leaked"

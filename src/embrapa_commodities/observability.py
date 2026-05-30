@@ -51,6 +51,11 @@ def init_run(pipeline: str) -> tuple[str, Path]:
     logger = logging.getLogger(f"embrapa.events.{pipeline}")
     logger.setLevel(logging.INFO)
     for handler in list(logger.handlers):
+        # close() before removeHandler() — removeHandler only detaches; the
+        # RotatingFileHandler keeps its file open until GC otherwise. Re-init
+        # of the same pipeline name in one process (tests, future multi-run
+        # flows) would leak a file handle per call without this.
+        handler.close()
         logger.removeHandler(handler)
     handler = RotatingFileHandler(
         _current_log_path,
