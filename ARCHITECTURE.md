@@ -74,11 +74,14 @@ embrapa-dashboard-commodities/
 │   ├── discover.py                   # Helpers auxiliares (não usados no pipeline)
 │   ├── doctor.py                     # Diagnóstico + registry SOURCE_CHECKS / BRONZE_TARGETS
 │   ├── backup.py                     # Snapshot Gold → GCS (introspecção via list_tables)
-│   ├── monitor.py                    # Monitoramento de métricas
+│   ├── monitor/                      # Monitor de progresso ao vivo (`embrapa monitor`)
+│   │   ├── state.py                  # Estado + parse de eventos JSONL
+│   │   └── render.py                 # Renderização Rich (tabela de progresso)
 │   ├── observability.py              # Logging estruturado
 │   │
 │   ├── core/                         # ⭐ Primitivos compartilhados entre fontes
 │   │   ├── exceptions.py             # SourceTransientError (marker p/ retry)
+│   │   ├── http.py                   # http_retry_policy + get_drained (HTTP resiliente)
 │   │   └── observability_helpers.py  # pipeline_run (eventos p/ embrapa monitor)
 │   │
 │   ├── gcp/                          # Clientes GCP
