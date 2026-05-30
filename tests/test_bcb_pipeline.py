@@ -37,12 +37,12 @@ def test_inflation_full_run_uploads_and_loads(settings: Settings) -> None:
     )
 
     with (
-        patch("embrapa_commodities.bcb.inflation.bigquery.Client") as bq,
-        patch("embrapa_commodities.bcb.inflation.storage.Client") as gcs,
+        patch("embrapa_commodities.bcb.series.bigquery.Client") as bq,
+        patch("embrapa_commodities.bcb.series.storage.Client") as gcs,
         patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
         patch("embrapa_commodities.core.bronze.load_dataframe") as load,
-        patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
     ):
         destination = bcb_inflation.run(settings, full=True)
 
@@ -73,13 +73,13 @@ def test_inflation_delta_short_circuits_when_no_new_data(settings: Settings) -> 
     )
 
     with (
-        patch("embrapa_commodities.bcb.inflation.bigquery.Client"),
-        patch("embrapa_commodities.bcb.inflation.latest_reference_date") as latest,
-        patch("embrapa_commodities.bcb.inflation.storage.Client") as gcs,
+        patch("embrapa_commodities.bcb.series.bigquery.Client"),
+        patch("embrapa_commodities.bcb.series.latest_reference_date") as latest,
+        patch("embrapa_commodities.bcb.series.storage.Client") as gcs,
         patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
         patch("embrapa_commodities.core.bronze.load_dataframe") as load,
-        patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
     ):
         latest.return_value = date(2020, 12, 1)
         destination = bcb_inflation.run(settings, full=False)
@@ -101,12 +101,12 @@ def test_currency_full_run_uploads_and_loads(settings: Settings) -> None:
     )
 
     with (
-        patch("embrapa_commodities.bcb.currency.bigquery.Client"),
-        patch("embrapa_commodities.bcb.currency.storage.Client"),
+        patch("embrapa_commodities.bcb.series.bigquery.Client"),
+        patch("embrapa_commodities.bcb.series.storage.Client"),
         patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
         patch("embrapa_commodities.core.bronze.load_dataframe") as load,
-        patch("embrapa_commodities.bcb.currency.ensure_dataset"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
     ):
         destination = bcb_currency.run(settings, full=True)
 
@@ -121,8 +121,8 @@ def test_inflation_empty_series_raises(settings: Settings) -> None:
     settings.bcb_inflation_series = "  "
 
     with (
-        patch("embrapa_commodities.bcb.inflation.bigquery.Client"),
-        patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
+        patch("embrapa_commodities.bcb.series.bigquery.Client"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
         pytest.raises(RuntimeError, match="empty"),
     ):
         bcb_inflation.run(settings, full=True)
