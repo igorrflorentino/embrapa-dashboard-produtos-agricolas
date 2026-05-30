@@ -136,7 +136,16 @@ runtime (`verify=`). Re-vendorizar se o host rotacionar a CA (válida até 2036)
       funcional — validado ao vivo: EXP_2026 baixado e filtrado (6157 linhas,
       só cap. 08+44, 126 de castanha). **Pendente:** rodar `ingest comex` real
       contra o BQ do usuário (precisa ADC + projeto).
-- [ ] **PR-2 (dbt):** Silver + Gold + testes dbt + seeds (se aplicável).
+- [x] **PR-2 (dbt):** `_sources.yml` (bloco `bronze_comex`);
+      `silver_comex_flows.sql` (dedup no grão-fonte completo via `qualify`,
+      `safe_numeric` em VL_FOB/KG/QT/frete/seguro); `gold_comex_flows.sql`
+      (grão flow×mês×NCM×país×UF; deflação mensal: VL_FOB US$ → BRL no FX do mês
+      → índice IPCA/IGPM/IGPDI → hoje, reconvertido no FX atual; `state_name`/
+      `region` via macro, nulos p/ UF especial). Testes em `_silver.yml`/
+      `_gold.yml`. `dbt parse` + `dbt compile` verdes. **Pendente:** `dbt build`
+      em dev (depende do Bronze COMEX real — mesmo gate do ingest).
+      Seeds (`hs_ncm`/`country_iso`) deixados como follow-up (CO_PAIS continua
+      código numérico do MDIC; NCM continua código).
 - [ ] **PR-3 (docs):** README/ARCHITECTURE/CONTRIBUTING/CHANGELOG.
 
 ## Riscos & Mitigações
