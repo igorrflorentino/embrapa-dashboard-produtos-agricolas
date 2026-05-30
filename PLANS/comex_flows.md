@@ -1,13 +1,17 @@
 # Fonte COMEX — `gold_comex_flows`
 
-> **Status:** **PR-1 + PR-2 + PR-3 implementados** (2026-05-30, Claude Code
-> local). Gate de validação ao vivo concluído; pipeline Bronze→Silver→Gold
-> codado, testado (274 testes Python verdes; `dbt parse`/`compile` verdes) e
-> documentado. **Pendência única:** rodar `embrapa ingest comex` real contra o
-> GCP do usuário e então `dbt build` em dev (escreve no BQ do usuário, baixa
-> GBs do cap. 44 — precisa de go-ahead + `.env`). Achados-chave registrados:
-> IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host omite a intermediária
-> TLS (cadeia vendorizada em `comex/_ca.py`).
+> **Status:** **FEATURE COMPLETA E VALIDADA EM DEV** (2026-05-30, Claude Code
+> local). PR-1/2/3 implementados, 274 testes Python verdes. Caminho real
+> Bronze→Silver→Gold→testes validado contra o BQ do usuário com uma fatia
+> 2024-2026 (`embrapa ingest comex` → `dbt build --select +gold_comex_flows`,
+> **PASS=37/0 erros**; Gold = 44.3k linhas; só cap. 08+44, castanha só no 08).
+> Achados registrados: IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host
+> omite a intermediária TLS (cadeia em `comex/_ca.py`); delta por `(fluxo,ano)`
+> + continue-on-failure absorveram um BrokenPipe transitório no re-run.
+> **Notas operacionais pendentes:** (1) backfill histórico completo 1997-2026
+> (multi-GB, ~1h — opcional, rodar quando quiser); (2) `val_real_*`/FX dos meses
+> > jan/2025 saem NULL até o Bronze de câmbio do BCB ser re-ingerido (SGS hoje
+> em 502); (3) `dbt build-prod` quando quiser materializar em `gold`.
 
 ## Contexto
 
