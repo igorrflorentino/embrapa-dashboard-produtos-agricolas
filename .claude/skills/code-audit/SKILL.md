@@ -31,9 +31,8 @@ $pytest = ".venv\Scripts\pytest.exe"
 # 4. Complexity violations via ruff (McCabe threshold = 10)
 & $ruff check src/ --select C90 --output-format concise
 
-# 5. Test coverage (excludes dashboard/pages — no unit tests by design)
-& $pytest --cov=src/embrapa_commodities --cov-report=term-missing -q `
-    --ignore=src/embrapa_commodities/dashboard
+# 5. Test coverage
+& $pytest --cov=src/embrapa_commodities --cov-report=term-missing -q
 ```
 
 > **Windows note:** If `uv run radon` fails with "Acesso negado", it means another process holds a `.dist-info` lock (VS Code, a running dashboard server). Use the `.venv\Scripts\` form above instead.

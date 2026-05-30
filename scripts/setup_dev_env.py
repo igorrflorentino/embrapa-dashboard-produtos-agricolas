@@ -17,7 +17,7 @@ The impersonation target SA defaults to
 overridden by setting GCP_IMPERSONATION_SA (either a short name or a
 full email).
 
-See docs/architecture.md for the four-tier service account model and
+See docs/auth_architecture.md for the four-tier service account model and
 docs/iam_setup.md for the admin-side configuration.
 """
 
@@ -631,13 +631,15 @@ def main():
             print("  1. Review .env file and make any necessary changes")
             print("  2. Run: uv run embrapa --help")
             print("  3. Run: make dbt-build (for dbt development)")
-            print("  4. See docs/architecture.md for the cloud architecture overview")
+            print("  4. See docs/auth_architecture.md for the cloud architecture overview")
             print("  5. Happy coding! 🚀\n")
             sys.exit(0)
         else:
             helper.print_header("❌ Setup Failed")
             print("Please review the errors above and try again.\n")
-            print("For setup help, see: docs/setup.md, docs/architecture.md, docs/iam_setup.md\n")
+            print(
+                "For setup help, see: docs/setup.md, docs/auth_architecture.md, docs/iam_setup.md\n"
+            )
             sys.exit(1)
     except KeyboardInterrupt:
         print("\n\nSetup cancelled by user.")

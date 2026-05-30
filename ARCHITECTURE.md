@@ -74,11 +74,14 @@ embrapa-dashboard-commodities/
 │   ├── discover.py                   # Helpers auxiliares (não usados no pipeline)
 │   ├── doctor.py                     # Diagnóstico + registry SOURCE_CHECKS / BRONZE_TARGETS
 │   ├── backup.py                     # Snapshot Gold → GCS (introspecção via list_tables)
-│   ├── monitor.py                    # Monitoramento de métricas
+│   ├── monitor/                      # Monitor de progresso ao vivo (`embrapa monitor`)
+│   │   ├── state.py                  # Estado + parse de eventos JSONL
+│   │   └── render.py                 # Renderização Rich (tabela de progresso)
 │   ├── observability.py              # Logging estruturado
 │   │
 │   ├── core/                         # ⭐ Primitivos compartilhados entre fontes
 │   │   ├── exceptions.py             # SourceTransientError (marker p/ retry)
+│   │   ├── http.py                   # http_retry_policy + get_drained (HTTP resiliente)
 │   │   └── observability_helpers.py  # pipeline_run (eventos p/ embrapa monitor)
 │   │
 │   ├── gcp/                          # Clientes GCP
@@ -144,7 +147,7 @@ embrapa-dashboard-commodities/
 │   └── setup-claude-code-web-sa.sh   # SA para Claude Code Web
 │
 ├── docs/                             # Documentação detalhada
-│   ├── architecture.md               # Arquitetura de autenticação (Cadeia de Confiança)
+│   ├── auth_architecture.md          # Arquitetura de autenticação (Cadeia de Confiança)
 │   ├── cost_safety.md                # Budget alert + custom quota
 │   ├── iam_setup.md                  # Setup de IAM e Service Accounts
 │   ├── looker_studio_setup.md        # Conexão Looker Studio → Gold
@@ -177,7 +180,7 @@ embrapa-dashboard-commodities/
 └── init_dev_env.sh                   # Inicialização para sandboxes
 ```
 
-> Apagados em 2026-05-29 junto com a UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, e os skills do Claude Code `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`. Caminhos legados que ainda existem mas só faziam sentido para a UI antiga: `deploy/`, `artifacts/`, `.dockerignore`, `.gcloudignore` — podem ser removidos com segurança quando conveniente.
+> Apagados em 2026-05-29 junto com a UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, e os skills do Claude Code `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`.
 
 ---
 
@@ -276,7 +279,7 @@ Modelo de **Service Account Impersonation** (OAuth 2.0) sem keyfiles distribuíd
 
 > A SA `sa-web-dashboard-prod` é a **runtime read-only do dashboard dedicado no Cloud Run** (`roles/bigquery.dataViewer` na Gold). Está dormente enquanto o frontend é reconstruído no Claude Design System e volta a ser usada quando ele for redeployado. O **Looker Studio não usa esta SA** — consome a Gold via OAuth do usuário final (caminho de consumo independente).
 
-Detalhes completos em [`docs/architecture.md`](docs/architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
+Detalhes completos em [`docs/auth_architecture.md`](docs/auth_architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
 ---
 

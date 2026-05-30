@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     gcp_project_id: str = Field(..., description="GCP project that owns BigQuery + GCS")
     gcs_bucket: str | None = Field(default=None, description="Defaults to <project>-datalake")
     gcs_landing_prefix: str = Field(default="landing")
+    # "US" multi-region is a portable fallback; .env.example and
+    # dbt/profiles.yml use the project's actual region (us-central1). Keep
+    # BQ_LOCATION set so this default never silently disagrees with them.
     bq_location: str = Field(default="US")
     gcp_impersonation_sa: str | None = Field(
         default=None,
@@ -60,6 +63,9 @@ class Settings(BaseSettings):
     bq_bronze_bcb_inflation_table: str = Field(default="inflation_series_raw")
     bq_bronze_bcb_currency_table: str = Field(default="currency_series_raw")
     bq_silver_dataset: str = Field(default="silver")  # consumed by dbt, not Python runtime
+    # Un-prefixed name. dbt's generate_schema_name macro adds the dev prefix
+    # (dev → dbt_dev_gold, prod → gold), so this must stay "gold". Also what
+    # `backup-gold` / doctor read.
     bq_gold_dataset: str = Field(default="gold")
 
     # ─── IBGE ─────────────────────────────────────────────────────────────────
