@@ -10,6 +10,23 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Unreleased]
 
 ### Added
+- **`core/bronze.py` — primitivo de aterrissagem Bronze compartilhado (D4).**
+  Nova função `land_and_load(df, *, settings, storage_client, bq_client, source,
+  table, object_basename, destination, schema, clustering_fields, ...)`
+  encapsula a cauda idêntica dos três pipelines Bronze: `ensure_bucket` → upload
+  Parquet em `landing/<fonte>/<tabela>/run=<ts>/<basename>.parquet` →
+  `load_dataframe` (com partition/cluster keys). IBGE, `bcb/inflation` e
+  `bcb/currency` agora delegam — cada `run()` mantém só o que é específico da
+  fonte (construção de clients, `ensure_dataset` antes do extract, o
+  short-circuit de fetch vazia, e o `observability.emit` do IBGE). `run_id` é
+  parametrizável para o IBGE compartilhar o instante entre a coluna
+  `ingestion_timestamp` e o caminho `run=`. Análogo ao D1 (`core/http.py`):
+  primitivo source-agnostic, composto pelas fontes; `ensure_dataset` fica de
+  fora porque o BCB precisa do dataset *antes* do extract (lookup delta).
+  Comportamento observável preservado. Cobertura: 5 testes novos em
+  `tests/test_core_bronze.py`; os testes de pipeline existentes seguem verdes
+  após reapontar os patch targets de `upload`/`load`/`ensure_bucket` para
+  `core.bronze`.
 - **`core/http.py` — primitivos HTTP compartilhados (D1).** Nova fábrica
   `http_retry_policy(transient_exc, deadline_s, max_attempts=5, before_sleep=None)`
   e helper `get_drained(url, *, total_deadline_s, transient_exc, context, ...)`
