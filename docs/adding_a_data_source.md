@@ -70,13 +70,10 @@ def run(settings: Settings, *, full: bool = False) -> str:
     """Retorna o GCS URI do Parquet aterrissado, ou string vazia se nada novo."""
 ```
 
-**Delta-aware?** Reaproveite [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) e escreva um `_effective_start_year` local no seu pipeline. Templates:
+**Delta-aware?** Reaproveite [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) para computar o start de re-fetch.
 
-- Granularidade mensal/anual (overlap = N meses): ver [`bcb/inflation.py:32-45`](../src/embrapa_commodities/bcb/inflation.py).
-- Granularidade diária/anual (overlap depende do mês do último registro): ver [`bcb/currency.py:28-39`](../src/embrapa_commodities/bcb/currency.py).
-- Evento/timestamp (NFe): use `latest_reference_date` com `date_format` custom; a janela de overlap pode ser horas em vez de meses.
-
-Não tente extrair `_effective_start_year` para um helper compartilhado — as formas são genuinamente diferentes e a abstração custaria legibilidade.
+- **Se a fonte é uma série SGS do BCB** (shape `data`/`valor`, chave natural `reference_date_str`, lookup delta por série), você não escreve pipeline: defina um [`BcbSeriesSpec`](../src/embrapa_commodities/bcb/series.py) e delegue para `bcb.series.run`. As variantes inflation/currency são exatamente isso — diferem só no `label_column`, no schema e numa única função `overlap_start_year(last) -> int` (mensal rebobina sempre 1 ano; diária só em janeiro). Veja [`bcb/inflation.py`](../src/embrapa_commodities/bcb/inflation.py) e [`bcb/currency.py`](../src/embrapa_commodities/bcb/currency.py).
+- **Se a fonte tem shape genuinamente diferente** (API não-SGS, granularidade de evento/timestamp como NFe, outra chave natural), escreva o seu próprio `run()` em vez de forçar um spec sobre `bcb.series` — use `latest_reference_date` com `date_format` custom e a janela de overlap apropriada (pode ser horas). Não tente generalizar `bcb.series` para cobrir formas heterogêneas; o custo de legibilidade não compensa.
 
 **Schema explícito.** O loader [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py) exige `list[SchemaField]` — não use autodetect.
 

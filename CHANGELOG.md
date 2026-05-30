@@ -50,6 +50,21 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   guard de regressão da fiação (`before_sleep`).
 
 ### Changed
+- **Pipelines BCB inflation/currency colapsados em `bcb/series.py`.** Os dois
+  pipelines eram ~90% idênticos (`_extract`, `_effective_start_year`, `run`);
+  agora compartilham um pipeline genérico de série SGS parametrizado por um
+  `BcbSeriesSpec` (`kind`, `label_column`, `series_map`, `table`, `schema`, e a
+  única linha genuinamente source-specific — `overlap_start_year(last) -> int`).
+  `bcb/inflation.py` e `bcb/currency.py` viraram shims finos definindo seu spec
+  e delegando. Entry points públicos (`inflation.run`/`currency.run`),
+  constantes (`DELTA_OVERLAP_MONTHS`, `BRONZE_SCHEMA`) e o comportamento
+  observável preservados. **Reverte deliberadamente** a antiga nota de
+  `docs/adding_a_data_source.md` ("não extraia `_effective_start_year`"):
+  vista de perto, a diferença era uma linha, hoje um knob `Callable`. O doc foi
+  atualizado para orientar séries SGS a usar o spec, e fontes de shape
+  diferente a escreverem o próprio `run()`. Testes consolidados: a duplicação
+  dos dois arquivos de teste virou um `tests/test_bcb_series.py` parametrizado
+  sobre os dois specs + dois arquivos por-variante finos (contrato do spec).
 - **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a
   convenção `gold_<fonte>_<forma>` (`production` para medição de saída como PEVS;
   `flows` para fluxo origem→destino dos bancos de comércio futuros). Reforça a
