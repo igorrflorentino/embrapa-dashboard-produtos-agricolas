@@ -19,5 +19,13 @@ select
 from {{ ref('historical_currency_factors') }} a
 join {{ ref('historical_currency_factors') }} b
     on lower(trim(a.unit_of_measure)) = lower(trim(b.unit_of_measure))
-   and a.year_from < b.year_from        -- ordered, distinct pairs (no self-match)
-   and a.year_to >= b.year_from         -- a's range reaches into b's start → overlap
+   -- standard interval overlap: the two ranges share at least one year
+   and a.year_from <= b.year_to
+   and b.year_from <= a.year_to
+   -- emit each unordered pair once and exclude a row matched to itself,
+   -- ordering by the full (year_from, year_to) tuple. Ordering on the tuple
+   -- (not just year_from) is what catches a same-start / different-end overlap
+   -- — e.g. [1970,1985] vs [1970,1989] — that a strict `a.year_from < b.year_from`
+   -- silently missed.
+   and (a.year_from < b.year_from
+        or (a.year_from = b.year_from and a.year_to < b.year_to))
