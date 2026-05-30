@@ -11,8 +11,8 @@ from google.cloud import bigquery, storage
 
 from embrapa_commodities import observability
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
-from embrapa_commodities.gcp.storage import ensure_bucket, upload_dataframe_as_parquet
+from embrapa_commodities.core import land_and_load
+from embrapa_commodities.gcp.bigquery import ensure_dataset
 from embrapa_commodities.ibge.client import fetch_sidra_dataframe
 
 logger = logging.getLogger(__name__)
@@ -94,15 +94,6 @@ def run(
     storage_client = storage_client or storage.Client(
         project=settings.gcp_project_id, credentials=get_credentials(settings)
     )
-    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
-    run_id = now.strftime("%Y%m%dT%H%M%SZ")
-    object_name = (
-        f"{settings.gcs_landing_prefix}/ibge/{settings.bq_bronze_ibge_table}/run={run_id}/"
-        f"products_{'_'.join(product_codes)}_"
-        f"{settings.ibge_start_year}_{settings.ibge_end_year}.parquet"
-    )
-    upload_dataframe_as_parquet(storage_client, settings.gcs_bucket, object_name, df)
-
     bq_client = bq_client or bigquery.Client(
         project=settings.gcp_project_id,
         location=settings.bq_location,
@@ -110,16 +101,25 @@ def run(
     )
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
-    destination = f"{dataset_id}.{settings.bq_bronze_ibge_table}"
-    load_dataframe(
-        bq_client,
+
+    destination = land_and_load(
         df,
-        destination,
-        _bronze_schema(list(df.columns)),
-        time_partitioning_field="ingestion_timestamp",
+        settings=settings,
+        storage_client=storage_client,
+        bq_client=bq_client,
+        source="ibge",
+        table=settings.bq_bronze_ibge_table,
+        object_basename=(
+            f"products_{'_'.join(product_codes)}_"
+            f"{settings.ibge_start_year}_{settings.ibge_end_year}"
+        ),
+        destination=f"{dataset_id}.{settings.bq_bronze_ibge_table}",
+        schema=_bronze_schema(list(df.columns)),
         # Match Silver's dedupe partition keys so qualify-row_number scans
         # only relevant blocks instead of the full Bronze history.
         clustering_fields=["municipio_codigo", "ano", "variavel_codigo"],
+        # Share the column timestamp's instant with the GCS run= path.
+        run_id=now.strftime("%Y%m%dT%H%M%SZ"),
     )
     observability.emit(
         "ingest_loaded",

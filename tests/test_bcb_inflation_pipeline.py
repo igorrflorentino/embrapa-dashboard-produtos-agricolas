@@ -207,9 +207,9 @@ def test_run_delta_short_circuits_with_no_new_data(settings: Settings) -> None:
             return_value=pd.DataFrame(),
         ),
         patch("embrapa_commodities.bcb.inflation.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.bcb.inflation.ensure_bucket") as ensure_bucket,
-        patch("embrapa_commodities.bcb.inflation.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.bcb.inflation.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
         patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
     ):
         latest.return_value = date(2026, 1, 1)
@@ -227,10 +227,10 @@ def test_run_full_passes_partition_and_cluster_keys(settings: Settings) -> None:
     with (
         patch("embrapa_commodities.bcb.inflation.bigquery.Client"),
         patch("embrapa_commodities.bcb.inflation.storage.Client"),
-        patch("embrapa_commodities.bcb.inflation.ensure_bucket"),
+        patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
-        patch("embrapa_commodities.bcb.inflation.upload_dataframe_as_parquet"),
-        patch("embrapa_commodities.bcb.inflation.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet"),
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
         patch("embrapa_commodities.bcb.inflation.fetch_series", return_value=fake_series_df),
     ):
         bcb_inflation.run(settings, full=True)
@@ -246,10 +246,10 @@ def test_run_object_name_includes_inflation_year_window(settings: Settings) -> N
     with (
         patch("embrapa_commodities.bcb.inflation.bigquery.Client"),
         patch("embrapa_commodities.bcb.inflation.storage.Client"),
-        patch("embrapa_commodities.bcb.inflation.ensure_bucket"),
+        patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
-        patch("embrapa_commodities.bcb.inflation.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.bcb.inflation.load_dataframe"),
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe"),
         patch("embrapa_commodities.bcb.inflation.fetch_series", return_value=fake_series_df),
     ):
         bcb_inflation.run(settings, full=True)

@@ -73,10 +73,10 @@ def test_run_uploads_and_loads_with_proper_keys(settings: Settings, sidra_df: pd
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
         patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.ibge.pipeline.ensure_bucket") as ensure_bucket,
+        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset") as ensure_dataset,
-        patch("embrapa_commodities.ibge.pipeline.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
         destination = ibge_pipeline.run(settings)
@@ -129,10 +129,10 @@ def test_run_uses_provided_clients_without_constructing_new_ones(
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
         patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.ibge.pipeline.ensure_bucket") as ensure_bucket,
+        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.upload_dataframe_as_parquet"),
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet"),
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
         ibge_pipeline.run(settings, storage_client=storage_client, bq_client=bq_client)
@@ -155,10 +155,10 @@ def test_run_object_name_includes_products_and_year_range(
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe", return_value=sidra_df),
         patch("embrapa_commodities.ibge.pipeline.storage.Client"),
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_bucket"),
+        patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe"),
     ):
         ibge_pipeline.run(settings)
 
@@ -177,9 +177,9 @@ def test_run_returns_empty_string_when_sidra_returns_no_rows(settings: Settings)
         ),
         patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.ibge.pipeline.ensure_bucket") as ensure_bucket,
-        patch("embrapa_commodities.ibge.pipeline.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
     ):
         destination = ibge_pipeline.run(settings)
 

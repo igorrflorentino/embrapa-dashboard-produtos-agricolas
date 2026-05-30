@@ -80,6 +80,8 @@ Não tente extrair `_effective_start_year` para um helper compartilhado — as f
 
 **Schema explícito.** O loader [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py) exige `list[SchemaField]` — não use autodetect.
 
+**Aterrissagem (GCS + BQ).** Não reescreva a cauda land→load — ela é idêntica em toda fonte. Chame [`core.land_and_load()`](../src/embrapa_commodities/core/bronze.py) com seu `df` (não-vazio, string-typed, com `ingestion_timestamp`), `schema` e `clustering_fields`: ela faz `ensure_bucket` → upload Parquet em `landing/<fonte>/<tabela>/run=<ts>/<basename>.parquet` → `load_dataframe`, e devolve o `destination`. O `ensure_dataset` fica com você, *antes* do extract, porque o lookup delta consulta a tabela Bronze. Curto-circuite a fetch vazia (retornando `""`) no seu `run()` antes de chamar o primitivo.
+
 ### 3. Configuração
 
 Local: [`.env.example`](../.env.example) e [`src/embrapa_commodities/config.py`](../src/embrapa_commodities/config.py).

@@ -39,9 +39,9 @@ def test_inflation_full_run_uploads_and_loads(settings: Settings) -> None:
     with (
         patch("embrapa_commodities.bcb.inflation.bigquery.Client") as bq,
         patch("embrapa_commodities.bcb.inflation.storage.Client") as gcs,
-        patch("embrapa_commodities.bcb.inflation.ensure_bucket"),
-        patch("embrapa_commodities.bcb.inflation.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.bcb.inflation.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.ensure_bucket"),
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
         patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
     ):
         destination = bcb_inflation.run(settings, full=True)
@@ -76,9 +76,9 @@ def test_inflation_delta_short_circuits_when_no_new_data(settings: Settings) -> 
         patch("embrapa_commodities.bcb.inflation.bigquery.Client"),
         patch("embrapa_commodities.bcb.inflation.latest_reference_date") as latest,
         patch("embrapa_commodities.bcb.inflation.storage.Client") as gcs,
-        patch("embrapa_commodities.bcb.inflation.ensure_bucket") as ensure_bucket,
-        patch("embrapa_commodities.bcb.inflation.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.bcb.inflation.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
         patch("embrapa_commodities.bcb.inflation.ensure_dataset"),
     ):
         latest.return_value = date(2020, 12, 1)
@@ -103,9 +103,9 @@ def test_currency_full_run_uploads_and_loads(settings: Settings) -> None:
     with (
         patch("embrapa_commodities.bcb.currency.bigquery.Client"),
         patch("embrapa_commodities.bcb.currency.storage.Client"),
-        patch("embrapa_commodities.bcb.currency.ensure_bucket"),
-        patch("embrapa_commodities.bcb.currency.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.bcb.currency.load_dataframe") as load,
+        patch("embrapa_commodities.core.bronze.ensure_bucket"),
+        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
+        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
         patch("embrapa_commodities.bcb.currency.ensure_dataset"),
     ):
         destination = bcb_currency.run(settings, full=True)
