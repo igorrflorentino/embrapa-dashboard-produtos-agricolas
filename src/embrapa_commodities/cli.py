@@ -19,6 +19,7 @@ from rich.table import Table
 from embrapa_commodities import backup, discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
+from embrapa_commodities.comex import pipeline as comex_pipeline
 from embrapa_commodities.config import get_credentials, get_settings
 from embrapa_commodities.core import pipeline_run
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
@@ -70,6 +71,7 @@ INGESTS: list[IngestSpec] = [
     IngestSpec("ibge", ibge_pipeline, accepts_full=False, label="IBGE PEVS"),
     IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflação"),
     IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB câmbio"),
+    IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
 ]
 
 
@@ -279,6 +281,117 @@ def ingest_ibge_batch(
         )
         raise typer.Exit(code=1)
     console.print(f"\n[green bold]✓ All {total} batches complete[/green bold]")
+
+
+@ingest_app.command("comex")
+def ingest_comex(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Re-fetch the whole COMEX_START_YEAR..COMEX_END_YEAR window for "
+        "every flow. Default is delta: current year + any past year missing.",
+    ),
+) -> None:
+    """Ingest MDIC Comex Stat flows (export + import) into Bronze, year by year.
+
+    Each (flow, year) CSV is a large file landed as its own Bronze append, so —
+    like `ingest ibge-batch` — this emits a chunk per (flow, year) for live
+    `embrapa monitor` progress instead of a single opaque pipeline span.
+    """
+    settings = get_settings()
+    creds = get_credentials(settings)
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+    bq_client = bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
+    table_fqn = comex_pipeline.ensure_destination(settings, bq_client)
+    chunks = comex_pipeline.plan_chunks(settings, bq_client, table_fqn, full=full)
+    total = len(chunks)
+
+    if total == 0:
+        console.print("[dim]COMEX: nothing new since last ingest.[/dim]")
+        return
+
+    run_id, log_path = observability.init_run("comex")
+    console.print(f"[dim]event log:[/dim] {log_path}")
+    console.print(
+        f"[bold]COMEX ingest:[/bold] {total} chunk(s) [dim]({'full' if full else 'delta'})[/dim]"
+    )
+    observability.emit(
+        "pipeline_start",
+        pipeline="comex",
+        run_id=run_id,
+        chunks_total=total,
+        params={"full": full, "flows": settings.comex_flows_list},
+    )
+
+    chunks_ok: list[str] = []
+    chunks_failed: list[tuple[str, str]] = []
+    pipeline_started = time.monotonic()
+
+    for i, (flow, year) in enumerate(chunks, 1):
+        chunk_id = f"{comex_pipeline.client.FILE_PREFIX[flow]}_{year}"
+        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
+        chunk_started = time.monotonic()
+        console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
+        try:
+            destination = comex_pipeline.ingest_one(
+                settings,
+                flow,
+                year,
+                storage_client=storage_client,
+                bq_client=bq_client,
+                table_fqn=table_fqn,
+            )
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_end",
+                chunk_id=chunk_id,
+                chunk_n=i,
+                chunk_total=total,
+                duration_s=duration,
+                destination=destination,
+            )
+            chunks_ok.append(chunk_id)
+            if destination:
+                console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
+            else:
+                console.print(
+                    f"  [yellow]⚠[/yellow] {chunk_id} — no configured products "
+                    f"[dim](skipped, {duration}s)[/dim]"
+                )
+        except Exception as exc:
+            # Continue-on-failure: one bad year (e.g. a 404 for an unpublished
+            # file) shouldn't strand the rest. The chunk_error + summary tell
+            # the user which (flow, year) to re-run.
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_error",
+                chunk_id=chunk_id,
+                chunk_n=i,
+                chunk_total=total,
+                duration_s=duration,
+                error=str(exc)[:300],
+            )
+            chunks_failed.append((chunk_id, str(exc)[:200]))
+            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:200]}")
+
+    observability.emit(
+        "pipeline_end",
+        duration_s=round(time.monotonic() - pipeline_started, 2),
+        chunks_ok=len(chunks_ok),
+        chunks_failed=len(chunks_failed),
+    )
+
+    if chunks_failed:
+        console.print(
+            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed; "
+            f"{len(chunks_ok)} succeeded[/yellow bold]"
+        )
+        for chunk_id, err in chunks_failed:
+            console.print(f"  [red]✗[/red] {chunk_id} — {err}")
+        raise typer.Exit(code=1)
+    console.print(f"\n[green bold]✓ All {total} COMEX chunk(s) complete[/green bold]")
 
 
 @ingest_app.command("all")

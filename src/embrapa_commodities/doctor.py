@@ -161,6 +161,32 @@ def _check_bcb(settings: Settings) -> CheckResult:
         return CheckResult("BCB SGS reachable", False, str(exc)[:120])
 
 
+def _check_comex(settings: Settings) -> CheckResult:
+    """The Comex Stat file host serves a recent year's export file.
+
+    A HEAD against ``EXP_<end_year>.csv`` verifies reachability without pulling
+    the (100+ MB) body. Note: this host is blocked on Claude Code on the web —
+    it only passes from a network with the MDIC domain reachable.
+    """
+    from embrapa_commodities.comex.client import FILE_PREFIX, _ca_bundle
+
+    flow = settings.comex_flows_list[0] if settings.comex_flows_list else "export"
+    prefix = FILE_PREFIX.get(flow, "EXP")
+    url = f"{settings.comex_csv_base_url.rstrip('/')}/{prefix}_{settings.comex_end_year}.csv"
+    try:
+        # The host omits its TLS intermediate — reuse the client's certifi+vendored
+        # CA bundle so the probe verifies the same way the real download does.
+        response = requests.head(
+            url, timeout=PROBE_TIMEOUT_S, allow_redirects=True, verify=_ca_bundle()
+        )
+        response.raise_for_status()
+        return CheckResult(
+            "COMEX reachable", True, f"{prefix}_{settings.comex_end_year}.csv 200 OK"
+        )
+    except Exception as exc:
+        return CheckResult("COMEX reachable", False, str(exc)[:120])
+
+
 def _check_bronze_tables(settings: Settings) -> CheckResult:
     """Report whether Bronze tables already exist (informational, never fails).
 
@@ -279,6 +305,7 @@ _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
 SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
     ("bcb", _check_bcb),
+    ("comex", _check_comex),
 ]
 
 # ★ Ponto de extensão: cada (dataset_attr, table_attr) referencia um campo
@@ -287,6 +314,7 @@ BRONZE_TARGETS: list[tuple[str, str]] = [
     ("bq_bronze_ibge_dataset", "bq_bronze_ibge_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_currency_table"),
+    ("bq_bronze_comex_dataset", "bq_bronze_comex_flows_table"),
 ]
 
 _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [

@@ -59,9 +59,11 @@ class Settings(BaseSettings):
     # ─── BigQuery dataset / table names ───────────────────────────────────────
     bq_bronze_ibge_dataset: str = Field(default="bronze_ibge")
     bq_bronze_bcb_dataset: str = Field(default="bronze_bcb")
+    bq_bronze_comex_dataset: str = Field(default="bronze_comex")
     bq_bronze_ibge_table: str = Field(default="sidra_t289_raw")
     bq_bronze_bcb_inflation_table: str = Field(default="inflation_series_raw")
     bq_bronze_bcb_currency_table: str = Field(default="currency_series_raw")
+    bq_bronze_comex_flows_table: str = Field(default="comex_flows_raw")
     bq_silver_dataset: str = Field(default="silver")  # consumed by dbt, not Python runtime
     # Un-prefixed name. dbt's generate_schema_name macro adds the dev prefix
     # (dev → dbt_dev_gold, prod → gold), so this must stay "gold". Also what
@@ -90,6 +92,20 @@ class Settings(BaseSettings):
     bcb_currency_series: str = Field(default="3694:USD,4393:EUR,20542:CNY")
     bcb_start_year: int = Field(default=1980)
     bcb_end_year: int = Field(default_factory=_current_year)
+
+    # ─── COMEX (MDIC Comex Stat bulk CSV) ─────────────────────────────────────
+    comex_csv_base_url: str = Field(
+        default="https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm"
+    )
+    # Which flows to ingest — closed domain {export, import}, mapped to the
+    # EXP_/IMP_ file prefixes by the client.
+    comex_flows: str = Field(default="export,import")
+    # CODE:LABEL of full 8-digit NCMs to keep regardless of chapter.
+    comex_ncm_codes: str = Field(default="08012100:castanha_com_casca,08012200:castanha_sem_casca")
+    # CODE:LABEL of 2-digit HS chapters to keep wholesale (44 = wood & charcoal).
+    comex_chapter_codes: str = Field(default="44:madeira_carvao")
+    comex_start_year: int = Field(default=1997)
+    comex_end_year: int = Field(default_factory=_current_year)
 
     # ─── Cold-storage backup ──────────────────────────────────────────────────
     # `embrapa doctor` warns when the most recent gs://${GCS_BUCKET}/backups/
@@ -133,6 +149,28 @@ class Settings(BaseSettings):
     @property
     def currency_series_map(self) -> dict[str, str]:
         return _parse_code_label(self.bcb_currency_series)
+
+    @property
+    def comex_flows_list(self) -> list[str]:
+        """Validated flow names. Each must be 'export' or 'import' (file prefixes)."""
+        allowed = {"export", "import"}
+        flows = [f.strip().lower() for f in self.comex_flows.split(",") if f.strip()]
+        if not flows:
+            raise ValueError("COMEX_FLOWS is empty.")
+        invalid = [f for f in flows if f not in allowed]
+        if invalid:
+            raise ValueError(
+                f"COMEX_FLOWS has invalid flow(s) {invalid}; allowed: {sorted(allowed)}"
+            )
+        return flows
+
+    @property
+    def comex_ncm_map(self) -> dict[str, str]:
+        return _parse_code_label(self.comex_ncm_codes)
+
+    @property
+    def comex_chapter_map(self) -> dict[str, str]:
+        return _parse_code_label(self.comex_chapter_codes)
 
 
 def get_settings() -> Settings:

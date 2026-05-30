@@ -1,8 +1,10 @@
 # Fonte COMEX — `gold_comex_flows`
 
-> **Status:** planejado, não iniciado. Bloqueado para validação ao vivo no
-> ambiente Claude Code on the web (host dos CSVs em massa fora da allowlist de
-> rede); retomar no Claude Code local, com internet liberada.
+> **Status:** gate de validação ao vivo **CONCLUÍDO** (2026-05-30, Claude Code
+> local). Shape do CSV confirmado contra `EXP_*.csv` / `IMP_*.csv` reais
+> (headers 1997→2026, linhas de castanha + cap.44). Pronto para PR-1 (Bronze).
+> Achado principal: **IMP traz 2 colunas a mais que EXP** (`VL_FRETE`,
+> `VL_SEGURO`) — Bronze precisa de schema-union. Ver "Validação ao vivo" abaixo.
 
 ## Contexto
 
@@ -56,8 +58,17 @@ Seguindo os 11 passos de `docs/adding_a_data_source.md`. Pacote
   herdar o retry compartilhado.
 - Parsing com pandas (`sep=";"`, `encoding="latin-1"`, `dtype=str`), filtrando
   localmente: `CO_NCM in ncm_codes OR CO_NCM[:2] in chapter_codes`.
-- Colunas-fonte esperadas (CONFIRMAR AO VIVO antes de codar):
-  `CO_ANO;CO_MES;CO_NCM;CO_UNID;CO_PAIS;SG_UF_NCM;CO_VIA;CO_URF;QT_ESTAT;KG_LIQUIDO;VL_FOB`.
+- Colunas-fonte **CONFIRMADAS ao vivo** (2026-05-30):
+  - **EXP (11 col):**
+    `CO_ANO;CO_MES;CO_NCM;CO_UNID;CO_PAIS;SG_UF_NCM;CO_VIA;CO_URF;QT_ESTAT;KG_LIQUIDO;VL_FOB`
+  - **IMP (13 col):** as 11 do EXP **+ `VL_FRETE;VL_SEGURO`**.
+  - Aspas mistas: colunas de texto entre `"`, numéricas (`QT_ESTAT` em diante)
+    sem aspas — `pandas(sep=";", quotechar='"', dtype=str)` lê ambos os casos.
+  - `CO_NCM` 8 dígitos zero-padded e entre aspas; `CO_MES` 2 dígitos
+    zero-padded; `CO_PAIS` é **código numérico** (ex. `160`, `764` — precisa de
+    seed `country_iso` p/ nome); `SG_UF_NCM` é a sigla de 2 letras da UF.
+  - **Filtro tem de ser coluna-preciso em `CO_NCM`/`CO_NCM[:2]`** — um grep de
+    substring `"44` na linha crua casa falsamente com `CO_PAIS=445` etc.
 
 **2. Pipeline (`comex/pipeline.py`) — `run()` próprio** (shape ≠ SGS, então não
 usa `bcb.series`):
@@ -68,6 +79,11 @@ usa `bcb.series`):
 - Cauda land→load via `core.land_and_load` (não reescrever).
 - Bronze: todas as colunas STRING + `ingestion_timestamp`; chave natural
   `(flow, CO_ANO, CO_MES, CO_NCM, CO_PAIS, SG_UF_NCM)`.
+- **Schema-union EXP+IMP:** o Bronze é UMA tabela com as 13 colunas do IMP;
+  linhas de export gravam `VL_FRETE`/`VL_SEGURO` como NULL. O client deve
+  reindexar o DataFrame para o superset de colunas antes do load (não confiar
+  na ordem/contagem por fluxo). Coluna `flow` (`export`/`import`) adicionada
+  pelo pipeline, não vem do CSV.
 
 **3. Config (`config.py` + `.env.example`):** `BQ_BRONZE_COMEX_DATASET`,
 `BQ_BRONZE_COMEX_FLOWS_TABLE`, `COMEX_CSV_BASE_URL`, `COMEX_FLOWS`
@@ -92,19 +108,34 @@ vez de códigos; `country_iso.csv` para resolver `CO_PAIS`.
 parsing + filtro cap.44/NCM); `test_comex_pipeline.py` (delta por ano + mocks
 GCP, copiar padrão de `test_bcb_series.py`).
 
-**10. Segredo:** nada — fonte pública sem auth.
+**10. Segredo:** nada — fonte pública sem auth. **Mas:** o host
+`balanca.economia.gov.br` serve só o cert folha e **omite a intermediária
+TLS** (Sectigo R36) — `requests`/certifi falha com `CERTIFICATE_VERIFY_FAILED`
+(o `curl` passa por buscar a intermediária via AIA / trust store do SO). Sem
+isso a ingestão real não funciona em lugar nenhum (incl. CI Linux/Cloud Run).
+Mitigação **sem desabilitar verificação**: a intermediária pública está
+vendorizada em `comex/_ca.py` e o client a anexa ao bundle do `certifi` em
+runtime (`verify=`). Re-vendorizar se o host rotacionar a CA (válida até 2036).
 
 **11. Docs:** README/ARCHITECTURE (caixas Bronze+Consumo), CONTRIBUTING (escopo
 `comex`), CHANGELOG (`[Unreleased]/Added`).
 
 ## Tarefas
 
-- [ ] **Validar CSV ao vivo** (local): baixar header de `EXP_2023.csv` /
-      `IMP_2023.csv`, confirmar separador/encoding/colunas e o filtro cap.44 +
-      2 NCMs de castanha. **Gate — não codar o client antes disto.**
-- [ ] Revisar/aprovar este plano à luz do shape confirmado.
-- [ ] **PR-1 (Bronze ponta-a-ponta):** client + pipeline + config + 3
-      registries + testes Python. `embrapa ingest comex` funcional.
+- [x] **Validar CSV ao vivo** (local, 2026-05-30): headers de
+      `EXP_{1997,2023,2026}` / `IMP_{1997,2023,2026}` confirmados via range
+      requests; separador `;` + latin-1 + aspas mistas; linhas de castanha
+      (`08012100`/`08012200`) e cap.44 (`44072920`/`44091000`) presentes em
+      EXP_2023. **Gate liberado.** Achado: IMP = EXP + `VL_FRETE`/`VL_SEGURO`.
+- [x] Revisar/aprovar este plano à luz do shape confirmado.
+- [x] **PR-1 (Bronze ponta-a-ponta):** pacote `comex/` (`client.py` stream-para-
+      disco + filtro coluna-preciso, `pipeline.py` delta por `(fluxo, ano)`,
+      `_ca.py` cadeia TLS), config + properties, 3 registries, comando `ingest
+      comex` multi-chunk, `_check_comex` no doctor. `test_comex_client.py` +
+      `test_comex_pipeline.py` (274 testes verdes). `embrapa ingest comex`
+      funcional — validado ao vivo: EXP_2026 baixado e filtrado (6157 linhas,
+      só cap. 08+44, 126 de castanha). **Pendente:** rodar `ingest comex` real
+      contra o BQ do usuário (precisa ADC + projeto).
 - [ ] **PR-2 (dbt):** Silver + Gold + testes dbt + seeds (se aplicável).
 - [ ] **PR-3 (docs):** README/ARCHITECTURE/CONTRIBUTING/CHANGELOG.
 
