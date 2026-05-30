@@ -30,10 +30,13 @@ import logging
 import os
 import tempfile
 import time
+from io import BytesIO
 from pathlib import Path
 
 import certifi
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import requests
 
 from embrapa_commodities import observability
@@ -174,22 +177,106 @@ def _download_to_disk(url: str, dest_path: str) -> None:
                     fh.write(chunk)
 
 
-def _read_filtered(path: str, ncm_codes: set[str], chapter_codes: set[str]) -> pd.DataFrame:
-    """Parse a Comex CSV in chunks, keeping only the configured products.
+def file_url(base_url: str, flow: str, year: int) -> str:
+    """The Comex Stat CSV URL for one ``(flow, year)`` — ``{base}/{EXP|IMP}_{year}.csv``."""
+    return f"{base_url.rstrip('/')}/{FILE_PREFIX[flow]}_{year}.csv"
 
-    A row is kept when its ``CO_NCM`` is in ``ncm_codes`` *or* its first two
-    digits are in ``chapter_codes``. Returns a string-typed frame with exactly
-    :data:`SOURCE_COLUMNS` (import-only columns are NULL for export files).
+
+@core_http.http_retry_policy(
+    transient_exc=ComexTransientError,
+    deadline_s=120.0,
+    max_attempts=3,
+    before_sleep=_emit_retry,
+)
+def head_source(base_url: str, flow: str, year: int) -> dict[str, str]:
+    """HEAD a ``(flow, year)`` file and return its provenance headers.
+
+    Returns ``{source_url, source_etag?, source_last_modified?,
+    source_content_length?}`` — the freshness fingerprint a two-phase sync
+    compares against the archived raw object's stored provenance to decide
+    whether to re-download. Raises like :func:`_download_to_disk` on HTTP error.
     """
-    frames: list[pd.DataFrame] = []
-    reader = pd.read_csv(
-        path,
-        sep=";",
-        encoding="latin-1",
-        dtype=str,
-        chunksize=PARSE_CHUNK_ROWS,
+    url = file_url(base_url, flow, year)
+    response = requests.head(
+        url,
+        timeout=core_http.DEFAULT_TIMEOUT,
+        headers=core_http.DEFAULT_HEADERS,
+        allow_redirects=True,
+        verify=_ca_bundle(),
     )
-    for chunk in reader:
+    if response.status_code != 200:
+        msg = f"HTTP {response.status_code} (HEAD) for {url}"
+        if response.status_code in core_http.RETRYABLE_STATUS_CODES:
+            raise ComexTransientError(msg)
+        raise ComexRequestError(msg)
+    provenance = {"source_url": url}
+    for header, key in (
+        ("ETag", "source_etag"),
+        ("Last-Modified", "source_last_modified"),
+        ("Content-Length", "source_content_length"),
+    ):
+        value = response.headers.get(header)
+        if value:
+            provenance[key] = value
+    return provenance
+
+
+def _csv_to_parquet(csv_path: str, parquet_path: str) -> int:
+    """Convert a Comex CSV to Parquet in chunks (memory-bounded). Returns row count.
+
+    Verbatim: every column STRING, every row, no filtering — this is the raw
+    archive. Streaming via ``ParquetWriter`` keeps peak memory at one chunk even
+    for the ~1.5M-row full-year files.
+    """
+    writer: pq.ParquetWriter | None = None
+    rows = 0
+    try:
+        reader = pd.read_csv(
+            csv_path, sep=";", encoding="latin-1", dtype=str, chunksize=PARSE_CHUNK_ROWS
+        )
+        for chunk in reader:
+            table = pa.Table.from_pandas(chunk, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(parquet_path, table.schema, compression="snappy")
+            writer.write_table(table)
+            rows += len(chunk)
+    finally:
+        if writer is not None:
+            writer.close()
+    return rows
+
+
+def extract_to_parquet(base_url: str, flow: str, year: int, parquet_path: str) -> int:
+    """Phase 1: download one ``(flow, year)`` CSV and write it verbatim to Parquet.
+
+    Returns the row count. The CSV is streamed to a temp file, then converted to
+    Parquet in chunks, so neither step holds the whole file in memory.
+    """
+    fd, csv_path = tempfile.mkstemp(prefix=f"comex_{FILE_PREFIX[flow]}_{year}_", suffix=".csv")
+    os.close(fd)
+    try:
+        _download_to_disk(file_url(base_url, flow, year), csv_path)
+        return _csv_to_parquet(csv_path, parquet_path)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(csv_path)
+
+
+def filter_products(
+    raw_parquet: bytes, ncm_codes: set[str], chapter_codes: set[str]
+) -> pd.DataFrame:
+    """Phase 2: filter a raw Parquet (all NCMs) to the configured products.
+
+    A row is kept when ``CO_NCM`` is in ``ncm_codes`` or its first two digits are
+    in ``chapter_codes`` (column-precise — a substring match on the raw line
+    would false-hit country code 445 for chapter 44). Streams via
+    ``iter_batches`` so memory stays bounded. Returns a frame with exactly
+    :data:`SOURCE_COLUMNS` (import-only columns NULL for export files).
+    """
+    parquet_file = pq.ParquetFile(BytesIO(raw_parquet))
+    frames: list[pd.DataFrame] = []
+    for batch in parquet_file.iter_batches(batch_size=PARSE_CHUNK_ROWS):
+        chunk = batch.to_pandas()
         ncm = chunk["CO_NCM"].astype(str)
         mask = ncm.isin(ncm_codes) | ncm.str[:2].isin(chapter_codes)
         selected = chunk[mask]
@@ -197,33 +284,4 @@ def _read_filtered(path: str, ncm_codes: set[str], chapter_codes: set[str]) -> p
             frames.append(selected)
     if not frames:
         return pd.DataFrame(columns=SOURCE_COLUMNS)
-    combined = pd.concat(frames, ignore_index=True)
-    # Reindex onto the union schema so export files gain NULL VL_FRETE/VL_SEGURO
-    # and column order is canonical regardless of the source flow.
-    return combined.reindex(columns=SOURCE_COLUMNS)
-
-
-def fetch_flow_year(
-    base_url: str,
-    flow: str,
-    year: int,
-    *,
-    ncm_codes: set[str],
-    chapter_codes: set[str],
-) -> pd.DataFrame:
-    """Download one (flow, year) Comex file and return the filtered rows.
-
-    ``flow`` must be a key of :data:`FILE_PREFIX` (``export``/``import``). The
-    returned frame has :data:`SOURCE_COLUMNS`; it carries no ``flow`` or
-    ``ingestion_timestamp`` column — those are stamped by the pipeline.
-    """
-    prefix = FILE_PREFIX[flow]
-    url = f"{base_url.rstrip('/')}/{prefix}_{year}.csv"
-    fd, path = tempfile.mkstemp(prefix=f"comex_{prefix}_{year}_", suffix=".csv")
-    os.close(fd)
-    try:
-        _download_to_disk(url, path)
-        return _read_filtered(path, ncm_codes, chapter_codes)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
+    return pd.concat(frames, ignore_index=True).reindex(columns=SOURCE_COLUMNS)

@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     gcp_project_id: str = Field(..., description="GCP project that owns BigQuery + GCS")
     gcs_bucket: str | None = Field(default=None, description="Defaults to <project>-datalake")
     gcs_landing_prefix: str = Field(default="landing")
+    # Verbatim source extracts (two-phase ingestion): raw/<source>/<dataset>/...
+    # Bronze derives from this; re-filtering never re-hits the source.
+    gcs_raw_prefix: str = Field(default="raw")
     # "US" multi-region is a portable fallback; .env.example and
     # dbt/profiles.yml use the project's actual region (us-central1). Keep
     # BQ_LOCATION set so this default never silently disagrees with them.

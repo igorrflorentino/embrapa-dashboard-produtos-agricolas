@@ -1,7 +1,7 @@
-"""Tests for the Comex Stat Bronze pipeline (delta planning + land/load shape).
+"""Tests for the two-phase Comex pipeline (sync_raw + bronze_one). GCP mocked.
 
-GCP is fully mocked. The delta unit is (flow, year): the end year is always
-re-fetched (MDIC revises it monthly), past years already in Bronze are skipped.
+Phase 1 archives the verbatim CSV→Parquet to the raw zone only when the source
+ETag changed; Phase 2 filters the raw Parquet and loads Bronze.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-from google.cloud.exceptions import NotFound
 
 from embrapa_commodities.comex import client, pipeline
 from embrapa_commodities.config import Settings
@@ -31,7 +30,6 @@ def settings() -> Settings:
 
 
 def _filtered_df() -> pd.DataFrame:
-    """One export row already shaped to SOURCE_COLUMNS (import-only cols NaN)."""
     row = {c: "x" for c in client.SOURCE_COLUMNS}
     row["CO_NCM"] = "08012100"
     row["VL_FRETE"] = None
@@ -39,86 +37,121 @@ def _filtered_df() -> pd.DataFrame:
     return pd.DataFrame([row]).reindex(columns=client.SOURCE_COLUMNS)
 
 
-# ─── bronze_schema ────────────────────────────────────────────────────────────
+# ─── all_chunks ──────────────────────────────────────────────────────────────
+def test_all_chunks_enumerates_every_flow_year(settings) -> None:
+    chunks = pipeline.all_chunks(settings)
+    assert chunks == [(f, y) for f in ("export", "import") for y in range(2020, 2024)]
+
+
+# ─── _raw_is_current ─────────────────────────────────────────────────────────
+def test_raw_is_current_false_when_no_archive() -> None:
+    assert pipeline._raw_is_current(None, {"source_etag": "a"}) is False
+
+
+def test_raw_is_current_true_on_matching_etag() -> None:
+    assert pipeline._raw_is_current({"source_etag": "a"}, {"source_etag": "a"}) is True
+
+
+def test_raw_is_current_false_on_changed_etag() -> None:
+    assert pipeline._raw_is_current({"source_etag": "a"}, {"source_etag": "b"}) is False
+
+
+def test_raw_is_current_falls_back_to_last_modified() -> None:
+    stored = {"source_last_modified": "Mon, 01 Jan 2024"}
+    assert pipeline._raw_is_current(stored, {"source_last_modified": "Mon, 01 Jan 2024"}) is True
+
+
+def test_raw_is_current_etag_takes_precedence_over_last_modified() -> None:
+    # ETag present in both but differs → not current, even if last-modified matches.
+    stored = {"source_etag": "a", "source_last_modified": "same"}
+    head = {"source_etag": "b", "source_last_modified": "same"}
+    assert pipeline._raw_is_current(stored, head) is False
+
+
+# ─── bronze_schema ───────────────────────────────────────────────────────────
 def test_bronze_schema_shape() -> None:
     schema = pipeline.bronze_schema()
-    names = [f.name for f in schema]
-    assert names == ["flow", *client.SOURCE_COLUMNS, "ingestion_timestamp"]
+    assert [f.name for f in schema] == ["flow", *client.SOURCE_COLUMNS, "ingestion_timestamp"]
     by_name = {f.name: f for f in schema}
     assert by_name["flow"].mode == "REQUIRED"
+    assert by_name["VL_FRETE"].mode == "NULLABLE"
     assert by_name["ingestion_timestamp"].field_type == "TIMESTAMP"
-    assert by_name["VL_FRETE"].mode == "NULLABLE"  # NULL for export rows
 
 
-# ─── loaded_years ─────────────────────────────────────────────────────────────
-def test_loaded_years_returns_empty_when_table_missing() -> None:
-    bq = MagicMock()
-    bq.query.side_effect = NotFound("no table")
-    assert pipeline.loaded_years(bq, "proj.ds.tbl", "export") == set()
-
-
-def test_loaded_years_parses_distinct_years() -> None:
-    bq = MagicMock()
-    bq.query.return_value.result.return_value = [
-        MagicMock(y="2020"),
-        MagicMock(y="2021"),
-        MagicMock(y=None),  # tolerated, skipped
-    ]
-    assert pipeline.loaded_years(bq, "proj.ds.tbl", "export") == {2020, 2021}
-
-
-# ─── plan_chunks ──────────────────────────────────────────────────────────────
-def test_plan_chunks_full_covers_whole_window_both_flows(settings) -> None:
-    bq = MagicMock()
-    chunks = pipeline.plan_chunks(settings, bq, "proj.ds.tbl", full=True)
-    bq.query.assert_not_called()  # full mode never looks up loaded years
-    expected = [(f, y) for f in ("export", "import") for y in range(2020, 2024)]
-    assert chunks == expected
-
-
-def test_plan_chunks_delta_refetches_end_year_and_missing_past(settings) -> None:
-    # export has 2020-2022 loaded; import has nothing loaded.
-    def fake_loaded(_bq, _tbl, flow):
-        return {2020, 2021, 2022} if flow == "export" else set()
-
-    with patch.object(pipeline, "loaded_years", side_effect=fake_loaded):
-        chunks = pipeline.plan_chunks(settings, MagicMock(), "proj.ds.tbl", full=False)
-
-    # export: only 2023 (end year, always re-fetched) — 2020-2022 already loaded.
-    assert ("export", 2023) in chunks
-    assert ("export", 2020) not in chunks
-    # import: nothing loaded → every year.
-    assert [(f, y) for (f, y) in chunks if f == "import"] == [
-        ("import", y) for y in range(2020, 2024)
-    ]
-
-
-# ─── ingest_one ───────────────────────────────────────────────────────────────
-def test_ingest_one_empty_skips_load(settings) -> None:
+# ─── sync_raw (Phase 1) ──────────────────────────────────────────────────────
+def test_sync_raw_skips_when_source_unchanged(settings) -> None:
     with (
-        patch.object(
-            client, "fetch_flow_year", return_value=pd.DataFrame(columns=client.SOURCE_COLUMNS)
-        ),
-        patch.object(pipeline, "land_and_load") as land,
+        patch.object(client, "head_source", return_value={"source_etag": "v1"}),
+        patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}),
+        patch.object(client, "extract_to_parquet") as extract,
+        patch.object(pipeline, "land_raw_file") as land,
     ):
-        dest = pipeline.ingest_one(
-            settings,
-            "export",
-            2023,
-            storage_client=MagicMock(),
-            bq_client=MagicMock(),
-            table_fqn="proj.ds.tbl",
-        )
-    assert dest == ""
+        changed = pipeline.sync_raw(settings, "export", 2022, storage_client=MagicMock())
+    assert changed is False
+    extract.assert_not_called()
     land.assert_not_called()
 
 
-def test_ingest_one_lands_with_flow_schema_and_clustering(settings) -> None:
+def test_sync_raw_extracts_and_lands_when_new(settings) -> None:
     with (
-        patch.object(client, "fetch_flow_year", return_value=_filtered_df()),
-        patch.object(pipeline, "land_and_load", return_value="proj.ds.tbl") as land,
+        patch.object(client, "head_source", return_value={"source_etag": "v2", "source_url": "u"}),
+        patch.object(pipeline, "raw_provenance", return_value=None),  # nothing archived
+        patch.object(client, "extract_to_parquet", return_value=123) as extract,
+        patch.object(pipeline, "land_raw_file") as land,
     ):
-        dest = pipeline.ingest_one(
+        changed = pipeline.sync_raw(settings, "export", 2023, storage_client=MagicMock())
+    assert changed is True
+    extract.assert_called_once()
+    land_kwargs = land.call_args.kwargs
+    assert land_kwargs["source"] == "comex"
+    assert land_kwargs["dataset"] == pipeline.RAW_DATASET
+    assert land_kwargs["basename"] == "EXP_2023"
+    assert land_kwargs["provenance"]["source_etag"] == "v2"
+    assert land_kwargs["rows"] == 123
+
+
+def test_sync_raw_force_ignores_freshness(settings) -> None:
+    with (
+        patch.object(client, "head_source", return_value={"source_etag": "v1"}),
+        patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}) as prov,
+        patch.object(client, "extract_to_parquet", return_value=1),
+        patch.object(pipeline, "land_raw_file"),
+    ):
+        changed = pipeline.sync_raw(
+            settings, "export", 2022, storage_client=MagicMock(), force=True
+        )
+    assert changed is True
+    prov.assert_not_called()  # force skips the freshness lookup entirely
+
+
+# ─── bronze_one (Phase 2) ────────────────────────────────────────────────────
+def test_bronze_one_empty_skips_load(settings) -> None:
+    with (
+        patch.object(pipeline, "download_raw", return_value=b"parquet"),
+        patch.object(
+            client, "filter_products", return_value=pd.DataFrame(columns=client.SOURCE_COLUMNS)
+        ),
+        patch.object(pipeline, "load_dataframe") as load,
+    ):
+        dest = pipeline.bronze_one(
+            settings,
+            "export",
+            2023,
+            storage_client=MagicMock(),
+            bq_client=MagicMock(),
+            table_fqn="proj.ds.tbl",
+        )
+    assert dest == ""
+    load.assert_not_called()
+
+
+def test_bronze_one_loads_with_flow_schema_and_clustering(settings) -> None:
+    with (
+        patch.object(pipeline, "download_raw", return_value=b"parquet"),
+        patch.object(client, "filter_products", return_value=_filtered_df()),
+        patch.object(pipeline, "load_dataframe") as load,
+    ):
+        dest = pipeline.bronze_one(
             settings,
             "export",
             2023,
@@ -127,51 +160,46 @@ def test_ingest_one_lands_with_flow_schema_and_clustering(settings) -> None:
             table_fqn="proj.ds.tbl",
         )
     assert dest == "proj.ds.tbl"
-    df = land.call_args.args[0]
-    kwargs = land.call_args.kwargs
-    # flow stamped, column order canonical, timestamp typed.
+    df = load.call_args.args[1]
     assert list(df.columns) == ["flow", *client.SOURCE_COLUMNS, "ingestion_timestamp"]
     assert (df["flow"] == "export").all()
-    # NaN import-only columns landed as SQL NULL, not the string "nan".
-    assert df["VL_FRETE"].iloc[0] is None
-    assert kwargs["source"] == "comex"
-    assert kwargs["object_basename"] == "EXP_2023"
+    assert df["VL_FRETE"].iloc[0] is None  # NaN → SQL NULL, not "nan"
+    kwargs = load.call_args.kwargs
     assert kwargs["clustering_fields"] == pipeline.CLUSTERING_FIELDS
-    assert [f.name for f in kwargs["schema"]] == [
-        "flow",
-        *client.SOURCE_COLUMNS,
-        "ingestion_timestamp",
-    ]
+    assert kwargs["time_partitioning_field"] == "ingestion_timestamp"
 
 
-# ─── run ──────────────────────────────────────────────────────────────────────
-def test_run_loops_planned_chunks_and_returns_last_destination(settings) -> None:
+# ─── run orchestration ───────────────────────────────────────────────────────
+def test_run_loads_bronze_only_for_changed_chunks(settings) -> None:
+    # export 2020 changed, everything else unchanged → 1 bronze load.
+    def fake_sync(_s, flow, year, *, storage_client, force):
+        return flow == "export" and year == 2020
+
     with (
         patch.object(pipeline, "get_credentials", return_value=None),
         patch("embrapa_commodities.comex.pipeline.bigquery.Client"),
         patch("embrapa_commodities.comex.pipeline.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
-        patch.object(
-            pipeline,
-            "plan_chunks",
-            return_value=[("export", 2022), ("export", 2023)],
-        ),
-        patch.object(pipeline, "ingest_one", side_effect=["", "proj.ds.tbl"]) as ingest,
+        patch.object(pipeline, "sync_raw", side_effect=fake_sync),
+        patch.object(pipeline, "bronze_one", return_value="proj.ds.tbl") as bronze,
     ):
         dest = pipeline.run(settings, full=False)
     assert dest == "proj.ds.tbl"
-    assert ingest.call_count == 2
+    assert bronze.call_count == 1
+    assert bronze.call_args.args[1:3] == ("export", 2020)
 
 
-def test_run_returns_empty_when_nothing_planned(settings) -> None:
+def test_run_from_raw_skips_sync_and_uses_has_raw(settings) -> None:
     with (
         patch.object(pipeline, "get_credentials", return_value=None),
         patch("embrapa_commodities.comex.pipeline.bigquery.Client"),
         patch("embrapa_commodities.comex.pipeline.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
-        patch.object(pipeline, "plan_chunks", return_value=[]),
-        patch.object(pipeline, "ingest_one") as ingest,
+        patch.object(pipeline, "sync_raw") as sync,
+        patch.object(pipeline, "has_raw", return_value=True),
+        patch.object(pipeline, "bronze_one", return_value="proj.ds.tbl") as bronze,
     ):
-        dest = pipeline.run(settings, full=False)
-    assert dest == ""
-    ingest.assert_not_called()
+        dest = pipeline.run(settings, from_raw=True)
+    assert dest == "proj.ds.tbl"
+    sync.assert_not_called()  # no internet in from-raw mode
+    assert bronze.call_count == len(pipeline.all_chunks(settings))  # all 8 chunks rebuilt
