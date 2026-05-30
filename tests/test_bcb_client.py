@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 import pytest
 import responses
@@ -103,6 +104,42 @@ def test_fetch_window_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch)
     assert captured["transient_exc"] is client.BcbTransientError
     assert captured["total_deadline_s"] == client.REQUEST_TOTAL_DEADLINE_S
     assert captured["context"] == "SGS 433 2020-2020"
+
+
+def test_emit_retry_emits_event_with_series_and_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The BCB before_sleep hook emits a 'retry' event carrying the series code
+    and window — read straight from the retried call's args on retry_state — so
+    BCB retries surface in `embrapa monitor`, symmetric to the IBGE client."""
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        client.observability, "emit", lambda event, **kw: events.append((event, kw))
+    )
+
+    def _boom() -> Exception:
+        return client.BcbTransientError("HTTP 503 for SGS 433")
+
+    retry_state = SimpleNamespace(
+        args=("433", 2020, 2024),
+        kwargs={},
+        attempt_number=3,
+        outcome=SimpleNamespace(exception=_boom),
+    )
+    client._emit_retry(retry_state)
+
+    assert len(events) == 1
+    event, kw = events[0]
+    assert event == "retry"
+    assert kw["series"] == "433"
+    assert kw["window"] == "2020-2024"
+    assert kw["attempt"] == 3
+    assert "503" in kw["reason"]
+
+
+def test_fetch_window_wires_emit_retry_as_before_sleep() -> None:
+    """Regression guard: the hook must actually be wired into the retry policy,
+    not merely defined. tenacity exposes it on the decorated fn's .retry object.
+    Without the wiring, BCB retries would be silent (the D1.1 gap this closes)."""
+    assert client._fetch_window.retry.before_sleep is client._emit_retry  # type: ignore[attr-defined]
 
 
 @responses.activate
