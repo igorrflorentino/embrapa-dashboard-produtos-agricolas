@@ -161,16 +161,22 @@ def test_lifecycle_landing_prefix_never_deletes_live_objects() -> None:
 
 
 def test_lifecycle_transitions_are_prefix_scoped() -> None:
-    """Every SetStorageClass transition is prefix-scoped to exactly one of
-    landing/ or backups/. Without this, a transition rule would bind to objects
-    in the other prefix and cause unexpected storage-class flips."""
+    """Every SetStorageClass transition is scoped to one retention group and
+    never mixes them. The archive-trail group (landing/ + raw/, which share the
+    same tiering) and the backups/ group have different lifecycles, so a rule
+    must target a subset of one group only — otherwise a transition would bind
+    to the wrong stream and flip its storage class unexpectedly."""
+    archive_trail = {"landing/", "raw/"}
+    backups = {"backups/"}
     for rule in _LIFECYCLE_RULES:
         if rule["action"]["type"] != "SetStorageClass":
             continue
         prefixes = rule["condition"].get("matchesPrefix")
         assert prefixes is not None, f"transition rule must be prefix-scoped: {rule}"
-        assert len(prefixes) == 1
-        assert prefixes[0] in {"landing/", "backups/"}
+        prefix_set = set(prefixes)
+        assert prefix_set <= archive_trail or prefix_set <= backups, (
+            f"transition rule mixes retention groups: {prefixes}"
+        )
 
 
 def test_upload_dataframe_as_parquet_writes_via_blob() -> None:
