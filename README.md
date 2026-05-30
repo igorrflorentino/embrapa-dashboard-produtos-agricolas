@@ -190,7 +190,7 @@ Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que p
 | Documento | Conteúdo |
 |---|---|
 | [docs/setup.md](docs/setup.md) | Guia completo de setup do ambiente |
-| [docs/architecture.md](docs/architecture.md) | Arquitetura de autenticação (Cadeia de Confiança) |
+| [docs/auth_architecture.md](docs/auth_architecture.md) | Arquitetura de autenticação (Cadeia de Confiança) |
 | [docs/iam_setup.md](docs/iam_setup.md) | Setup de IAM e Service Accounts |
 | [docs/cost_safety.md](docs/cost_safety.md) | Budget alerts e quotas |
 | [docs/testing.md](docs/testing.md) | Estratégia e guia de testes |

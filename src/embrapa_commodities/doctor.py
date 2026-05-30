@@ -58,7 +58,7 @@ def _check_inflation_pivot_codes(settings: Settings) -> CheckResult:
     The Gold ``val_real_{ipca,igpm,igpdi}_*`` columns are built from these codes
     (read by dbt via ``env_var``). A pivot code that is not among the ingested
     series → those columns silently come out NULL. Catch the drift here instead
-    of discovering empty real-value columns in the dashboard.
+    of discovering empty real-value columns downstream in Looker / Gold consumers.
     """
     try:
         available = set(settings.inflation_series_map)

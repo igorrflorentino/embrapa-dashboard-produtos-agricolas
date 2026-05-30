@@ -144,7 +144,7 @@ embrapa-dashboard-commodities/
 │   └── setup-claude-code-web-sa.sh   # SA para Claude Code Web
 │
 ├── docs/                             # Documentação detalhada
-│   ├── architecture.md               # Arquitetura de autenticação (Cadeia de Confiança)
+│   ├── auth_architecture.md          # Arquitetura de autenticação (Cadeia de Confiança)
 │   ├── cost_safety.md                # Budget alert + custom quota
 │   ├── iam_setup.md                  # Setup de IAM e Service Accounts
 │   ├── looker_studio_setup.md        # Conexão Looker Studio → Gold
@@ -276,7 +276,7 @@ Modelo de **Service Account Impersonation** (OAuth 2.0) sem keyfiles distribuíd
 
 > A SA `sa-web-dashboard-prod` é a **runtime read-only do dashboard dedicado no Cloud Run** (`roles/bigquery.dataViewer` na Gold). Está dormente enquanto o frontend é reconstruído no Claude Design System e volta a ser usada quando ele for redeployado. O **Looker Studio não usa esta SA** — consome a Gold via OAuth do usuário final (caminho de consumo independente).
 
-Detalhes completos em [`docs/architecture.md`](docs/architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
+Detalhes completos em [`docs/auth_architecture.md`](docs/auth_architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
 ---
 

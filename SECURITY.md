@@ -44,7 +44,7 @@ Vulnerabilidades críticas que afetam dados em produção serão priorizadas.
 
 Resumo das práticas implementadas. Detalhes técnicos completos em [`ARCHITECTURE.md` → Segurança e Autenticação](ARCHITECTURE.md#segurança-e-autenticação) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
-- **Autenticação**: Service Account Impersonation (OAuth 2.0) — nenhum keyfile JSON distribuído. Detalhes em [`docs/architecture.md`](docs/architecture.md).
+- **Autenticação**: Service Account Impersonation (OAuth 2.0) — nenhum keyfile JSON distribuído. Detalhes em [`docs/auth_architecture.md`](docs/auth_architecture.md).
 - **Proteção de credenciais**: gitleaks no pre-commit, `.gitignore` abrangente, variáveis sensíveis filtradas nos logs.
 - **Infraestrutura**: Cloud Run com IAM obrigatório, 4 Service Accounts com roles mínimas, budget alerts.
 - **Dependências**: lockfile determinístico (`uv.lock`), `--frozen` no CI, separação dev/runtime.

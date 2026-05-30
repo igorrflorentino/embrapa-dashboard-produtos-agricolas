@@ -432,6 +432,6 @@ gcloud logging read "resource.type=gce_instance OR resource.type=bigquery_resour
 ## Next Steps
 
 1. **Admin:** Complete all steps in this guide
-2. **Admin:** Share `scripts/setup_dev_env.py` and `architecture.md` with developers
+2. **Admin:** Share `scripts/setup_dev_env.py` and `auth_architecture.md` with developers
 3. **Developers:** Run `python3 scripts/setup_dev_env.py`
 4. **Everyone:** Review audit logs quarterly

@@ -6,7 +6,7 @@
 #    - Setup: python3 scripts/setup_dev_env.py (auto-detects enterprise mode)
 #    - Requires: gcloud auth application-default login
 #    - No JSON keyfiles needed
-#    - See: docs/architecture.md
+#    - See: docs/auth_architecture.md
 #
 # 2. LEGACY: OAuth only (Application Default Credentials)
 #    - Setup: gcloud auth application-default login

@@ -338,8 +338,8 @@ def fetch_sidra_dataframe(
     For municipal granularity (``geo_level='n6'``) we slice by state in parallel.
     Empirically this beats a single ``geo_filter='all'`` request for any
     realistic window: each state returns a small payload (~hundreds of KB),
-    8 threads cover all 27 states in ~10 seconds, whereas a single ``all``
-    response is ~17 MB and takes ~60s on its own.
+    and 4 parallel workers (see ``MAX_PARALLEL_STATE_FETCHES``) cover all 27
+    states far faster than a single ``all`` response (~17 MB, ~60s on its own).
 
     Per-state requests still go through ``_fetch_block``, so the recursive
     period-halving still kicks in if any individual state hits the SIDRA cell

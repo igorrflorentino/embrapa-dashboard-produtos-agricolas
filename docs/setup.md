@@ -40,7 +40,7 @@ The setup scripts are **fully bootstrapped** and handle fresh machines:
 > **One script, two modes.** The same `scripts/setup_dev_env.py` produces an enterprise
 > setup (OAuth + service-account impersonation, **no keyfile on disk**) when
 > `gcloud auth application-default login` has been run, and falls back to the
-> legacy JSON-keyfile flow otherwise. See [architecture.md](architecture.md)
+> legacy JSON-keyfile flow otherwise. See [auth_architecture.md](auth_architecture.md)
 > for the full enterprise model.
 
 ## Machine Requirements
@@ -118,7 +118,7 @@ before running setup, or in `.env` after first run.
 
 Generated `~/.dbt/profiles.yml` uses `method: oauth` with `impersonate_service_account`.
 
-See [architecture.md](architecture.md) and [iam_setup.md](iam_setup.md).
+See [auth_architecture.md](auth_architecture.md) and [iam_setup.md](iam_setup.md).
 
 ### 2️⃣ Environment Variable (legacy)
 
