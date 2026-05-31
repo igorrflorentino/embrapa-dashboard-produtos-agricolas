@@ -129,7 +129,10 @@ embrapa-dashboard-commodities/
 │   │   └── apply_dev_ttl.sql         # Auto-expiração de tabelas dev (7 dias)
 │   ├── seeds/
 │   │   ├── _seeds.yml                # Schema dos seeds
-│   │   └── historical_currency_factors.csv  # Fatores de reforma monetária
+│   │   ├── historical_currency_factors.csv  # Fatores de reforma monetária
+│   │   ├── comex_unit.csv            # Dimensão de unidade estatística (CO_UNID)
+│   │   ├── comex_country.csv         # Dimensão de país (CO_PAIS → ISO/nome)
+│   │   └── comex_ncm.csv             # Dimensão de NCM (descrição PT, cap. 08+44)
 │   └── tests/                        # Testes dbt customizados
 │
 ├── tests/                            # Testes Python (pytest)

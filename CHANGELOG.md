@@ -9,6 +9,19 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
+### Added
+- **Dimensões de referência do COMEX — rótulos legíveis na `gold_comex_flows`.**
+  Três seeds das tabelas auxiliares do MDIC (`bd/tabelas/`): `comex_unit`
+  (`NCM_UNIDADE.csv` → unidade estatística, ex. `16`=METRO CUBICO, `10`=
+  QUILOGRAMA LIQUIDO), `comex_country` (`PAIS.csv` → ISO-3 + nome PT) e
+  `comex_ncm` (`NCM.csv`, filtrado p/ castanha `0801*` + cap. 44 → descrição PT).
+  A `gold_comex_flows` ganha colunas legíveis via `ref()`: `ncm_description`,
+  `country_name`/`country_iso_a3`, `stat_unit`/`stat_unit_symbol` — 100% de
+  cobertura dos dados atuais. Esclarece a semântica de quantidade: `net_weight_kg`
+  é sempre kg (comparável entre produtos); `statistical_quantity` é na unidade do
+  NCM (m³ p/ a maioria da madeira, kg p/ castanha) — não somar entre unidades
+  diferentes.
+
 ### Changed
 - **Ingestão two-phase com zona `raw/` — padronizada em TODAS as fontes.**
   Toda fonte agora segue **extract→raw→bronze**: a Fase 1 arquiva o extrato
