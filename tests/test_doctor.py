@@ -145,6 +145,7 @@ def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings
             NotFound("nope"),
             NotFound("nope"),
             NotFound("nope"),
+            NotFound("nope"),
         ]
         result = doctor._check_bronze_tables(settings)
     assert result.ok is True  # informational only
@@ -268,6 +269,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "IBGE SIDRA reachable",
         "BCB SGS reachable",
         "COMEX reachable",
+        "COMTRADE reachable",
         "Bronze tables",
         "Gold backup freshness",
     ]

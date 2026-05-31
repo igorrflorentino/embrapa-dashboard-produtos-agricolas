@@ -116,6 +116,28 @@ class Settings(BaseSettings):
     comex_start_year: int = Field(default=1997)
     comex_end_year: int = Field(default_factory=_current_year)
 
+    # ─── UN COMTRADE (global trade, keyed API) ────────────────────────────────
+    # Free registered subscription key — read from .env, never committed. Empty
+    # means "not configured" (doctor warns; ingest errors with a clear message).
+    comtrade_api_key: str = Field(default="")
+    comtrade_api_base_url: str = Field(default="https://comtradeapi.un.org/data/v1/get")
+    bq_bronze_comtrade_dataset: str = Field(default="bronze_comtrade")
+    bq_bronze_comtrade_flows_table: str = Field(default="comtrade_flows_raw")
+    # HS code prefixes to keep (CODE:LABEL) — mirror the COMEX scope so Brazil can
+    # be compared against the world for the same commodities.
+    comtrade_cmd_codes: str = Field(default="0801:castanha,44:madeira_carvao")
+    # Flow codes: X=export, M=import (UN Comtrade flowCode).
+    comtrade_flows: str = Field(default="X,M")
+    # Reporters to pull ("all" = every reporting country, expanded by the client
+    # from the Comtrade Reporters reference; or a comma list of M49 codes). The
+    # keyed endpoint rejects "all" literally, so the client enumerates and batches.
+    comtrade_reporters: str = Field(default="all")
+    # DEV window — kept small/recent on purpose while building and testing (avoid
+    # the massive full backfill). Lower COMTRADE_START_YEAR for older history once
+    # the pipeline is validated; raise COMTRADE_END_YEAR past 2023 when ready.
+    comtrade_start_year: int = Field(default=2022)
+    comtrade_end_year: int = Field(default=2023)
+
     # ─── Cold-storage backup ──────────────────────────────────────────────────
     # `embrapa doctor` warns when the most recent gs://${GCS_BUCKET}/backups/
     # snapshot is older than this. Default 14d matches a typical bi-weekly
@@ -180,6 +202,22 @@ class Settings(BaseSettings):
     @property
     def comex_chapter_map(self) -> dict[str, str]:
         return _parse_code_label(self.comex_chapter_codes)
+
+    @property
+    def comtrade_cmd_map(self) -> dict[str, str]:
+        return _parse_code_label(self.comtrade_cmd_codes)
+
+    @property
+    def comtrade_flows_list(self) -> list[str]:
+        """Validated UN Comtrade flow codes. Each must be 'X' (export) or 'M' (import)."""
+        allowed = {"X", "M"}
+        flows = [f.strip().upper() for f in self.comtrade_flows.split(",") if f.strip()]
+        if not flows:
+            raise ValueError("COMTRADE_FLOWS is empty.")
+        invalid = [f for f in flows if f not in allowed]
+        if invalid:
+            raise ValueError(f"COMTRADE_FLOWS has invalid flow(s) {invalid}; allowed: X, M")
+        return flows
 
 
 def get_settings() -> Settings:

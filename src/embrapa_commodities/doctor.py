@@ -187,6 +187,32 @@ def _check_comex(settings: Settings) -> CheckResult:
         return CheckResult("COMEX reachable", False, str(exc)[:120])
 
 
+def _check_comtrade(settings: Settings) -> CheckResult:
+    """UN Comtrade reachable + whether the API key is configured.
+
+    The Reporters reference (keyless) confirms connectivity; the keyed ingest
+    additionally needs COMTRADE_API_KEY — a missing key is a soft warning (the
+    source is optional), not a hard failure.
+    """
+    from embrapa_commodities.comtrade.client import REPORTERS_REF_URL
+
+    try:
+        # The reference host serves this static file over GET only — it 404s on
+        # HEAD — so probe with a streamed GET and don't drain the body.
+        response = requests.get(
+            REPORTERS_REF_URL, timeout=PROBE_TIMEOUT_S, allow_redirects=True, stream=True
+        )
+        response.close()
+        response.raise_for_status()
+    except Exception as exc:
+        return CheckResult("COMTRADE reachable", False, str(exc)[:120])
+    if not settings.comtrade_api_key:
+        return CheckResult(
+            "COMTRADE reachable", True, "⚠ API 200 OK but COMTRADE_API_KEY unset (keyed ingest)"
+        )
+    return CheckResult("COMTRADE reachable", True, "API 200 OK; key configured")
+
+
 def _check_bronze_tables(settings: Settings) -> CheckResult:
     """Report whether Bronze tables already exist (informational, never fails).
 
@@ -306,6 +332,7 @@ SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
     ("bcb", _check_bcb),
     ("comex", _check_comex),
+    ("comtrade", _check_comtrade),
 ]
 
 # ★ Ponto de extensão: cada (dataset_attr, table_attr) referencia um campo
@@ -315,6 +342,7 @@ BRONZE_TARGETS: list[tuple[str, str]] = [
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_currency_table"),
     ("bq_bronze_comex_dataset", "bq_bronze_comex_flows_table"),
+    ("bq_bronze_comtrade_dataset", "bq_bronze_comtrade_flows_table"),
 ]
 
 _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [

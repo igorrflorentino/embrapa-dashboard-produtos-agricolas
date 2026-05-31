@@ -20,6 +20,7 @@ from embrapa_commodities import backup, discover, doctor, monitor, observability
 from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.comex import pipeline as comex_pipeline
+from embrapa_commodities.comtrade import pipeline as comtrade_pipeline
 from embrapa_commodities.config import get_credentials, get_settings
 from embrapa_commodities.core import pipeline_run
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
@@ -62,6 +63,7 @@ class IngestSpec:
     module: ModuleType  # módulo com .run(settings, **kwargs) -> str
     accepts_full: bool  # True quando .run aceita full=bool (pipelines delta-aware)
     label: str  # rótulo exibido em `ingest all`
+    in_all: bool = True  # False = só rodável via `ingest <name>` (fora do batch padrão)
 
 
 # Atributo `module`, não função: spec.module.run(...) faz lookup em tempo de
@@ -72,6 +74,9 @@ INGESTS: list[IngestSpec] = [
     IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflação"),
     IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB câmbio"),
     IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
+    # COMTRADE fica fora do `ingest all`: é key-gated (RuntimeError sem chave) e
+    # quota-gated/massivo (252 reporters × anos) — roda só via `ingest comtrade`.
+    IngestSpec("comtrade", comtrade_pipeline, accepts_full=True, label="UN COMTRADE", in_all=False),
 ]
 
 
@@ -436,6 +441,120 @@ def ingest_comex(
     console.print(f"\n[green bold]✓ All {total} COMEX chunk(s) complete[/green bold]")
 
 
+@ingest_app.command("comtrade")
+def ingest_comtrade(
+    full: bool = typer.Option(
+        False, "--full", help="Re-fetch every (year, reporter-batch) chunk, ignoring resume."
+    ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw chunks, without calling the API.",
+    ),
+) -> None:
+    """Ingest UN Comtrade global flows into Bronze, chunked by (year, reporter-batch).
+
+    Resumable: a re-run fetches only chunks not yet archived (+ the latest year).
+    If the daily API quota runs out mid-run, stop and re-run later — no lost work.
+    """
+    settings = get_settings()
+    if not settings.comtrade_api_key:
+        console.print(
+            "[red]COMTRADE_API_KEY is empty.[/red] Set it in .env "
+            "(free key from comtradedeveloper.un.org)."
+        )
+        raise typer.Exit(code=1)
+    creds = get_credentials(settings)
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+    bq_client = bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
+    table_fqn = comtrade_pipeline.ensure_destination(settings, bq_client)
+    reporters = (
+        comtrade_pipeline.client.list_reporters()
+        if settings.comtrade_reporters.strip().lower() == "all"
+        else [c.strip() for c in settings.comtrade_reporters.split(",") if c.strip()]
+    )
+    chunks = comtrade_pipeline.plan_chunks(settings, reporters)
+    total = len(chunks)
+
+    mode = "from-raw" if from_raw else ("full" if full else "resume")
+    run_id, log_path = observability.init_run("comtrade")
+    console.print(f"[dim]event log:[/dim] {log_path}")
+    console.print(
+        f"[bold]COMTRADE ingest:[/bold] {total} chunk(s) "
+        f"[dim]({mode}, {len(reporters)} reporters)[/dim]"
+    )
+    observability.emit("pipeline_start", pipeline="comtrade", run_id=run_id, chunks_total=total)
+
+    chunks_ok: list[str] = []
+    chunks_failed: list[tuple[str, str]] = []
+    started = time.monotonic()
+    for i, (year, batch_index, reporter_batch) in enumerate(chunks, 1):
+        chunk_id = comtrade_pipeline._basename(year, batch_index)
+        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
+        chunk_started = time.monotonic()
+        try:
+            if from_raw:
+                process = comtrade_pipeline.has_raw(
+                    settings, year, batch_index, storage_client=storage_client
+                )
+            else:
+                process = comtrade_pipeline.sync_raw(
+                    settings,
+                    year,
+                    batch_index,
+                    reporter_batch,
+                    storage_client=storage_client,
+                    force=full,
+                )
+            destination = (
+                comtrade_pipeline.bronze_one(
+                    settings,
+                    year,
+                    batch_index,
+                    storage_client=storage_client,
+                    bq_client=bq_client,
+                    table_fqn=table_fqn,
+                )
+                if process
+                else ""
+            )
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_end", chunk_id=chunk_id, chunk_n=i, chunk_total=total, duration_s=duration
+            )
+            chunks_ok.append(chunk_id)
+            if destination:
+                console.print(
+                    f"  [dim][{i}/{total}][/dim] [green]✓[/green] {chunk_id} → Bronze "
+                    f"[dim]({duration}s)[/dim]"
+                )
+            else:
+                console.print(f"  [dim][{i}/{total}] · {chunk_id} — skipped ({duration}s)[/dim]")
+        except Exception as exc:
+            duration = round(time.monotonic() - chunk_started, 2)
+            observability.emit(
+                "chunk_error", chunk_id=chunk_id, chunk_n=i, chunk_total=total, error=str(exc)[:300]
+            )
+            chunks_failed.append((chunk_id, str(exc)[:200]))
+            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:160]}")
+
+    observability.emit(
+        "pipeline_end",
+        duration_s=round(time.monotonic() - started, 2),
+        chunks_ok=len(chunks_ok),
+        chunks_failed=len(chunks_failed),
+    )
+    if chunks_failed:
+        console.print(
+            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed[/yellow bold] "
+            "[dim](quota? rate limit? re-run to resume — archived chunks are skipped)[/dim]"
+        )
+        raise typer.Exit(code=1)
+    console.print(f"\n[green bold]✓ All {total} COMTRADE chunk(s) complete[/green bold]")
+
+
 @ingest_app.command("all")
 def ingest_all(
     full: bool = typer.Option(
@@ -447,6 +566,8 @@ def ingest_all(
     """Run every registered Bronze pipeline sequentially in INGESTS order."""
     settings = get_settings()
     for spec in INGESTS:
+        if not spec.in_all:
+            continue
         console.print(f"[bold]→ {spec.label}[/bold]")
         kwargs = {"full": full} if spec.accepts_full else {}
         # Wrap each pipeline in the same observability lifecycle the individual
