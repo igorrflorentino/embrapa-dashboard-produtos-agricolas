@@ -59,7 +59,7 @@ def test_ingest_ibge_dispatches_and_prints_destination(
     result = runner.invoke(cli.app, ["ingest", "ibge"])
 
     assert result.exit_code == 0, result.output
-    pipeline_run.assert_called_once_with(settings)
+    pipeline_run.assert_called_once_with(settings, from_raw=False)
     assert "IBGE bronze loaded" in result.output
     assert "proj.bronze_ibge.sidra_t289_raw" in result.output
 
@@ -69,7 +69,7 @@ def test_ingest_ibge_warns_when_pipeline_returns_empty(
 ) -> None:
     """An empty return value means SIDRA had nothing — print a hint, not a crash."""
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, from_raw=False: "")
 
     result = runner.invoke(cli.app, ["ingest", "ibge"])
 
@@ -83,7 +83,7 @@ def test_ingest_ibge_propagates_pipeline_error(
 ) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
 
-    def boom(_settings: Settings) -> str:
+    def boom(_settings: Settings, from_raw: bool = False) -> str:
         raise RuntimeError("sidra exploded")
 
     monkeypatch.setattr(cli.ibge_pipeline, "run", boom)
@@ -105,7 +105,7 @@ def test_ingest_bcb_inflation_delta_by_default(
     result = runner.invoke(cli.app, ["ingest", "bcb-inflation"])
 
     assert result.exit_code == 0, result.output
-    bcb_run.assert_called_once_with(settings, full=False)
+    bcb_run.assert_called_once_with(settings, full=False, from_raw=False)
     assert "BCB inflation bronze loaded" in result.output
 
 
@@ -119,14 +119,14 @@ def test_ingest_bcb_inflation_full_flag_propagates(
     result = runner.invoke(cli.app, ["ingest", "bcb-inflation", "--full"])
 
     assert result.exit_code == 0, result.output
-    bcb_run.assert_called_once_with(settings, full=True)
+    bcb_run.assert_called_once_with(settings, full=True, from_raw=False)
 
 
 def test_ingest_bcb_inflation_empty_returns_friendly_message(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: "")
+    monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full, from_raw=False: "")
 
     result = runner.invoke(cli.app, ["ingest", "bcb-inflation"])
 
@@ -145,7 +145,7 @@ def test_ingest_bcb_currency_delta_by_default(
     result = runner.invoke(cli.app, ["ingest", "bcb-currency"])
 
     assert result.exit_code == 0, result.output
-    bcb_run.assert_called_once_with(settings, full=False)
+    bcb_run.assert_called_once_with(settings, full=False, from_raw=False)
 
 
 def test_ingest_bcb_currency_full_flag_propagates(
@@ -158,7 +158,7 @@ def test_ingest_bcb_currency_full_flag_propagates(
     result = runner.invoke(cli.app, ["ingest", "bcb-currency", "--full"])
 
     assert result.exit_code == 0, result.output
-    bcb_run.assert_called_once_with(settings, full=True)
+    bcb_run.assert_called_once_with(settings, full=True, from_raw=False)
 
 
 # ─── ingest ibge-batch ───────────────────────────────────────────────────────

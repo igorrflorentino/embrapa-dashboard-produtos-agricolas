@@ -41,5 +41,5 @@ SPEC = BcbSeriesSpec(
 )
 
 
-def run(settings: Settings, *, full: bool = False) -> str:
-    return _run(SPEC, settings, full=full)
+def run(settings: Settings, *, full: bool = False, from_raw: bool = False) -> str:
+    return _run(SPEC, settings, full=full, from_raw=from_raw)

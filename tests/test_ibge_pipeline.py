@@ -66,19 +66,25 @@ def test_bronze_schema_skips_duplicate_timestamp_in_input() -> None:
     assert types_for_ts[0].field_type == "TIMESTAMP"
 
 
-# ─── run() — happy path ──────────────────────────────────────────────────────
-def test_run_uploads_and_loads_with_proper_keys(settings: Settings, sidra_df: pd.DataFrame) -> None:
-    """Happy path: extract → parquet upload → BQ load with partition/cluster keys."""
+# ─── run() — two-phase happy path ────────────────────────────────────────────
+def _patch_phase2_df(read_raw, sidra_df: pd.DataFrame) -> None:
+    """Phase 2 reads the raw archive back — return the same SIDRA frame."""
+    read_raw.return_value = sidra_df.astype(str)
+
+
+def test_run_extracts_to_raw_then_loads_bronze(settings: Settings, sidra_df: pd.DataFrame) -> None:
+    """Happy path: SIDRA fetch → land_raw (Phase 1) → read_raw → BQ load (Phase 2)."""
     with (
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
         patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset") as ensure_dataset,
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
+        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
         destination = ibge_pipeline.run(settings)
 
     expected_destination = (
@@ -87,36 +93,49 @@ def test_run_uploads_and_loads_with_proper_keys(settings: Settings, sidra_df: pd
     )
     assert destination == expected_destination
 
-    fetch.assert_called_once()
     fetch_kwargs = fetch.call_args.kwargs
     assert fetch_kwargs["table_id"] == "289"
-    assert fetch_kwargs["start_year"] == 2020
-    assert fetch_kwargs["end_year"] == 2020
     assert fetch_kwargs["products"] == ["3405"]
     assert fetch_kwargs["geo_level"] == "n6"
 
     gcs_cls.assert_called_once()
     bq_cls.assert_called_once()
-    ensure_bucket.assert_called_once()
     ensure_dataset.assert_called_once()
-    upload.assert_called_once()
+    land_raw.assert_called_once()  # Phase 1
+    read_raw.assert_called_once()  # Phase 2
     load.assert_called_once()
 
-    # The DataFrame passed to load_dataframe must have ingestion_timestamp
-    # appended and every other column coerced to string (object or StringDtype).
+    # The DataFrame loaded to Bronze must have ingestion_timestamp + string cols.
     loaded_df = load.call_args.args[1]
     assert "ingestion_timestamp" in loaded_df.columns
     assert all(isinstance(v, str) for v in loaded_df["municipio_codigo"])
-    assert all(isinstance(v, str) for v in loaded_df["valor"])
 
-    # Partition + cluster keys must match Silver's dedupe partitioning.
     load_kwargs = load.call_args.kwargs
     assert load_kwargs["time_partitioning_field"] == "ingestion_timestamp"
-    assert load_kwargs["clustering_fields"] == [
-        "municipio_codigo",
-        "ano",
-        "variavel_codigo",
-    ]
+    assert load_kwargs["clustering_fields"] == ["municipio_codigo", "ano", "variavel_codigo"]
+
+
+def test_run_raw_basename_encodes_products_and_window(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """Phase 1 archives raw/ibge/pevs/products_<codes>_<from>_<to>."""
+    settings.ibge_product_codes = "3405,3435"
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe", return_value=sidra_df),
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+    ):
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings)
+
+    kwargs = land_raw.call_args.kwargs
+    assert kwargs["source"] == "ibge"
+    assert kwargs["dataset"] == ibge_pipeline.RAW_DATASET
+    assert kwargs["basename"] == "products_3405_3435_2020_2020"
 
 
 def test_run_uses_provided_clients_without_constructing_new_ones(
@@ -129,72 +148,73 @@ def test_run_uses_provided_clients_without_constructing_new_ones(
         patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
         patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet"),
-        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
+        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
         ibge_pipeline.run(settings, storage_client=storage_client, bq_client=bq_client)
 
-    # Neither client class should have been instantiated.
     gcs_cls.assert_not_called()
     bq_cls.assert_not_called()
-    # And the passed clients must have been used downstream.
-    ensure_bucket.assert_called_once_with(storage_client, settings.gcs_bucket, settings.bq_location)
-    load.assert_called_once()
+    assert land_raw.call_args.kwargs["storage_client"] is storage_client
     assert load.call_args.args[0] is bq_client
 
 
-def test_run_object_name_includes_products_and_year_range(
+def test_run_from_raw_skips_fetch_and_rebuilds_bronze(
     settings: Settings, sidra_df: pd.DataFrame
 ) -> None:
-    """GCS path: landing/ibge/<table>/run=<ts>/products_<codes>_<from>_<to>.parquet."""
-    settings.ibge_product_codes = "3405,3435"
+    """--from-raw rebuilds Bronze from the archived raw without querying SIDRA."""
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe", return_value=sidra_df),
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
         patch("embrapa_commodities.ibge.pipeline.storage.Client"),
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.core.bronze.ensure_bucket"),
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.core.bronze.load_dataframe"),
+        patch("embrapa_commodities.ibge.pipeline.raw_provenance", return_value={"rows": "2"}),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
     ):
-        ibge_pipeline.run(settings)
+        _patch_phase2_df(read_raw, sidra_df)
+        destination = ibge_pipeline.run(settings, from_raw=True)
 
-    object_name = upload.call_args.args[2]
-    assert object_name.startswith("landing/ibge/sidra_t289_raw/run=")
-    assert "products_3405_3435_2020_2020.parquet" in object_name
+    fetch.assert_not_called()  # no SIDRA query
+    read_raw.assert_called_once()
+    load.assert_called_once()
+    assert destination.endswith(settings.bq_bronze_ibge_table)
 
 
 # ─── empty fetch short-circuit ───────────────────────────────────────────────
 def test_run_returns_empty_string_when_sidra_returns_no_rows(settings: Settings) -> None:
-    """Empty fetch must NOT touch GCS or BQ — only emit the ingest_empty event."""
+    """Empty fetch must NOT archive raw or load Bronze — only emit ingest_empty."""
     with (
         patch(
             "embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe",
             return_value=pd.DataFrame(),
         ),
-        patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
     ):
         destination = ibge_pipeline.run(settings)
 
     assert destination == ""
-    gcs_cls.assert_not_called()
-    bq_cls.assert_not_called()
-    ensure_bucket.assert_not_called()
-    upload.assert_not_called()
+    land_raw.assert_not_called()
     load.assert_not_called()
 
 
 # ─── unset start year ────────────────────────────────────────────────────────
 def test_run_raises_when_start_year_is_none(settings: Settings) -> None:
     settings.ibge_start_year = None
-    with pytest.raises(RuntimeError, match="IBGE_START_YEAR is empty"):
+    with (
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        pytest.raises(RuntimeError, match="IBGE_START_YEAR is empty"),
+    ):
         ibge_pipeline.run(settings)
 
 

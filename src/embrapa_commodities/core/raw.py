@@ -145,6 +145,28 @@ def download_raw(
     return blob.download_as_bytes()
 
 
+def list_raw(
+    storage_client: storage.Client,
+    *,
+    settings: Settings,
+    source: str,
+    dataset: str,
+) -> list[str]:
+    """Every archived basename under ``raw/<source>/<dataset>/`` (sorted).
+
+    For sources that append a run-stamped raw object per extract (BCB), this is
+    how ``--from-raw`` enumerates the full trail to rebuild Bronze from.
+    """
+    prefix = f"{settings.gcs_raw_prefix}/{source}/{dataset}/"
+    suffix = ".parquet"
+    basenames = [
+        blob.name[len(prefix) : -len(suffix)]
+        for blob in storage_client.list_blobs(settings.gcs_bucket, prefix=prefix)
+        if blob.name.endswith(suffix)
+    ]
+    return sorted(basenames)
+
+
 def raw_provenance(
     storage_client: storage.Client,
     *,
