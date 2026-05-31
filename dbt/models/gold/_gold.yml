@@ -270,3 +270,32 @@ models:
         description: "Max ingestion_timestamp across the source rows aggregated into this record."
         tests: [not_null]
 
+  - name: gold_commodity_crosswalk
+    description: |
+      Cross-source product bridge (resolved): exact (source, code) → commodity,
+      expanded from the commodity_crosswalk seed's prefixes against the codes that
+      actually appear in the Gold fact tables. A consumer joins each fact's product
+      code on (source, code) to group the SAME commodity across PEVS / COMEX /
+      COMTRADE. Codes matching no commodity are absent ("não vinculado").
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source
+              - code
+    columns:
+      - name: commodity_id
+        description: "Stable commodity slug (e.g. castanha_do_para, madeira_em_tora)."
+        tests: [not_null]
+      - name: commodity_name
+        tests: [not_null]
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["pevs", "comex", "comtrade"]
+      - name: code
+        description: "Exact product code in that source (PEVS code / NCM8 / HS6)."
+        tests: [not_null]
+

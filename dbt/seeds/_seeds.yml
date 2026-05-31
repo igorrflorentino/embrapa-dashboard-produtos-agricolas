@@ -253,3 +253,32 @@ seeds:
         tests: [not_null, unique]
       - name: description
         tests: [not_null]
+
+  # ─── Cross-source product bridge ───────────────────────────────────────────
+  - name: commodity_crosswalk
+    description: |
+      Hand-maintained domain knowledge linking the SAME commodity across sources,
+      at the commodity-CONCEPT level: a few code PREFIXES per commodity, not
+      code-by-code. source ∈ {pevs (extractive code), comex (NCM), comtrade (HS6)};
+      code_prefix matches a Gold product code by prefix. Resolved to exact codes by
+      gold_commodity_crosswalk. Add a commodity / prefix when the product scope grows;
+      codes matching no prefix degrade gracefully to "não vinculado".
+    config:
+      column_types:
+        commodity_id: string
+        commodity_name: string
+        source: string
+        code_prefix: string
+    columns:
+      - name: commodity_id
+        tests: [not_null]
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["pevs", "comex", "comtrade"]
+      - name: code_prefix
+        tests: [not_null]
+      - name: commodity_name
+        tests: [not_null]
