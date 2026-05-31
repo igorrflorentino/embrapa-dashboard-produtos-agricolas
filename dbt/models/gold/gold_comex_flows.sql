@@ -159,17 +159,26 @@ select
     -- ── Product (HS / NCM) ───────────────────────────────────────────────────
     ncm_code,
     hs_chapter,
+    n.ncm_description                                        as ncm_description,
 
     -- ── Geography ────────────────────────────────────────────────────────────
     -- country_code is the MDIC numeric code; state_acronym is the UF of the NCM
     -- (special non-UF codes like EX/ND/ZN keep their raw value, NULL name/region).
     country_code,
+    c.country_name                                          as country_name,
+    c.iso_a3                                                 as country_iso_a3,
     state_acronym,
     {{ state_name('state_acronym') }}                        as state_name,
     {{ state_region('state_acronym') }}                      as region,
 
     -- ── Quantities ───────────────────────────────────────────────────────────
+    -- statistical_quantity is in the NCM's statistical unit (stat_unit), which
+    -- varies by product (kg, m³, litro, …). net_weight_kg is always kilograms —
+    -- the only quantity comparable across products; do NOT sum
+    -- statistical_quantity across mixed stat_unit values.
     stat_unit_code,
+    u.unit_name                                             as stat_unit,
+    u.unit_symbol                                           as stat_unit_symbol,
     statistical_quantity,
     net_weight_kg,
 
@@ -212,3 +221,7 @@ select
     last_refresh
 
 from enriched
+-- Reference dimensions (MDIC aux tables) → human-readable labels for Looker.
+left join {{ ref('comex_ncm') }}     n on enriched.ncm_code       = n.co_ncm
+left join {{ ref('comex_country') }} c on enriched.country_code   = c.co_pais
+left join {{ ref('comex_unit') }}    u on enriched.stat_unit_code = u.co_unid

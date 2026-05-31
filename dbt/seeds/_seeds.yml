@@ -42,3 +42,52 @@ seeds:
         tests: [not_null]
       - name: brl_factor
         tests: [not_null]
+
+  # ─── COMEX reference dimensions (MDIC Comex Stat aux tables) ────────────────
+  - name: comex_unit
+    description: |
+      MDIC statistical-unit dimension (NCM_UNIDADE.csv): CO_UNID → human label.
+      The COMEX statistical_quantity is in the NCM's statistical unit, which
+      varies by product (e.g. 10=quilograma, 16=metro cúbico, 17=litro). Joined
+      into gold_comex_flows on stat_unit_code = co_unid.
+    config:
+      column_types:
+        co_unid: string
+        unit_name: string
+        unit_symbol: string
+    columns:
+      - name: co_unid
+        tests: [not_null, unique]
+      - name: unit_name
+        tests: [not_null]
+
+  - name: comex_country
+    description: |
+      MDIC country dimension (PAIS.csv): CO_PAIS → ISO-alpha3 + Portuguese name.
+      Joined into gold_comex_flows on country_code = co_pais.
+    config:
+      column_types:
+        co_pais: string
+        iso_a3: string
+        country_name: string
+    columns:
+      - name: co_pais
+        tests: [not_null, unique]
+      - name: country_name
+        tests: [not_null]
+
+  - name: comex_ncm
+    description: |
+      MDIC NCM dimension (NCM.csv), filtered to the COMEX scope (castanha 0801*
+      + chapter 44): CO_NCM → Portuguese description. Joined into
+      gold_comex_flows on ncm_code = co_ncm. Extend the filter if the COMEX
+      product scope grows beyond these chapters.
+    config:
+      column_types:
+        co_ncm: string
+        ncm_description: string
+    columns:
+      - name: co_ncm
+        tests: [not_null, unique]
+      - name: ncm_description
+        tests: [not_null]

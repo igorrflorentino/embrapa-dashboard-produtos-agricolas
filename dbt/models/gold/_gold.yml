@@ -113,15 +113,25 @@ models:
       - name: ncm_code
         description: "8-digit NCM code (castanha 0801* or HS chapter 44)."
         tests: [not_null]
+      - name: ncm_description
+        description: "Portuguese NCM description (seed comex_ncm). NULL if the NCM is outside the seeded scope."
       - name: hs_chapter
         description: "First 2 digits of ncm_code."
         tests: [not_null]
       - name: country_code
         description: "MDIC numeric country code (CO_PAIS)."
         tests: [not_null]
+      - name: country_name
+        description: "Portuguese country name (seed comex_country, joined on CO_PAIS)."
+      - name: country_iso_a3
+        description: "ISO alpha-3 country code (seed comex_country)."
       - name: state_acronym
         description: "UF of the NCM (SG_UF_NCM). May be a special non-UF code (EX, ND, ZN, …)."
         tests: [not_null]
+      - name: stat_unit
+        description: "Statistical-unit name for statistical_quantity (seed comex_unit), e.g. METRO CUBICO, QUILOGRAMA LIQUIDO. Varies by NCM."
+      - name: stat_unit_symbol
+        description: "Short symbol for the statistical unit (e.g. M3, KGL)."
       - name: region
         description: "Brazilian region; NULL for special non-UF state codes."
         tests:

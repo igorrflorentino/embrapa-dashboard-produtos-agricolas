@@ -151,8 +151,9 @@ runtime (`verify=`). Re-vendorizar se o host rotacionar a CA (válida até 2036)
       `region` via macro, nulos p/ UF especial). Testes em `_silver.yml`/
       `_gold.yml`. `dbt parse` + `dbt compile` verdes. **Pendente:** `dbt build`
       em dev (depende do Bronze COMEX real — mesmo gate do ingest).
-      Seeds (`hs_ncm`/`country_iso`) deixados como follow-up (CO_PAIS continua
-      código numérico do MDIC; NCM continua código).
+      Seeds de dimensão **CONCLUÍDOS** (PR separado): `comex_unit` /
+      `comex_country` / `comex_ncm` das tabelas auxiliares do MDIC
+      (`bd/tabelas/`), com `ncm_description`/`country_name`/`stat_unit` na Gold.
 - [x] **PR-3 (docs):** README (diagrama de pipeline + fontes + CLI),
       ARCHITECTURE (caixas de fluxo, estrutura `comex/`, Silver/Gold/Consumo),
       CONTRIBUTING (escopo `comex`), CHANGELOG (`[Unreleased]/Added`).
