@@ -140,7 +140,12 @@ def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
         client = bq_cls.return_value
         # First table found, others missing.
-        client.get_table.side_effect = [MagicMock(), NotFound("nope"), NotFound("nope")]
+        client.get_table.side_effect = [
+            MagicMock(),
+            NotFound("nope"),
+            NotFound("nope"),
+            NotFound("nope"),
+        ]
         result = doctor._check_bronze_tables(settings)
     assert result.ok is True  # informational only
     assert "missing" in result.detail
@@ -236,6 +241,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls,
         patch("embrapa_commodities.doctor.storage.Client") as gcs_cls,
         patch("embrapa_commodities.doctor.requests.get") as get,
+        patch("embrapa_commodities.doctor.requests.head") as head,
     ):
         auth.return_value = (MagicMock(), "p")
         bq_cls.return_value.get_service_account_email.return_value = "sa@x"
@@ -246,6 +252,9 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([])
         get.return_value.status_code = 200
         get.return_value.raise_for_status.return_value = None
+        # _check_comex probes with HEAD (avoids pulling the 100+ MB body).
+        head.return_value.status_code = 200
+        head.return_value.raise_for_status.return_value = None
 
         results = doctor.run_all(settings)
 
@@ -258,6 +267,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "GCS bucket",
         "IBGE SIDRA reachable",
         "BCB SGS reachable",
+        "COMEX reachable",
         "Bronze tables",
         "Gold backup freshness",
     ]

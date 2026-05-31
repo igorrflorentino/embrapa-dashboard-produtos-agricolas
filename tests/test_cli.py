@@ -257,7 +257,7 @@ def test_ingest_ibge_batch_continues_after_chunk_failure(
 
 
 # ─── ingest all ──────────────────────────────────────────────────────────────
-def test_ingest_all_runs_three_pipelines_in_order(
+def test_ingest_all_runs_every_pipeline_in_order(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
     order: list[str] = []
@@ -269,27 +269,31 @@ def test_ingest_all_runs_three_pipelines_in_order(
     monkeypatch.setattr(
         cli.bcb_currency, "run", lambda s, full: order.append(f"currency-{full}") or ""
     )
+    monkeypatch.setattr(
+        cli.comex_pipeline, "run", lambda s, full: order.append(f"comex-{full}") or ""
+    )
 
     result = runner.invoke(cli.app, ["ingest", "all"])
 
     assert result.exit_code == 0, result.output
-    assert order == ["ibge", "inflation-False", "currency-False"]
+    assert order == ["ibge", "inflation-False", "currency-False", "comex-False"]
 
 
-def test_ingest_all_full_flag_propagates_to_bcb_only(
+def test_ingest_all_full_flag_propagates_to_delta_pipelines(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
-    """`--full` cascades to BCB pipelines but not IBGE (IBGE has no delta mode)."""
+    """`--full` cascades to delta-aware pipelines (BCB + COMEX) but not IBGE."""
     seen_full: list[bool] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
     monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: seen_full.append(full) or "")
     monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: seen_full.append(full) or "")
+    monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: seen_full.append(full) or "")
 
     result = runner.invoke(cli.app, ["ingest", "all", "--full"])
 
     assert result.exit_code == 0, result.output
-    assert seen_full == [True, True]
+    assert seen_full == [True, True, True]
 
 
 def test_ingest_all_wraps_each_pipeline_in_observability(
@@ -303,6 +307,7 @@ def test_ingest_all_wraps_each_pipeline_in_observability(
     monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
     monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: "")
     monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: "")
+    monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: "")
     monkeypatch.setattr(
         cli.observability,
         "init_run",
@@ -313,7 +318,7 @@ def test_ingest_all_wraps_each_pipeline_in_observability(
 
     assert result.exit_code == 0, result.output
     # One event log opened per registered pipeline, in INGESTS order.
-    assert init_calls == ["ibge", "bcb-inflation", "bcb-currency"]
+    assert init_calls == ["ibge", "bcb-inflation", "bcb-currency", "comex"]
 
 
 # ─── discover ────────────────────────────────────────────────────────────────

@@ -11,13 +11,13 @@
 O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) para análise histórica de produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil.
 
 ```
- ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
- │  IBGE SIDRA  │   │  BCB SGS     │   │  BCB SGS     │
- │  (PEVS)      │   │  (Inflação)  │   │  (Câmbio)    │
- └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-        │                  │                   │
-        └──────────┬───────┴───────────────────┘
-                   ▼
+ ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐
+ │ IBGE SIDRA │  │  BCB SGS   │  │  BCB SGS   │  │ MDIC COMEX   │
+ │  (PEVS)    │  │ (Inflação) │  │  (Câmbio)  │  │ (CSV massa)  │
+ └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └──────┬───────┘
+       │               │               │                │
+       └───────┬───────┴───────────────┴────────────────┘
+               ▼
  ┌─────────────────────────────────────────────────────┐
  │  Python  (src/embrapa_commodities)                  │
  │  fetch → Parquet → GCS → BigQuery Bronze            │
@@ -92,10 +92,16 @@ embrapa-dashboard-commodities/
 │   │   ├── client.py                 # HTTP client SIDRA API
 │   │   └── pipeline.py               # Orquestração Bronze
 │   │
-│   └── bcb/                          # Pipelines Banco Central
-│       ├── client.py                 # HTTP client SGS API
-│       ├── inflation.py              # Pipeline IPCA/IGP-M/IGP-DI
-│       └── currency.py               # Pipeline USD/EUR/CNY
+│   ├── bcb/                          # Pipelines Banco Central
+│   │   ├── client.py                 # HTTP client SGS API
+│   │   ├── series.py                 # Pipeline SGS genérico (inflation/currency)
+│   │   ├── inflation.py              # Spec IPCA/IGP-M/IGP-DI
+│   │   └── currency.py               # Spec USD/EUR/CNY
+│   │
+│   └── comex/                        # Pipeline MDIC Comex Stat (CSV em massa)
+│       ├── client.py                 # Downloader CSV (stream p/ disco + filtro)
+│       ├── pipeline.py               # Orquestração Bronze (delta por fluxo×ano)
+│       └── _ca.py                    # CA intermediária TLS vendorizada
 │
 ├── dbt/                              # Transformações dbt (Silver + Gold)
 │   ├── dbt_project.yml               # Configuração do projeto dbt
@@ -107,11 +113,13 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _silver.yml           # Schema + testes Silver
 │   │   │   ├── silver_ibge_pevs.sql  # PEVS tipado + dedup (incremental)
 │   │   │   ├── silver_bcb_inflation.sql  # IPCA chain index
-│   │   │   └── silver_bcb_currency.sql   # Câmbio limpo
+│   │   │   ├── silver_bcb_currency.sql   # Câmbio limpo
+│   │   │   └── silver_comex_flows.sql    # COMEX tipado + dedup (grão-fonte)
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
-│   │       └── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
-│   │                                     # Novas fontes: gold_<fonte>_<forma> (ex. gold_comex_flows)
+│   │       ├── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
+│   │       └── gold_comex_flows.sql      # Gold COMEX (forma: flows)
+│   │                                     # Novas fontes: gold_<fonte>_<forma>
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
 │   │   ├── safe_numeric.sql          # Conversão segura (placeholders IBGE → NULL)
@@ -198,11 +206,13 @@ embrapa-dashboard-commodities/
 - `silver_ibge_pevs`: **incremental** (`insert_overwrite` por `reference_year`). Dedup via `qualify row_number() ... order by ingestion_timestamp desc`.
 - `silver_bcb_inflation`: **table** (precisa de janela completa para calcular o chain index IPCA).
 - `silver_bcb_currency`: **table** (tabela pequena).
+- `silver_comex_flows`: **table** (dedup no grão-fonte completo via `qualify`; `safe_numeric` em VL_FOB/KG/QT/frete/seguro). Candidata a incremental se o volume do cap. 44 ao longo das décadas crescer.
 - **Seed `historical_currency_factors`**: fator multiplicador que absorve reformas monetárias brasileiras (Cz$ → NCz$ → Cr$ → CR$ → R$). Sem ele, valores pré-1994 ficam 10⁶–10⁹× inflados.
 
 ### 3. Gold (dbt, `materialized=table`)
 
 - Tabela do IBGE PEVS: `gold_pevs_production` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
+- Tabela do MDIC COMEX: `gold_comex_flows` — uma linha por `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym)`. As 4 convenções monetárias são aplicadas sobre `VL_FOB` (US$): `val_yearfx_*` no FX do mês de registro e `val_real_*` convertendo US$→BRL no FX do mês, deflacionando pela cadeia BCB e reconvertendo no FX atual (deflação **mensal**, não anual, por o grão ser mensal).
 - **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. Qualquer agregação (estado-ano, nacional) é derivada **em tempo de query** via `GROUP BY` — deliberadamente NÃO mantemos tabelas pré-agregadas (simplicidade sobre eficiência por ora). Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
@@ -212,7 +222,7 @@ embrapa-dashboard-commodities/
 
 Dois caminhos paralelos, ambos lendo as mesmas tabelas Gold — não são exclusivos e podem coexistir:
 
-- **Looker Studio** (no-code): conexão direta na tabela `gold.gold_pevs_production`. Bom para relatórios padronizados e exploração rápida sem deploy. Disponível agora.
+- **Looker Studio** (no-code): conexão direta nas tabelas Gold (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Bom para relatórios padronizados e exploração rápida sem deploy. Disponível agora.
 - **Dashboard dedicado (HTML/CSS + Dash) no Cloud Run**: frontend sob medida para os pesquisadores, em reconstrução com o Claude Design System. Consome as mesmas tabelas Gold via BigQuery; deploy no Cloud Run com SA read-only e IAM. É um alvo de primeira classe — quando o handoff chegar, o Dockerfile/Cloud Run e a SA de leitura voltam ao repo.
 
 ---

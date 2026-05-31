@@ -64,3 +64,77 @@ models:
               arguments:
                 values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
 
+  - name: gold_comex_flows
+    description: |
+      Gold table for MDIC Comex Stat — the single comprehensive `flows` table
+      for this source (naming: gold_<fonte>_<forma>; `flows` = origin→destination
+      trade). One row per (flow, reference_year, reference_month, ncm_code,
+      country_code, state_acronym); the Silver source grain (also split by
+      transport route / customs office / statistical unit) is summed up here.
+      Any coarser aggregation is derived at query time via GROUP BY.
+
+      Value columns: val_yearfx_{usd,brl,eur,cny} (nominal at month-of-record FX,
+      from the source US$ FOB), val_real_ipca_{brl,usd,eur,cny} /
+      val_real_igpm_* / val_real_igpdi_* (US$ FOB → BRL at month FX → projected
+      to today via the respective BCB chain index → reconverted at today's FX).
+      Plus val_freight_usd / val_insurance_usd (import-only, nominal US$).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow
+              - reference_year
+              - reference_month
+              - ncm_code
+              - country_code
+              - state_acronym
+    columns:
+      - name: flow
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["export", "import"]
+      - name: reference_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1997 and extract(year from current_date()) + 1"
+      - name: reference_month
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1 and 12"
+      - name: reference_date
+        description: "First day of (reference_year, reference_month). Use as DATE dimension in Looker Studio."
+        tests: [not_null]
+      - name: ncm_code
+        description: "8-digit NCM code (castanha 0801* or HS chapter 44)."
+        tests: [not_null]
+      - name: hs_chapter
+        description: "First 2 digits of ncm_code."
+        tests: [not_null]
+      - name: country_code
+        description: "MDIC numeric country code (CO_PAIS)."
+        tests: [not_null]
+      - name: state_acronym
+        description: "UF of the NCM (SG_UF_NCM). May be a special non-UF code (EX, ND, ZN, …)."
+        tests: [not_null]
+      - name: region
+        description: "Brazilian region; NULL for special non-UF state codes."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: data_quality_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["OK", "MISSING_VALUE", "MISSING_WEIGHT", "INCOMPLETE"]
+      - name: last_refresh
+        description: "Max ingestion_timestamp across the source rows aggregated into this record."
+        tests: [not_null]
+

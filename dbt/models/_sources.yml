@@ -27,3 +27,14 @@ sources:
         description: "Daily FX rates BRL per foreign unit."
         config:
           loaded_at_field: ingestion_timestamp
+
+  - name: bronze_comex
+    description: "Raw MDIC Comex Stat foreign-trade flows ingested by `embrapa ingest comex`."
+    database: "{{ target.project }}"
+    schema: "{{ env_var('BQ_BRONZE_COMEX_DATASET', 'bronze_comex') }}"
+    tables:
+      - name: comex_flows_raw
+        identifier: "{{ env_var('BQ_BRONZE_COMEX_FLOWS_TABLE', 'comex_flows_raw') }}"
+        description: "Export + import flows at source grain (raw STRING columns). flow + CO_* columns."
+        config:
+          loaded_at_field: ingestion_timestamp

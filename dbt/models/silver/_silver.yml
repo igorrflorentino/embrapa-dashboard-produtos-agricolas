@@ -67,3 +67,49 @@ models:
           - dbt_utils.expression_is_true:
               arguments:
                 expression: "is null or brl_per_foreign_unit > 0"
+
+  - name: silver_comex_flows
+    description: |
+      MDIC Comex Stat flows cleaned, typed, deduplicated at the full source
+      grain (flow × month × NCM × country × UF × transport route × customs
+      office × statistical unit). VL_FOB/VL_FRETE/VL_SEGURO are nominal US$.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow
+              - reference_year
+              - reference_month
+              - ncm_code
+              - country_code
+              - state_acronym
+              - transport_route_code
+              - customs_office_code
+              - stat_unit_code
+    columns:
+      - name: flow
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["export", "import"]
+      - name: reference_date
+        tests: [not_null]
+      - name: reference_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1997 and extract(year from current_date()) + 1"
+      - name: reference_month
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1 and 12"
+      - name: ncm_code
+        tests: [not_null]
+      - name: val_fob_usd
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or val_fob_usd >= 0"

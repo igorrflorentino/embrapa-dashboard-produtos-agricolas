@@ -33,6 +33,6 @@ Como saber que a feature está pronta.
 
 | Arquivo | Feature |
 |---|---|
-| *(nenhum plano registrado ainda)* | — |
+| `comex_flows.md` | Fonte COMEX (bulk CSV MDIC) → `gold_comex_flows` — planejado |
 
 > Crie novos planos com nomes descritivos: `scheduler-pipeline.md`, `api-rest-publica.md`, `novas-fontes-conab.md`, etc.
