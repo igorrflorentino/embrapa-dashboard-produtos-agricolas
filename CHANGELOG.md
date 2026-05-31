@@ -9,6 +9,25 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
+### Changed
+- **Ingestão two-phase com zona `raw/` — padronizada em TODAS as fontes.**
+  Toda fonte agora segue **extract→raw→bronze**: a Fase 1 arquiva o extrato
+  *verbatim* no GCS (`raw/<source>/<dataset>/<basename>.parquet`, com metadata de
+  proveniência — URL, ETag/Last-Modified, `fetched_at`, `rows`); a Fase 2 lê o
+  raw de volta, filtra/molda e carrega o Bronze. Re-filtrar, mudar produtos/regras
+  ou re-derivar o Bronze **não re-bate na fonte** — só uma revisão real do dado
+  dispara re-fetch. Novo primitivo `core/raw.py` (`land_raw`/`land_raw_file`/
+  `read_raw`/`download_raw`/`list_raw`/`raw_provenance`) + `GCS_RAW_PREFIX`.
+  - **COMEX:** Fase 1 baixa o CSV→Parquet completo (todos NCM) e re-baixa **só
+    quando o ETag mudou** (pega revisões de qualquer ano, não só o corrente);
+    Fase 2 filtra o raw via `iter_batches`. `--from-raw` re-filtra sem internet.
+  - **IBGE:** Fase 1 arquiva a resposta SIDRA; Fase 2 carrega o Bronze.
+  - **BCB:** cada janela delta vira um objeto raw carimbado por run (trilha
+    append-only); `--from-raw` reconstrói o Bronze relendo a trilha.
+  - Todo `embrapa ingest <source>` ganha `--from-raw`. O primitivo morto
+    `core/bronze.land_and_load` foi removido (todas as fontes usam o novo fluxo).
+    Plano: `PLANS/raw_zone_architecture.md`. dbt/Silver/Gold inalterados.
+
 ### Added
 - **Fonte COMEX (MDIC Comex Stat) — pipeline Bronze→Silver→Gold completo.**
   Nova fonte de *comércio exterior* (a primeira da forma `flows` —

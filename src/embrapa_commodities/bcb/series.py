@@ -18,15 +18,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date
+from datetime import UTC, date, datetime
 
 import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.bcb.client import fetch_series
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.core import land_and_load
-from embrapa_commodities.gcp.bigquery import ensure_dataset, latest_reference_date
+from embrapa_commodities.core import land_raw, list_raw, read_raw
+from embrapa_commodities.gcp.bigquery import ensure_dataset, latest_reference_date, load_dataframe
 
 logger = logging.getLogger(__name__)
 
@@ -117,41 +117,125 @@ def extract(
             logger.info("BCB %s: no new rows since last ingest.", spec.kind)
             return pd.DataFrame()
         raise RuntimeError(f"BCB returned no {spec.kind} data for the configured window.")
-    combined = pd.concat(frames, ignore_index=True)
-    combined["ingestion_timestamp"] = pd.Timestamp.now(tz=UTC)
-    return combined
+    # Verbatim: no ingestion_timestamp here — that is a Bronze concept stamped in
+    # Phase 2, so the raw archive holds exactly what the SGS API returned.
+    return pd.concat(frames, ignore_index=True)
 
 
-def run(spec: BcbSeriesSpec, settings: Settings, *, full: bool = False) -> str:
-    """Extract → land in GCS → load into Bronze. Returns destination, or ``""``.
+CLUSTERING_FIELDS = ["series_code", "reference_date_str"]
+
+
+def extract_raw(
+    spec: BcbSeriesSpec,
+    settings: Settings,
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client,
+    table_fqn: str,
+    full: bool,
+) -> str | None:
+    """Phase 1: delta-fetch the SGS window and archive it as a run-stamped raw object.
+
+    Returns the raw basename, or ``None`` when a delta fetch found nothing new.
+    BCB is incremental, so each fetch is a recent overlap window — the raw object
+    is run-stamped (``<kind>/<run_ts>``) and *appended*, building a verbatim
+    audit trail rather than overwriting one object (which would keep only the
+    latest window). ``--from-raw`` replays the whole trail.
+    """
+    df = extract(spec, settings, bq_client, table_fqn, full=full)
+    if df.empty:
+        return None
+    run_ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    basename = f"{run_ts}_{settings.bcb_start_year}_{settings.bcb_end_year}"
+    land_raw(
+        df,
+        settings=settings,
+        storage_client=storage_client,
+        source="bcb",
+        dataset=spec.kind,
+        basename=basename,
+        provenance={
+            "source": f"bcb-sgs-{spec.kind}",
+            "series": ",".join(spec.series_map(settings)),
+            "window": f"{settings.bcb_start_year}-{settings.bcb_end_year}",
+            "mode": "full" if full else "delta",
+        },
+    )
+    return basename
+
+
+def bronze_from_raw(
+    spec: BcbSeriesSpec,
+    settings: Settings,
+    basenames: list[str],
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client,
+    destination: str,
+) -> str:
+    """Phase 2: read each raw object, stamp ingestion_timestamp, append to Bronze.
+
+    Multiple ``basenames`` (``--from-raw`` replaying the trail) are appended in
+    order; Silver dedupes on the ``(series_code, reference_date_str)`` natural
+    key, so overlapping windows collapse to the latest reading.
+    """
+    for basename in basenames:
+        df = read_raw(
+            storage_client, settings=settings, source="bcb", dataset=spec.kind, basename=basename
+        )
+        df["ingestion_timestamp"] = pd.Timestamp.now(tz=UTC)
+        load_dataframe(
+            bq_client,
+            df,
+            destination,
+            spec.schema,
+            time_partitioning_field="ingestion_timestamp",
+            clustering_fields=CLUSTERING_FIELDS,
+        )
+    return destination
+
+
+def run(
+    spec: BcbSeriesSpec, settings: Settings, *, full: bool = False, from_raw: bool = False
+) -> str:
+    """Extract→raw (Phase 1) then raw→Bronze (Phase 2). Returns destination, or ``""``.
 
     ``ensure_dataset`` runs before the extract because the delta-start lookup
-    queries the Bronze table; the GCS-land + BQ-load tail is delegated to
-    :func:`embrapa_commodities.core.land_and_load`.
+    queries the Bronze table. ``from_raw`` skips the SGS fetch and rebuilds
+    Bronze from the whole archived raw trail (re-derive without re-fetching).
     """
     creds = get_credentials(settings)
     bq_client = bigquery.Client(
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
+    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_bcb_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
-    table = spec.table(settings)
-    destination = f"{dataset_id}.{table}"
+    destination = f"{dataset_id}.{spec.table(settings)}"
 
-    df = extract(spec, settings, bq_client, destination, full=full)
-    if df.empty:
-        return ""
+    if from_raw:
+        basenames = list_raw(storage_client, settings=settings, source="bcb", dataset=spec.kind)
+        if not basenames:
+            logger.info("BCB %s --from-raw: no raw archived.", spec.kind)
+            return ""
+    else:
+        basename = extract_raw(
+            spec,
+            settings,
+            storage_client=storage_client,
+            bq_client=bq_client,
+            table_fqn=destination,
+            full=full,
+        )
+        if basename is None:
+            return ""
+        basenames = [basename]
 
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
-    return land_and_load(
-        df,
-        settings=settings,
+    return bronze_from_raw(
+        spec,
+        settings,
+        basenames,
         storage_client=storage_client,
         bq_client=bq_client,
-        source="bcb",
-        table=table,
-        object_basename=f"{spec.kind}_{settings.bcb_start_year}_{settings.bcb_end_year}",
         destination=destination,
-        schema=spec.schema,
-        clustering_fields=["series_code", "reference_date_str"],
     )

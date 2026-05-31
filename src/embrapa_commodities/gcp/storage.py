@@ -35,16 +35,21 @@ logger = logging.getLogger(__name__)
 # bucket-wide so accidental overwrites can be recovered for a month but
 # don't bloat storage.
 _LANDING_PREFIX = "landing/"
+_RAW_PREFIX = "raw/"
 _BACKUPS_PREFIX = "backups/"
 
+# Both landing/ (legacy filtered Bronze inputs) and raw/ (two-phase verbatim
+# extracts) hold cold audit-trail Parquet: tier down to ARCHIVE, never delete.
+_ARCHIVE_TRAIL_PREFIXES = [_LANDING_PREFIX, _RAW_PREFIX]
+
 _LIFECYCLE_RULES: list[dict] = [
-    # ── landing/ — raw Bronze inputs, archive-at-365d, never delete ────────
+    # ── landing/ + raw/ — Bronze inputs, archive-at-365d, never delete ─────
     {
         "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
         "condition": {
             "age": 30,
             "matchesStorageClass": ["STANDARD"],
-            "matchesPrefix": [_LANDING_PREFIX],
+            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
         },
     },
     {
@@ -52,7 +57,7 @@ _LIFECYCLE_RULES: list[dict] = [
         "condition": {
             "age": 90,
             "matchesStorageClass": ["NEARLINE"],
-            "matchesPrefix": [_LANDING_PREFIX],
+            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
         },
     },
     {
@@ -60,7 +65,7 @@ _LIFECYCLE_RULES: list[dict] = [
         "condition": {
             "age": 365,
             "matchesStorageClass": ["COLDLINE"],
-            "matchesPrefix": [_LANDING_PREFIX],
+            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
         },
     },
     # ── backups/ — Gold cold-storage, delete-at-365d ──────────────────────

@@ -8,6 +8,7 @@ test_bcb_currency_pipeline.py.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -137,13 +138,8 @@ def test_extract_canonical_columns_and_labels(spec, label, codes, labels, settin
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
-    assert set(df.columns) == {
-        "series_code",
-        label,
-        "reference_date_str",
-        "value_str",
-        "ingestion_timestamp",
-    }
+    # Verbatim: extract no longer stamps ingestion_timestamp (Phase 2 does).
+    assert set(df.columns) == {"series_code", label, "reference_date_str", "value_str"}
     assert set(df[label]) == labels
 
 
@@ -154,39 +150,51 @@ def test_extract_empty_series_config_raises(settings) -> None:
         bcb_series.extract(INFLATION_SPEC, settings, bq, "proj.ds.tbl", full=True)
 
 
-# ─── run() ───────────────────────────────────────────────────────────────────
+# ─── run() (two-phase) ───────────────────────────────────────────────────────
+def _raw_roundtrip():
+    """land_raw captures the verbatim frame; read_raw replays it (Phase 1→2)."""
+    holder: dict = {}
+
+    def land(df, **_kw):
+        holder["df"] = df
+        return "gs://test/raw"
+
+    def read(*_a, **_kw):
+        return holder["df"].copy()
+
+    return land, read
+
+
 @pytest.mark.parametrize("spec, label, codes, labels", SPECS)
 def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, settings) -> None:
     with (
         patch("embrapa_commodities.bcb.series.bigquery.Client"),
+        patch("embrapa_commodities.bcb.series.storage.Client"),
         patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch(
             "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
         ),
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=pd.DataFrame()),
-        patch("embrapa_commodities.bcb.series.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.core.bronze.ensure_bucket") as ensure_bucket,
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
+        patch("embrapa_commodities.bcb.series.land_raw") as land,
+        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
     ):
         destination = bcb_series.run(spec, settings, full=False)
     assert destination == ""
-    gcs_cls.assert_not_called()
-    ensure_bucket.assert_not_called()
-    upload.assert_not_called()
+    land.assert_not_called()
     load.assert_not_called()
 
 
 @pytest.mark.parametrize("spec, label, codes, labels", SPECS)
 def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, settings) -> None:
+    land, read = _raw_roundtrip()
     with (
         patch("embrapa_commodities.bcb.series.bigquery.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.storage.Client"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
-        patch("embrapa_commodities.core.bronze.ensure_bucket"),
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet"),
-        patch("embrapa_commodities.core.bronze.load_dataframe") as load,
+        patch("embrapa_commodities.bcb.series.land_raw", side_effect=land),
+        patch("embrapa_commodities.bcb.series.read_raw", side_effect=read),
+        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
     ):
         bcb_series.run(spec, settings, full=True)
     load_kwargs = load.call_args.kwargs
@@ -195,17 +203,20 @@ def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, 
 
 
 @pytest.mark.parametrize("spec, label, codes, labels", SPECS)
-def test_run_object_basename_uses_kind_and_window(spec, label, codes, labels, settings) -> None:
+def test_run_raw_basename_is_runstamped_under_kind(spec, label, codes, labels, settings) -> None:
+    land, read = _raw_roundtrip()
     with (
         patch("embrapa_commodities.bcb.series.bigquery.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.storage.Client"),
+        patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
-        patch("embrapa_commodities.core.bronze.ensure_bucket"),
-        patch("embrapa_commodities.core.bronze.upload_dataframe_as_parquet") as upload,
-        patch("embrapa_commodities.core.bronze.load_dataframe"),
+        patch("embrapa_commodities.bcb.series.land_raw", side_effect=land) as land_mock,
+        patch("embrapa_commodities.bcb.series.read_raw", side_effect=read),
+        patch("embrapa_commodities.bcb.series.load_dataframe"),
     ):
         bcb_series.run(spec, settings, full=True)
-    object_name = upload.call_args.args[2]
-    assert object_name.startswith("landing/bcb/")
-    assert f"/{spec.kind}_1980_2026.parquet" in object_name
+    kwargs = land_mock.call_args.kwargs
+    assert kwargs["source"] == "bcb"
+    assert kwargs["dataset"] == spec.kind
+    # Run-stamped, append-only trail: <run_ts>_<from>_<to>.
+    assert re.fullmatch(r"\d{8}T\d{6}Z_1980_2026", kwargs["basename"])

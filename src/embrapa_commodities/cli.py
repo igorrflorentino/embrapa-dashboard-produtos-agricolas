@@ -77,8 +77,14 @@ INGESTS: list[IngestSpec] = [
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
 @ingest_app.command("ibge")
-def ingest_ibge() -> None:
-    """Ingest IBGE PEVS into the configured Bronze table."""
+def ingest_ibge(
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SIDRA response, without re-querying SIDRA.",
+    ),
+) -> None:
+    """Ingest IBGE PEVS into the configured Bronze table (extract→raw→bronze)."""
     settings = get_settings()
     with pipeline_run(
         "ibge",
@@ -86,10 +92,11 @@ def ingest_ibge() -> None:
             "start_year": settings.ibge_start_year,
             "end_year": settings.ibge_end_year,
             "products": settings.product_codes,
+            "from_raw": from_raw,
         },
     ) as (_run_id, log_path):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = ibge_pipeline.run(settings)
+        destination = ibge_pipeline.run(settings, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
     else:
@@ -107,12 +114,20 @@ def ingest_bcb_inflation(
         "--full",
         help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
     ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SGS trail, without re-fetching the API.",
+    ),
 ) -> None:
-    """Ingest configured BCB SGS inflation series."""
+    """Ingest configured BCB SGS inflation series (extract→raw→bronze)."""
     settings = get_settings()
-    with pipeline_run("bcb-inflation", params={"full": full}) as (_run_id, log_path):
+    with pipeline_run("bcb-inflation", params={"full": full, "from_raw": from_raw}) as (
+        _run_id,
+        log_path,
+    ):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = bcb_inflation.run(settings, full=full)
+        destination = bcb_inflation.run(settings, full=full, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] BCB inflation bronze loaded → {destination}")
     else:
@@ -126,12 +141,20 @@ def ingest_bcb_currency(
         "--full",
         help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
     ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SGS trail, without re-fetching the API.",
+    ),
 ) -> None:
-    """Ingest configured BCB SGS FX series."""
+    """Ingest configured BCB SGS FX series (extract→raw→bronze)."""
     settings = get_settings()
-    with pipeline_run("bcb-currency", params={"full": full}) as (_run_id, log_path):
+    with pipeline_run("bcb-currency", params={"full": full, "from_raw": from_raw}) as (
+        _run_id,
+        log_path,
+    ):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = bcb_currency.run(settings, full=full)
+        destination = bcb_currency.run(settings, full=full, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
     else:
@@ -288,15 +311,22 @@ def ingest_comex(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Re-fetch the whole COMEX_START_YEAR..COMEX_END_YEAR window for "
-        "every flow. Default is delta: current year + any past year missing.",
+        help="Force re-download of every (flow, year) file, ignoring the ETag "
+        "freshness check. Default re-downloads only files the source changed.",
+    ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Skip the download phase entirely and rebuild Bronze from the raw "
+        "Parquet already in GCS — re-filter / apply new products without internet.",
     ),
 ) -> None:
-    """Ingest MDIC Comex Stat flows (export + import) into Bronze, year by year.
+    """Ingest MDIC Comex Stat flows (export + import) via the two-phase raw zone.
 
-    Each (flow, year) CSV is a large file landed as its own Bronze append, so —
-    like `ingest ibge-batch` — this emits a chunk per (flow, year) for live
-    `embrapa monitor` progress instead of a single opaque pipeline span.
+    Per (flow, year): Phase 1 archives the verbatim CSV→Parquet to the GCS raw
+    zone (only when the source ETag changed), Phase 2 filters it to the
+    configured NCMs and loads Bronze. Emits a chunk per (flow, year) for live
+    `embrapa monitor` progress.
     """
     settings = get_settings()
     creds = get_credentials(settings)
@@ -305,24 +335,19 @@ def ingest_comex(
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
     table_fqn = comex_pipeline.ensure_destination(settings, bq_client)
-    chunks = comex_pipeline.plan_chunks(settings, bq_client, table_fqn, full=full)
+    chunks = comex_pipeline.all_chunks(settings)
     total = len(chunks)
 
-    if total == 0:
-        console.print("[dim]COMEX: nothing new since last ingest.[/dim]")
-        return
-
+    mode = "from-raw" if from_raw else ("full" if full else "delta")
     run_id, log_path = observability.init_run("comex")
     console.print(f"[dim]event log:[/dim] {log_path}")
-    console.print(
-        f"[bold]COMEX ingest:[/bold] {total} chunk(s) [dim]({'full' if full else 'delta'})[/dim]"
-    )
+    console.print(f"[bold]COMEX ingest:[/bold] {total} chunk(s) [dim]({mode})[/dim]")
     observability.emit(
         "pipeline_start",
         pipeline="comex",
         run_id=run_id,
         chunks_total=total,
-        params={"full": full, "flows": settings.comex_flows_list},
+        params={"full": full, "from_raw": from_raw, "flows": settings.comex_flows_list},
     )
 
     chunks_ok: list[str] = []
@@ -330,18 +355,30 @@ def ingest_comex(
     pipeline_started = time.monotonic()
 
     for i, (flow, year) in enumerate(chunks, 1):
-        chunk_id = f"{comex_pipeline.client.FILE_PREFIX[flow]}_{year}"
+        chunk_id = comex_pipeline._basename(flow, year)
         observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
         chunk_started = time.monotonic()
         console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
         try:
-            destination = comex_pipeline.ingest_one(
-                settings,
-                flow,
-                year,
-                storage_client=storage_client,
-                bq_client=bq_client,
-                table_fqn=table_fqn,
+            if from_raw:
+                process = comex_pipeline.has_raw(
+                    settings, flow, year, storage_client=storage_client
+                )
+            else:
+                process = comex_pipeline.sync_raw(
+                    settings, flow, year, storage_client=storage_client, force=full
+                )
+            destination = (
+                comex_pipeline.bronze_one(
+                    settings,
+                    flow,
+                    year,
+                    storage_client=storage_client,
+                    bq_client=bq_client,
+                    table_fqn=table_fqn,
+                )
+                if process
+                else ""
             )
             duration = round(time.monotonic() - chunk_started, 2)
             observability.emit(
@@ -355,6 +392,11 @@ def ingest_comex(
             chunks_ok.append(chunk_id)
             if destination:
                 console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
+            elif not process:
+                console.print(
+                    f"  [dim]·[/dim] {chunk_id} — source unchanged "
+                    f"[dim](skipped, {duration}s)[/dim]"
+                )
             else:
                 console.print(
                     f"  [yellow]⚠[/yellow] {chunk_id} — no configured products "
