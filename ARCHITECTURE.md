@@ -19,8 +19,9 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
        └───────┬───────┴───────────────┴────────────────┘
                ▼
  ┌─────────────────────────────────────────────────────┐
- │  Python  (src/embrapa_commodities)                  │
- │  fetch → Parquet → GCS → BigQuery Bronze            │
+ │  Python  (src/embrapa_commodities) — two-phase      │
+ │  Fase 1  extract → raw/ (Parquet verbatim no GCS)   │
+ │  Fase 2  raw/ → filtra/molda → BigQuery Bronze      │
  └───────────────────────┬─────────────────────────────┘
                          ▼
  ┌─────────────────────────────────────────────────────┐
@@ -194,11 +195,25 @@ embrapa-dashboard-commodities/
 
 ## Fluxo de Dados Detalhado
 
-### 1. Bronze (Python → GCS → BigQuery)
+### 0. Zona Raw + ingestão two-phase (todas as fontes)
+
+Antes do Bronze, **toda fonte arquiva o extrato verbatim** em
+`gs://<bucket>/raw/<source>/<dataset>/<basename>.parquet` (com metadata de
+proveniência: URL, ETag/Last-Modified, `fetched_at`, `rows`). O Bronze deriva
+desse raw. Assim, re-filtrar / mudar produtos / re-derivar o Bronze **não
+re-bate na fonte** — só uma revisão real do dado dispara re-fetch. Cada
+`embrapa ingest <source>` tem `--from-raw` (reconstrói o Bronze do raw, sem
+internet). Contrato compartilhado em [`core/raw.py`](../src/embrapa_commodities/core/raw.py);
+detalhes em [`PLANS/raw_zone_architecture.md`](PLANS/raw_zone_architecture.md).
+Por fonte: COMEX re-baixa só quando o ETag muda (filtra na Fase 2 via
+`iter_batches`); IBGE arquiva a resposta SIDRA; BCB arquiva cada janela delta
+como objeto carimbado por run (trilha append-only).
+
+### 1. Bronze (raw → BigQuery)
 
 - **Append-only**: cada ingestão adiciona registros; nunca sobrescreve.
 - Todas as colunas são `STRING` exceto `ingestion_timestamp` — tipagem acontece no Silver.
-- BCB é **delta por padrão**: consulta `max(reference_date_str)` no Bronze e só busca overlap de 12 meses (inflação) ou 30 dias (câmbio).
+- BCB é **delta por padrão**: consulta `max(reference_date_str)` no Bronze e só busca overlap de 12 meses (inflação) ou 30 dias (câmbio); a Fase 2 anexa o que a Fase 1 arquivou.
 - Auto-criação: bucket GCS e datasets BigQuery são criados automaticamente na primeira execução.
 
 ### 2. Silver (dbt, `materialized=table` / `incremental`)
@@ -233,6 +248,7 @@ Dois caminhos paralelos, ambos lendo as mesmas tabelas Gold — não são exclus
 
 - **`SourceTransientError`** (em `core/exceptions.py`): marker para falhas transitórias upstream. `SidraTransientError` e `BcbTransientError` herdam via mixin, e qualquer fonte nova faz o mesmo. Isso permite que o decorator compartilhado `core.http.http_retry_policy` capture todas as transientes sem precisar listar cada classe por nome.
 - **`http_retry_policy` + `get_drained`** (em `core/http.py`): a política de retry tenacity (`stop_after_attempt(5) | stop_after_delay(deadline_s)` + `wait_exponential(1, 2, 30)`) e o drain manual do body sob deadline wall-clock (defesa contra slow-byte hangs que burlam o per-read timeout do `requests`). Cada fonte compõe com seus deadlines locais e sua exceção transient. Adotados por `ibge/client._http_get` e `bcb/client._fetch_window`.
+- **Zona raw** (em `core/raw.py`): o contrato da ingestão two-phase — `land_raw(df)` / `land_raw_file(path)` arquivam o extrato verbatim em `raw/<source>/<dataset>/<basename>.parquet` com metadata de proveniência; `read_raw` / `download_raw` leem de volta (o `download_raw` + `iter_batches` mantém o filtro de arquivos grandes memory-bounded); `list_raw` enumera a trilha de uma fonte (p/ `--from-raw`); `raw_provenance` lê a metadata (base da checagem de freshness por ETag). A cauda BQ usa o `gcp/bigquery.load_dataframe`. Adotado por todas as fontes.
 - **`pipeline_run`** (em `core/observability_helpers.py`): context manager que encapsula a sequência de eventos de um ingest de chunk-único (`pipeline_start → chunk_start → chunk_end/chunk_error → pipeline_end`). Os comandos `ingest ibge`, `ingest bcb-inflation` e `ingest bcb-currency` usam o mesmo caminho, então toda fonte single-shot aparece de forma idêntica no `embrapa monitor`. Fluxos multi-chunk (`ingest ibge-batch`) emitem a sequência por estado/chunk à mão e **não** usam este helper.
 
 Ponto importante: **não migrar** clientes existentes (IBGE/BCB) para abstrações compartilhadas só pelo gosto da DRY — o slow-byte / period-halving do SIDRA é defesa hard-won que está bem onde está. Os primitivos de `core/` são adotados conscientemente, fonte a fonte, conforme convém. Veja a seção "Itens deferidos" do plano de prep.

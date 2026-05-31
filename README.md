@@ -16,8 +16,8 @@ Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e
 
 ```
 IBGE PEVS API   ─┐
-BCB Inflation   ─┤
-BCB Currency    ─┼─► Python (src/embrapa_commodities) ─► GCS Bronze (Parquet)
+BCB Inflation   ─┤    Python (src/embrapa_commodities) — two-phase
+BCB Currency    ─┼─► extract → GCS raw/ (verbatim) → filtra → BigQuery Bronze
 COMEX bulk CSV  ─┘                                            │
                                                               ▼
                               dbt-bigquery ──► Silver (tipada + IPCA encadeado)
@@ -104,7 +104,8 @@ make dbt-build
 
 ```text
 embrapa ingest ibge | bcb-inflation | bcb-currency | comex | all
-embrapa ingest comex [--full]                      # delta por (fluxo, ano); --full refaz tudo
+embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-deriva o Bronze do raw sem re-baixar
+embrapa ingest comex [--full]                      # COMEX re-baixa só quando o ETag muda; --full ignora a checagem
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
 embrapa discover bcb-series     <code>            # ex: 433

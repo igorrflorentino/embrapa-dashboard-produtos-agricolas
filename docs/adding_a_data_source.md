@@ -59,25 +59,51 @@ def _http_get(url: str) -> requests.Response:
 
 **Lógica que NÃO deve ir para `core/`** (caso a API apresente): period-halving recursivo (como `SidraLimitExceeded` no IBGE), chunking por ano (como o `MAX_YEARS_PER_REQUEST` do BCB), paralelismo por entidade — código hard-won que merece ficar no client da fonte.
 
-### 2. Pipeline (Bronze writer)
+### 2. Pipeline (two-phase: extract→raw→bronze)
 
 Local: `src/embrapa_commodities/<fonte>/pipeline.py`
 
-Assinatura:
+**Modelo two-phase (obrigatório, todas as fontes).** O pipeline tem duas fases:
+
+1. **Fase 1 — extract→raw:** busque o extrato *verbatim* e arquive-o no GCS via
+   [`core.land_raw(df, ...)`](../src/embrapa_commodities/core/raw.py) (ou
+   `land_raw_file(path, ...)` para extratos grandes demais p/ memória). Passe
+   `provenance` (URL, ETag/Last-Modified, params da query) — vira metadata do
+   objeto e base da checagem de freshness.
+2. **Fase 2 — raw→bronze:** leia o raw de volta (`read_raw` / `download_raw +
+   iter_batches`), filtre/molde, **stamp `ingestion_timestamp`** e carregue o
+   Bronze via [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py)
+   (schema explícito + `clustering_fields`).
 
 ```python
-def run(settings: Settings, *, full: bool = False) -> str:
-    """Retorna o GCS URI do Parquet aterrissado, ou string vazia se nada novo."""
+def run(settings: Settings, *, full: bool = False, from_raw: bool = False) -> str:
+    """Extract→raw (Fase 1) então raw→Bronze (Fase 2). Retorna destination, ou ''.
+
+    from_raw pula a Fase 1 e reconstrói o Bronze do raw já arquivado (re-filtrar
+    sem re-bater na fonte). Veja PLANS/raw_zone_architecture.md e os 3 exemplos:
+    comex/pipeline.py, ibge/pipeline.py, bcb/series.py.
+    """
 ```
 
-**Delta-aware?** Reaproveite [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) para computar o start de re-fetch.
+`ensure_dataset` fica com você, *antes* do extract (o lookup delta consulta o
+Bronze). Curto-circuite a fetch vazia (retornando `""`). Exponha `--from-raw` no
+comando CLI. **Freshness** é source-specific na Fase 1: ETag (COMEX, via
+`raw_provenance` vs HEAD), `max(reference_date)` (BCB), ou re-extração por run
+(IBGE). Para re-derivar a partir da trilha completa, use
+[`core.list_raw()`](../src/embrapa_commodities/core/raw.py).
+
+**Delta-aware?** Reaproveite [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) para computar o start de re-fetch na Fase 1.
 
 - **Se a fonte é uma série SGS do BCB** (shape `data`/`valor`, chave natural `reference_date_str`, lookup delta por série), você não escreve pipeline: defina um [`BcbSeriesSpec`](../src/embrapa_commodities/bcb/series.py) e delegue para `bcb.series.run`. As variantes inflation/currency são exatamente isso — diferem só no `label_column`, no schema e numa única função `overlap_start_year(last) -> int` (mensal rebobina sempre 1 ano; diária só em janeiro). Veja [`bcb/inflation.py`](../src/embrapa_commodities/bcb/inflation.py) e [`bcb/currency.py`](../src/embrapa_commodities/bcb/currency.py).
 - **Se a fonte tem shape genuinamente diferente** (API não-SGS, granularidade de evento/timestamp como NFe, outra chave natural), escreva o seu próprio `run()` em vez de forçar um spec sobre `bcb.series` — use `latest_reference_date` com `date_format` custom e a janela de overlap apropriada (pode ser horas). Não tente generalizar `bcb.series` para cobrir formas heterogêneas; o custo de legibilidade não compensa.
 
 **Schema explícito.** O loader [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py) exige `list[SchemaField]` — não use autodetect.
 
-**Aterrissagem (GCS + BQ).** Não reescreva a cauda land→load — ela é idêntica em toda fonte. Chame [`core.land_and_load()`](../src/embrapa_commodities/core/bronze.py) com seu `df` (não-vazio, string-typed, com `ingestion_timestamp`), `schema` e `clustering_fields`: ela faz `ensure_bucket` → upload Parquet em `landing/<fonte>/<tabela>/run=<ts>/<basename>.parquet` → `load_dataframe`, e devolve o `destination`. O `ensure_dataset` fica com você, *antes* do extract, porque o lookup delta consulta a tabela Bronze. Curto-circuite a fetch vazia (retornando `""`) no seu `run()` antes de chamar o primitivo.
+**Aterrissagem.** A Fase 1 grava o raw com `core.land_raw`/`land_raw_file`; a
+Fase 2 carrega o Bronze com `gcp/bigquery.load_dataframe` (não há mais um único
+primitivo land+load — o GCS guarda o raw verbatim, o BQ guarda o Bronze
+derivado). `ensure_bucket` é chamado dentro do `land_raw`; `ensure_dataset` fica
+com você antes do extract.
 
 ### 3. Configuração
 
