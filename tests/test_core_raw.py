@@ -134,3 +134,72 @@ def test_raw_provenance_none_when_absent(settings: Settings) -> None:
         gcs, settings=settings, source="comex", dataset="comex_flows", basename="missing"
     )
     assert meta is None
+
+
+# ─── land_raw_file (upload an already-written Parquet file) ───────────────────
+def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+    blob = gcs.bucket.return_value.blob.return_value
+    with patch("embrapa_commodities.core.raw.ensure_bucket") as ensure_bucket:
+        uri = raw.land_raw_file(
+            "/tmp/EXP_2023.parquet",
+            settings=settings,
+            storage_client=gcs,
+            source="comex",
+            dataset="comex_flows",
+            basename="EXP_2023",
+            provenance={"source_etag": "v9"},
+            rows=42,
+        )
+    ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
+    gcs.bucket.return_value.blob.assert_called_once_with("raw/comex/comex_flows/EXP_2023.parquet")
+    blob.upload_from_filename.assert_called_once_with(
+        "/tmp/EXP_2023.parquet", content_type="application/octet-stream"
+    )
+    assert blob.metadata["source_etag"] == "v9"
+    assert blob.metadata["source"] == "comex"  # auto-added
+    assert blob.metadata["rows"] == "42"  # explicit count, coerced to str
+    assert blob.metadata["fetched_at"].endswith("Z")
+    assert uri == "gs://test-bucket/raw/comex/comex_flows/EXP_2023.parquet"
+
+
+def test_land_raw_file_omits_rows_when_unknown(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+    blob = gcs.bucket.return_value.blob.return_value
+    with patch("embrapa_commodities.core.raw.ensure_bucket"):
+        raw.land_raw_file(
+            "/tmp/x.parquet",
+            settings=settings,
+            storage_client=gcs,
+            source="comex",
+            dataset="d",
+            basename="b",
+        )
+    assert "rows" not in blob.metadata  # rows=None → not stamped
+
+
+# ─── list_raw (enumerate the archived trail for --from-raw) ───────────────────
+def test_list_raw_strips_prefix_suffix_sorts_and_filters(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+
+    def _blob(name: str) -> MagicMock:
+        b = MagicMock()
+        b.name = name
+        return b
+
+    gcs.list_blobs.return_value = [
+        _blob("raw/bcb/inflation/2024-02.parquet"),
+        _blob("raw/bcb/inflation/2024-01.parquet"),
+        _blob("raw/bcb/inflation/_SUCCESS"),  # non-parquet → filtered out
+    ]
+
+    out = raw.list_raw(gcs, settings=settings, source="bcb", dataset="inflation")
+
+    assert out == ["2024-01", "2024-02"]  # prefix+suffix stripped, sorted, non-parquet excluded
+    gcs.list_blobs.assert_called_once_with("test-bucket", prefix="raw/bcb/inflation/")
+
+
+def test_list_raw_empty_when_nothing_archived(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+    gcs.list_blobs.return_value = []
+    assert raw.list_raw(gcs, settings=settings, source="bcb", dataset="inflation") == []
