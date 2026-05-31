@@ -9,6 +9,18 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
+### Added
+- **Câmbio BRL/CNY via fonte externa (ECB/Frankfurter) — coluna de iuan na Gold.**
+  O BCB não publica BRL/CNY (PTAX cota só 10 moedas, sem iuan), então a CNY é
+  obtida das taxas de referência do BCE via [Frankfurter](https://frankfurter.dev)
+  (gratuito, sem chave). Seed mensal `extfx_cny_brl` (regenerável com
+  `scripts/refresh_cny_seed.py`) → `silver_extfx_currency` (mesmo schema do
+  `silver_bcb_currency`) → `silver_currency` (UNION BCB ∪ externo). As Gold
+  passam a ler `silver_currency`, então as colunas `val_*_cny` voltam a
+  preencher em `gold_comex_flows` (100%) **e** `gold_pevs_production` (a partir
+  de ~2005, quando começa o dado de CNY do BCE). USD/CNY implícito ≈ 6,7
+  (historicamente correto).
+
 ### Changed
 - **Quantidades por família de unidade física (quebra de schema, sem
   retrocompat).** O formato fixo `[kg, t, m³, L]` foi removido. Toda linha de

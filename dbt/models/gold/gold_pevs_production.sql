@@ -114,7 +114,7 @@ fx_year as (
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
         avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg,
         avg(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_avg
-    from {{ ref('silver_bcb_currency') }}
+    from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
     group by reference_year
 
@@ -128,7 +128,7 @@ fx_latest as (
         max(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_current
     from (
         select currency, brl_per_foreign_unit
-        from {{ ref('silver_bcb_currency') }}
+        from {{ ref('silver_currency') }}
         where brl_per_foreign_unit is not null
         qualify row_number() over (
             partition by currency
