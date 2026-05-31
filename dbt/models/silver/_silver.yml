@@ -119,8 +119,9 @@ models:
       UN Comtrade annual bilateral flows cleaned, typed, deduplicated at the full
       source grain (flow × year × reporter × partner × partner2 × cmd × customs ×
       mode-of-supply × mode-of-transport × qty-unit). primary/cif/fob values are
-      nominal US$. The World partner (0) and secondary trade regimes are dropped;
-      flowCode is normalised X/M → export/import. Zero-quantity sentinels → NULL.
+      nominal US$. Products are HS6 (6-digit leaves of the scope chapters). The
+      World partner (0) is dropped; flowCode is normalised X/M/RX/RM →
+      export/import/re-export/re-import. Zero-quantity sentinels → NULL.
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -141,7 +142,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["export", "import"]
+                values: ["export", "import", "re-export", "re-import"]
       - name: reference_year
         tests:
           - not_null

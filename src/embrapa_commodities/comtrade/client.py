@@ -24,10 +24,17 @@ from embrapa_commodities.core import http as core_http
 logger = logging.getLogger(__name__)
 
 REPORTERS_REF_URL = "https://comtradeapi.un.org/files/v1/app/reference/Reporters.json"
+HS_REF_URL = "https://comtradeapi.un.org/files/v1/app/reference/HS.json"
 
 # Hard wall-clock ceilings (a keyed call returns up to ~100k JSON rows).
 REQUEST_TOTAL_DEADLINE_S: float = 180.0
 PER_CALL_DEADLINE_S: float = 300.0
+
+# Keyed free-tier per-call record cap. A call that returns exactly this many rows
+# has almost certainly been TRUNCATED server-side — even a single dense reporter
+# (e.g. Germany, chapter 44 at HS6 × 4 regimes) hits it — so fetch_chunk_adaptive
+# splits and recurses until every actual call stays under it.
+PER_CALL_ROW_CAP: int = 100_000
 
 # Curated Bronze columns kept from the ~50-field API response (dimensions +
 # measures). Everything STRING in Bronze; the raw archive keeps the full frame.
@@ -94,6 +101,35 @@ def list_reporters() -> list[str]:
     return [str(r["reporterCode"]) for r in results if not r.get("isGroup")]
 
 
+def list_hs6_codes(scope_codes: list[str]) -> list[str]:
+    """Every 6-digit HS leaf under the given scope codes (e.g. ``['0801', '44']``
+    → all ``0801xx`` + ``44xxxx`` subheadings), from the public HS reference.
+
+    Comtrade returns data only at the *requested* code level — asking for ``0801``
+    yields the HS4 aggregate, not its children — so to ingest at HS6 the pipeline
+    must enumerate the leaves. Returns them sorted; falls back to the scope codes
+    themselves if a scope code has no 6-digit descendants (already a leaf)."""
+    response = core_http.get_drained(
+        HS_REF_URL,
+        total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
+        transient_exc=ComtradeTransientError,
+        context="Comtrade HS reference",
+    )
+    try:
+        if response.status_code != 200:
+            raise ComtradeTransientError(f"HTTP {response.status_code} for HS reference")
+        results = response.json().get("results", [])
+    finally:
+        response.close()
+
+    leaves: list[str] = []
+    for entry in results:
+        cid = str(entry["id"])
+        if entry.get("aggrLevel") == 6 and any(cid.startswith(s) for s in scope_codes):
+            leaves.append(cid)
+    return sorted(leaves) if leaves else sorted(scope_codes)
+
+
 @core_http.http_retry_policy(
     transient_exc=ComtradeTransientError,
     deadline_s=PER_CALL_DEADLINE_S,
@@ -148,3 +184,54 @@ def fetch_chunk(
     # Keep the curated columns, all as strings (Bronze convention); missing
     # columns (a sparse response) are added as NA via reindex.
     return frame.reindex(columns=BRONZE_COLUMNS).astype("string")
+
+
+def fetch_chunk_adaptive(
+    base_url: str,
+    api_key: str,
+    *,
+    reporters: list[str],
+    years: list[int],
+    cmd_codes: list[str],
+    flows: list[str],
+) -> pd.DataFrame:
+    """:func:`fetch_chunk` that guarantees completeness despite the per-call cap.
+
+    A single keyed call silently truncates at :data:`PER_CALL_ROW_CAP` rows — and
+    a lone dense reporter (Germany, chapter 44 at HS6 × 4 regimes) already hits it,
+    so no fixed batch size is safe. When a call comes back at the cap, the largest
+    divisible request dimension is split in half — reporters, then flows, then
+    cmd codes — and the halves are fetched (recursively) and concatenated, so every
+    real API call stays under the cap. A single (reporter, flow, cmd) that still
+    caps is logged and returned as-is (only a partner split would help — not
+    expected within the 0801+44 scope)."""
+    df = fetch_chunk(
+        base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
+    )
+    if len(df) < PER_CALL_ROW_CAP:
+        return df
+
+    for name, seq in (("reporters", reporters), ("flows", flows), ("cmd_codes", cmd_codes)):
+        if len(seq) > 1:
+            mid = len(seq) // 2
+            kwargs = {
+                "reporters": reporters,
+                "years": years,
+                "cmd_codes": cmd_codes,
+                "flows": flows,
+            }
+            kwargs[name] = seq[:mid]
+            left = fetch_chunk_adaptive(base_url, api_key, **kwargs)
+            kwargs[name] = seq[mid:]
+            right = fetch_chunk_adaptive(base_url, api_key, **kwargs)
+            return pd.concat([left, right], ignore_index=True)
+
+    logger.warning(
+        "Comtrade call still at the %d-row cap for a single reporter/flow/cmd "
+        "(reporters=%s flows=%s cmd=%s) — data may be TRUNCATED.",
+        PER_CALL_ROW_CAP,
+        reporters,
+        flows,
+        cmd_codes,
+    )
+    return df

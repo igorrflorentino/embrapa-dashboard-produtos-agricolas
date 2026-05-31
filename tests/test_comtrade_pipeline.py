@@ -24,7 +24,7 @@ def settings() -> Settings:
         gcs_bucket="test-bucket",
         comtrade_api_key="secret-key",
         comtrade_cmd_codes="0801:castanha,44:madeira_carvao",
-        comtrade_flows="X,M",
+        comtrade_flows="X,M,RX,RM",
         comtrade_reporters="all",
         comtrade_start_year=2022,
         comtrade_end_year=2023,
@@ -32,11 +32,18 @@ def settings() -> Settings:
     )  # type: ignore[call-arg]
 
 
+@pytest.fixture(autouse=True)
+def _stub_hs6(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pre-seed the HS6 cache so sync_raw's resolve_cmd_codes never hits the
+    network in tests (auto-reverted by monkeypatch)."""
+    monkeypatch.setattr(pipeline, "_CMD_CODES_CACHE", ["080121", "080122", "440710"])
+
+
 def _bronze_df() -> pd.DataFrame:
     row = {c: "x" for c in client.BRONZE_COLUMNS}
     row["reporterCode"] = "76"
     row["partnerCode"] = "0"
-    row["cmdCode"] = "0801"
+    row["cmdCode"] = "080121"
     row["refYear"] = "2022"
     return pd.DataFrame([row], dtype="string").reindex(columns=client.BRONZE_COLUMNS)
 
@@ -45,9 +52,9 @@ def _bronze_df() -> pd.DataFrame:
 def test_reporter_batches_chunks_by_size() -> None:
     reporters = [str(i) for i in range(60)]
     batches = pipeline._reporter_batches(reporters)
-    assert len(batches) == 3  # 25 + 25 + 10
-    assert [len(b) for b in batches] == [25, 25, 10]
-    assert batches[0][0] == "0" and batches[2][-1] == "59"
+    assert len(batches) == 8  # 8×7 + 4 = 60 (REPORTER_BATCH_SIZE=8)
+    assert [len(b) for b in batches] == [8, 8, 8, 8, 8, 8, 8, 4]
+    assert batches[0][0] == "0" and batches[-1][-1] == "59"
 
 
 def test_basename_zero_pads_batch_index() -> None:
@@ -56,11 +63,35 @@ def test_basename_zero_pads_batch_index() -> None:
 
 
 def test_plan_chunks_enumerates_year_then_batch(settings) -> None:
-    reporters = [str(i) for i in range(30)]  # 2 batches
+    reporters = [str(i) for i in range(20)]  # 3 batches (8+8+4)
     chunks = pipeline.plan_chunks(settings, reporters)
-    # 2 years × 2 batches = 4 chunks, year-then-batch order.
-    assert [(y, idx) for y, idx, _ in chunks] == [(2022, 0), (2022, 1), (2023, 0), (2023, 1)]
-    assert len(chunks[0][2]) == 25 and len(chunks[1][2]) == 5
+    # 2 years × 3 batches = 6 chunks, year-then-batch order.
+    assert [(y, idx) for y, idx, _ in chunks] == [
+        (2022, 0),
+        (2022, 1),
+        (2022, 2),
+        (2023, 0),
+        (2023, 1),
+        (2023, 2),
+    ]
+    assert len(chunks[0][2]) == 8 and len(chunks[2][2]) == 4
+
+
+# ─── resolve_cmd_codes ───────────────────────────────────────────────────────
+def test_resolve_cmd_codes_expands_scope_once_and_caches(settings, monkeypatch) -> None:
+    monkeypatch.setattr(pipeline, "_CMD_CODES_CACHE", None)  # override the autouse stub
+    calls: list[list[str]] = []
+
+    def fake_hs6(scope: list[str]) -> list[str]:
+        calls.append(scope)
+        return ["080121", "080122"]
+
+    monkeypatch.setattr(pipeline.client, "list_hs6_codes", fake_hs6)
+    first = pipeline.resolve_cmd_codes(settings)
+    second = pipeline.resolve_cmd_codes(settings)
+    assert first == ["080121", "080122"]
+    assert second == first
+    assert calls == [["0801", "44"]]  # scope from cmd_map keys; resolved once (cached)
 
 
 # ─── bronze_schema ───────────────────────────────────────────────────────────
@@ -78,7 +109,7 @@ def test_sync_raw_skips_past_year_already_archived(settings) -> None:
     """A non-latest year whose raw exists is skipped — no API call."""
     with (
         patch.object(pipeline, "raw_provenance", return_value={"source": "un-comtrade"}),
-        patch.object(client, "fetch_chunk") as fetch,
+        patch.object(client, "fetch_chunk_adaptive") as fetch,
         patch.object(pipeline, "land_raw") as land,
     ):
         changed = pipeline.sync_raw(settings, 2022, 0, ["76"], storage_client=MagicMock())
@@ -91,7 +122,7 @@ def test_sync_raw_always_refetches_latest_year(settings) -> None:
     """The latest configured year is re-fetched even when raw already exists."""
     with (
         patch.object(pipeline, "raw_provenance", return_value={"x": "y"}) as prov,
-        patch.object(client, "fetch_chunk", return_value=_bronze_df()) as fetch,
+        patch.object(client, "fetch_chunk_adaptive", return_value=_bronze_df()) as fetch,
         patch.object(pipeline, "land_raw") as land,
     ):
         changed = pipeline.sync_raw(settings, 2023, 0, ["76"], storage_client=MagicMock())
@@ -104,7 +135,7 @@ def test_sync_raw_always_refetches_latest_year(settings) -> None:
 def test_sync_raw_force_ignores_archive(settings) -> None:
     with (
         patch.object(pipeline, "raw_provenance") as prov,
-        patch.object(client, "fetch_chunk", return_value=_bronze_df()),
+        patch.object(client, "fetch_chunk_adaptive", return_value=_bronze_df()),
         patch.object(pipeline, "land_raw"),
     ):
         changed = pipeline.sync_raw(
@@ -118,7 +149,7 @@ def test_sync_raw_empty_response_lands_nothing(settings) -> None:
     with (
         patch.object(pipeline, "raw_provenance", return_value=None),
         patch.object(
-            client, "fetch_chunk", return_value=pd.DataFrame(columns=client.BRONZE_COLUMNS)
+            client, "fetch_chunk_adaptive", return_value=pd.DataFrame(columns=client.BRONZE_COLUMNS)
         ),
         patch.object(pipeline, "land_raw") as land,
     ):
@@ -130,7 +161,7 @@ def test_sync_raw_empty_response_lands_nothing(settings) -> None:
 def test_sync_raw_fetches_and_lands_with_provenance(settings) -> None:
     with (
         patch.object(pipeline, "raw_provenance", return_value=None),
-        patch.object(client, "fetch_chunk", return_value=_bronze_df()) as fetch,
+        patch.object(client, "fetch_chunk_adaptive", return_value=_bronze_df()) as fetch,
         patch.object(pipeline, "land_raw") as land,
     ):
         changed = pipeline.sync_raw(settings, 2022, 1, ["76", "842"], storage_client=MagicMock())
@@ -138,14 +169,15 @@ def test_sync_raw_fetches_and_lands_with_provenance(settings) -> None:
     fetch_kwargs = fetch.call_args.kwargs
     assert fetch_kwargs["reporters"] == ["76", "842"]
     assert fetch_kwargs["years"] == [2022]
-    assert fetch_kwargs["cmd_codes"] == ["0801", "44"]
-    assert fetch_kwargs["flows"] == ["X", "M"]
+    assert fetch_kwargs["cmd_codes"] == ["080121", "080122", "440710"]  # HS6-expanded
+    assert fetch_kwargs["flows"] == ["X", "M", "RX", "RM"]
     land_kwargs = land.call_args.kwargs
     assert land_kwargs["source"] == "comtrade"
     assert land_kwargs["dataset"] == pipeline.RAW_DATASET
     assert land_kwargs["basename"] == "2022_r01"
     assert land_kwargs["provenance"]["source"] == "un-comtrade"
     assert land_kwargs["provenance"]["year"] == "2022"
+    assert land_kwargs["provenance"]["cmd_hs6_count"] == "3"
 
 
 # ─── bronze_one (Phase 2) ────────────────────────────────────────────────────
@@ -221,8 +253,8 @@ def test_run_from_raw_skips_sync_uses_has_raw(settings) -> None:
         dest = pipeline.run(settings, from_raw=True)
     assert dest == "p.d.t"
     sync.assert_not_called()  # from-raw never touches the API
-    # 2 years × 2 batches (30 reporters / 25) = 4 chunks, all rebuilt.
-    assert bronze.call_count == 4
+    # 2 years × 4 batches (30 reporters / 8) = 8 chunks, all rebuilt.
+    assert bronze.call_count == 8
 
 
 def test_run_explicit_reporter_list_skips_enumeration(settings) -> None:

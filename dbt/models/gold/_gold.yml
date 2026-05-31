@@ -183,7 +183,7 @@ models:
       grain (also split by partner2 / customs / mode-of-supply / mode-of-transport
       / qty-unit) is summed up here. Coarser cuts derived at query time via GROUP
       BY. The World partner (0) is dropped in Silver, so SUM over partner_code is a
-      true bilateral total.
+      true bilateral total. Products are HS6; flow ∈ export/import/re-export/re-import.
 
       Annual source value is nominal US$ (primaryValue): val_yearfx_{usd,brl,eur,cny}
       (at the year-average FX), val_real_ipca_{brl,usd,eur,cny} / val_real_igpm_* /
@@ -204,7 +204,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["export", "import"]
+                values: ["export", "import", "re-export", "re-import"]
       - name: reference_year
         tests:
           - not_null
