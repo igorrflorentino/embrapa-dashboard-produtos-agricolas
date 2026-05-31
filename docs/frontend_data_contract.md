@@ -24,6 +24,7 @@ cross-source layer. Everything here feeds those; no view/chart/router changes.
 | `gold.gold_comex_flows` | flow × year × **month** × NCM × country × UF × **via** | MDIC COMEX (Brazil trade) |
 | `gold.gold_comtrade_flows` | flow × year × reporter × partner × cmd(HS6) | UN Comtrade (global trade) |
 | `gold.gold_commodity_crosswalk` | (source, code) → commodity | cross-source product bridge |
+| `gold.gold_source_metadata` | one row per source | provenance for `dataStore.meta(id)` (§9) |
 
 **Capabilities** (drive the brief's view gating; match `bancos.js`):
 
@@ -172,8 +173,9 @@ GROUP BY reference_year
 This is the denominator for `cross_market_share` (Brazil ÷ world). `exp_price` is
 derived (value ÷ weight), kept internally consistent with `exp_value`/`exp_weight`.
 
-> When a builder goes live, flip its bank `status:'live'` **and** the real builder
-> together — `crossSeries.preview = (status!=='live')`.
+> `crossSeries.preview` **derives from the source banks' status** — true if any
+> source is not `funcional`, not a hardcoded literal (see §9). Flip the real builder
+> and the source's `implStatus` together so a synthetic series never reads as real.
 
 ---
 
@@ -263,3 +265,52 @@ Both flows tables share the 4 monetary conventions (× 4 currencies): `val_yearf
   qty_unit_code, unit_native_symbol, net_weight_kg, gross_weight_kg,
   val_cif_usd, val_fob_usd, source_rows. (annual — no reference_month.)
 - **gold_commodity_crosswalk**: commodity_id, commodity_name, source, code.
+- **gold_source_metadata**: source, gold_table, cadence, year_start, year_end,
+  total_rows, products_total, ufs_total, last_refresh. (view; see §9.)
+
+---
+
+## 9. Status & provenance the BFF reports (brief CHANGELOG)
+
+These are **runtime/BFF concerns — NOT in the Gold fact tables**. The data layer is
+status-agnostic; what follows is what the BFF must report and how to derive it.
+
+### 9.1 Status — three axes (the old `status:'live'|'soon'` is DERIVED, never set)
+
+| Axis | What | Source |
+|---|---|---|
+| `implStatus` | backend readiness, one of `funcional · incompleto · manutencao · em_breve · um_dia · desconectado · depreciado` (+ optional `implNote`, `implDate`) | BFF/`bancos.js` runtime config |
+| `visible` | bool — hide the bank from the whole UI when false | BFF/`bancos.js` |
+| *uso* (active) | derived at runtime (the bank feeding the current view) | not a field |
+
+Per-source `implStatus` for this project (config, not data):
+
+| source | implStatus | implDate |
+|---|---|---|
+| `ibge_pevs` · `mdic_comex` · `un_comtrade` | `funcional` | — (a **funcional** bank never carries a completion date) |
+| `sefaz_nfe` | `um_dia` (planned, no deadline; no Gold table yet) | none |
+
+`status:'live'` is derived from `implStatus.hasData`; `crossSeries.preview` derives
+from the **source banks' status** — true if any source isn't `funcional`.
+
+### 9.2 Provenance seam — `dataStore.meta(id)` ← `gold_source_metadata`
+
+The UI reads ALL bank provenance from the backend (never frontend literals), via
+`dataStore.meta(id)` → `bancoMeta(id)`. `gold.gold_source_metadata` (one row per
+source, a view → always current) supplies it, derived from the Gold tables so a
+rename / new cadence / extended coverage / fresh load propagates to the whole UI:
+
+| meta / `prov` field | gold_source_metadata column |
+|---|---|
+| table name (`bancoTable`) | `gold_table` |
+| cadence (annual/monthly) | `cadence` |
+| coverage / `yearStart`,`yearEnd` | `year_start`, `year_end` |
+| `totalRows` | `total_rows` |
+| `productsTotal` | `products_total` |
+| `ufsTotal` | `ufs_total` (NULL for COMTRADE — no UF) |
+| `lastCrop` (PEVS) | `year_end` |
+| `refresh` / `goldVersion.at` / `isStale` | `last_refresh` |
+
+`implStatus` / `visible` / `implNote` / `implDate` are **not** in this table — they
+are runtime config (§9.1). `source`, `granularity/scope`, and the human source name
+are constants the BFF maps from `source` + this contract.
