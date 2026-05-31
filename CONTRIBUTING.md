@@ -87,9 +87,9 @@ chore(deps): atualizar dbt-core para 1.9
 
 ### Escopos comuns
 
-`ibge`, `bcb`, `comex`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
+`ibge`, `bcb`, `comex`, `comtrade`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
 
-Esta lista é aberta — adicione novos escopos quando criar um módulo ou fonte nova (ex.: `comtrade`, `nfe`).
+Esta lista é aberta — adicione novos escopos quando criar um módulo ou fonte nova (ex.: `nfe`).
 
 ---
 

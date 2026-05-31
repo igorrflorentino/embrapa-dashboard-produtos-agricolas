@@ -15,15 +15,16 @@ Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e
 > O backend (pipeline Medallion + dbt + CLI `embrapa`) é independente da camada de visualização e já alimenta os dois caminhos. Nenhum dos dois é exclusivo — podem coexistir.
 
 ```
-IBGE PEVS API   ─┐
-BCB Inflation   ─┤    Python (src/embrapa_commodities) — two-phase
-BCB Currency    ─┼─► extract → GCS raw/ (verbatim) → filtra → BigQuery Bronze
-COMEX bulk CSV  ─┘                                            │
+IBGE PEVS API    ─┐
+BCB Inflation    ─┤
+BCB Currency     ─┼─► Python (src/embrapa_commodities) — two-phase
+MDIC COMEX CSV   ─┤   extract → GCS raw/ (verbatim) → filtra → BigQuery Bronze
+UN Comtrade API  ─┘                                           │
                                                               ▼
                               dbt-bigquery ──► Silver (tipada + IPCA encadeado)
                                                               │
                                                               ▼
-                          gold_pevs_production · gold_comex_flows (tabelas físicas)
+            gold_pevs_production · gold_comex_flows · gold_comtrade_flows (tabelas físicas)
                                                               │
                                           ┌───────────────────┴───────────────────┐
                                           ▼                                        ▼
@@ -31,10 +32,11 @@ COMEX bulk CSV  ─┘                                            │
                                   (conexão direta)                  (em reconstrução · Claude DS)
 ```
 
-> **Fontes hoje:** IBGE PEVS (`gold_pevs_production`, produção) e MDIC COMEX
-> (`gold_comex_flows`, comércio exterior export+import), ambas enriquecidas com
-> câmbio/inflação do BCB. O design `gold_<fonte>_<forma>` é extensível —
-> veja [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+> **Fontes hoje:** IBGE PEVS (`gold_pevs_production`, produção), MDIC COMEX
+> (`gold_comex_flows`, comércio exterior brasileiro export+import) e UN Comtrade
+> (`gold_comtrade_flows`, comércio **global** bilateral reporter→partner), todas
+> enriquecidas com câmbio/inflação do BCB. O design `gold_<fonte>_<forma>` é
+> extensível — veja [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 
 ## Stack
 
@@ -103,9 +105,10 @@ make dbt-build
 ## CLI
 
 ```text
-embrapa ingest ibge | bcb-inflation | bcb-currency | comex | all
+embrapa ingest ibge | bcb-inflation | bcb-currency | comex | comtrade | all
 embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-deriva o Bronze do raw sem re-baixar
 embrapa ingest comex [--full]                      # COMEX re-baixa só quando o ETag muda; --full ignora a checagem
+embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumível por cota diária. Fora do `ingest all` (key/quota-gated)
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
 embrapa discover bcb-series     <code>            # ex: 433

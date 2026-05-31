@@ -11,13 +11,13 @@
 O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) para análise histórica de produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil.
 
 ```
- ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐
- │ IBGE SIDRA │  │  BCB SGS   │  │  BCB SGS   │  │ MDIC COMEX   │
- │  (PEVS)    │  │ (Inflação) │  │  (Câmbio)  │  │ (CSV massa)  │
- └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └──────┬───────┘
-       │               │               │                │
-       └───────┬───────┴───────────────┴────────────────┘
-               ▼
+ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
+ │ IBGE SIDRA │ │  BCB SGS   │ │  BCB SGS   │ │ MDIC COMEX │ │ UN Comtrade  │
+ │  (PEVS)    │ │ (Inflação) │ │  (Câmbio)  │ │ (CSV massa)│ │ (API keyed)  │
+ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬───────┘
+       │              │              │              │               │
+       └──────┬───────┴──────────────┴──────────────┴───────────────┘
+              ▼
  ┌─────────────────────────────────────────────────────┐
  │  Python  (src/embrapa_commodities) — two-phase      │
  │  Fase 1  extract → raw/ (Parquet verbatim no GCS)   │
@@ -99,10 +99,14 @@ embrapa-dashboard-commodities/
 │   │   ├── inflation.py              # Spec IPCA/IGP-M/IGP-DI
 │   │   └── currency.py               # Spec USD/EUR/CNY
 │   │
-│   └── comex/                        # Pipeline MDIC Comex Stat (CSV em massa)
-│       ├── client.py                 # Downloader CSV (stream p/ disco + filtro)
-│       ├── pipeline.py               # Orquestração Bronze (delta por fluxo×ano)
-│       └── _ca.py                    # CA intermediária TLS vendorizada
+│   ├── comex/                        # Pipeline MDIC Comex Stat (CSV em massa)
+│   │   ├── client.py                 # Downloader CSV (stream p/ disco + filtro)
+│   │   ├── pipeline.py               # Orquestração Bronze (delta por fluxo×ano)
+│   │   └── _ca.py                    # CA intermediária TLS vendorizada
+│   │
+│   └── comtrade/                     # Pipeline UN Comtrade (API JSON keyed, global)
+│       ├── client.py                 # GET keyed; chave só no header; enumera reporters
+│       └── pipeline.py               # Bronze chunked/resumível por (ano, batch de reporters)
 │
 ├── dbt/                              # Transformações dbt (Silver + Gold)
 │   ├── dbt_project.yml               # Configuração do projeto dbt
@@ -117,11 +121,13 @@ embrapa-dashboard-commodities/
 │   │   │   ├── silver_bcb_currency.sql   # Câmbio BCB (USD/EUR diário PTAX)
 │   │   │   ├── silver_extfx_currency.sql # Câmbio externo (CNY via ECB/seed)
 │   │   │   ├── silver_currency.sql       # UNION BCB ∪ externo (lido pela Gold)
-│   │   │   └── silver_comex_flows.sql    # COMEX tipado + dedup (grão-fonte)
+│   │   │   ├── silver_comex_flows.sql    # COMEX tipado + dedup (grão-fonte)
+│   │   │   └── silver_comtrade_flows.sql # COMTRADE tipado + dedup; dropa World; X/M→export/import
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
 │   │       ├── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
-│   │       └── gold_comex_flows.sql      # Gold COMEX (forma: flows)
+│   │       ├── gold_comex_flows.sql      # Gold COMEX (forma: flows, Brasil)
+│   │       └── gold_comtrade_flows.sql   # Gold COMTRADE (forma: flows, global bilateral)
 │   │                                     # Novas fontes: gold_<fonte>_<forma>
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
@@ -135,6 +141,9 @@ embrapa-dashboard-commodities/
 │   │   ├── comex_unit.csv            # Dimensão de unidade estatística (CO_UNID)
 │   │   ├── comex_country.csv         # Dimensão de país (CO_PAIS → ISO/nome)
 │   │   ├── comex_ncm.csv             # Dimensão de NCM (descrição PT, cap. 08+44)
+│   │   ├── comtrade_country.csv      # Dimensão M49 → ISO3/nome (partnerAreas.json)
+│   │   ├── comtrade_unit.csv         # Dimensão qtyUnitCode → label + família
+│   │   ├── comtrade_hs.csv           # Dimensão HS (0801 + cap. 44; HS.json)
 │   │   └── extfx_cny_brl.csv         # BRL/CNY mensal (ECB; scripts/refresh_cny_seed.py)
 │   └── tests/                        # Testes dbt customizados
 │
@@ -228,12 +237,14 @@ como objeto carimbado por run (trilha append-only).
 - `silver_bcb_inflation`: **table** (precisa de janela completa para calcular o chain index IPCA).
 - `silver_bcb_currency`: **table** (tabela pequena).
 - `silver_comex_flows`: **table** (dedup no grão-fonte completo via `qualify`; `safe_numeric` em VL_FOB/KG/QT/frete/seguro). Candidata a incremental se o volume do cap. 44 ao longo das décadas crescer.
+- `silver_comtrade_flows`: **table** (dedup no grão-fonte completo). Dropa o partner World (`0`, total pré-agregado que dupla-contaria) e regimes secundários; normaliza `flowCode` X/M → `export`/`import`; sentinela de quantidade `0.0` → NULL.
 - **Seed `historical_currency_factors`**: fator multiplicador que absorve reformas monetárias brasileiras (Cz$ → NCz$ → Cr$ → CR$ → R$). Sem ele, valores pré-1994 ficam 10⁶–10⁹× inflados.
 
 ### 3. Gold (dbt, `materialized=table`)
 
 - Tabela do IBGE PEVS: `gold_pevs_production` — uma linha por `(reference_year, state_acronym, city_name, product_code)`.
 - Tabela do MDIC COMEX: `gold_comex_flows` — uma linha por `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym)`. As 4 convenções monetárias são aplicadas sobre `VL_FOB` (US$): `val_yearfx_*` no FX do mês de registro e `val_real_*` convertendo US$→BRL no FX do mês, deflacionando pela cadeia BCB e reconvertendo no FX atual (deflação **mensal**, não anual, por o grão ser mensal).
+- Tabela da UN Comtrade: `gold_comtrade_flows` — comércio **global** bilateral, uma linha por `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Mesmas 4 convenções sobre `primaryValue` (US$), mas deflação **anual** (FX médio do ano, índice de inflação fim-de-ano — como o PEVS) por o grão ser anual. Geografia bilateral: `reporter` + `partner` (ambos M49 → nome/ISO3). Sem dupla-contagem (World dropado no Silver), então `SUM` sobre partners é total bilateral verdadeiro.
 - **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. Qualquer agregação (estado-ano, nacional) é derivada **em tempo de query** via `GROUP BY` — deliberadamente NÃO mantemos tabelas pré-agregadas (simplicidade sobre eficiência por ora). Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.

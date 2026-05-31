@@ -10,6 +10,25 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Unreleased]
 
 ### Added
+- **Nova fonte: UN Comtrade (comércio global bilateral) — `gold_comtrade_flows`.**
+  Complemento global ao COMEX (Brasil): fluxos `reporter→partner` mundiais para
+  HS 0801 (castanhas) + capítulo 44 (madeira/carvão), ambos os fluxos, todos os
+  reporters × todos os partners, grão anual.
+  - **Ingestão** (`embrapa ingest comtrade [--full] [--from-raw]`): API JSON
+    *keyed* (`COMTRADE_API_KEY`, gratuita), com a chave **só** no header
+    `Ocp-Apim-Subscription-Key` (nunca na URL/log). Zona raw em duas fases,
+    *chunked* por `(ano, batch de reporters)` e **resumível** — se a cota diária
+    estourar, é só re-rodar. Fica **fora do `embrapa ingest all`** (key/quota-gated).
+  - **dbt**: `silver_comtrade_flows` (dedup no grão-fonte; dropa o partner World
+    `0` para não dupla-contar; normaliza `flowCode` X/M → `export`/`import`) e
+    `gold_comtrade_flows` (as 4 convenções monetárias sobre `primaryValue` US$,
+    deflação **anual**; geografia bilateral reporter+partner via M49). Reusa
+    `silver_currency` (USD/EUR/CNY) e `unit_family_conversions` (famílias).
+  - **Seeds** de referência autoritativa: `comtrade_country` (M49 → ISO3/nome,
+    `partnerAreas.json`), `comtrade_unit` (qtyUnitCode → família) e `comtrade_hs`
+    (0801 + cap. 44, `HS.json`). Script `scripts/refresh_comtrade_country_seed.py`.
+  - Janela histórica inicial limitada a **2022-2023** (config `COMTRADE_START_YEAR`/
+    `COMTRADE_END_YEAR`) para desenvolvimento; estender depois para histórico antigo.
 - **Câmbio BRL/CNY via fonte externa (ECB/Frankfurter) — coluna de iuan na Gold.**
   O BCB não publica BRL/CNY (PTAX cota só 10 moedas, sem iuan), então a CNY é
   obtida das taxas de referência do BCE via [Frankfurter](https://frankfurter.dev)
