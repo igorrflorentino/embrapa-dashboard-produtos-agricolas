@@ -208,6 +208,7 @@ Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que p
 | [docs/testing.md](docs/testing.md) | Estratégia e guia de testes |
 | [docs/ownership_transfer.md](docs/ownership_transfer.md) | Checklist de transferência para a empresa |
 | [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Conexão Looker Studio → Gold |
+| [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Contrato de dados Gold → snapshot do frontend (handoff) |
 | [docs/migration_history.md](docs/migration_history.md) | Histórico de migrações |
 | [scripts/README.md](scripts/README.md) | Documentação dos scripts auxiliares |
 
