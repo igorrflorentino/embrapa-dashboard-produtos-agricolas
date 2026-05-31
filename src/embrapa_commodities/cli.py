@@ -77,8 +77,14 @@ INGESTS: list[IngestSpec] = [
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
 @ingest_app.command("ibge")
-def ingest_ibge() -> None:
-    """Ingest IBGE PEVS into the configured Bronze table."""
+def ingest_ibge(
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SIDRA response, without re-querying SIDRA.",
+    ),
+) -> None:
+    """Ingest IBGE PEVS into the configured Bronze table (extract→raw→bronze)."""
     settings = get_settings()
     with pipeline_run(
         "ibge",
@@ -86,10 +92,11 @@ def ingest_ibge() -> None:
             "start_year": settings.ibge_start_year,
             "end_year": settings.ibge_end_year,
             "products": settings.product_codes,
+            "from_raw": from_raw,
         },
     ) as (_run_id, log_path):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = ibge_pipeline.run(settings)
+        destination = ibge_pipeline.run(settings, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
     else:
@@ -107,12 +114,20 @@ def ingest_bcb_inflation(
         "--full",
         help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
     ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SGS trail, without re-fetching the API.",
+    ),
 ) -> None:
-    """Ingest configured BCB SGS inflation series."""
+    """Ingest configured BCB SGS inflation series (extract→raw→bronze)."""
     settings = get_settings()
-    with pipeline_run("bcb-inflation", params={"full": full}) as (_run_id, log_path):
+    with pipeline_run("bcb-inflation", params={"full": full, "from_raw": from_raw}) as (
+        _run_id,
+        log_path,
+    ):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = bcb_inflation.run(settings, full=full)
+        destination = bcb_inflation.run(settings, full=full, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] BCB inflation bronze loaded → {destination}")
     else:
@@ -126,12 +141,20 @@ def ingest_bcb_currency(
         "--full",
         help="Force a full refetch from BCB_START_YEAR. Default is delta-from-last-load.",
     ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SGS trail, without re-fetching the API.",
+    ),
 ) -> None:
-    """Ingest configured BCB SGS FX series."""
+    """Ingest configured BCB SGS FX series (extract→raw→bronze)."""
     settings = get_settings()
-    with pipeline_run("bcb-currency", params={"full": full}) as (_run_id, log_path):
+    with pipeline_run("bcb-currency", params={"full": full, "from_raw": from_raw}) as (
+        _run_id,
+        log_path,
+    ):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = bcb_currency.run(settings, full=full)
+        destination = bcb_currency.run(settings, full=full, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] BCB currency bronze loaded → {destination}")
     else:
