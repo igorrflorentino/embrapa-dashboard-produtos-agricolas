@@ -1,8 +1,9 @@
 # Arquitetura Raw Zone — ingestão two-phase para TODAS as fontes
 
-> **Status:** em construção (branch `feat/raw-zone-architecture`, sobre
-> `feat/comex-flows`/PR #38). Decisão do usuário (2026-05-30): padronizar o
-> modelo two-phase em IBGE PEVS, BCB e COMEX para um pipeline homogêneo.
+> **Status:** **IMPLEMENTADO** (branch `feat/raw-zone-architecture`, sobre
+> `feat/comex-flows`/PR #38). Two-phase padronizado em COMEX, IBGE e BCB;
+> `core/raw.py` + `--from-raw` em todas as fontes; `core/bronze.land_and_load`
+> removido. 285 testes verdes. Pendente: validação ao vivo no BQ do usuário.
 
 ## Princípio
 
