@@ -116,11 +116,13 @@ models:
 
   - name: silver_comtrade_flows
     description: |
-      UN Comtrade annual bilateral flows cleaned, typed, deduplicated at the full
-      source grain (flow × year × reporter × partner × partner2 × cmd × customs ×
-      mode-of-supply × mode-of-transport × qty-unit). primary/cif/fob values are
-      nominal US$. Products are HS6 (6-digit leaves of the scope chapters). The
-      World partner (0) is dropped; flowCode is normalised X/M/RX/RM →
+      UN Comtrade annual bilateral flows cleaned, typed, reduced to the canonical
+      bilateral grain: one row per (flow, year, reporter, partner, cmd). Only the
+      fully-aggregated Bronze record is kept (motCode=0, customsCode=C00,
+      partner2Code=0, mosCode=0); the transport/customs/second-partner breakdowns
+      sum INTO it, so re-summing them double-counts (~2.5×) — they are dropped.
+      primary/cif/fob values are nominal US$. Products are HS6. The World partner
+      (0) is dropped; flowCode is normalised X/M/RX/RM →
       export/import/re-export/re-import. Zero-quantity sentinels → NULL.
     tests:
       - dbt_utils.unique_combination_of_columns:
@@ -130,12 +132,7 @@ models:
               - reference_year
               - reporter_code
               - partner_code
-              - partner2_code
               - cmd_code
-              - customs_code
-              - mode_of_supply_code
-              - mode_of_transport_code
-              - qty_unit_code
     columns:
       - name: flow
         tests:

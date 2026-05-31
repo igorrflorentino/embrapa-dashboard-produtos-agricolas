@@ -11,12 +11,10 @@
 }}
 
 {#-
-    UN Comtrade annual reporter→partner flows, cleaned, typed, deduplicated at
-    the FULL source grain — one row per (flow, year, reporter, partner,
-    partner2, cmd, customs, mode-of-supply, mode-of-transport, qty-unit). Gold
-    aggregates this up to (flow, year, reporter, partner, cmd).
+    UN Comtrade annual reporter→partner flows, cleaned, typed, deduplicated to the
+    canonical bilateral grain — one row per (flow, year, reporter, partner, cmd).
 
-    Two deliberate filters vs the verbatim Bronze:
+    Filters vs the verbatim Bronze:
       • partner_code = '0' (World) is DROPPED — it is the reporter's
         pre-aggregated total over all partners and would double-count any
         SUM over partners. The total is recoverable at query time as
@@ -27,6 +25,15 @@
       • only HS6 rows are kept (length(cmdCode)=6): the ingest requests the
         6-digit leaves of the scope chapters, so any legacy HS4 aggregate row
         (0801/44) is excluded — keeping both would double-count in Gold.
+      • KEEP ONLY THE FULLY-AGGREGATED RECORD (motCode=0, customsCode=C00,
+        partner2Code=0, mosCode=0). The keyed API returns, per
+        (reporter,partner,cmd,flow), one aggregate row PLUS breakdown rows by
+        transport mode / customs procedure / second partner; the aggregate value
+        equals the sum of its breakdowns. Summing all of them (the old behaviour)
+        double-counted ~2.5×. Every group has exactly one aggregate row, so this
+        filter is LOSSLESS and collapses the grain to one row per
+        (reporter,partner,cmd,flow,year). If a future mode-of-transport / customs
+        analysis is wanted, read the verbatim breakdowns from Bronze.
 
     Quantity sentinels: chapter-44 rows routinely report qty = netWgt = '0.0'
     (quantity not collected). 0 is mapped to NULL so it reads as "no reading"
@@ -44,6 +51,10 @@ with deduplicated as (
     where partnerCode != '0'                       -- drop the World aggregate
       and flowCode in ('X', 'M', 'RX', 'RM')       -- four primary regimes
       and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
+      and motCode = '0'                             -- ┐ keep only the fully-
+      and customsCode = 'C00'                       -- │ aggregated record; the
+      and partner2Code = '0'                        -- │ breakdowns sum INTO it,
+      and mosCode = '0'                             -- ┘ so don't re-sum them
     qualify row_number() over (
         partition by
             refYear, reporterCode, partnerCode, partner2Code,
