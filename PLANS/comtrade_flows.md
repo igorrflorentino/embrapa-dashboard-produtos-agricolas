@@ -1,6 +1,16 @@
 # Fonte UN COMTRADE — `gold_comtrade_flows`
 
-> **Status:** planejado. Gate de acesso **validado ao vivo** (2026-05-31): a API
+> ⚠️ **SUPERSEDED — plano histórico (pré-implementação).** A fonte foi entregue e
+> está em produção (PRs #45-#53). A implementação **divergiu** deste plano em
+> pontos-chave: produtos no nível **HS6** (não HS4), **4 regimes** X/M/RX/RM (não
+> só X/M), janela dev **2022-2023** (não 2000→corrente), chunking por
+> `(ano, batch de reporters)` com **split adaptativo** anti-truncamento, e o Silver
+> mantém só o registro agregado (anti-dupla-contagem). Para o estado atual, ver
+> [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`CHANGELOG.md`](../CHANGELOG.md) e
+> [`docs/frontend_data_contract.md`](../docs/frontend_data_contract.md). Mantido
+> apenas como registro do desenho original.
+
+> **Status original:** planejado. Gate de acesso **validado ao vivo** (2026-05-31): a API
 > pública responde sem chave (HTTP 200, shape ok), mas corta em **500
 > registros/request** (cap. 44 global estoura). Com a **chave gratuita** o limite
 > sobe p/ ~100k registros/chamada + uma **cota diária** — então a estratégia é

@@ -97,9 +97,20 @@ def test_list_hs6_codes_returns_sorted_scope_leaves_only() -> None:
 
 
 @responses.activate
-def test_list_hs6_codes_falls_back_to_scope_when_no_leaves() -> None:
+def test_list_hs6_codes_raises_transient_on_empty_reference() -> None:
+    # 200 with no results → do NOT silently fall back to HS4 scope codes (that would
+    # request wrong-granularity aggregates); treat as a retryable fetch failure.
     responses.add(responses.GET, client.HS_REF_URL, json={"results": []}, status=200)
-    assert client.list_hs6_codes(["999999"]) == ["999999"]
+    with pytest.raises(client.ComtradeTransientError):
+        client.list_hs6_codes(["0801", "44"])
+
+
+@responses.activate
+def test_list_hs6_codes_raises_permanent_when_scope_has_no_leaves() -> None:
+    # Non-empty reference but the scope matches no HS6 leaf → config error, not transient.
+    responses.add(responses.GET, client.HS_REF_URL, json=HS_PAYLOAD, status=200)
+    with pytest.raises(client.ComtradeRequestError):
+        client.list_hs6_codes(["999999"])
 
 
 # ─── fetch_chunk ─────────────────────────────────────────────────────────────

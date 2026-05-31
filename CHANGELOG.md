@@ -12,23 +12,40 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Added
 - **Nova fonte: UN Comtrade (comércio global bilateral) — `gold_comtrade_flows`.**
   Complemento global ao COMEX (Brasil): fluxos `reporter→partner` mundiais para
-  HS 0801 (castanhas) + capítulo 44 (madeira/carvão), ambos os fluxos, todos os
-  reporters × todos os partners, grão anual.
+  HS **0801** (castanhas) + **capítulo 44** (madeira/carvão), ingeridos no nível
+  **HS6** (escopo expandido para as 156 folhas de 6 dígitos), nos **quatro regimes
+  primários** X/M/RX/RM, todos os reporters × todos os partners, grão anual.
   - **Ingestão** (`embrapa ingest comtrade [--full] [--from-raw]`): API JSON
     *keyed* (`COMTRADE_API_KEY`, gratuita), com a chave **só** no header
     `Ocp-Apim-Subscription-Key` (nunca na URL/log). Zona raw em duas fases,
-    *chunked* por `(ano, batch de reporters)` e **resumível** — se a cota diária
-    estourar, é só re-rodar. Fica **fora do `embrapa ingest all`** (key/quota-gated).
-  - **dbt**: `silver_comtrade_flows` (dedup no grão-fonte; dropa o partner World
-    `0` para não dupla-contar; normaliza `flowCode` X/M → `export`/`import`) e
-    `gold_comtrade_flows` (as 4 convenções monetárias sobre `primaryValue` US$,
-    deflação **anual**; geografia bilateral reporter+partner via M49). Reusa
-    `silver_currency` (USD/EUR/CNY) e `unit_family_conversions` (famílias).
+    *chunked* por `(ano, batch de 8 reporters)` e **resumível**. **Split
+    adaptativo** anti-truncamento (`fetch_chunk_adaptive`): quando uma chamada
+    bate o cap de 100k linhas (um único reporter denso já estoura), divide
+    recursivamente reporters→fluxos→cmd e concatena. Fica **fora do
+    `embrapa ingest all`** (key/quota-gated).
+  - **dbt**: `silver_comtrade_flows` (mantém só o registro totalmente agregado —
+    `motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0` — e só HS6; dropa o
+    partner World `0`; normaliza `flowCode` X/M/RX/RM →
+    `export`/`import`/`re-export`/`re-import`) e `gold_comtrade_flows` (as 4
+    convenções monetárias sobre `primaryValue` US$, deflação **anual**; geografia
+    bilateral reporter+partner via M49). Reusa `silver_currency` (USD/EUR/CNY) e
+    `unit_family_conversions` (famílias).
   - **Seeds** de referência autoritativa: `comtrade_country` (M49 → ISO3/nome,
-    `partnerAreas.json`), `comtrade_unit` (qtyUnitCode → família) e `comtrade_hs`
-    (0801 + cap. 44, `HS.json`). Script `scripts/refresh_comtrade_country_seed.py`.
+    `partnerAreas.json`), `comtrade_unit` (qtyUnitCode → família — 5=itens, 8=kg,
+    12=m³) e `comtrade_hs` (0801 + cap. 44, `HS.json`). Script
+    `scripts/refresh_comtrade_country_seed.py`.
   - Janela histórica inicial limitada a **2022-2023** (config `COMTRADE_START_YEAR`/
     `COMTRADE_END_YEAR`) para desenvolvimento; estender depois para histórico antigo.
+- **Dimensão de modal de transporte no COMEX (`via`).** `gold_comex_flows` ganha
+  `transport_route_code` (no grão) + `via_name` via novo seed `comex_via`
+  (códigos MDIC CO_VIA → rótulos PT: Marítima, Aérea, Rodoviária…).
+- **Crosswalk de produto cross-source** — seed `commodity_crosswalk` (vínculos
+  por *prefixo*, nível commodity-conceito) + modelo `gold_commodity_crosswalk`
+  (resolve para `(source, code) → commodity` exato). Liga a mesma commodity entre
+  PEVS (código extrativo) / COMEX (NCM8) / COMTRADE (HS6) — base das análises
+  cross (coeficiente de exportação, market-share, espelho comercial).
+- **Documento de contrato de dados** `docs/frontend_data_contract.md` — mapa
+  Gold → snapshot do frontend (campo, magnitude, unidade) para o handoff do BFF.
 - **Câmbio BRL/CNY via fonte externa (ECB/Frankfurter) — coluna de iuan na Gold.**
   O BCB não publica BRL/CNY (PTAX cota só 10 moedas, sem iuan), então a CNY é
   obtida das taxas de referência do BCE via [Frankfurter](https://frankfurter.dev)
@@ -70,6 +87,18 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     nulas.
 
 ### Fixed
+- **COMTRADE: dupla-contagem de ~2,5× nos valores/quantidades da Gold.** A API
+  keyed retorna, por `(reporter, partner, cmd, flow)`, um registro **totalmente
+  agregado** (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) **mais**
+  linhas de breakdown por modo de transporte / aduana / 2º parceiro — cujo valor
+  **soma no agregado**. O Silver mantinha tudo e o Gold somava junto. Corrigido
+  mantendo só o registro agregado em `silver_comtrade_flows` (lossless: 546.812
+  grupos = 546.812 linhas; Bronze intocado, sem re-ingest). Total COMTRADE
+  US$1.779bn → US$692bn; espelho COMEX↔COMTRADE passa a bater.
+- **COMTRADE: famílias de unidade física erradas.** O seed `comtrade_unit` usava
+  uma tabela legada de qtyUnitCode que não bate com os códigos da API. Validados
+  contra o `standardUnitAbbr` do HS6: **5=nº de itens (contagem)**, **8=kg
+  (massa)**, **12=m³ (volume)** — antes ~24% das linhas caíam em família errada.
 - **Séries de câmbio do BCB corrigidas (afetava PEVS e COMEX).** As séries
   configuradas estavam erradas: `3694` (USD) é **anual** — insuficiente para a
   deflação mensal do COMEX (só preenchia janeiros); `4393` (EUR) retornava
