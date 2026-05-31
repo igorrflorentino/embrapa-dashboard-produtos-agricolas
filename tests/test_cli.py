@@ -256,6 +256,148 @@ def test_ingest_ibge_batch_continues_after_chunk_failure(
     assert "2011 failed" in result.output or "2011-2011 failed" in result.output
 
 
+# ─── ingest comtrade ──────────────────────────────────────────────────────────
+def _wire_comtrade(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> Settings:
+    """Common stubs for the comtrade ingest command (no GCP, explicit reporters so
+    the keyless Reporters lookup is skipped)."""
+    settings.comtrade_api_key = "k"
+    settings.comtrade_reporters = "76,842"  # explicit list → no list_reporters() call
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
+    monkeypatch.setattr(cli.storage, "Client", MagicMock())
+    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli.comtrade_pipeline, "ensure_destination", lambda s, c: "p.d.t")
+    monkeypatch.setattr(cli.comtrade_pipeline, "bronze_one", lambda *a, **k: "p.d.t")
+    return settings
+
+
+def test_ingest_comtrade_exits_when_api_key_missing(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    settings.comtrade_api_key = ""
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    result = runner.invoke(cli.app, ["ingest", "comtrade"])
+
+    assert result.exit_code == 1
+    assert "COMTRADE_API_KEY is empty" in result.output
+
+
+def test_ingest_comtrade_happy_path_reports_complete(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    _wire_comtrade(monkeypatch, settings)
+    settings.comtrade_start_year = 2023
+    settings.comtrade_end_year = 2023  # 1 year × 1 batch (2 reporters) = 1 chunk
+    monkeypatch.setattr(cli.comtrade_pipeline, "sync_raw", lambda *a, **k: True)
+
+    result = runner.invoke(cli.app, ["ingest", "comtrade"])
+
+    assert result.exit_code == 0, result.output
+    assert "All 1 COMTRADE chunk(s) complete" in result.output
+
+
+def test_ingest_comtrade_continues_after_chunk_failure(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A failed chunk (e.g. quota) must not strand the rest. Exit 1, every chunk tried."""
+    _wire_comtrade(monkeypatch, settings)
+    settings.comtrade_start_year = 2022
+    settings.comtrade_end_year = 2023  # 2 years × 1 batch = 2 chunks
+    seen_years: list[int] = []
+
+    def flaky(_s: Settings, year: int, _idx: int, _batch: object, **kwargs: object) -> bool:
+        seen_years.append(year)
+        if year == 2022:
+            raise RuntimeError("daily quota hit")
+        return True
+
+    monkeypatch.setattr(cli.comtrade_pipeline, "sync_raw", flaky)
+
+    result = runner.invoke(cli.app, ["ingest", "comtrade"])
+
+    assert seen_years == [2022, 2023]  # the 2022 failure did not stop 2023
+    assert result.exit_code == 1
+    assert "failed" in result.output
+
+
+def test_ingest_comtrade_from_raw_skips_api(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """`--from-raw` rebuilds Bronze from archived raw — it must NOT call sync_raw."""
+    _wire_comtrade(monkeypatch, settings)
+    settings.comtrade_start_year = 2023
+    settings.comtrade_end_year = 2023
+    sync = MagicMock()
+    monkeypatch.setattr(cli.comtrade_pipeline, "sync_raw", sync)
+    monkeypatch.setattr(cli.comtrade_pipeline, "has_raw", lambda *a, **k: True)
+
+    result = runner.invoke(cli.app, ["ingest", "comtrade", "--from-raw"])
+
+    assert result.exit_code == 0, result.output
+    sync.assert_not_called()
+
+
+# ─── ingest comex ─────────────────────────────────────────────────────────────
+def _wire_comex(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, chunks: list[tuple[str, int]]
+) -> None:
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
+    monkeypatch.setattr(cli.storage, "Client", MagicMock())
+    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli.comex_pipeline, "ensure_destination", lambda s, c: "p.d.t")
+    monkeypatch.setattr(cli.comex_pipeline, "all_chunks", lambda s: chunks)
+    monkeypatch.setattr(cli.comex_pipeline, "bronze_one", lambda *a, **k: "p.d.t")
+
+
+def test_ingest_comex_happy_path_reports_complete(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    _wire_comex(monkeypatch, settings, [("export", 2023)])
+    monkeypatch.setattr(cli.comex_pipeline, "sync_raw", lambda *a, **k: True)
+
+    result = runner.invoke(cli.app, ["ingest", "comex"])
+
+    assert result.exit_code == 0, result.output
+    assert "All 1 COMEX chunk(s) complete" in result.output
+
+
+def test_ingest_comex_continues_after_chunk_failure(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    _wire_comex(monkeypatch, settings, [("export", 2022), ("export", 2023)])
+    seen: list[tuple[str, int]] = []
+
+    def flaky(_s: Settings, flow: str, year: int, **kwargs: object) -> bool:
+        seen.append((flow, year))
+        if year == 2022:
+            raise RuntimeError("source 503")
+        return True
+
+    monkeypatch.setattr(cli.comex_pipeline, "sync_raw", flaky)
+
+    result = runner.invoke(cli.app, ["ingest", "comex"])
+
+    assert seen == [("export", 2022), ("export", 2023)]  # failure didn't strand the rest
+    assert result.exit_code == 1
+    assert "failed" in result.output
+
+
+def test_ingest_comex_from_raw_skips_download(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    _wire_comex(monkeypatch, settings, [("export", 2023)])
+    sync = MagicMock()
+    monkeypatch.setattr(cli.comex_pipeline, "sync_raw", sync)
+    monkeypatch.setattr(cli.comex_pipeline, "has_raw", lambda *a, **k: True)
+
+    result = runner.invoke(cli.app, ["ingest", "comex", "--from-raw"])
+
+    assert result.exit_code == 0, result.output
+    sync.assert_not_called()
+
+
 # ─── ingest all ──────────────────────────────────────────────────────────────
 def test_ingest_all_runs_every_pipeline_in_order(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
