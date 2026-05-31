@@ -91,3 +91,19 @@ seeds:
         tests: [not_null, unique]
       - name: ncm_description
         tests: [not_null]
+
+  - name: extfx_cny_brl
+    description: |
+      Monthly BRL per 1 CNY (Chinese yuan), from the ECB reference rates via the
+      Frankfurter API — the BCB does not publish a BRL/CNY rate. Feeds the CNY
+      column of the Gold tables (silver_extfx_currency → silver_currency).
+      Regenerate with `uv run python scripts/refresh_cny_seed.py`.
+    config:
+      column_types:
+        reference_date: date
+        brl_per_cny: float64
+    columns:
+      - name: reference_date
+        tests: [not_null, unique]
+      - name: brl_per_cny
+        tests: [not_null]
