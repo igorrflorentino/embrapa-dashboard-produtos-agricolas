@@ -45,7 +45,12 @@ with base_flows as (
         country_code,
         state_acronym,
         any_value(stat_unit_code)                 as stat_unit_code,
-        sum(statistical_quantity)                 as statistical_quantity,
+        any_value(unit_native)                    as unit_native,
+        any_value(unit_native_symbol)             as unit_native_symbol,
+        any_value(family)                         as family,
+        any_value(base_unit)                      as base_unit,
+        sum(qty_native)                           as qty_native,
+        sum(qty_base)                             as qty_base,
         sum(net_weight_kg)                        as net_weight_kg,
         sum(val_fob_usd)                          as val_fob_usd,
         sum(freight_usd)                          as freight_usd,
@@ -171,15 +176,24 @@ select
     {{ state_name('state_acronym') }}                        as state_name,
     {{ state_region('state_acronym') }}                      as region,
 
-    -- ── Quantities ───────────────────────────────────────────────────────────
-    -- statistical_quantity is in the NCM's statistical unit (stat_unit), which
-    -- varies by product (kg, m³, litro, …). net_weight_kg is always kilograms —
-    -- the only quantity comparable across products; do NOT sum
-    -- statistical_quantity across mixed stat_unit values.
+    -- ── Quantities (physical-unit family) ───────────────────────────────────
+    -- The NCM statistical quantity is reported in a unit that varies by product
+    -- (kg, m³, litro, número, …). It is normalised to a per-family base unit:
+    --   family       — massa | volume | energia | contagem | area | desconhecida
+    --   unit_native  — the source statistical-unit label (for display/audit)
+    --   qty_native   — the value in unit_native
+    --   qty_base     — qty_native converted to base_unit (t / m³ / MWh / un / ha)
+    --   base_unit    — the family's base unit
+    -- NEVER sum qty_base across families: any SUM(qty_base) must GROUP BY family
+    -- (build the q_by_family map at query time). net_weight_kg is always
+    -- kilograms (massa) — a parallel, always-comparable weight measure.
+    family,
     stat_unit_code,
-    u.unit_name                                             as stat_unit,
-    u.unit_symbol                                           as stat_unit_symbol,
-    statistical_quantity,
+    unit_native,
+    unit_native_symbol,
+    qty_native,
+    qty_base,
+    base_unit,
     net_weight_kg,
 
     -- ── Year-FX (nominal, at the month-of-record FX) ─────────────────────────
@@ -222,6 +236,6 @@ select
 
 from enriched
 -- Reference dimensions (MDIC aux tables) → human-readable labels for Looker.
+-- (The statistical-unit label + family are resolved upstream in Silver.)
 left join {{ ref('comex_ncm') }}     n on enriched.ncm_code       = n.co_ncm
 left join {{ ref('comex_country') }} c on enriched.country_code   = c.co_pais
-left join {{ ref('comex_unit') }}    u on enriched.stat_unit_code = u.co_unid

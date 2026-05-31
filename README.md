@@ -142,8 +142,9 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 **Tempo / geografia / produto**
 `reference_year`, `reference_date`, `state_acronym`, `state_name`, `region`, `city_code`, `city_name`, `product_code`, `product_description`.
 
-**Quantidades**
-`quantity_tons`, `quantity_m3`.
+**Quantidades (por família de unidade física)**
+`family` (`massa`|`volume`|`energia`|`contagem`|`area`|`desconhecida`), `unit_native` (rótulo da fonte), `qty_native` (valor na unidade nativa), `qty_base` (convertido para a unidade-base da família), `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`).
+> ⚠️ **Nunca some `qty_base` entre famílias.** Toda soma de quantidade exige `GROUP BY family` (monte `q_by_family = {massa:Σt, volume:Σm³, …}` em tempo de consulta). Fatores vêm dos seeds `unit_family_conversions` + `product_unit_factors`; unidade sem conversão → `qty_base` nulo (curadoria). Valor monetário continua família-agnóstico e somável.
 
 **Valores por FX do ano (foreign zerado pré-1994)**
 `val_yearfx_brl`, `val_yearfx_usd`, `val_yearfx_eur`, `val_yearfx_cny`.

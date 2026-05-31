@@ -1,0 +1,6 @@
+source,product_code,unit_raw,family,base_unit,to_base
+_reference,cafe,saca,massa,t,0.06
+_reference,boi,@,massa,t,0.015
+_reference,soja,bushel,massa,t,0.0272155
+_reference,milho,bushel,massa,t,0.0254
+_reference,petroleo,barril,volume,m³,0.158987
