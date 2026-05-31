@@ -52,14 +52,19 @@ with base_pevs as (
         any_value(city_code)            as city_code,
         product_code,
         any_value(product_description)  as product_description,
-        max(case when is_quantity_tons  then numeric_value end) as qty_tons,
-        max(case when is_quantity_m3    then numeric_value end) as qty_m3,
+        -- One quantity row per (year, state, city, product) — PEVS reports a
+        -- single physical unit per product — so max() simply lifts the
+        -- quantity row's family/unit/qty (NULL on the monetary row).
+        max(family)                     as family,
+        max(unit_native)                as unit_native,
+        max(base_unit)                  as base_unit,
+        max(qty_native)                 as qty_native,
+        max(qty_base)                   as qty_base,
         max(case when is_monetary_value then numeric_value end) as val_raw,
         max(ingestion_timestamp)        as last_refresh
     from {{ ref('silver_ibge_pevs') }}
     group by reference_year, state_acronym, city_name, product_code
-    having qty_tons   is not null
-        or qty_m3     is not null
+    having qty_native is not null
         or val_raw    is not null
 
 ),
@@ -183,9 +188,21 @@ select
     product_code,
     product_description,
 
-    -- ── Quantities ───────────────────────────────────────────────────────────
-    qty_tons                                                 as quantity_tons,
-    qty_m3                                                   as quantity_m3,
+    -- ── Quantities (physical-unit family) ───────────────────────────────────
+    -- The reported quantity is normalised to a per-family base unit:
+    --   family       — massa | volume | energia | contagem | area | desconhecida
+    --   unit_native  — the source unit label (Toneladas, Metros cúbicos, …)
+    --   qty_native   — the value in unit_native
+    --   qty_base     — qty_native converted to base_unit (t / m³ / MWh / un / ha)
+    --   base_unit    — the family's base unit
+    -- NEVER sum qty_base across families: any SUM(qty_base) must GROUP BY family
+    -- to build the q_by_family map at query time. Monetary values stay
+    -- family-agnostic and freely summable.
+    family,
+    unit_native,
+    qty_native,
+    qty_base,
+    base_unit,
 
     -- ── Year-FX: val_raw converted via FX of THAT year ──────────────────────
     -- val_raw is already in current BRL numerary (Silver applied the currency
@@ -221,7 +238,7 @@ select
     safe_divide(val_real_igpdi_brl, brl_per_cny_current)     as val_real_igpdi_cny,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
-    {{ data_quality_flag('qty_tons', 'qty_m3', 'val_raw') }} as data_quality_flag,
+    {{ data_quality_flag('qty_native', 'val_raw') }}        as data_quality_flag,
     last_refresh
 
 from enriched

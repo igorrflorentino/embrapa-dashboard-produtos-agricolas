@@ -157,14 +157,13 @@ Always filter by partition column in ad-hoc queries to avoid full scans.
 
 ## Table Schemas (key columns)
 
-### `gold.gold_pevs_production` (22 columns)
+### `gold.gold_pevs_production` (32 columns)
 ```
 reference_year, reference_date,
 state_acronym, state_name, region,
 city_code, city_name,
 product_code, product_description,
-quantity_tons, quantity_m3,
-val_nominal_brl,
+family, unit_native, qty_native, qty_base, base_unit,   -- physical-unit family (NEVER SUM qty_base across families — GROUP BY family)
 val_yearfx_brl, val_yearfx_usd, val_yearfx_eur, val_yearfx_cny,
 val_real_ipca_brl,  val_real_ipca_usd,  val_real_ipca_eur,  val_real_ipca_cny,
 val_real_igpm_brl,  val_real_igpm_usd,  val_real_igpm_eur,  val_real_igpm_cny,

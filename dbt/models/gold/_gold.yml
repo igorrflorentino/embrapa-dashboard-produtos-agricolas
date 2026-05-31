@@ -54,6 +54,20 @@ models:
         tests: [not_null]
       - name: product_code
         tests: [not_null]
+      - name: family
+        description: "Physical-unit family of the quantity: massa|volume|energia|contagem|area|desconhecida. NEVER sum qty_base across families."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area", "desconhecida"]
+      - name: unit_native
+        description: "Source unit label kept verbatim for display (Toneladas, Metros cúbicos, …)."
+      - name: qty_native
+        description: "Quantity in unit_native (the source reading)."
+      - name: qty_base
+        description: "qty_native converted to the family base_unit (t/m³/MWh/un/ha). NULL when the unit has no conversion (desconhecida or deferred commodity factor)."
+      - name: base_unit
+        description: "Base unit of the family (t, m³, MWh, un, ha)."
       - name: last_refresh
         description: "Max ingestion_timestamp across the rows aggregated into this record."
         tests: [not_null]
@@ -128,10 +142,22 @@ models:
       - name: state_acronym
         description: "UF of the NCM (SG_UF_NCM). May be a special non-UF code (EX, ND, ZN, …)."
         tests: [not_null]
-      - name: stat_unit
-        description: "Statistical-unit name for statistical_quantity (seed comex_unit), e.g. METRO CUBICO, QUILOGRAMA LIQUIDO. Varies by NCM."
-      - name: stat_unit_symbol
-        description: "Short symbol for the statistical unit (e.g. M3, KGL)."
+      - name: family
+        description: "Physical-unit family of qty_native: massa|volume|energia|contagem|area|desconhecida. NEVER sum qty_base across families. net_weight_kg is a separate always-massa measure."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area", "desconhecida"]
+      - name: unit_native
+        description: "Statistical-unit name (seed comex_unit), e.g. METRO CUBICO, QUILOGRAMA LIQUIDO. The source label for qty_native. Varies by NCM."
+      - name: unit_native_symbol
+        description: "Short symbol for unit_native (e.g. M3, KGL)."
+      - name: qty_native
+        description: "Statistical quantity in unit_native (summed to this grain). Do NOT sum across mixed units — use qty_base grouped by family."
+      - name: qty_base
+        description: "qty_native converted to the family base_unit (t/m³/MWh/un/ha). NULL when the unit has no conversion (desconhecida)."
+      - name: base_unit
+        description: "Base unit of the family (t, m³, MWh, un, ha)."
       - name: region
         description: "Brazilian region; NULL for special non-UF state codes."
         tests:

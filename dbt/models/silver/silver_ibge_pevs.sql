@@ -106,25 +106,46 @@ select
     -- factors; the year range disambiguates. The IPCA chain index only
     -- captures inflation, NOT currency reforms — without this factor,
     -- pre-1994 values come out 10^6 to 10^9 times too large.
-    -- Non-monetary (quantity) values keep the simple "x1000 if mil" path,
-    -- though current PEVS units (Toneladas, Metros cúbicos) never trigger it.
+    -- Quantity values are NOT scaled here: physical-unit conversion is owned by
+    -- the unit-family seeds below (qty_base). The old "x1000 if mil" branch was
+    -- removed — it never fired for the current units and would wrongly inflate
+    -- 'milheiro' (which now converts via to_base=1000).
     case
         when p.variable_code = '{{ var("ibge_variable_value") }}' then
             p.raw_numeric_value * fx.brl_factor
-        when lower(p.unit_of_measure) like '%mil%' then
-            p.raw_numeric_value * 1000.0
         else
             p.raw_numeric_value
     end as numeric_value,
 
-    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
-              and regexp_contains(lower(p.unit_of_measure), r'tonelada') then true else false end as is_quantity_tons,
-    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
-              and regexp_contains(lower(p.unit_of_measure), r'metro') then true else false end as is_quantity_m3,
     case when p.variable_code = '{{ var("ibge_variable_value") }}' then true else false end as is_monetary_value,
+
+    -- ── Physical-unit family (quantity rows only) ────────────────────────────
+    -- unit_native is the source label, kept verbatim for display/audit.
+    -- family / base_unit / to_base come from the unit-family seeds: the
+    -- per-product crosswalk (ufp) overrides the generic table (ufc); an unknown
+    -- unit falls to 'desconhecida' with a NULL qty_base (never an invented
+    -- conversion — surfaced for curation by a dedicated test). Commodity units
+    -- (saca/@/bushel/barril) carry a family but a NULL generic factor, so
+    -- qty_base stays NULL until the product crosswalk supplies to_base.
+    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
+        then p.unit_of_measure end                          as unit_native,
+    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
+        then coalesce(ufp.family, ufc.family, 'desconhecida') end as family,
+    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
+        then coalesce(ufp.base_unit, ufc.base_unit) end     as base_unit,
+    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
+        then p.raw_numeric_value end                        as qty_native,
+    case when p.variable_code = '{{ var("ibge_variable_quantity") }}'
+        then p.raw_numeric_value * coalesce(ufp.to_base, ufc.to_base) end as qty_base,
 
     p.ingestion_timestamp
 from parsed p
 left join {{ ref('historical_currency_factors') }} fx
     on lower(trim(p.unit_of_measure)) = lower(trim(fx.unit_of_measure))
     and p.reference_year between fx.year_from and fx.year_to
+left join {{ ref('unit_family_conversions') }} ufc
+    on lower(trim(p.unit_of_measure)) = ufc.unit_raw
+left join {{ ref('product_unit_factors') }} ufp
+    on ufp.source = 'pevs'
+    and ufp.product_code = p.product_code
+    and lower(trim(p.unit_of_measure)) = ufp.unit_raw

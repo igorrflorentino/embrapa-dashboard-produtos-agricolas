@@ -9,6 +9,35 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
+### Changed
+- **Quantidades por família de unidade física (quebra de schema, sem
+  retrocompat).** O formato fixo `[kg, t, m³, L]` foi removido. Toda linha de
+  quantidade na Gold passa a expor `family` (`massa`|`volume`|`energia`|
+  `contagem`|`area`|`desconhecida`), `unit_native` (rótulo da fonte), `qty_native`
+  (valor nativo), `qty_base` (convertido para a unidade-base da família) e
+  `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`). A conversão acontece no **Silver**
+  (Gold já entrega no formato final). **`gold_pevs_production`** troca
+  `quantity_tons`/`quantity_m3` por essas colunas; **`gold_comex_flows`** troca
+  `stat_unit`/`stat_unit_symbol`/`statistical_quantity` por
+  `unit_native`/`unit_native_symbol`/`qty_native`+`qty_base`+`family`+`base_unit`
+  (a resolução da unidade estatística migrou do Gold para o Silver;
+  `net_weight_kg` segue como massa-kg paralela). **Regra:** nunca somar
+  `qty_base` entre famílias — toda agregação exige `GROUP BY family` (monte
+  `q_by_family = {massa:Σt, volume:Σm³, …}` em tempo de consulta). Valor
+  monetário continua família-agnóstico e somável.
+  - Novos seeds versionados: **`unit_family_conversions`** (unidade →
+    família + `to_base`, fonte única — sem fator hard-coded em query) e
+    **`product_unit_factors`** (crosswalk produto→fator para unidades de
+    commodity como saca/@/bushel/barril, que sobrepõe o seed genérico; sem
+    linha → `qty_base` nulo, marcado para curadoria — nunca conversão inventada).
+  - `data_quality_flag` reassinado para `(qty, val_brl)`. Novo teste de
+    curadoria (warn) `assert_unconvertible_quantities_for_curation` e um
+    **dbt unit test** com um caso por família + override do crosswalk.
+  - ⚠️ **Operacional:** `silver_ibge_pevs` é incremental — rode
+    `dbt build --select silver_ibge_pevs+ --full-refresh` (dev **e** prod) ao
+    aplicar esta mudança, senão as partições antigas ficam com as colunas novas
+    nulas.
+
 ### Fixed
 - **Séries de câmbio do BCB corrigidas (afetava PEVS e COMEX).** As séries
   configuradas estavam erradas: `3694` (USD) é **anual** — insuficiente para a

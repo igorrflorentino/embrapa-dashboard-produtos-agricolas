@@ -43,6 +43,77 @@ seeds:
       - name: brl_factor
         tests: [not_null]
 
+  # ─── Physical-unit family conversion ───────────────────────────────────────
+  - name: unit_family_conversions
+    description: |
+      Canonical unit → physical-unit family + conversion to the family's base
+      unit. The single source of truth for quantity normalisation — NO factor
+      is ever hard-coded in a model. Joined in Silver on
+      lower(trim(source_unit)) = unit_raw.
+
+      Families and base units:
+        massa → t · volume → m³ · energia → MWh · contagem → un · area → ha
+      A unit outside these five maps to 'desconhecida' downstream (no seed row)
+      with a NULL qty_base — never an invented conversion.
+
+      `unit_raw` holds the source label(s) lowercased (both canonical tokens
+      like 't'/'m³' and the literal strings each source emits, e.g.
+      'toneladas', 'metro cubico', 'quilograma liquido'). Add a row when a new
+      source emits a new label.
+
+      Commodity units whose factor depends on the product (saca, @, arroba,
+      bushel, barril) appear here with their family/base_unit but a BLANK
+      to_base: the conversion is deferred to product_unit_factors. Until that
+      crosswalk supplies to_base, qty_base stays NULL (surfaced for curation).
+    config:
+      column_types:
+        unit_raw: string
+        family: string
+        base_unit: string
+        to_base: float64
+    columns:
+      - name: unit_raw
+        tests: [not_null, unique]
+      - name: family
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area"]
+      - name: base_unit
+        tests: [not_null]
+
+  - name: product_unit_factors
+    description: |
+      Per-product override for commodity units whose conversion factor depends
+      on the product (saca, @, arroba, bushel, barril — e.g. 1 saca de café =
+      60 kg but a bushel of soja ≠ a bushel of milho). Overrides
+      unit_family_conversions when (source, product_code, unit_raw) matches;
+      otherwise the generic seed applies.
+
+      Joined in Silver on source + product_code + lower(trim(source_unit)).
+      `source` is the pipeline source ('pevs', 'comex', …); rows under the
+      sentinel source '_reference' are documented canonical factors that match
+      NO real join — replace source/product_code with the real identifiers when
+      a source that reports these units is added.
+    config:
+      column_types:
+        source: string
+        product_code: string
+        unit_raw: string
+        family: string
+        base_unit: string
+        to_base: float64
+    columns:
+      - name: to_base
+        tests: [not_null]
+      - name: family
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area"]
+
   # ─── COMEX reference dimensions (MDIC Comex Stat aux tables) ────────────────
   - name: comex_unit
     description: |

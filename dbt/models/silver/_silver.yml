@@ -113,3 +113,48 @@ models:
           - dbt_utils.expression_is_true:
               arguments:
                 expression: "is null or val_fob_usd >= 0"
+
+unit_tests:
+  # One quantity case per physical-unit family, plus a product-crosswalk
+  # override case (saca: generic seed declares family=massa with NO factor; the
+  # product_unit_factors row supplies to_base). Energia/contagem/area are not
+  # present in real PEVS data, so the coverage is synthetic by design.
+  - name: test_pevs_quantity_family_conversion
+    model: silver_ibge_pevs
+    # silver_ibge_pevs is incremental — test the full-refresh (else) branch.
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('bronze_ibge', 'sidra_raw')
+        rows:
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0001", tipo_de_produto_extrativo: "1 - Massa", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "Toneladas",     valor: "120",  nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0002", tipo_de_produto_extrativo: "2 - Volume", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "Metros cúbicos", valor: "50",   nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0003", tipo_de_produto_extrativo: "3 - Energia", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "kWh",          valor: "5000", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0004", tipo_de_produto_extrativo: "4 - Contagem", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "milheiro",     valor: "2",    nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0005", tipo_de_produto_extrativo: "5 - Area", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "alqueire",     valor: "50",   nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "9999", tipo_de_produto_extrativo: "9 - Saca", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "saca",          valor: "10",   nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+      - input: ref('historical_currency_factors')
+        # One non-matching row just so the empty-join CTE has a known schema.
+        rows:
+          - {unit_of_measure: "Mil Reais", year_from: 1900, year_to: 1901, brl_factor: 1.0}
+      - input: ref('unit_family_conversions')
+        rows:
+          - {unit_raw: "toneladas",      family: "massa",    base_unit: "t",   to_base: 1}
+          - {unit_raw: "metros cúbicos", family: "volume",   base_unit: "m³",  to_base: 1}
+          - {unit_raw: "kwh",            family: "energia",  base_unit: "MWh", to_base: 0.001}
+          - {unit_raw: "milheiro",       family: "contagem", base_unit: "un",  to_base: 1000}
+          - {unit_raw: "alqueire",       family: "area",     base_unit: "ha",  to_base: 2.42}
+          # saca: family known, factor deferred to the product crosswalk.
+          - {unit_raw: "saca",           family: "massa",    base_unit: "t",   to_base: }
+      - input: ref('product_unit_factors')
+        rows:
+          - {source: "pevs", product_code: "9999", unit_raw: "saca", family: "massa", base_unit: "t", to_base: 0.06}
+    expect:
+      rows:
+        - {product_code: "0001", unit_native: "Toneladas",     family: "massa",    qty_base: 120}
+        - {product_code: "0002", unit_native: "Metros cúbicos", family: "volume",   qty_base: 50}
+        - {product_code: "0003", unit_native: "kWh",           family: "energia",  qty_base: 5}
+        - {product_code: "0004", unit_native: "milheiro",      family: "contagem", qty_base: 2000}
+        - {product_code: "0005", unit_native: "alqueire",      family: "area",     qty_base: 121}
+        - {product_code: "9999", unit_native: "saca",          family: "massa",    qty_base: 0.6}
