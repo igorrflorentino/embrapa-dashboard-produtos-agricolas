@@ -23,9 +23,12 @@ select
     max(reference_year)            as year_end,
     count(*)                       as total_rows,
     count(distinct product_code)   as products_total,
-    count(distinct state_acronym)  as ufs_total,
+    -- real Brazilian UFs only — exclude special trade codes (EX/ND/ZN/MN/RE…),
+    -- which have no state_name from the state lookup
+    count(distinct case when state_name is not null then state_acronym end) as ufs_total,
     max(last_refresh)              as last_refresh
 from {{ ref('gold_pevs_production') }}
+having count(*) > 0   -- an empty source emits no metadata row (NULL coverage would fail not_null)
 
 union all
 
@@ -37,9 +40,10 @@ select
     max(reference_year),
     count(*),
     count(distinct ncm_code),
-    count(distinct state_acronym),
+    count(distinct case when state_name is not null then state_acronym end),
     max(last_refresh)
 from {{ ref('gold_comex_flows') }}
+having count(*) > 0
 
 union all
 
@@ -54,3 +58,4 @@ select
     cast(null as int64),           -- COMTRADE has no Brazilian UF (country↔country)
     max(last_refresh)
 from {{ ref('gold_comtrade_flows') }}
+having count(*) > 0

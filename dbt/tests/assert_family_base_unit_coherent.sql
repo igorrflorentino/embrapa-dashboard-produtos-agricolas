@@ -31,7 +31,10 @@ select g.model, g.family, g.base_unit
 from gold g
 left join valid v using (family)
 where
+    -- family must never be NULL — it would make both branches below evaluate to
+    -- NULL and slip through; every Gold row carries at least 'desconhecida'
+    g.family is null
     -- desconhecida must carry no base unit
-    (g.family = 'desconhecida' and g.base_unit is not null)
+    or (g.family = 'desconhecida' and g.base_unit is not null)
     -- a real family must carry exactly its canonical base unit
     or (g.family != 'desconhecida' and g.base_unit is distinct from v.base_unit)
