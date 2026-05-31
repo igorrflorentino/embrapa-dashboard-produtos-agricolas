@@ -45,17 +45,19 @@ def bronze_schema() -> list[bigquery.SchemaField]:
     return schema
 
 
-_CMD_CODES_CACHE: list[str] | None = None
+# Keyed on the scope tuple (not a bare list) so a different COMTRADE_CMD_CODES in
+# the same process resolves independently instead of reusing the first run's HS6 list.
+_CMD_CODES_CACHE: dict[tuple[str, ...], list[str]] = {}
 
 
 def resolve_cmd_codes(settings: Settings) -> list[str]:
     """The HS6 leaf codes to request, expanded from the configured scope
     (``comtrade_cmd_codes``, e.g. ``0801``/``44``) via the public HS reference.
-    Cached per process so the HS reference is fetched once, not per chunk."""
-    global _CMD_CODES_CACHE
-    if _CMD_CODES_CACHE is None:
-        _CMD_CODES_CACHE = client.list_hs6_codes(list(settings.comtrade_cmd_map))
-    return _CMD_CODES_CACHE
+    Cached per scope so the HS reference is fetched once per scope, not per chunk."""
+    scope = tuple(settings.comtrade_cmd_map)
+    if scope not in _CMD_CODES_CACHE:
+        _CMD_CODES_CACHE[scope] = client.list_hs6_codes(list(scope))
+    return _CMD_CODES_CACHE[scope]
 
 
 def _reporter_batches(reporters: list[str]) -> list[list[str]]:
