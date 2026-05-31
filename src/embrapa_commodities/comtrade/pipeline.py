@@ -29,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 RAW_DATASET = "comtrade_flows"
 
-# Reporters per API call. ~25 keeps each (year, batch) call well under the
-# keyed per-call record cap even for the wood-heavy chapter 44.
-REPORTER_BATCH_SIZE = 25
+# Reporters per (year) chunk = one raw archive object. The keyed per-call cap is
+# enforced separately by client.fetch_chunk_adaptive (which splits/recurses within
+# a chunk), so this only controls raw-file / resume granularity, not call size.
+REPORTER_BATCH_SIZE = 8
 
 # Bronze layout: the curated API columns (all STRING) + the typed timestamp.
 BRONZE_STRING_COLUMNS: list[str] = list(client.BRONZE_COLUMNS)
@@ -42,6 +43,19 @@ def bronze_schema() -> list[bigquery.SchemaField]:
     schema = [bigquery.SchemaField(col, "STRING", mode="NULLABLE") for col in client.BRONZE_COLUMNS]
     schema.append(bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP", mode="REQUIRED"))
     return schema
+
+
+_CMD_CODES_CACHE: list[str] | None = None
+
+
+def resolve_cmd_codes(settings: Settings) -> list[str]:
+    """The HS6 leaf codes to request, expanded from the configured scope
+    (``comtrade_cmd_codes``, e.g. ``0801``/``44``) via the public HS reference.
+    Cached per process so the HS reference is fetched once, not per chunk."""
+    global _CMD_CODES_CACHE
+    if _CMD_CODES_CACHE is None:
+        _CMD_CODES_CACHE = client.list_hs6_codes(list(settings.comtrade_cmd_map))
+    return _CMD_CODES_CACHE
 
 
 def _reporter_batches(reporters: list[str]) -> list[list[str]]:
@@ -95,12 +109,16 @@ def sync_raw(
             logger.info("Comtrade %s: raw exists, skipping.", basename)
             return False
 
-    df = client.fetch_chunk(
+    cmd_codes = resolve_cmd_codes(settings)
+    # Adaptive: a single dense reporter can exceed the per-call cap at HS6, so the
+    # client splits/recurses (reporters→flows→cmd) and concatenates — the frame
+    # below is the complete chunk regardless of how many sub-calls it took.
+    df = client.fetch_chunk_adaptive(
         settings.comtrade_api_base_url,
         settings.comtrade_api_key,
         reporters=reporters,
         years=[year],
-        cmd_codes=list(settings.comtrade_cmd_map),
+        cmd_codes=cmd_codes,
         flows=settings.comtrade_flows_list,
     )
     if df.empty:
@@ -117,7 +135,8 @@ def sync_raw(
             "source": "un-comtrade",
             "year": str(year),
             "reporters": str(len(reporters)),
-            "cmd_codes": ",".join(settings.comtrade_cmd_map),
+            "cmd_scope": ",".join(settings.comtrade_cmd_map),
+            "cmd_hs6_count": str(len(cmd_codes)),
             "flows": ",".join(settings.comtrade_flows_list),
         },
     )

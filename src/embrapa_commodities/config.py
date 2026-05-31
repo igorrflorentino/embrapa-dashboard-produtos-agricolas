@@ -124,10 +124,13 @@ class Settings(BaseSettings):
     bq_bronze_comtrade_dataset: str = Field(default="bronze_comtrade")
     bq_bronze_comtrade_flows_table: str = Field(default="comtrade_flows_raw")
     # HS code prefixes to keep (CODE:LABEL) — mirror the COMEX scope so Brazil can
-    # be compared against the world for the same commodities.
+    # be compared against the world for the same commodities. These are the SCOPE
+    # codes; the ingest expands them to their 6-digit HS leaves (Comtrade returns
+    # data only at the requested code level).
     comtrade_cmd_codes: str = Field(default="0801:castanha,44:madeira_carvao")
-    # Flow codes: X=export, M=import (UN Comtrade flowCode).
-    comtrade_flows: str = Field(default="X,M")
+    # Flow codes (UN Comtrade flowCode): X=export, M=import, RX=re-export,
+    # RM=re-import. The four primary regimes the frontend's `flow` filter exposes.
+    comtrade_flows: str = Field(default="X,M,RX,RM")
     # Reporters to pull ("all" = every reporting country, expanded by the client
     # from the Comtrade Reporters reference; or a comma list of M49 codes). The
     # keyed endpoint rejects "all" literally, so the client enumerates and batches.
@@ -209,14 +212,15 @@ class Settings(BaseSettings):
 
     @property
     def comtrade_flows_list(self) -> list[str]:
-        """Validated UN Comtrade flow codes. Each must be 'X' (export) or 'M' (import)."""
-        allowed = {"X", "M"}
+        """Validated UN Comtrade flow codes: X=export, M=import, RX=re-export,
+        RM=re-import (the four primary regimes)."""
+        allowed = {"X", "M", "RX", "RM"}
         flows = [f.strip().upper() for f in self.comtrade_flows.split(",") if f.strip()]
         if not flows:
             raise ValueError("COMTRADE_FLOWS is empty.")
         invalid = [f for f in flows if f not in allowed]
         if invalid:
-            raise ValueError(f"COMTRADE_FLOWS has invalid flow(s) {invalid}; allowed: X, M")
+            raise ValueError(f"COMTRADE_FLOWS has invalid flow(s) {invalid}; allowed: X, M, RX, RM")
         return flows
 
 

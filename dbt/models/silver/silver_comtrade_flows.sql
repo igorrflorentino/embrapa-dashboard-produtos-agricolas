@@ -21,10 +21,12 @@
         pre-aggregated total over all partners and would double-count any
         SUM over partners. The total is recoverable at query time as
         GROUP BY reporter (the medallion principle: no pre-aggregated rows).
-      • flowCode is normalised X/M → export/import to match silver_comex_flows,
-        so a dashboard can treat both trade sources with one `flow` vocabulary.
-        Only the primary regimes X (export) and M (import) are kept; the
-        secondary regimes (DX/FM/MIP/…) are not requested by the ingest.
+      • flowCode is normalised to a readable `flow`: X→export, M→import,
+        RX→re-export, RM→re-import — the four primary regimes the frontend's
+        `flow` filter exposes. Other regimes (DX/FM/MIP/…) are not requested.
+      • only HS6 rows are kept (length(cmdCode)=6): the ingest requests the
+        6-digit leaves of the scope chapters, so any legacy HS4 aggregate row
+        (0801/44) is excluded — keeping both would double-count in Gold.
 
     Quantity sentinels: chapter-44 rows routinely report qty = netWgt = '0.0'
     (quantity not collected). 0 is mapped to NULL so it reads as "no reading"
@@ -40,7 +42,8 @@ with deduplicated as (
     select *
     from {{ source('bronze_comtrade', 'comtrade_flows_raw') }}
     where partnerCode != '0'                       -- drop the World aggregate
-      and flowCode in ('X', 'M')                   -- primary regimes only
+      and flowCode in ('X', 'M', 'RX', 'RM')       -- four primary regimes
+      and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
     qualify row_number() over (
         partition by
             refYear, reporterCode, partnerCode, partner2Code,
@@ -53,7 +56,12 @@ with deduplicated as (
 parsed as (
 
     select
-        case flowCode when 'X' then 'export' when 'M' then 'import' end as flow,
+        case flowCode
+            when 'X'  then 'export'
+            when 'M'  then 'import'
+            when 'RX' then 're-export'
+            when 'RM' then 're-import'
+        end                                                 as flow,
         cast(refYear as int64)                              as reference_year,
         reporterCode                                        as reporter_code,
         partnerCode                                         as partner_code,
