@@ -58,6 +58,22 @@ def test_fetch_series_raises_on_http_error() -> None:
 
 
 @responses.activate
+def test_fetch_series_treats_404_as_empty_window() -> None:
+    """A 404 means the series has no data in that window (series have different
+    inception dates, e.g. EUR before 1999) — return empty, don't raise, so a
+    --full from BCB_START_YEAR works across series."""
+    responses.add(
+        method=responses.GET,
+        url=re.compile(r"https://api\.bcb\.gov\.br/dados/serie/bcdata\.sgs\.21619/dados.*"),
+        status=404,
+        body="Not found",
+    )
+    df = client.fetch_series("21619", 1980, 1980)
+    assert df.empty
+    assert list(df.columns) == ["data", "valor"]
+
+
+@responses.activate
 def test_fetch_series_chunks_windows_larger_than_max() -> None:
     """A 25-year window should fan out into 3 HTTP calls of <= 10 years each."""
     payload = [{"data": "01/01/2020", "valor": "5.20"}]

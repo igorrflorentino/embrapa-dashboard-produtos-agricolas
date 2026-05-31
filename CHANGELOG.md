@@ -9,6 +9,22 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Unreleased]
 
+### Fixed
+- **Séries de câmbio do BCB corrigidas (afetava PEVS e COMEX).** As séries
+  configuradas estavam erradas: `3694` (USD) é **anual** — insuficiente para a
+  deflação mensal do COMEX (só preenchia janeiros); `4393` (EUR) retornava
+  ~127 e `20542` (CNY) ~4 milhões — **não são cotações BRL/unidade**. Trocadas
+  por PTAX **venda diária**: `1`=USD, `21619`=EUR (a Gold faz a média por ano/
+  mês). A **CNY foi removida** — o BCB não publica BRL/CNY (nem USD/CNY) no SGS
+  ou PTAX; uma coluna de iuan exigiria fonte externa (follow-up). Isso conserta
+  `val_yearfx_{brl,usd,eur}` e `val_real_*_{brl,usd,eur}` em
+  `gold_pevs_production` **e** `gold_comex_flows`.
+- **`bcb/client`: HTTP 404 do SGS tratado como janela sem dado**, não erro —
+  séries têm datas de início diferentes (USD 1984, EUR 1999), então o
+  year-chunking do `--full` consulta janelas que antecedem algumas séries.
+  Antes, um `--full` de `BCB_START_YEAR` quebrava com 404 na primeira janela
+  vazia.
+
 ### Added
 - **Dimensões de referência do COMEX — rótulos legíveis na `gold_comex_flows`.**
   Três seeds das tabelas auxiliares do MDIC (`bd/tabelas/`): `comex_unit`
