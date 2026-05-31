@@ -82,10 +82,13 @@ gcloud iam service-accounts create sa-data-pipeline-prod \
 
 Grant data pipeline permissions:
 ```bash
-# Write to GCS (landing/)
+# Read + write GCS raw/ — the ingestion is TWO-PHASE: Phase 1 writes the raw
+# archive, Phase 2 reads it back to derive Bronze (and `--from-raw` re-reads it).
+# objectCreator alone (write-only) is therefore INSUFFICIENT — the pipeline SA
+# must also read. objectAdmin grants both; or pair objectCreator + objectViewer.
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
   --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/storage.objectCreator
+  --role=roles/storage.objectAdmin
 
 # Write to BigQuery (Bronze)
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
