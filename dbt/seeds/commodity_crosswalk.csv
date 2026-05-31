@@ -1,0 +1,10 @@
+commodity_id,commodity_name,source,code_prefix
+castanha_do_para,Castanha-do-pará,pevs,3405
+castanha_do_para,Castanha-do-pará,comex,08012100
+castanha_do_para,Castanha-do-pará,comex,08012200
+castanha_do_para,Castanha-do-pará,comtrade,080121
+castanha_do_para,Castanha-do-pará,comtrade,080122
+madeira_em_tora,Madeira em tora,pevs,3435
+madeira_em_tora,Madeira em tora,pevs,3450
+madeira_em_tora,Madeira em tora,comex,4403
+madeira_em_tora,Madeira em tora,comtrade,4403
