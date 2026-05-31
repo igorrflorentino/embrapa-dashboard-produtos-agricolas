@@ -102,6 +102,7 @@ models:
               - ncm_code
               - country_code
               - state_acronym
+              - transport_route_code
     columns:
       - name: flow
         tests:
@@ -142,6 +143,11 @@ models:
       - name: state_acronym
         description: "UF of the NCM (SG_UF_NCM). May be a special non-UF code (EX, ND, ZN, …)."
         tests: [not_null]
+      - name: transport_route_code
+        description: "MDIC transport-mode code (CO_VIA), e.g. 01=Marítima, 04=Aérea, 07=Rodoviária. Part of the grain; backs the frontend `via` filter."
+        tests: [not_null]
+      - name: via_name
+        description: "Portuguese transport-mode label (seed comex_via, joined on CO_VIA)."
       - name: family
         description: "Physical-unit family of qty_native: massa|volume|energia|contagem|area|desconhecida. NEVER sum qty_base across families. net_weight_kg is a separate always-massa measure."
         tests:

@@ -1,0 +1,17 @@
+co_via,via_name
+00,Não Definido
+01,Marítima
+02,Fluvial
+03,Lacustre
+04,Aérea
+05,Postal
+06,Ferroviária
+07,Rodoviária
+08,Conduto/Rede de Transmissão
+09,Meios Próprios
+10,Entrada/Saída Ficta
+11,Courier
+12,Em Mãos
+13,Por Reboque
+14,Dutos
+15,Vicinal Fronteiriço

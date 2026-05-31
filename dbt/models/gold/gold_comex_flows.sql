@@ -44,6 +44,7 @@ with base_flows as (
         any_value(hs_chapter)                     as hs_chapter,
         country_code,
         state_acronym,
+        transport_route_code,
         any_value(stat_unit_code)                 as stat_unit_code,
         any_value(unit_native)                    as unit_native,
         any_value(unit_native_symbol)             as unit_native_symbol,
@@ -58,7 +59,9 @@ with base_flows as (
         count(*)                                  as source_rows,
         max(ingestion_timestamp)                  as last_refresh
     from {{ ref('silver_comex_flows') }}
-    group by flow, reference_year, reference_month, ncm_code, country_code, state_acronym
+    group by
+        flow, reference_year, reference_month, ncm_code, country_code,
+        state_acronym, transport_route_code
 
 ),
 
@@ -176,6 +179,10 @@ select
     {{ state_name('state_acronym') }}                        as state_name,
     {{ state_region('state_acronym') }}                      as region,
 
+    -- ── Transport mode (MDIC CO_VIA) ─────────────────────────────────────────
+    transport_route_code,
+    v.via_name                                              as via_name,
+
     -- ── Quantities (physical-unit family) ───────────────────────────────────
     -- The NCM statistical quantity is reported in a unit that varies by product
     -- (kg, m³, litro, número, …). It is normalised to a per-family base unit:
@@ -237,5 +244,6 @@ select
 from enriched
 -- Reference dimensions (MDIC aux tables) → human-readable labels for Looker.
 -- (The statistical-unit label + family are resolved upstream in Silver.)
-left join {{ ref('comex_ncm') }}     n on enriched.ncm_code       = n.co_ncm
-left join {{ ref('comex_country') }} c on enriched.country_code   = c.co_pais
+left join {{ ref('comex_ncm') }}     n on enriched.ncm_code            = n.co_ncm
+left join {{ ref('comex_country') }} c on enriched.country_code        = c.co_pais
+left join {{ ref('comex_via') }}     v on enriched.transport_route_code = v.co_via
