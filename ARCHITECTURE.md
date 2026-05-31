@@ -128,7 +128,8 @@ embrapa-dashboard-commodities/
 │   │       ├── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
 │   │       ├── gold_comex_flows.sql      # Gold COMEX (forma: flows, Brasil)
 │   │       ├── gold_comtrade_flows.sql   # Gold COMTRADE (forma: flows, global bilateral)
-│   │       └── gold_commodity_crosswalk.sql  # Ponte cross-source (source,code)→commodity
+│   │       ├── gold_commodity_crosswalk.sql  # Ponte cross-source (source,code)→commodity
+│   │       └── gold_source_metadata.sql  # Proveniência por fonte (view; seam dataStore.meta)
 │   │                                     # Novas fontes: gold_<fonte>_<forma>
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
@@ -249,6 +250,7 @@ como objeto carimbado por run (trilha append-only).
 - Tabela do MDIC COMEX: `gold_comex_flows` — uma linha por `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym, transport_route_code)` (o modal `via` faz parte do grão; `via_name` via seed `comex_via`). As 4 convenções monetárias são aplicadas sobre `VL_FOB` (US$): `val_yearfx_*` no FX do mês de registro e `val_real_*` convertendo US$→BRL no FX do mês, deflacionando pela cadeia BCB e reconvertendo no FX atual (deflação **mensal**, não anual, por o grão ser mensal).
 - Tabela da UN Comtrade: `gold_comtrade_flows` — comércio **global** bilateral, uma linha por `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Mesmas 4 convenções sobre `primaryValue` (US$), mas deflação **anual** (FX médio do ano, índice de inflação fim-de-ano — como o PEVS) por o grão ser anual. Geografia bilateral: `reporter` + `partner` (ambos M49 → nome/ISO3). Sem dupla-contagem (World dropado no Silver), então `SUM` sobre partners é total bilateral verdadeiro.
 - **Dimensão cross-source** (exceção ao "uma tabela por fonte"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolvido do seed `commodity_crosswalk` (vínculos por prefixo) contra os códigos reais das Gold. Liga a mesma commodity entre PEVS/COMEX/COMTRADE para as análises cross.
+- **Metadados por fonte** (view): `gold_source_metadata` — uma linha por fonte com proveniência derivada do Gold (tabela, cadência, cobertura, contadores, `last_refresh`). Alimenta o seam `dataStore.meta(id)` do frontend; `implStatus`/`visible` são config de runtime (ver [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
 - **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. Qualquer agregação (estado-ano, nacional) é derivada **em tempo de query** via `GROUP BY` — deliberadamente NÃO mantemos tabelas pré-agregadas (simplicidade sobre eficiência por ora). Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.

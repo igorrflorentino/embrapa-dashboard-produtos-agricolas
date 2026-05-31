@@ -46,6 +46,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   cross (coeficiente de exportação, market-share, espelho comercial).
 - **Documento de contrato de dados** `docs/frontend_data_contract.md` — mapa
   Gold → snapshot do frontend (campo, magnitude, unidade) para o handoff do BFF.
+- **Metadados de proveniência por fonte** — view `gold_source_metadata` (uma linha
+  por fonte: tabela, cadência, cobertura ano, contadores `total_rows`/
+  `products_total`/`ufs_total`, `last_refresh`), derivada das Gold. Alimenta o seam
+  `dataStore.meta(id)` do frontend (proveniência vem do backend, não de literais);
+  `implStatus`/`visible` ficam como config de runtime, documentados no contrato.
 - **Câmbio BRL/CNY via fonte externa (ECB/Frankfurter) — coluna de iuan na Gold.**
   O BCB não publica BRL/CNY (PTAX cota só 10 moedas, sem iuan), então a CNY é
   obtida das taxas de referência do BCE via [Frankfurter](https://frankfurter.dev)

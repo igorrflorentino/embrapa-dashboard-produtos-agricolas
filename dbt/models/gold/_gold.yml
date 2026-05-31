@@ -299,3 +299,51 @@ models:
         description: "Exact product code in that source (PEVS code / NCM8 / HS6)."
         tests: [not_null]
 
+  - name: gold_source_metadata
+    description: |
+      Per-source provenance for the frontend metadata seam (dataStore.meta(id)):
+      table, cadence, coverage (year_start/end), counters (total_rows,
+      products_total, ufs_total) and freshness (last_refresh), all derived from
+      the Gold fact tables. One row per source. implStatus / visible / preview are
+      runtime config (not data) — see docs/frontend_data_contract.md.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [source]
+    columns:
+      - name: source
+        description: "Bank id matching bancos.js (ibge_pevs / mdic_comex / un_comtrade)."
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values: ["ibge_pevs", "mdic_comex", "un_comtrade"]
+      - name: gold_table
+        description: "Gold table backing this source."
+        tests: [not_null]
+      - name: cadence
+        description: "Reporting cadence: 'annual' or 'monthly' (COMEX)."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["annual", "monthly"]
+      - name: year_start
+        description: "Earliest reference_year present. Coverage start (yearStart)."
+        tests: [not_null]
+      - name: year_end
+        description: "Latest reference_year present. Coverage end / yearEnd / PEVS lastCrop."
+        tests: [not_null]
+      - name: total_rows
+        description: "Row count of the Gold table (totalRows counter)."
+        tests: [not_null]
+      - name: products_total
+        description: "Distinct product codes (productsTotal): PEVS product / NCM8 / HS6."
+        tests: [not_null]
+      - name: ufs_total
+        description: "Distinct Brazilian UFs (ufsTotal). NULL for COMTRADE (country↔country, no UF)."
+      - name: last_refresh
+        description: "Max ingestion_timestamp across the source's Gold rows. Feeds refresh / goldVersion.at / isStale."
+        tests: [not_null]
+
