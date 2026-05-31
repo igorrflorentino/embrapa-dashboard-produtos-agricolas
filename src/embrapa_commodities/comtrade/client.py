@@ -107,8 +107,13 @@ def list_hs6_codes(scope_codes: list[str]) -> list[str]:
 
     Comtrade returns data only at the *requested* code level — asking for ``0801``
     yields the HS4 aggregate, not its children — so to ingest at HS6 the pipeline
-    must enumerate the leaves. Returns them sorted; falls back to the scope codes
-    themselves if a scope code has no 6-digit descendants (already a leaf)."""
+    must enumerate the leaves. Returns them sorted.
+
+    Raises rather than falling back to the (HS4) scope codes: an empty reference is
+    treated as a transient fetch failure, and a non-empty reference with no HS6
+    descendants of the scope is a configuration error. Silently returning the
+    scope codes would request HS4 aggregates — the exact wrong-granularity /
+    double-count failure HS6 exists to avoid."""
     response = core_http.get_drained(
         HS_REF_URL,
         total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
@@ -122,12 +127,20 @@ def list_hs6_codes(scope_codes: list[str]) -> list[str]:
     finally:
         response.close()
 
-    leaves: list[str] = []
-    for entry in results:
-        cid = str(entry["id"])
-        if entry.get("aggrLevel") == 6 and any(cid.startswith(s) for s in scope_codes):
-            leaves.append(cid)
-    return sorted(leaves) if leaves else sorted(scope_codes)
+    if not results:
+        # 200 with an empty body — an API hiccup or schema drift; retryable.
+        raise ComtradeTransientError("HS reference returned no results")
+    leaves = sorted(
+        str(entry["id"])
+        for entry in results
+        if entry.get("aggrLevel") == 6 and any(str(entry["id"]).startswith(s) for s in scope_codes)
+    )
+    if not leaves:
+        raise ComtradeRequestError(
+            f"No HS6 leaves under scope {scope_codes} in the HS reference "
+            "— check COMTRADE_CMD_CODES."
+        )
+    return leaves
 
 
 @core_http.http_retry_policy(

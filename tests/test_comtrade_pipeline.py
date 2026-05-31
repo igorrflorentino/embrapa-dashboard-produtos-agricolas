@@ -34,9 +34,11 @@ def settings() -> Settings:
 
 @pytest.fixture(autouse=True)
 def _stub_hs6(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pre-seed the HS6 cache so sync_raw's resolve_cmd_codes never hits the
-    network in tests (auto-reverted by monkeypatch)."""
-    monkeypatch.setattr(pipeline, "_CMD_CODES_CACHE", ["080121", "080122", "440710"])
+    """Pre-seed the HS6 cache (keyed on the fixture's scope) so sync_raw's
+    resolve_cmd_codes never hits the network in tests (auto-reverted by monkeypatch)."""
+    monkeypatch.setattr(
+        pipeline, "_CMD_CODES_CACHE", {("0801", "44"): ["080121", "080122", "440710"]}
+    )
 
 
 def _bronze_df() -> pd.DataFrame:
@@ -79,7 +81,7 @@ def test_plan_chunks_enumerates_year_then_batch(settings) -> None:
 
 # ─── resolve_cmd_codes ───────────────────────────────────────────────────────
 def test_resolve_cmd_codes_expands_scope_once_and_caches(settings, monkeypatch) -> None:
-    monkeypatch.setattr(pipeline, "_CMD_CODES_CACHE", None)  # override the autouse stub
+    monkeypatch.setattr(pipeline, "_CMD_CODES_CACHE", {})  # override the autouse stub
     calls: list[list[str]] = []
 
     def fake_hs6(scope: list[str]) -> list[str]:
