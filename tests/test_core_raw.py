@@ -136,6 +136,36 @@ def test_raw_provenance_none_when_absent(settings: Settings) -> None:
     assert meta is None
 
 
+# ─── bronze-loaded marker ────────────────────────────────────────────────────
+def test_mark_raw_bronze_loaded_patches_metadata_in_place(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+    blob = gcs.bucket.return_value.get_blob.return_value
+    blob.metadata = {"source_etag": "v1"}
+    raw.mark_raw_bronze_loaded(
+        gcs, settings=settings, source="comex", dataset="comex_flows", basename="EXP_2023"
+    )
+    # Existing provenance preserved + the marker added, then persisted via patch().
+    assert blob.metadata["source_etag"] == "v1"
+    assert raw.BRONZE_LOADED_KEY in blob.metadata
+    blob.patch.assert_called_once()
+
+
+def test_mark_raw_bronze_loaded_noop_when_object_missing(settings: Settings) -> None:
+    gcs = MagicMock(name="gcs")
+    gcs.bucket.return_value.get_blob.return_value = None
+    # Must not raise when nothing is archived (e.g. an empty fetch landed no object).
+    raw.mark_raw_bronze_loaded(
+        gcs, settings=settings, source="comex", dataset="comex_flows", basename="missing"
+    )
+
+
+def test_raw_bronze_loaded_reads_marker() -> None:
+    assert raw.raw_bronze_loaded({raw.BRONZE_LOADED_KEY: "2026-05-31T00:00:00Z"})
+    assert not raw.raw_bronze_loaded({"source_etag": "v1"})  # archived but never loaded
+    assert not raw.raw_bronze_loaded(None)  # nothing archived
+    assert not raw.raw_bronze_loaded({})
+
+
 # ─── land_raw_file (upload an already-written Parquet file) ───────────────────
 def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings) -> None:
     gcs = MagicMock(name="gcs")

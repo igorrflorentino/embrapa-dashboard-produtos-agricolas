@@ -10,10 +10,16 @@ whose raw already exists is skipped; the latest year is always re-fetched (UN
 Comtrade revises recent years). So a daily-quota interruption just leaves the
 un-archived chunks for the next run — no lost work, no duplication beyond what
 Silver dedupes.
+
+A chunk's raw object is keyed by the *content* of its reporter batch (a stable
+hash of the sorted reporter codes), not by a positional index — see ``_basename``.
+This makes resume robust to the UN reference reordering or changing its reporter
+set between runs: a basename always refers to exactly the reporters it archived.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC
 
@@ -22,7 +28,13 @@ from google.cloud import bigquery, storage
 
 from embrapa_commodities.comtrade import client
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.core import land_raw, raw_provenance, read_raw
+from embrapa_commodities.core import (
+    land_raw,
+    mark_raw_bronze_loaded,
+    raw_bronze_loaded,
+    raw_provenance,
+    read_raw,
+)
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
 
 logger = logging.getLogger(__name__)
@@ -61,31 +73,42 @@ def resolve_cmd_codes(settings: Settings) -> list[str]:
 
 
 def _reporter_batches(reporters: list[str]) -> list[list[str]]:
+    """Fixed-size batches over a deterministically *sorted* reporter list, so the
+    same reporter set yields the same batches regardless of the order the UN
+    reference returned them in."""
+    ordered = sorted(reporters)
     return [
-        reporters[i : i + REPORTER_BATCH_SIZE]
-        for i in range(0, len(reporters), REPORTER_BATCH_SIZE)
+        ordered[i : i + REPORTER_BATCH_SIZE] for i in range(0, len(ordered), REPORTER_BATCH_SIZE)
     ]
 
 
-def _basename(year: int, batch_index: int) -> str:
-    """Raw object basename for a (year, reporter-batch) chunk — e.g. ``2022_r03``."""
-    return f"{year}_r{batch_index:02d}"
+def _basename(year: int, reporters: list[str]) -> str:
+    """Raw object basename for a (year, reporter-batch) chunk — e.g. ``2022_r1a2b3c4d5e``.
+
+    The suffix is a stable content hash of the batch's *sorted* reporter codes,
+    NOT a positional index: a basename therefore always refers to exactly the
+    reporters it archived. If the UN reference reorders or changes its reporter
+    set between runs, resume can never silently skip a chunk whose membership
+    shifted under a reused index — it simply re-fetches the affected batch (and
+    Silver dedupes the overlap).
+    """
+    digest = hashlib.sha1(",".join(sorted(reporters)).encode("utf-8")).hexdigest()
+    return f"{year}_r{digest[:10]}"
 
 
-def plan_chunks(settings: Settings, reporters: list[str]) -> list[tuple[int, int, list[str]]]:
-    """Every ``(year, batch_index, reporter_batch)`` to fetch, year-then-batch."""
+def plan_chunks(settings: Settings, reporters: list[str]) -> list[tuple[int, list[str]]]:
+    """Every ``(year, reporter_batch)`` to fetch, year-then-batch."""
     batches = _reporter_batches(reporters)
     return [
-        (year, idx, batch)
+        (year, batch)
         for year in range(settings.comtrade_start_year, settings.comtrade_end_year + 1)
-        for idx, batch in enumerate(batches)
+        for batch in batches
     ]
 
 
 def sync_raw(
     settings: Settings,
     year: int,
-    batch_index: int,
     reporters: list[str],
     *,
     storage_client: storage.Client,
@@ -97,7 +120,7 @@ def sync_raw(
     The latest configured year is always re-fetched (Comtrade revises it);
     ``force`` re-fetches everything.
     """
-    basename = _basename(year, batch_index)
+    basename = _basename(year, reporters)
     is_latest = year == settings.comtrade_end_year
     if not force and not is_latest:
         stored = raw_provenance(
@@ -137,6 +160,9 @@ def sync_raw(
             "source": "un-comtrade",
             "year": str(year),
             "reporters": str(len(reporters)),
+            # The exact codes (not just the count) so a content-keyed raw object
+            # is auditable: you can confirm which reporters a basename covers.
+            "reporter_codes": ",".join(sorted(reporters)),
             "cmd_scope": ",".join(settings.comtrade_cmd_map),
             "cmd_hs6_count": str(len(cmd_codes)),
             "flows": ",".join(settings.comtrade_flows_list),
@@ -148,14 +174,14 @@ def sync_raw(
 def bronze_one(
     settings: Settings,
     year: int,
-    batch_index: int,
+    reporters: list[str],
     *,
     storage_client: storage.Client,
     bq_client: bigquery.Client,
     table_fqn: str,
 ) -> str:
     """Phase 2: read the raw chunk, stamp ingestion_timestamp, load Bronze."""
-    basename = _basename(year, batch_index)
+    basename = _basename(year, reporters)
     df = read_raw(
         storage_client, settings=settings, source="comtrade", dataset=RAW_DATASET, basename=basename
     )
@@ -177,7 +203,7 @@ def bronze_one(
 
 
 def has_raw(
-    settings: Settings, year: int, batch_index: int, *, storage_client: storage.Client
+    settings: Settings, year: int, reporters: list[str], *, storage_client: storage.Client
 ) -> bool:
     return (
         raw_provenance(
@@ -185,9 +211,49 @@ def has_raw(
             settings=settings,
             source="comtrade",
             dataset=RAW_DATASET,
-            basename=_basename(year, batch_index),
+            basename=_basename(year, reporters),
         )
         is not None
+    )
+
+
+def needs_bronze(
+    settings: Settings,
+    year: int,
+    reporters: list[str],
+    *,
+    extracted: bool,
+    storage_client: storage.Client,
+) -> bool:
+    """Whether Phase 2 must run for this (year, reporter-batch) after Phase 1.
+
+    Always when Phase 1 (re)fetched. When the raw already existed and was not
+    re-fetched, only if Bronze has not yet been loaded from it — i.e. a prior run
+    archived the raw then aborted before the load. Without this check, the
+    raw-exists skip would leave that chunk permanently absent from Bronze.
+    """
+    if extracted:
+        return True
+    stored = raw_provenance(
+        storage_client,
+        settings=settings,
+        source="comtrade",
+        dataset=RAW_DATASET,
+        basename=_basename(year, reporters),
+    )
+    return stored is not None and not raw_bronze_loaded(stored)
+
+
+def mark_bronze_loaded(
+    settings: Settings, year: int, reporters: list[str], *, storage_client: storage.Client
+) -> None:
+    """Stamp the (year, reporter-batch) raw object as loaded into Bronze."""
+    mark_raw_bronze_loaded(
+        storage_client,
+        settings=settings,
+        source="comtrade",
+        dataset=RAW_DATASET,
+        basename=_basename(year, reporters),
     )
 
 
@@ -230,22 +296,29 @@ def run(
     )
 
     last_destination = ""
-    for year, batch_index, reporter_batch in plan_chunks(settings, reporters):
+    for year, reporter_batch in plan_chunks(settings, reporters):
         if from_raw:
-            if not has_raw(settings, year, batch_index, storage_client=storage_client):
+            if not has_raw(settings, year, reporter_batch, storage_client=storage_client):
                 continue
-        elif not sync_raw(
-            settings, year, batch_index, reporter_batch, storage_client=storage_client, force=full
-        ):
-            continue
+        else:
+            extracted = sync_raw(
+                settings, year, reporter_batch, storage_client=storage_client, force=full
+            )
+            # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
+            # an unchanged-but-never-loaded raw (aborted prior run) still loads.
+            if not needs_bronze(
+                settings, year, reporter_batch, extracted=extracted, storage_client=storage_client
+            ):
+                continue
         destination = bronze_one(
             settings,
             year,
-            batch_index,
+            reporter_batch,
             storage_client=storage_client,
             bq_client=bq_client,
             table_fqn=table_fqn,
         )
         if destination:
             last_destination = destination
+        mark_bronze_loaded(settings, year, reporter_batch, storage_client=storage_client)
     return last_destination
