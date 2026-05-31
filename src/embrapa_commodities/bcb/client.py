@@ -98,6 +98,21 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
     )
     try:
         if response.status_code != 200:
+            # BCB SGS answers 404 when a (valid) series simply has no
+            # observations in the requested window — e.g. EUR before 1999.
+            # Treat it as "no data", not an error, so a --full from
+            # BCB_START_YEAR works for series with different inception dates
+            # (the year-chunking in ``fetch_series`` queries early windows that
+            # predate some series). A genuinely bad series code also 404s and
+            # yields empty here, which the full-mode "no data" guard catches.
+            if response.status_code == 404:
+                logger.info(
+                    "BCB SGS %s: 404 (no data) for %d-%d — skipping window.",
+                    code,
+                    start_year,
+                    end_year,
+                )
+                return pd.DataFrame(columns=["data", "valor"])
             msg = f"HTTP {response.status_code} for SGS {code}: {response.text[:200]}"
             if response.status_code in core_http.RETRYABLE_STATUS_CODES:
                 raise BcbTransientError(msg)

@@ -92,7 +92,13 @@ class Settings(BaseSettings):
     bcb_inflation_series_ipca_code: str = Field(default="433")
     bcb_inflation_series_igpm_code: str = Field(default="189")
     bcb_inflation_series_igpdi_code: str = Field(default="190")
-    bcb_currency_series: str = Field(default="3694:USD,4393:EUR,20542:CNY")
+    # Daily PTAX "venda" rates (BRL per foreign unit): SGS 1 = USD, 21619 = EUR.
+    # The Gold deflation averages these per year (PEVS) / per month (COMEX), so a
+    # daily series is the most accurate base. The previous 3694/4393/20542 were
+    # wrong: 3694 is annual, and 4393/20542 are not BRL-per-unit FX at all.
+    # CNY is intentionally absent — the BCB publishes no BRL/CNY (nor USD/CNY)
+    # series in SGS or PTAX, so it would need an external source (see CHANGELOG).
+    bcb_currency_series: str = Field(default="1:USD,21619:EUR")
     bcb_start_year: int = Field(default=1980)
     bcb_end_year: int = Field(default_factory=_current_year)
 
