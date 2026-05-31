@@ -114,7 +114,9 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _silver.yml           # Schema + testes Silver
 │   │   │   ├── silver_ibge_pevs.sql  # PEVS tipado + dedup (incremental)
 │   │   │   ├── silver_bcb_inflation.sql  # IPCA chain index
-│   │   │   ├── silver_bcb_currency.sql   # Câmbio limpo
+│   │   │   ├── silver_bcb_currency.sql   # Câmbio BCB (USD/EUR diário PTAX)
+│   │   │   ├── silver_extfx_currency.sql # Câmbio externo (CNY via ECB/seed)
+│   │   │   ├── silver_currency.sql       # UNION BCB ∪ externo (lido pela Gold)
 │   │   │   └── silver_comex_flows.sql    # COMEX tipado + dedup (grão-fonte)
 │   │   └── gold/
 │   │       ├── _gold.yml             # Schema + testes Gold
@@ -132,7 +134,8 @@ embrapa-dashboard-commodities/
 │   │   ├── historical_currency_factors.csv  # Fatores de reforma monetária
 │   │   ├── comex_unit.csv            # Dimensão de unidade estatística (CO_UNID)
 │   │   ├── comex_country.csv         # Dimensão de país (CO_PAIS → ISO/nome)
-│   │   └── comex_ncm.csv             # Dimensão de NCM (descrição PT, cap. 08+44)
+│   │   ├── comex_ncm.csv             # Dimensão de NCM (descrição PT, cap. 08+44)
+│   │   └── extfx_cny_brl.csv         # BRL/CNY mensal (ECB; scripts/refresh_cny_seed.py)
 │   └── tests/                        # Testes dbt customizados
 │
 ├── tests/                            # Testes Python (pytest)

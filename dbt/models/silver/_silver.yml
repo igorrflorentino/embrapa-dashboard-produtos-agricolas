@@ -113,3 +113,41 @@ models:
           - dbt_utils.expression_is_true:
               arguments:
                 expression: "is null or val_fob_usd >= 0"
+
+  - name: silver_extfx_currency
+    description: |
+      Externally-sourced FX rates the BCB does not publish (currently BRL/CNY,
+      from the ECB via the extfx_cny_brl seed). Shaped exactly like
+      silver_bcb_currency so silver_currency can UNION them.
+    columns:
+      - name: currency
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["CNY"]
+      - name: reference_date
+        tests: [not_null]
+      - name: brl_per_foreign_unit
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or brl_per_foreign_unit > 0"
+
+  - name: silver_currency
+    description: |
+      Unified FX source for the Gold deflation: BCB SGS (USD, EUR) ∪ external
+      (CNY). One row schema for every currency, so the Gold fx CTEs are
+      currency-agnostic.
+    columns:
+      - name: currency
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["USD", "EUR", "CNY"]
+      - name: brl_per_foreign_unit
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or brl_per_foreign_unit > 0"
