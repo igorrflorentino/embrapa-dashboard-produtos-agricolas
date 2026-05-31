@@ -174,3 +174,93 @@ models:
         description: "Max ingestion_timestamp across the source rows aggregated into this record."
         tests: [not_null]
 
+  - name: gold_comtrade_flows
+    description: |
+      Gold table for UN Comtrade — the single comprehensive `flows` table for
+      this source (naming: gold_<fonte>_<forma>; `flows` = origin→destination
+      trade). The global complement to gold_comex_flows. One row per (flow,
+      reference_year, reporter_code, partner_code, cmd_code); the Silver source
+      grain (also split by partner2 / customs / mode-of-supply / mode-of-transport
+      / qty-unit) is summed up here. Coarser cuts derived at query time via GROUP
+      BY. The World partner (0) is dropped in Silver, so SUM over partner_code is a
+      true bilateral total.
+
+      Annual source value is nominal US$ (primaryValue): val_yearfx_{usd,brl,eur,cny}
+      (at the year-average FX), val_real_ipca_{brl,usd,eur,cny} / val_real_igpm_* /
+      val_real_igpdi_* (US$ → BRL at year FX → projected to today via the BCB chain
+      index → reconverted at today's FX). Plus val_cif_usd / val_fob_usd.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow
+              - reference_year
+              - reporter_code
+              - partner_code
+              - cmd_code
+    columns:
+      - name: flow
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["export", "import"]
+      - name: reference_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1960 and extract(year from current_date()) + 1"
+      - name: reference_date
+        description: "Dec 31 of reference_year. Use as DATE dimension in Looker Studio (annual grain)."
+        tests: [not_null]
+      - name: cmd_code
+        description: "HS code in scope (0801 nuts or 44 wood/charcoal)."
+        tests: [not_null]
+      - name: cmd_description
+        description: "English HS description (seed comtrade_hs). NULL if outside the seeded scope."
+      - name: hs_chapter
+        description: "First 2 digits of cmd_code."
+        tests: [not_null]
+      - name: reporter_code
+        description: "Reporting country, M49 numeric (origin for exports, destination for imports)."
+        tests: [not_null]
+      - name: reporter_name
+        description: "Reporter name (seed comtrade_country, joined on M49)."
+      - name: reporter_iso_a3
+        description: "Reporter ISO alpha-3 (seed comtrade_country)."
+      - name: partner_code
+        description: "Partner country, M49 numeric. Never '0' (World dropped in Silver)."
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "!= '0'"
+      - name: partner_name
+        description: "Partner name (seed comtrade_country). May be an 'nes' aggregate area."
+      - name: partner_iso_a3
+        description: "Partner ISO alpha-3 (seed comtrade_country)."
+      - name: partner_is_group
+        description: "True when the partner is an aggregate area (e.g. 'Other Asia, nes'), not a single country."
+      - name: family
+        description: "Physical-unit family of qty_native: massa|volume|energia|contagem|area|desconhecida. NEVER sum qty_base across families. net_weight_kg is a separate always-massa measure."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area", "desconhecida"]
+      - name: qty_native
+        description: "Reported quantity in unit_native (summed). NULL when quantity not collected (common in chapter 44)."
+      - name: qty_base
+        description: "qty_native converted to the family base_unit (t/m³/MWh/un/ha). NULL when the unit has no conversion (desconhecida)."
+      - name: net_weight_kg
+        description: "Net weight in kilograms (always-comparable massa). NULL when not reported."
+      - name: data_quality_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
+      - name: last_refresh
+        description: "Max ingestion_timestamp across the source rows aggregated into this record."
+        tests: [not_null]
+

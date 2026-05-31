@@ -114,6 +114,67 @@ models:
               arguments:
                 expression: "is null or val_fob_usd >= 0"
 
+  - name: silver_comtrade_flows
+    description: |
+      UN Comtrade annual bilateral flows cleaned, typed, deduplicated at the full
+      source grain (flow × year × reporter × partner × partner2 × cmd × customs ×
+      mode-of-supply × mode-of-transport × qty-unit). primary/cif/fob values are
+      nominal US$. The World partner (0) and secondary trade regimes are dropped;
+      flowCode is normalised X/M → export/import. Zero-quantity sentinels → NULL.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - flow
+              - reference_year
+              - reporter_code
+              - partner_code
+              - partner2_code
+              - cmd_code
+              - customs_code
+              - mode_of_supply_code
+              - mode_of_transport_code
+              - qty_unit_code
+    columns:
+      - name: flow
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["export", "import"]
+      - name: reference_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1960 and extract(year from current_date()) + 1"
+      - name: reporter_code
+        tests: [not_null]
+      - name: partner_code
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "!= '0'"     # World aggregate dropped in Silver
+      - name: cmd_code
+        tests: [not_null]
+      - name: family
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area", "desconhecida"]
+      - name: primary_value_usd
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or primary_value_usd >= 0"
+      - name: qty_base
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or qty_base >= 0"
+
   - name: silver_extfx_currency
     description: |
       Externally-sourced FX rates the BCB does not publish (currently BRL/CNY,
