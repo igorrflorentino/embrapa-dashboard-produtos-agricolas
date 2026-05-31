@@ -132,6 +132,21 @@ seeds:
       - name: unit_name
         tests: [not_null]
 
+  - name: comex_via
+    description: |
+      MDIC transport-mode dimension (VIA.csv): CO_VIA → Portuguese label
+      (01=Marítima, 04=Aérea, 07=Rodoviária, …). Joined into gold_comex_flows on
+      transport_route_code = co_via to back the frontend's `via` filter.
+    config:
+      column_types:
+        co_via: string
+        via_name: string
+    columns:
+      - name: co_via
+        tests: [not_null, unique]
+      - name: via_name
+        tests: [not_null]
+
   - name: comex_country
     description: |
       MDIC country dimension (PAIS.csv): CO_PAIS → ISO-alpha3 + Portuguese name.
@@ -203,9 +218,12 @@ seeds:
     description: |
       UN Comtrade quantity-unit dimension: qty_unit_code → label + symbol + unit_raw.
       unit_raw is the canonical key into unit_family_conversions (family/base_unit/
-      to_base); blank = no physical-unit family (→ 'desconhecida'). Codes -1 (N/A)
-      and 8 (kg) dominate the current 0801+44 scope; the rest are seeded for
-      forward compatibility from the standard Comtrade unit table.
+      to_base); blank = no physical-unit family (→ 'desconhecida'). UN Comtrade
+      publishes no qty-unit reference file, so these are the codes that ACTUALLY
+      appear in the 0801+44 scope, each validated against the HS standardUnitAbbr
+      of its commodities: 5=number of items (u), 8=kg, 12=m³; -1/1=no quantity.
+      A qty_unit_code absent here degrades gracefully to family 'desconhecida' —
+      extend this seed (re-validating against the data) when the scope grows.
     config:
       column_types:
         qty_unit_code: string

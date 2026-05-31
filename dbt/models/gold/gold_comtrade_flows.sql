@@ -51,11 +51,15 @@ with base_flows as (
         partner_code,
         cmd_code,
         any_value(hs_chapter)                     as hs_chapter,
-        any_value(qty_unit_code)                  as qty_unit_code,
-        any_value(unit_native)                    as unit_native,
-        any_value(unit_native_symbol)             as unit_native_symbol,
-        any_value(family)                         as family,
-        any_value(base_unit)                      as base_unit,
+        -- The unit fields are picked together from the group's dominant-quantity
+        -- row (same ORDER BY for all five) so family/base_unit/unit stay COHERENT
+        -- even when a (reporter, partner, cmd) reported under mixed qty units; a
+        -- group with no quantity falls to the '-1' row → desconhecida / NULL base.
+        array_agg(qty_unit_code order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]      as qty_unit_code,
+        array_agg(unit_native order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]        as unit_native,
+        array_agg(unit_native_symbol order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)] as unit_native_symbol,
+        array_agg(family order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]             as family,
+        array_agg(base_unit order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]          as base_unit,
         sum(qty_native)                           as qty_native,
         sum(qty_base)                             as qty_base,
         sum(net_weight_kg)                        as net_weight_kg,

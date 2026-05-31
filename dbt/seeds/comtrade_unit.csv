@@ -1,14 +1,6 @@
 qty_unit_code,unit_name,unit_symbol,unit_raw
 -1,Sem unidade (N/A),,
 1,Sem quantidade,,
-2,Área em metros quadrados,m²,m²
-3,Energia elétrica em milhares de kWh,mil kWh,mil quilowatt hora
-4,Volume em litros,l,l
-5,Comprimento em metros,m,
-6,Número de pares,pares,pares
-7,Número de embalagens,emb,
+5,Número de itens,un,un
 8,Peso em quilogramas,kg,kg
-9,Milhares de itens,mil un,milheiro
-10,Número de itens,un,un
-11,Volume em metros cúbicos,m³,m³
-12,Peso em quilates,ct,quilate
+12,Volume em metros cúbicos,m³,m³
