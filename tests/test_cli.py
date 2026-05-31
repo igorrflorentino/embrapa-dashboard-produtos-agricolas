@@ -306,7 +306,7 @@ def test_ingest_comtrade_continues_after_chunk_failure(
     settings.comtrade_end_year = 2023  # 2 years × 1 batch = 2 chunks
     seen_years: list[int] = []
 
-    def flaky(_s: Settings, year: int, _idx: int, _batch: object, **kwargs: object) -> bool:
+    def flaky(_s: Settings, year: int, _batch: object, **kwargs: object) -> bool:
         seen_years.append(year)
         if year == 2022:
             raise RuntimeError("daily quota hit")

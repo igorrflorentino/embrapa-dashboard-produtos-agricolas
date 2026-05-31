@@ -145,8 +145,15 @@ def extract_raw(
     df = extract(spec, settings, bq_client, table_fqn, full=full)
     if df.empty:
         return None
+    # Label the object by the window actually archived, not the configured one. In
+    # delta mode each series fetches only its recent overlap window (and different
+    # series may start at different years), so the configured bcb_start_year would
+    # claim a span the object doesn't contain. The years sit in the last 4 chars of
+    # the dd/mm/yyyy reference_date_str — min/max over them is the verbatim range.
+    years = df["reference_date_str"].str[-4:]
+    window_start, window_end = years.min(), years.max()
     run_ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    basename = f"{run_ts}_{settings.bcb_start_year}_{settings.bcb_end_year}"
+    basename = f"{run_ts}_{window_start}_{window_end}"
     land_raw(
         df,
         settings=settings,
@@ -157,7 +164,7 @@ def extract_raw(
         provenance={
             "source": f"bcb-sgs-{spec.kind}",
             "series": ",".join(spec.series_map(settings)),
-            "window": f"{settings.bcb_start_year}-{settings.bcb_end_year}",
+            "window": f"{window_start}-{window_end}",
             "mode": "full" if full else "delta",
         },
     )

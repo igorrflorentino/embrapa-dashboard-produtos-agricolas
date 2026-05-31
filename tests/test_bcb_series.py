@@ -218,5 +218,8 @@ def test_run_raw_basename_is_runstamped_under_kind(spec, label, codes, labels, s
     kwargs = land_mock.call_args.kwargs
     assert kwargs["source"] == "bcb"
     assert kwargs["dataset"] == spec.kind
-    # Run-stamped, append-only trail: <run_ts>_<from>_<to>.
-    assert re.fullmatch(r"\d{8}T\d{6}Z_1980_2026", kwargs["basename"])
+    # Run-stamped, append-only trail: <run_ts>_<from>_<to>, where <from>/<to> are
+    # the actual data years archived (FAKE holds a single 01/01/2020 reading), not
+    # the configured 1980-2026 window.
+    assert re.fullmatch(r"\d{8}T\d{6}Z_2020_2020", kwargs["basename"])
+    assert kwargs["provenance"]["window"] == "2020-2020"

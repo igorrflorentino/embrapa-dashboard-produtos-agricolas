@@ -92,6 +92,31 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     nulas.
 
 ### Fixed
+- **COMTRADE: resume agora identifica o lote de reporters por conteúdo, não por
+  índice posicional.** O objeto raw era nomeado `<ano>_r<índice>`, onde o índice
+  vinha de fatiar `list_reporters()` na ordem do JSON de referência da UN — se a
+  UN reordenasse/alterasse o conjunto de reporters entre execuções, o mesmo
+  índice passava a mapear reporters diferentes e o resume pulava silenciosamente
+  um lote cuja composição mudou, deixando dados nunca ingeridos. Agora os
+  reporters são **ordenados** antes de lotear e o basename é um **hash estável**
+  dos códigos do lote (`<ano>_r<hash>`), com `reporter_codes` gravado na
+  proveniência. **Operação:** o primeiro run após esta mudança re-busca os anos
+  passados uma vez (basenames antigos ficam órfãos; Silver deduplica).
+- **COMEX/COMTRADE: o skip de delta podia deixar um `(fluxo,ano)`/lote
+  permanentemente ausente do Bronze.** Quando o raw estava atual o Phase 2 era
+  pulado assumindo "raw presente ⇒ Bronze carregado" — falso se um run anterior
+  arquivou o raw e abortou antes da carga. Agora um marcador `bronze_loaded_at`
+  na metadata do objeto raw (gravado após o Phase 2; limpo automaticamente num
+  re-extract) é a fonte de verdade: o skip só ocorre quando o raw está atual **e**
+  já foi carregado.
+- **BCB: basename/proveniência do raw refletem a janela realmente arquivada.**
+  Em modo delta cada série busca só sua janela de overlap recente, mas o objeto
+  raw era rotulado com o `bcb_start_year` configurado (ex. "1980-2026") — janela
+  que o objeto não contém. Agora o rótulo deriva do intervalo real de anos nos
+  dados (`min`/`max` de `reference_date_str`).
+- **`pyproject.toml`: licença corrigida de `MIT` para `Apache-2.0`** (o arquivo
+  `LICENSE` e todos os demais docs já eram Apache 2.0); description atualizada
+  para incluir COMEX/COMTRADE.
 - **COMTRADE: dupla-contagem de ~2,5× nos valores/quantidades da Gold.** A API
   keyed retorna, por `(reporter, partner, cmd, flow)`, um registro **totalmente
   agregado** (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) **mais**
@@ -180,23 +205,16 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - Cobertura: `tests/test_comex_client.py` + `tests/test_comex_pipeline.py`;
     testes de schema em `_silver.yml`/`_gold.yml`. Plano em
     `PLANS/comex_flows.md`.
-- **`core/bronze.py` — primitivo de aterrissagem Bronze compartilhado (D4).**
-  Nova função `land_and_load(df, *, settings, storage_client, bq_client, source,
-  table, object_basename, destination, schema, clustering_fields, ...)`
-  encapsula a cauda idêntica dos três pipelines Bronze: `ensure_bucket` → upload
-  Parquet em `landing/<fonte>/<tabela>/run=<ts>/<basename>.parquet` →
-  `load_dataframe` (com partition/cluster keys). IBGE, `bcb/inflation` e
-  `bcb/currency` agora delegam — cada `run()` mantém só o que é específico da
-  fonte (construção de clients, `ensure_dataset` antes do extract, o
-  short-circuit de fetch vazia, e o `observability.emit` do IBGE). `run_id` é
-  parametrizável para o IBGE compartilhar o instante entre a coluna
-  `ingestion_timestamp` e o caminho `run=`. Análogo ao D1 (`core/http.py`):
-  primitivo source-agnostic, composto pelas fontes; `ensure_dataset` fica de
-  fora porque o BCB precisa do dataset *antes* do extract (lookup delta).
-  Comportamento observável preservado. Cobertura: 5 testes novos em
-  `tests/test_core_bronze.py`; os testes de pipeline existentes seguem verdes
-  após reapontar os patch targets de `upload`/`load`/`ensure_bucket` para
-  `core.bronze`.
+- **Primitivo de aterrissagem Bronze compartilhado (D4).** A cauda idêntica
+  dos pipelines Bronze (`ensure_bucket` → upload Parquet → `load_dataframe` com
+  partition/cluster keys) foi extraída para um primitivo source-agnostic,
+  análogo ao D1 (`core/http.py`): cada `run()` mantém só o que é específico da
+  fonte. `ensure_dataset` fica de fora porque o BCB precisa do dataset *antes*
+  do extract (lookup delta). **Nota:** este passo evoluiu, ainda dentro deste
+  ciclo, para a ingestão two-phase com zona `raw/` — o primitivo final é
+  `core/raw.py` (ver "Changed" acima), não um `core/bronze.land_and_load`
+  intermediário (introduzido e removido neste mesmo ciclo). Comportamento
+  observável preservado; cobertura em `tests/test_core_raw.py`.
 - **`core/http.py` — primitivos HTTP compartilhados (D1).** Nova fábrica
   `http_retry_policy(transient_exc, deadline_s, max_attempts=5, before_sleep=None)`
   e helper `get_drained(url, *, total_deadline_s, transient_exc, context, ...)`

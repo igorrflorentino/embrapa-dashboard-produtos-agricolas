@@ -185,3 +185,41 @@ def raw_provenance(
     if blob is None:
         return None
     return blob.metadata or {}
+
+
+# Custom-metadata key stamped on a raw object once Bronze has been loaded from it.
+BRONZE_LOADED_KEY = "bronze_loaded_at"
+
+
+def mark_raw_bronze_loaded(
+    storage_client: storage.Client,
+    *,
+    settings: Settings,
+    source: str,
+    dataset: str,
+    basename: str,
+) -> None:
+    """Stamp an archived raw object as having been loaded into Bronze (Phase 2).
+
+    This is the source of truth that closes the gap where ``raw present`` was
+    *assumed* to mean ``Bronze loaded``: a prior run could archive the raw (Phase
+    1) then abort before the load, and a delta re-run would then skip Phase 2 on
+    the unchanged raw, leaving that partition permanently absent from Bronze.
+    With the marker, a skip is only taken when the raw is both current AND already
+    loaded (see ``raw_bronze_loaded``). A re-extract rewrites the object's
+    metadata wholesale, which clears this marker, so it always reflects whether
+    *the current raw version* has been loaded.
+    """
+    object_name = raw_object_name(settings, source, dataset, basename)
+    blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name)
+    if blob is None:  # nothing archived (e.g. an empty fetch landed no object)
+        return
+    metadata = dict(blob.metadata or {})
+    metadata[BRONZE_LOADED_KEY] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    blob.metadata = metadata
+    blob.patch()
+
+
+def raw_bronze_loaded(stored: dict[str, str] | None) -> bool:
+    """Whether raw provenance shows Bronze was loaded from this raw version."""
+    return bool(stored and stored.get(BRONZE_LOADED_KEY))

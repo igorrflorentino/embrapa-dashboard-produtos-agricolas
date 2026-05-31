@@ -97,7 +97,7 @@ embrapa-dashboard-commodities/
 │   │   ├── client.py                 # HTTP client SGS API
 │   │   ├── series.py                 # Pipeline SGS genérico (inflation/currency)
 │   │   ├── inflation.py              # Spec IPCA/IGP-M/IGP-DI
-│   │   └── currency.py               # Spec USD/EUR/CNY
+│   │   └── currency.py               # Spec USD/EUR (CNY vem de fonte externa, não-BCB)
 │   │
 │   ├── comex/                        # Pipeline MDIC Comex Stat (CSV em massa)
 │   │   ├── client.py                 # Downloader CSV (stream p/ disco + filtro)
@@ -157,15 +157,23 @@ embrapa-dashboard-commodities/
 │   ├── test_ibge_client.py           # Testes do client IBGE (HTTP mockado)
 │   ├── test_ibge_pipeline.py         # Testes do pipeline IBGE
 │   ├── test_bcb_client.py            # Testes do client BCB
+│   ├── test_bcb_series.py            # Testes do pipeline SGS genérico
 │   ├── test_bcb_inflation_pipeline.py
 │   ├── test_bcb_currency_pipeline.py
 │   ├── test_bcb_pipeline.py
+│   ├── test_comex_client.py          # Testes do downloader COMEX
+│   ├── test_comex_pipeline.py        # Testes do pipeline COMEX (two-phase)
+│   ├── test_comtrade_client.py       # Testes do client UN Comtrade
+│   ├── test_comtrade_pipeline.py     # Testes do pipeline COMTRADE (chunked/resumível)
+│   ├── test_core_http.py             # Testes dos primitivos HTTP compartilhados
+│   ├── test_core_raw.py              # Testes da zona raw (land/read/provenance/marker)
 │   ├── test_gcp_bigquery.py
 │   ├── test_gcp_storage.py
 │   ├── test_backup.py
 │   ├── test_doctor.py
 │   ├── test_monitor.py
-│   └── test_observability.py
+│   ├── test_observability.py
+│   └── test_observability_helpers.py
 │
 ├── scripts/                          # Tooling auxiliar
 │   ├── README.md                     # Documentação dos scripts

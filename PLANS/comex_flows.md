@@ -17,7 +17,7 @@
 
 O backend está preparado para multi-fonte (registries `cli.INGESTS`,
 `doctor.SOURCE_CHECKS`/`BRONZE_TARGETS`, primitivos `core/http.py` +
-`core/bronze.py`, guia `docs/adding_a_data_source.md`). Hoje só há uma fonte de
+`core/raw.py`, guia `docs/adding_a_data_source.md`). Hoje só há uma fonte de
 *produção* (IBGE PEVS → `gold_pevs_production`) enriquecida por câmbio/inflação
 do BCB.
 
@@ -83,7 +83,8 @@ usa `bcb.series`):
   mensalmente pelo MDIC) e pula anos passados já carregados. Mais natural que o
   delta-por-`reference_date` do BCB. Usar `latest_reference_date` ou um lookup
   de anos distintos já em Bronze.
-- Cauda land→load via `core.land_and_load` (não reescrever).
+- Cauda extract→raw→load via a zona raw two-phase (`core/raw.py`:
+  `land_raw_file`/`download_raw`/`raw_provenance`) — não reescrever.
 - Bronze: todas as colunas STRING + `ingestion_timestamp`; chave natural
   `(flow, CO_ANO, CO_MES, CO_NCM, CO_PAIS, SG_UF_NCM)`.
 - **Schema-union EXP+IMP:** o Bronze é UMA tabela com as 13 colunas do IMP;

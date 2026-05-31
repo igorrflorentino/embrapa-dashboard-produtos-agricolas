@@ -169,9 +169,37 @@ def test_bronze_one_loads_with_flow_schema_and_clustering(settings) -> None:
     assert kwargs["time_partitioning_field"] == "ingestion_timestamp"
 
 
+# ─── needs_bronze (skip-safety) ──────────────────────────────────────────────
+def test_needs_bronze_always_true_when_extracted(settings) -> None:
+    # A (re)extract always loads — no provenance lookup needed.
+    with patch.object(pipeline, "raw_provenance") as prov:
+        assert pipeline.needs_bronze(
+            settings, "export", 2022, extracted=True, storage_client=MagicMock()
+        )
+    prov.assert_not_called()
+
+
+def test_needs_bronze_false_when_unchanged_and_already_loaded(settings) -> None:
+    with patch.object(
+        pipeline, "raw_provenance", return_value={"source_etag": "v1", "bronze_loaded_at": "2026"}
+    ):
+        assert not pipeline.needs_bronze(
+            settings, "export", 2022, extracted=False, storage_client=MagicMock()
+        )
+
+
+def test_needs_bronze_true_when_unchanged_but_never_loaded(settings) -> None:
+    # Raw present (prior run archived it) but no bronze_loaded marker → a prior
+    # run aborted before Phase 2. Must still load, not skip.
+    with patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}):
+        assert pipeline.needs_bronze(
+            settings, "export", 2022, extracted=False, storage_client=MagicMock()
+        )
+
+
 # ─── run orchestration ───────────────────────────────────────────────────────
 def test_run_loads_bronze_only_for_changed_chunks(settings) -> None:
-    # export 2020 changed, everything else unchanged → 1 bronze load.
+    # export 2020 changed, everything else unchanged + already loaded → 1 load.
     def fake_sync(_s, flow, year, *, storage_client, force):
         return flow == "export" and year == 2020
 
@@ -181,12 +209,15 @@ def test_run_loads_bronze_only_for_changed_chunks(settings) -> None:
         patch("embrapa_commodities.comex.pipeline.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
         patch.object(pipeline, "sync_raw", side_effect=fake_sync),
+        patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
+        patch.object(pipeline, "mark_bronze_loaded") as mark,
         patch.object(pipeline, "bronze_one", return_value="proj.ds.tbl") as bronze,
     ):
         dest = pipeline.run(settings, full=False)
     assert dest == "proj.ds.tbl"
     assert bronze.call_count == 1
     assert bronze.call_args.args[1:3] == ("export", 2020)
+    assert mark.call_count == 1  # marked loaded after the single Phase 2
 
 
 def test_run_from_raw_skips_sync_and_uses_has_raw(settings) -> None:
@@ -197,9 +228,29 @@ def test_run_from_raw_skips_sync_and_uses_has_raw(settings) -> None:
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
         patch.object(pipeline, "sync_raw") as sync,
         patch.object(pipeline, "has_raw", return_value=True),
+        patch.object(pipeline, "mark_bronze_loaded"),
         patch.object(pipeline, "bronze_one", return_value="proj.ds.tbl") as bronze,
     ):
         dest = pipeline.run(settings, from_raw=True)
     assert dest == "proj.ds.tbl"
     sync.assert_not_called()  # no internet in from-raw mode
     assert bronze.call_count == len(pipeline.all_chunks(settings))  # all 8 chunks rebuilt
+
+
+def test_run_reloads_unchanged_raw_when_bronze_marker_absent(settings) -> None:
+    """Regression: a prior run archived raw then aborted before Phase 2. The raw
+    is unchanged (sync_raw → False) but unmarked, so the re-run must still load."""
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comex.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comex.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
+        patch.object(pipeline, "sync_raw", return_value=False),  # nothing re-extracted
+        patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}),  # no marker
+        patch.object(pipeline, "mark_bronze_loaded") as mark,
+        patch.object(pipeline, "bronze_one", return_value="proj.ds.tbl") as bronze,
+    ):
+        pipeline.run(settings, full=False)
+    n = len(pipeline.all_chunks(settings))
+    assert bronze.call_count == n  # every unchanged-but-unloaded chunk still loads
+    assert mark.call_count == n

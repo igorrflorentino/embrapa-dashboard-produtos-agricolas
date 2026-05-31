@@ -26,7 +26,13 @@ from google.cloud import bigquery, storage
 
 from embrapa_commodities.comex import client
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.core import download_raw, land_raw_file, raw_provenance
+from embrapa_commodities.core import (
+    download_raw,
+    land_raw_file,
+    mark_raw_bronze_loaded,
+    raw_bronze_loaded,
+    raw_provenance,
+)
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
 
 logger = logging.getLogger(__name__)
@@ -194,6 +200,41 @@ def has_raw(settings: Settings, flow: str, year: int, *, storage_client: storage
     )
 
 
+def needs_bronze(
+    settings: Settings, flow: str, year: int, *, extracted: bool, storage_client: storage.Client
+) -> bool:
+    """Whether Phase 2 must run for ``(flow, year)`` after Phase 1.
+
+    Always when Phase 1 (re)extracted. When the raw was unchanged, only if Bronze
+    has not yet been loaded from it — i.e. a prior run archived the raw then
+    aborted before the load. Without this check, the unchanged-raw skip would
+    leave that partition permanently absent from Bronze.
+    """
+    if extracted:
+        return True
+    stored = raw_provenance(
+        storage_client,
+        settings=settings,
+        source="comex",
+        dataset=RAW_DATASET,
+        basename=_basename(flow, year),
+    )
+    return stored is not None and not raw_bronze_loaded(stored)
+
+
+def mark_bronze_loaded(
+    settings: Settings, flow: str, year: int, *, storage_client: storage.Client
+) -> None:
+    """Stamp the ``(flow, year)`` raw object as loaded into Bronze (Phase 2 done)."""
+    mark_raw_bronze_loaded(
+        storage_client,
+        settings=settings,
+        source="comex",
+        dataset=RAW_DATASET,
+        basename=_basename(flow, year),
+    )
+
+
 def ensure_destination(settings: Settings, bq_client: bigquery.Client) -> str:
     """Create the Bronze dataset if needed and return the table FQN."""
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_comex_dataset}"
@@ -230,8 +271,14 @@ def run(
         if from_raw:
             if not has_raw(settings, flow, year, storage_client=storage_client):
                 continue
-        elif not sync_raw(settings, flow, year, storage_client=storage_client, force=full):
-            continue  # raw unchanged → Bronze already current
+        else:
+            extracted = sync_raw(settings, flow, year, storage_client=storage_client, force=full)
+            # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
+            # an unchanged-but-never-loaded raw (aborted prior run) still loads.
+            if not needs_bronze(
+                settings, flow, year, extracted=extracted, storage_client=storage_client
+            ):
+                continue
         destination = bronze_one(
             settings,
             flow,
@@ -242,4 +289,5 @@ def run(
         )
         if destination:
             last_destination = destination
+        mark_bronze_loaded(settings, flow, year, storage_client=storage_client)
     return last_destination

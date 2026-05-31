@@ -370,8 +370,11 @@ def ingest_comex(
                     settings, flow, year, storage_client=storage_client
                 )
             else:
-                process = comex_pipeline.sync_raw(
+                extracted = comex_pipeline.sync_raw(
                     settings, flow, year, storage_client=storage_client, force=full
+                )
+                process = comex_pipeline.needs_bronze(
+                    settings, flow, year, extracted=extracted, storage_client=storage_client
                 )
             destination = (
                 comex_pipeline.bronze_one(
@@ -385,6 +388,10 @@ def ingest_comex(
                 if process
                 else ""
             )
+            if process:
+                comex_pipeline.mark_bronze_loaded(
+                    settings, flow, year, storage_client=storage_client
+                )
             duration = round(time.monotonic() - chunk_started, 2)
             observability.emit(
                 "chunk_end",
@@ -490,29 +497,35 @@ def ingest_comtrade(
     chunks_ok: list[str] = []
     chunks_failed: list[tuple[str, str]] = []
     started = time.monotonic()
-    for i, (year, batch_index, reporter_batch) in enumerate(chunks, 1):
-        chunk_id = comtrade_pipeline._basename(year, batch_index)
+    for i, (year, reporter_batch) in enumerate(chunks, 1):
+        chunk_id = comtrade_pipeline._basename(year, reporter_batch)
         observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
         chunk_started = time.monotonic()
         try:
             if from_raw:
                 process = comtrade_pipeline.has_raw(
-                    settings, year, batch_index, storage_client=storage_client
+                    settings, year, reporter_batch, storage_client=storage_client
                 )
             else:
-                process = comtrade_pipeline.sync_raw(
+                extracted = comtrade_pipeline.sync_raw(
                     settings,
                     year,
-                    batch_index,
                     reporter_batch,
                     storage_client=storage_client,
                     force=full,
+                )
+                process = comtrade_pipeline.needs_bronze(
+                    settings,
+                    year,
+                    reporter_batch,
+                    extracted=extracted,
+                    storage_client=storage_client,
                 )
             destination = (
                 comtrade_pipeline.bronze_one(
                     settings,
                     year,
-                    batch_index,
+                    reporter_batch,
                     storage_client=storage_client,
                     bq_client=bq_client,
                     table_fqn=table_fqn,
@@ -520,6 +533,10 @@ def ingest_comtrade(
                 if process
                 else ""
             )
+            if process:
+                comtrade_pipeline.mark_bronze_loaded(
+                    settings, year, reporter_batch, storage_client=storage_client
+                )
             duration = round(time.monotonic() - chunk_started, 2)
             observability.emit(
                 "chunk_end", chunk_id=chunk_id, chunk_n=i, chunk_total=total, duration_s=duration
