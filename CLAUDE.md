@@ -51,7 +51,7 @@ make precommit-install                        # optional: ruff + file-hygiene on
 
 Ingestion (Python → GCS Parquet → BigQuery Bronze):
 ```bash
-make ingest-all                               # IBGE + both BCB series (BCB = delta)
+make ingest-all                               # IBGE + both BCB series + COMEX (BCB = delta; COMTRADE is key-gated, excluded)
 make ingest-ibge-historical                   # auto-chunked for large year windows
 uv run embrapa ingest {ibge|bcb-inflation|bcb-currency|all}
 uv run embrapa ingest bcb-inflation --full    # force refetch from BCB_START_YEAR

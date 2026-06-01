@@ -124,6 +124,7 @@ Os comandos `discover` são **auxiliares e não fazem parte do pipeline em produ
 | `val_yearfx_*` | `val_raw` (já em numerário R$ atual, sem correção inflacionária) convertido pelo **FX médio do mesmo ano**. Colunas em moeda estrangeira são `NULL` pré-1994 para não misturar Cruzeiros antigos com valores atuais. | FX do ano indisponível (ex.: EUR < 1999); ou `reference_year < 1994` para USD/EUR/CNY. |
 | `val_real_ipca_*` | Valor projetado para hoje pela **cadeia IPCA** (absorve inflação + reformas monetárias) e convertido para FX corrente. **Use esta coluna para comparações entre anos.** | IPCA do ano-base indisponível. |
 | `val_real_igpm_*` | Idem, usando IGP-M. | IGP-M do ano-base indisponível. |
+| `val_real_igpdi_*` | Idem, usando IGP-DI. | IGP-DI do ano-base indisponível. |
 
 > A série IPCA do BCB (SGS 433) é variação mensal. A camada Silver encadeia esse percentual em um número-índice de base 100, tornando matematicamente válido o produto `valor_em_cruzeiros * (IPCA_atual / IPCA_ano)` para chegar a Reais atuais — sem necessidade de tabela de conversão histórica de moedas.
 
@@ -157,6 +158,9 @@ Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Coluna
 
 **Valores reais via IGP-M**
 `val_real_igpm_brl`, `val_real_igpm_usd`, `val_real_igpm_eur`, `val_real_igpm_cny`.
+
+**Valores reais via IGP-DI**
+`val_real_igpdi_brl`, `val_real_igpdi_usd`, `val_real_igpdi_eur`, `val_real_igpdi_cny`.
 
 **Qualidade / proveniência**
 `data_quality_flag`, `last_refresh`.

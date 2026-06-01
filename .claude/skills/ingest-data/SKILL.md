@@ -12,14 +12,16 @@ description: >-
 ## Quick Commands
 
 ```powershell
-# Ingest everything (IBGE + BCB inflation + BCB currency)
+# Ingest everything (IBGE + BCB inflation + BCB currency + COMEX)
 make ingest-all
-uv run embrapa ingest all
+uv run embrapa ingest all               # COMTRADE is key-gated → excluded from `all`
 
 # Individual pipelines
 uv run embrapa ingest ibge              # IBGE PEVS
-uv run embrapa ingest bcb-inflation     # BCB inflation (IPCA, IGP-M)
-uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR, CNY)
+uv run embrapa ingest bcb-inflation     # BCB inflation (IPCA, IGP-M, IGP-DI)
+uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR; CNY via fonte externa)
+uv run embrapa ingest comex             # MDIC Comex Stat flows (export + import)
+uv run embrapa ingest comtrade          # UN Comtrade global flows (needs COMTRADE_API_KEY)
 
 # IBGE large historical windows (auto-chunked)
 make ingest-ibge-historical             # uses --chunk-years 5
@@ -112,12 +114,22 @@ uv run embrapa discover bcb-series     433
 src/embrapa_commodities/
 ├── cli.py              # Typer entry point (embrapa ingest ...)
 ├── config.py           # Pydantic Settings (.env reader)
+├── core/               # Shared primitives (raw zone, HTTP retry, observability)
+│   ├── raw.py          # Two-phase raw zone (land/read/provenance + bronze marker)
+│   └── http.py         # Shared HTTP retry policy + drained GET
 ├── ibge/
 │   ├── client.py       # SIDRA API client + auto-chunking
-│   └── pipeline.py     # fetch → Parquet → GCS → BigQuery
+│   └── pipeline.py     # fetch → raw → Parquet → GCS → BigQuery
 ├── bcb/
-│   ├── inflation.py    # BCB SGS inflation pipeline
-│   └── currency.py     # BCB SGS currency pipeline
+│   ├── series.py       # Generic SGS pipeline (shared by inflation/currency)
+│   ├── inflation.py    # BCB SGS inflation spec
+│   └── currency.py     # BCB SGS currency spec
+├── comex/
+│   ├── client.py       # MDIC Comex Stat CSV downloader (stream + filter)
+│   └── pipeline.py     # two-phase Bronze, delta por (flow, year)
+├── comtrade/
+│   ├── client.py       # UN Comtrade keyed JSON API client
+│   └── pipeline.py     # chunked/resumable Bronze por (year, reporter-batch)
 ├── gcp/
 │   ├── bigquery.py     # BigQuery load + dataset auto-create
 │   └── storage.py      # GCS upload + bucket auto-create

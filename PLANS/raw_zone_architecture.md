@@ -62,7 +62,8 @@ removido/aposentado conforme as fontes migram.
 - `embrapa ingest <source>` → F1 + F2 (extract→raw→bronze).
 - `embrapa ingest <source> --from-raw` → só F2 (reprocessa Bronze do raw, **sem
   internet**) — para re-filtrar / aplicar novas regras / mudar produtos.
-- `embrapa ingest <source> --raw-only` → só F1 (atualiza o arquivo bruto).
+- `embrapa ingest <source> --full` → F1 + F2 ignorando o check de freshness
+  (re-extrai tudo, mesmo sem revisão da fonte). (Não há flag `--raw-only`.)
 
 ## Ordem de implementação (testes verdes a cada passo)
 

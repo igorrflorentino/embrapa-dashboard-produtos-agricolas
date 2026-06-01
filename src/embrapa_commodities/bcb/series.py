@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 class BcbSeriesSpec:
     """The per-variant knobs that distinguish two otherwise-identical pipelines.
 
-    ``kind`` names the variant for logs and the GCS object basename
-    (``<kind>_<from>_<to>.parquet``). ``label_column`` is the second Bronze
+    ``kind`` names the variant for logs and the raw-zone dataset directory
+    (``raw/bcb/<kind>/...``; the per-run object basename is built in
+    ``extract_raw``). ``label_column`` is the second Bronze
     column carrying the human label from the series map. ``series_map`` and
     ``table`` are read off ``Settings`` at call time. ``config_env`` names the
     env var for the empty-config error. ``overlap_start_year`` maps the last

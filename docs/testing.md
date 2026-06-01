@@ -75,6 +75,8 @@ legacy keyfile mode):
   - GCS bucket accessible ✓
   - IBGE SIDRA API reachable ✓
   - BCB SGS API reachable ✓
+  - COMEX Stat (MDIC) reachable ✓
+  - UN Comtrade API reachable ✓
   - Bronze tables present ✓
 
 ### 9️⃣ BigQuery Connection (1 test)
