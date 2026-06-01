@@ -4,7 +4,7 @@ Triggered via ``embrapa backup-gold`` or ``make backup-gold`` — the latter is
 also what ``make dbt-build-prod-with-backup`` chains after a prod dbt build.
 Each backup lands at:
 
-    gs://${GCS_BUCKET}/backups/run=<UTC-timestamp>/<dataset>.<table>/<table>-*.parquet
+    gs://${GCS_BUCKET}/backups/run=<UTC-timestamp>/<table>/<table>-*.parquet
 
 GCS lifecycle rules scoped to the ``backups/`` prefix transition objects to
 Nearline at 30d and Coldline at 90d, then DELETE at 365d (see

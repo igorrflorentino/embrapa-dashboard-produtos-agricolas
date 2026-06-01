@@ -14,7 +14,7 @@ Este projeto foi desenhado para ser portável: nada no código tem o `GCP_PROJEC
    BQ_LOCATION=southamerica-east1   # ou US, conforme política da empresa
    ```
 5. **`profiles.yml` da empresa** — copie `dbt/profiles.yml.example` para `~/.dbt/profiles.yml` e troque `project:` pelo novo projeto.
-6. **Primeira carga** — `uv run embrapa ingest all` cria automaticamente o bucket e os datasets `bronze_ibge` / `bronze_bcb` no novo projeto.
+6. **Primeira carga** — `uv run embrapa ingest all` cria automaticamente o bucket e os datasets `bronze_ibge` / `bronze_bcb` / `bronze_comex` no novo projeto (COMTRADE fica de fora do `all` — é key-gated; rode `uv run embrapa ingest comtrade` à parte).
 7. **Primeira transformação** — `make dbt-build` materializa Silver e Gold.
 8. **Looker Studio** — duplique o relatório existente e reaponte a fonte de dados para `embrapa-commodities-prod.gold.gold_pevs_production`.
 
@@ -38,7 +38,8 @@ Em qualquer caso, o código não muda — apenas o trigger.
 
 ## Backup cold-storage do Gold (responsabilidade do operador)
 
-O comando `embrapa backup-gold` exporta as três tabelas Gold para
+O comando `embrapa backup-gold` exporta todas as tabelas Gold (introspecta o
+dataset por prefixo `gold_`; hoje quatro) para
 `gs://${GCS_BUCKET}/backups/run=<timestamp>/...` em Parquet. Ele **não**
 roda automaticamente após `make dbt-build-prod` — isso é intencional, para
 que builds experimentais em prod não inflem o bucket de snapshots.

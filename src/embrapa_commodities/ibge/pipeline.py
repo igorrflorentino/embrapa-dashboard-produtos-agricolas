@@ -6,7 +6,7 @@ verbatim to the GCS raw zone. Phase 2 (``bronze_from_raw``) reads it back,
 stamps ``ingestion_timestamp`` and loads BigQuery Bronze. See
 ``PLANS/raw_zone_architecture.md``.
 
-SIDRA is queried fresh each run (a POST with no ETag), so Phase 1 always
+SIDRA is queried fresh each run (a GET with no ETag), so Phase 1 always
 re-extracts and overwrites the raw object for the configured window; the
 ``--from-raw`` path rebuilds Bronze from that archive without re-querying SIDRA.
 """

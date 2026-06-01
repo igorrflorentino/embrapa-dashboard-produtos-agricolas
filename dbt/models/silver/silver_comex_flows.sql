@@ -17,9 +17,10 @@
     (flow, year, month, NCM, country, UF, transport route, customs office,
     statistical unit). Gold aggregates this up to month×NCM×country×UF. We keep
     the source grain in Silver so no detail is lost and the dedupe key matches
-    a single Bronze row exactly (Bronze is append-only; delta re-ingests the
-    running year, so the same source row reappears with a newer
-    ingestion_timestamp — qualify keeps the latest).
+    a single Bronze row exactly (Bronze is append-only; delta re-ingests any
+    (flow, year) whose source file changed — detected by an ETag/Last-Modified
+    freshness check, not just the running year — so the same source row can
+    reappear with a newer ingestion_timestamp; qualify keeps the latest).
 -#}
 
 with deduplicated as (

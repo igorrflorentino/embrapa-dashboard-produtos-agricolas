@@ -79,10 +79,13 @@ Seguindo os 11 passos de `docs/adding_a_data_source.md`. Pacote
 
 **2. Pipeline (`comex/pipeline.py`) — `run()` próprio** (shape ≠ SGS, então não
 usa `bcb.series`):
-- **Delta por `(fluxo, ano)`**: re-busca sempre o ano corrente (revisado
-  mensalmente pelo MDIC) e pula anos passados já carregados. Mais natural que o
-  delta-por-`reference_date` do BCB. Usar `latest_reference_date` ou um lookup
-  de anos distintos já em Bronze.
+- **Delta por `(fluxo, ano)`** (forma implementada — diverge do rascunho
+  original "lookup de anos em Bronze"): enumera a janela inteira a cada run e
+  re-extrai um `(fluxo, ano)` só quando o **ETag/Last-Modified/Content-Length**
+  da fonte muda (`_raw_is_current`) — pega revisões de **qualquer** ano, não só
+  o corrente. A carga do Bronze (Fase 2) é gateada por um marcador
+  `bronze_loaded_at` na metadata do raw (`mark_raw_bronze_loaded`/
+  `raw_bronze_loaded`), não por consulta de anos em Bronze.
 - Cauda extract→raw→load via a zona raw two-phase (`core/raw.py`:
   `land_raw_file`/`download_raw`/`raw_provenance`) — não reescrever.
 - Bronze: todas as colunas STRING + `ingestion_timestamp`; chave natural

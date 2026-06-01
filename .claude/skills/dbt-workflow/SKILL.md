@@ -58,10 +58,10 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 ### Gold — `dbt/models/gold/`
 
 - **Materialization:** `table` (current). One comprehensive table per source — the PEVS model is `gold_pevs_production`. No pre-aggregated sibling tables; aggregate at query time.
-- **Columns:** 22 columns per `(reference_year, state_acronym, city_name, product_code)`.
+- **Columns:** 32 columns per `(reference_year, state_acronym, city_name, product_code)`.
 - **Monetary conventions:**
   - `val_yearfx_*` — raw value ÷ year's average FX. NULL pre-1994.
-  - `val_real_{ipca,igpm}_*` — value projected to today via chain-linked IPCA/IGP-M index. **Use this for cross-year comparison.**
+  - `val_real_{ipca,igpm,igpdi}_*` — value projected to today via chain-linked IPCA/IGP-M/IGP-DI index. **Use this for cross-year comparison.**
 - **Naming:** `gold_<fonte>_<forma>` where `<forma>` is `production` (output measurement, e.g. `gold_pevs_production`) or `flows` (origin→destination trade, e.g. `gold_comex_flows`).
 
 ### Seeds — `dbt/seeds/`
@@ -78,7 +78,8 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 | `apply_dev_ttl` | Auto-expire dev tables after N days |
 | `safe_numeric` | Parse string to numeric, handling nulls |
 | `data_quality_flag` | Classify row quality (OK / MISSING_VALUE / MISSING_QUANTITY / INCOMPLETE) |
-| `state_dimensions` | State acronym → name + region mapping |
+| `state_name` | State acronym → full state name (in `state_dimensions.sql`) |
+| `state_region` | State acronym → region (in `state_dimensions.sql`) |
 
 ## Adding / Modifying Models — Checklist
 

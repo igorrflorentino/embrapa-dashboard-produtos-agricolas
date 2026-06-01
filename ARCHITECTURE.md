@@ -148,6 +148,8 @@ embrapa-dashboard-commodities/
 │   │   ├── comtrade_unit.csv         # Dimensão qtyUnitCode → label + família
 │   │   ├── comtrade_hs.csv           # Dimensão HS (0801 + cap. 44; HS.json)
 │   │   ├── commodity_crosswalk.csv   # Ponte cross-source (commodity ↔ pevs/ncm/hs6)
+│   │   ├── product_unit_factors.csv  # Fator unidade-estatística → base (massa/volume) por NCM
+│   │   ├── unit_family_conversions.csv  # Famílias de unidade e conversões (massa/volume)
 │   │   └── extfx_cny_brl.csv         # BRL/CNY mensal (ECB; scripts/refresh_cny_seed.py)
 │   └── tests/                        # Testes dbt customizados
 │
@@ -179,12 +181,17 @@ embrapa-dashboard-commodities/
 │   ├── README.md                     # Documentação dos scripts
 │   ├── setup_dev_env.py              # Setup unificado cross-platform
 │   ├── test_setup.py                 # Testes do setup
+│   ├── refresh_cny_seed.py           # Atualiza o seed extfx_cny_brl.csv (ECB)
+│   ├── refresh_comtrade_country_seed.py  # Atualiza o seed comtrade_country.csv (M49)
 │   ├── grant-sa-iam-roles.ps1        # IAM roles
-│   └── setup-claude-code-web-sa.sh   # SA para Claude Code Web
+│   ├── setup-claude-code-web-sa.sh   # SA para Claude Code Web
+│   └── claude-hooks/                 # Hooks de segurança (block-dangerous-commands, protect-secrets)
 │
 ├── docs/                             # Documentação detalhada
+│   ├── adding_a_data_source.md       # Guia de extensão: adicionar uma nova fonte
 │   ├── auth_architecture.md          # Arquitetura de autenticação (Cadeia de Confiança)
 │   ├── cost_safety.md                # Budget alert + custom quota
+│   ├── frontend_data_contract.md     # Contrato de dados Gold → frontend
 │   ├── iam_setup.md                  # Setup de IAM e Service Accounts
 │   ├── looker_studio_setup.md        # Conexão Looker Studio → Gold
 │   ├── migration_history.md          # Notas de migração histórica

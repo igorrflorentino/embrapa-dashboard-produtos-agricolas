@@ -91,13 +91,15 @@ Present a table like this:
 ```
 Module                        | MI  | Max CC | Coverage | Grade
 ------------------------------|-----|--------|----------|------
-dashboard/pages/overview.py   | A87 | B(8)   | 0%*      | ✅
-dashboard/data.py             | B14 | C(12)  | 45%      | ⚠️
-bcb/inflation.py              | A72 | A(4)   | 88%      | ✅
-ibge/pipeline.py              | C8  | D(18)  | 61%      | 🔴
+cli.py                        | A37 | C(13)  | 91%      | ✅
+comtrade/pipeline.py          | A60 | C(12)  | 94%      | ✅
+bcb/inflation.py              | A95 | A(4)   | 100%     | ✅
+ibge/pipeline.py              | A66 | B(6)   | 96%      | ✅
 ```
 
-*Dashboard pages are not unit-tested by design (UI rendering). Focus coverage on `src/embrapa_commodities/{ibge,bcb,gcp}/`.
+Focus coverage on the ingestion/transform backend under
+`src/embrapa_commodities/` — today `{cli, config, doctor, backup, observability,
+discover}` plus the `{ibge, bcb, comex, comtrade, gcp, core, monitor}` packages.
 
 ## Step 5 — Propose a plan
 
@@ -110,6 +112,5 @@ After presenting the report, propose a **prioritised refactoring plan** in order
 ## Important constraints
 
 - **Do not auto-fix.** Every change must be proposed and approved explicitly.
-- **Dashboard pages have 0% coverage by design** — this is expected and should not be flagged as critical.
-- **`data.py` / `GoldRepository`** — large MI debt is acceptable here; the class is intentionally dense (per-table TTL cache + 8 slicer methods that route to the smallest Gold table with the needed grain). Flag only if CC > D.
+- **The custom Dash frontend is currently removed (in reconstruction).** There is no `dashboard/` package or `GoldRepository` class in the tree today — do not expect them. When the rebuilt UI lands, its rendering pages won't be unit-tested by design; revisit this carve-out then.
 - **dbt SQL is out of scope** for this audit — use `make dbt-test` + `sqlfluff` for SQL quality.

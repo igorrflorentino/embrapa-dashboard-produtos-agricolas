@@ -31,8 +31,10 @@ Como saber que a feature está pronta.
 
 ## Planos existentes
 
-| Arquivo | Feature |
-|---|---|
-| `comex_flows.md` | Fonte COMEX (bulk CSV MDIC) → `gold_comex_flows` — planejado |
+| Arquivo | Feature | Status |
+|---|---|---|
+| `raw_zone_architecture.md` | Zona raw two-phase (extract→raw→bronze) | Implementado |
+| `comex_flows.md` | Fonte COMEX (bulk CSV MDIC) → `gold_comex_flows` | Implementado |
+| `comtrade_flows.md` | Fonte UN Comtrade (API keyed) → `gold_comtrade_flows` | Implementado |
 
 > Crie novos planos com nomes descritivos: `scheduler-pipeline.md`, `api-rest-publica.md`, `novas-fontes-conab.md`, etc.
