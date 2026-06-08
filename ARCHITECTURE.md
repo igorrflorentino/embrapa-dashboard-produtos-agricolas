@@ -271,7 +271,7 @@ como objeto carimbado por run (trilha append-only).
 
 - **Append-only**: cada ingestão adiciona registros; nunca sobrescreve.
 - Todas as colunas são `STRING` exceto `ingestion_timestamp` — tipagem acontece no Silver.
-- BCB é **delta por padrão**: consulta `max(reference_date_str)` no Bronze e só busca overlap de 12 meses (inflação) ou 30 dias (câmbio); a Fase 2 anexa o que a Fase 1 arquivou.
+- **IBGE e BCB são delta por padrão**: consultam o max já no Bronze e só buscam uma janela recente. BCB: overlap de 12 meses (inflação) / 30 dias (câmbio). IBGE: de `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` em diante (absorve revisões do PEVS e pega um ano recém-publicado), em vez de re-puxar 1986→hoje (request gigante que estoura o deadline slow-byte do SIDRA num job não-supervisionado); Bronze frio → janela cheia. A Fase 2 anexa o que a Fase 1 arquivou.
 - Auto-criação: bucket GCS e datasets BigQuery são criados automaticamente na primeira execução.
 
 ### 2. Silver (dbt, `materialized=table` / `incremental`)
@@ -495,9 +495,11 @@ típicas de uma fonte pública:
 - **`tenacity`** via `core.http.http_retry_policy` (`stop_after_attempt(5)` +
   `wait_exponential` + drain sob deadline wall-clock) reabsorve transitórias
   (HTTP 5xx, timeouts, slow-byte).
-- **BCB é delta por padrão** (janela de overlap) — absorve revisões sem re-puxar
-  o histórico; COMEX re-baixa só quando o ETag muda; COMTRADE é resumível por
-  cota diária. Reexecutar o Job é idempotente o suficiente para um cron cego.
+- **IBGE e BCB são delta por padrão** — IBGE re-busca só anos recentes (de
+  `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS`), BCB usa janela de overlap;
+  COMEX re-baixa só quando o ETag muda; COMTRADE é resumível por cota diária.
+  Nenhuma perna re-puxa o histórico inteiro — reexecutar o Job é idempotente o
+  suficiente para um cron cego.
 - Falha total emite evento (base para a notificação de falha do ROADMAP).
 
 > **Artefatos** em [`deploy/ingestion/`](deploy/ingestion/): `Dockerfile` (imagem

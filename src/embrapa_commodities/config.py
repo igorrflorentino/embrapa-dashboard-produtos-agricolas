@@ -82,6 +82,13 @@ class Settings(BaseSettings):
         description="None requires user to run `embrapa discover ibge-periods` first.",
     )
     ibge_end_year: int = Field(default_factory=_current_year)
+    # Delta overlap (years). A routine `ingest ibge` (and `ingest all`) re-fetches
+    # only from (latest Bronze year − this) forward — absorbing PEVS revisions of
+    # recent years and picking up a newly published year — instead of re-pulling
+    # the whole 1986→today window (a huge SIDRA request that can blow the slow-byte
+    # deadline on an unattended Cloud Run job). `--full` ignores this; a cold
+    # Bronze table also falls back to the full configured window.
+    ibge_delta_overlap_years: int = Field(default=1)
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")

@@ -46,16 +46,22 @@ BCB SGS API    ──┼──► Python (src/embrapa_commodities/) → GCS Parq
 - All Bronze columns are `STRING` except `ingestion_timestamp`.
 - Datasets auto-create on first run (`gcp/bigquery.py` + `gcp/storage.py`).
 
-## BCB Delta Mode (Default)
+## Delta Mode (Default)
 
-BCB pipelines are delta by default:
-1. Query `max(reference_date_str)` from Bronze.
-2. Fetch from BCB starting at `max_date - overlap_window`:
-   - **Inflation:** 12 months overlap (absorbs BCB revisions of preliminary readings)
-   - **Currency:** 30 days overlap
-3. Only write new rows to Bronze.
+IBGE and BCB pipelines are delta by default — they query the max reference
+already in Bronze and re-fetch only a small recent window, so a routine
+`ingest all` (e.g. the nightly Cloud Run job) stays small and reliable:
 
-Use `--full` flag to force a complete refetch from `BCB_START_YEAR`.
+- **BCB:** fetch from `max(reference_date_str) - overlap` — 12 months (inflation)
+  / 30 days (currency), absorbing BCB revisions of preliminary readings.
+- **IBGE:** fetch from `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` (default 1),
+  absorbing PEVS revisions of recent years and a newly published year — instead of
+  re-pulling 1986→today (a huge SIDRA request that can blow the slow-byte
+  deadline). A cold Bronze table falls back to full.
+
+Use `--full` to force the complete window (IBGE: `IBGE_START_YEAR→END`; BCB: from
+`BCB_START_YEAR`). For a first IBGE historical backfill, `ingest ibge-batch`
+chunks the window to stay under SIDRA's per-request limit.
 
 ## Adding a New IBGE Product
 
@@ -66,7 +72,7 @@ IBGE_PRODUCT_CODES=3405,3406,3407,...,<new_code>
 
 The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_codigo` — no mapping seed is required.
 
-**Note:** IBGE SIDRA has a per-request cell limit. For windows >10 years, use `ingest ibge-batch`; chunk size auto-scales with number of products (`recommended_chunk_years` in `ibge/client.py`).
+**Note:** IBGE SIDRA has a per-request cell limit. Routine `ingest ibge` is delta (recent years only), so it stays under the limit; for a **first historical backfill** of a large window use `ingest ibge-batch` (chunk size auto-scales with product count — `recommended_chunk_years` in `ibge/client.py`).
 
 ## Adding a New BCB Series
 

@@ -59,7 +59,7 @@ def test_ingest_ibge_dispatches_and_prints_destination(
     result = runner.invoke(cli.app, ["ingest", "ibge"])
 
     assert result.exit_code == 0, result.output
-    pipeline_run.assert_called_once_with(settings, from_raw=False)
+    pipeline_run.assert_called_once_with(settings, full=False, from_raw=False)
     assert "IBGE bronze loaded" in result.output
     assert "proj.bronze_ibge.sidra_t289_raw" in result.output
 
@@ -69,7 +69,7 @@ def test_ingest_ibge_warns_when_pipeline_returns_empty(
 ) -> None:
     """An empty return value means SIDRA had nothing — print a hint, not a crash."""
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, from_raw=False: "")
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full=False, from_raw=False: "")
 
     result = runner.invoke(cli.app, ["ingest", "ibge"])
 
@@ -83,7 +83,7 @@ def test_ingest_ibge_propagates_pipeline_error(
 ) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
 
-    def boom(_settings: Settings, from_raw: bool = False) -> str:
+    def boom(_settings: Settings, full: bool = False, from_raw: bool = False) -> str:
         raise RuntimeError("sidra exploded")
 
     monkeypatch.setattr(cli.ibge_pipeline, "run", boom)
@@ -404,7 +404,7 @@ def test_ingest_all_runs_every_pipeline_in_order(
 ) -> None:
     order: list[str] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: order.append("ibge") or "")
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: order.append("ibge") or "")
     monkeypatch.setattr(
         cli.bcb_inflation, "run", lambda s, full: order.append(f"inflation-{full}") or ""
     )
@@ -424,10 +424,10 @@ def test_ingest_all_runs_every_pipeline_in_order(
 def test_ingest_all_full_flag_propagates_to_delta_pipelines(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
-    """`--full` cascades to delta-aware pipelines (BCB + COMEX) but not IBGE."""
+    """`--full` cascades to every delta-aware pipeline — IBGE included now."""
     seen_full: list[bool] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: seen_full.append(full) or "")
     monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: seen_full.append(full) or "")
     monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: seen_full.append(full) or "")
     monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: seen_full.append(full) or "")
@@ -435,7 +435,7 @@ def test_ingest_all_full_flag_propagates_to_delta_pipelines(
     result = runner.invoke(cli.app, ["ingest", "all", "--full"])
 
     assert result.exit_code == 0, result.output
-    assert seen_full == [True, True, True]
+    assert seen_full == [True, True, True, True]
 
 
 def test_ingest_all_wraps_each_pipeline_in_observability(
@@ -446,7 +446,7 @@ def test_ingest_all_wraps_each_pipeline_in_observability(
     not run silently with no event log as it did before."""
     init_calls: list[str] = []
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s: "")
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: "")
     monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: "")
     monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: "")
     monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: "")
