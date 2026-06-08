@@ -24,6 +24,15 @@ dependencies = [
     "dbt-bigquery>=1.8",
 ]
 
+[project.optional-dependencies]
+# Dashboard data-access layer (src/embrapa_commodities/serving). Kept out of the
+# core install so the ingestion CLI stays lean — `uv sync --extra serving` (or
+# the Cloud Run image) pulls these. google-cloud-bigquery is already a core dep.
+serving = [
+    "flask>=3.0",
+    "flask-caching>=2.3",
+]
+
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
 
@@ -44,6 +53,9 @@ dev = [
     "sqlfluff>=3.1",
     "sqlfluff-templater-dbt>=3.1",
     "pre-commit>=3.7",
+    # Serving-layer deps in dev too, so tests/test_serving.py runs in CI.
+    "flask>=3.0",
+    "flask-caching>=2.3",
 ]
 
 [tool.ruff]

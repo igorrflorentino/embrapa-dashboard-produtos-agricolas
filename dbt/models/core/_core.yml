@@ -1,0 +1,90 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: |
+      Conformed calendar dimension at MONTH grain (one row per month,
+      1970→2050). Serving marts join it to attach localized pt-BR month labels
+      and quarter/semester attributes. Lands in the Gold dataset — it is a
+      build-time conformed dimension baked into the serving marts, not read live
+      by the dashboard.
+    columns:
+      - name: date_month
+        description: "First day of the month. Primary key."
+        tests:
+          - not_null
+          - unique
+      - name: reference_year
+        tests: [not_null]
+      - name: reference_month
+        description: "Month number 1–12."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+                # INT64 column: compare numerically, not as quoted strings.
+                quote: false
+      - name: month_name_pt
+        description: "Full pt-BR month name (Janeiro … Dezembro)."
+        tests: [not_null]
+
+  - name: dim_geo_br
+    description: |
+      Conformed geography dimension for Brazil's 27 federative units. Single
+      source of truth for UF → state_name / region / region_abbrev, joined by
+      every serving mart with a state_acronym. region_abbrev (N/NE/CO/SE/S)
+      matches the frontend ufData contract.
+    columns:
+      - name: state_acronym
+        description: "Two-letter UF code. Primary key (27 rows)."
+        tests:
+          - not_null
+          - unique
+      - name: state_name
+        tests: [not_null]
+      - name: region
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: region_abbrev
+        description: "Region abbreviation for the frontend ufData contract."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["N", "NE", "CO", "SE", "S"]
+
+  - name: dim_commodity_scd2
+    description: |
+      Slowly Changing Dimension (Type 2) derived from the researchers'
+      append-only curation log (research_inputs.commodity_processing_stage_log).
+      valid_from / valid_to / is_current computed with LEAD() over edits per
+      commodity. Materialized as a VIEW in the SERVING dataset so a fresh
+      curation INSERT is visible to the dashboard immediately. The UI LEFT JOINs
+      the static serving marts to this dim on commodity_id (filter is_current).
+      Disabled by default — enable once the log table is provisioned:
+      `dbt build --vars 'enable_curation: true'`.
+    columns:
+      - name: commodity_id
+        description: "Curated commodity slug; links to gold_commodity_crosswalk.commodity_id."
+        tests:
+          - not_null
+          # At most ONE current version per commodity.
+          - unique:
+              config:
+                where: "is_current"
+      - name: version
+        description: "1-based edit sequence within a commodity (row_number over edited_at)."
+        tests: [not_null]
+      - name: processing_stage
+        description: "Researcher-assigned classification (in_natura, beneficiado, …)."
+        tests: [not_null]
+      - name: valid_from
+        description: "Timestamp this classification took effect (= edited_at)."
+        tests: [not_null]
+      - name: is_current
+        description: "True when valid_to IS NULL (the live classification)."
+        tests: [not_null]
