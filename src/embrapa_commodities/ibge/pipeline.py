@@ -21,8 +21,12 @@ from google.cloud import bigquery, storage
 
 from embrapa_commodities import observability
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.core import land_raw, raw_provenance, read_raw
-from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
+from embrapa_commodities.core import land_raw, list_raw, read_raw
+from embrapa_commodities.gcp.bigquery import (
+    ensure_dataset,
+    latest_reference_year,
+    load_dataframe,
+)
 from embrapa_commodities.ibge.client import fetch_sidra_dataframe
 
 logger = logging.getLogger(__name__)
@@ -119,42 +123,79 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
 
 def bronze_from_raw(
     settings: Settings,
-    basename: str,
+    basenames: list[str],
     *,
     storage_client: storage.Client,
     bq_client: bigquery.Client,
 ) -> str:
-    """Phase 2: read the raw SIDRA archive, stamp ingestion_timestamp, load Bronze."""
-    df = read_raw(
-        storage_client, settings=settings, source="ibge", dataset=RAW_DATASET, basename=basename
-    )
-    df = df.astype(str)
-    df["ingestion_timestamp"] = pd.Timestamp.now(tz="UTC")
+    """Phase 2: read each raw SIDRA archive, stamp ingestion_timestamp, append to Bronze.
 
+    Multiple ``basenames`` (``--from-raw`` replaying the delta trail) are appended
+    in order; Silver dedupes on the natural key, so overlapping windows collapse
+    to the latest reading.
+    """
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     destination = f"{dataset_id}.{settings.bq_bronze_ibge_table}"
-    load_dataframe(
-        bq_client,
-        df,
-        destination,
-        _bronze_schema(list(df.columns)),
-        time_partitioning_field="ingestion_timestamp",
-        clustering_fields=CLUSTERING_FIELDS,
-    )
-    observability.emit("ingest_loaded", pipeline="ibge", rows=len(df), destination=destination)
+    for basename in basenames:
+        df = read_raw(
+            storage_client, settings=settings, source="ibge", dataset=RAW_DATASET, basename=basename
+        )
+        df = df.astype(str)
+        df["ingestion_timestamp"] = pd.Timestamp.now(tz="UTC")
+        load_dataframe(
+            bq_client,
+            df,
+            destination,
+            _bronze_schema(list(df.columns)),
+            time_partitioning_field="ingestion_timestamp",
+            clustering_fields=CLUSTERING_FIELDS,
+        )
+        observability.emit("ingest_loaded", pipeline="ibge", rows=len(df), destination=destination)
     return destination
+
+
+def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Settings:
+    """Re-window ``settings`` to a recent delta start so a routine run re-fetches
+    only the latest (still-revisable) years, not the whole 1986→today history.
+
+    PEVS only revises recent years, so refetching the last few absorbs revisions
+    and picks up a newly published year, while the heavy full-history request
+    (which can blow the SIDRA slow-byte deadline) is reserved for ``--full``.
+    Returns ``settings`` unchanged when Bronze has no data yet (cold table → full).
+    """
+    table_fqn = (
+        f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}."
+        f"{settings.bq_bronze_ibge_table}"
+    )
+    last_year = latest_reference_year(bq_client, table_fqn)
+    if last_year is None:
+        return settings
+    floor = settings.ibge_start_year if settings.ibge_start_year is not None else 0
+    effective_start = max(floor, last_year - settings.ibge_delta_overlap_years)
+    logger.info(
+        "IBGE delta: re-fetching %d-%d (latest Bronze year %d, overlap %d).",
+        effective_start,
+        settings.ibge_end_year,
+        last_year,
+        settings.ibge_delta_overlap_years,
+    )
+    return settings.model_copy(update={"ibge_start_year": effective_start})
 
 
 def run(
     settings: Settings,
     *,
+    full: bool = False,
     from_raw: bool = False,
     storage_client: storage.Client | None = None,
     bq_client: bigquery.Client | None = None,
 ) -> str:
     """Extract→raw (Phase 1) then raw→Bronze (Phase 2). Returns destination, or ``""``.
 
-    ``from_raw`` rebuilds Bronze from the archived raw without re-querying SIDRA.
+    Delta by default: re-fetches only the recent overlap window (see
+    ``_delta_start_year``). ``full`` re-fetches the whole configured window (used
+    by ``ingest --full`` and per-chunk by ``ingest ibge-batch``). ``from_raw``
+    rebuilds Bronze from the archived raw trail without re-querying SIDRA.
     Optional clients let the batch CLI reuse one client across chunks.
     """
     creds = get_credentials(settings)
@@ -168,22 +209,16 @@ def run(
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
 
     if from_raw:
-        basename = _basename(settings)
-        if (
-            raw_provenance(
-                storage_client,
-                settings=settings,
-                source="ibge",
-                dataset=RAW_DATASET,
-                basename=basename,
-            )
-            is None
-        ):
-            logger.warning("IBGE --from-raw: no raw archived for %s.", basename)
+        basenames = list_raw(storage_client, settings=settings, source="ibge", dataset=RAW_DATASET)
+        if not basenames:
+            logger.warning("IBGE --from-raw: no raw archived for dataset %s.", RAW_DATASET)
             return ""
     else:
+        if not full:
+            settings = _delta_start_year(settings, bq_client)
         basename = extract_raw(settings, storage_client=storage_client)
         if basename is None:
             return ""
+        basenames = [basename]
 
-    return bronze_from_raw(settings, basename, storage_client=storage_client, bq_client=bq_client)
+    return bronze_from_raw(settings, basenames, storage_client=storage_client, bq_client=bq_client)

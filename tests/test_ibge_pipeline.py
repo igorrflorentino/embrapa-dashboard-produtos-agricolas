@@ -172,7 +172,10 @@ def test_run_from_raw_skips_fetch_and_rebuilds_bronze(
         patch("embrapa_commodities.ibge.pipeline.storage.Client"),
         patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
         patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.raw_provenance", return_value={"rows": "2"}),
+        patch(
+            "embrapa_commodities.ibge.pipeline.list_raw",
+            return_value=["products_3405_2020_2020"],
+        ),
         patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
         patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
     ):
@@ -216,6 +219,103 @@ def test_run_raises_when_start_year_is_none(settings: Settings) -> None:
         pytest.raises(RuntimeError, match="IBGE_START_YEAR is empty"),
     ):
         ibge_pipeline.run(settings)
+
+
+# ─── delta-by-default ────────────────────────────────────────────────────────
+def test_run_delta_rewinds_start_to_recent_years(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """A routine run re-fetches only from (latest Bronze year − overlap), not 1986."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2023),
+        patch("embrapa_commodities.ibge.pipeline.land_raw"),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings)  # delta is the default
+
+    # overlap default = 1 → start = 2023 − 1 = 2022, NOT the configured 1986.
+    assert fetch.call_args.kwargs["start_year"] == 2022
+    assert fetch.call_args.kwargs["end_year"] == 2024
+
+
+def test_run_full_bypasses_delta_and_uses_configured_window(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """--full ignores the Bronze lookup and re-fetches the whole configured window."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.latest_reference_year") as latest,
+        patch("embrapa_commodities.ibge.pipeline.land_raw"),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings, full=True)
+
+    latest.assert_not_called()  # no Bronze lookup in full mode
+    assert fetch.call_args.kwargs["start_year"] == 1986
+
+
+def test_run_delta_cold_bronze_keeps_configured_window(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """When Bronze has no data yet (latest year is None), delta falls back to full."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=None),
+        patch("embrapa_commodities.ibge.pipeline.land_raw"),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings)
+
+    assert fetch.call_args.kwargs["start_year"] == 1986
+
+
+def test_run_from_raw_replays_all_archived_objects(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """--from-raw replays the whole delta trail (every archived object), appending each."""
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch(
+            "embrapa_commodities.ibge.pipeline.list_raw",
+            return_value=["products_3405_1986_2024", "products_3405_2023_2024"],
+        ),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+    ):
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings, from_raw=True)
+
+    fetch.assert_not_called()
+    assert read_raw.call_count == 2  # both archived objects replayed
+    assert load.call_count == 2
 
 
 # ─── year chunking (CLI-level helper, but tested here to keep ibge tests together) ───

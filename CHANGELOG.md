@@ -10,6 +10,15 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Unreleased]
 
 ### Added
+- **IBGE PEVS agora é delta por padrão** (como o BCB). `ingest ibge` / `ingest all`
+  re-buscam só de `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` (default 1) em
+  diante — absorvendo revisões do PEVS e um ano recém-publicado — em vez de
+  re-puxar 1986→hoje a cada run (request gigante que estoura o deadline slow-byte
+  do SIDRA num Cloud Run Job não-supervisionado). `--full` força a janela
+  completa; `ingest ibge-batch` continua para o backfill histórico inicial
+  chunked; Bronze frio cai na janela cheia. Novo helper `latest_reference_year`
+  (`gcp/bigquery.py`) + knob `IBGE_DELTA_OVERLAP_YEARS`. Motivado por um smoke-run
+  do Cloud Run Job que falhou exatamente nesse fetch full-history do IBGE.
 - **Pivô arquitetural — Pushdown Computing no dashboard (substitui o desenho
   in-memory/Pandas, risco de OOM/concorrência).** O dashboard Dash passa a ser
   **stateless**: filtros da UI viram **SQL parametrizado** (`@param`) no BigQuery,

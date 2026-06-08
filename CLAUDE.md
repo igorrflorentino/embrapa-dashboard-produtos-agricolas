@@ -51,18 +51,22 @@ make precommit-install                        # optional: ruff + file-hygiene on
 
 Ingestion (Python → GCS Parquet → BigQuery Bronze):
 ```bash
-make ingest-all                               # IBGE + both BCB series + COMEX (BCB = delta; COMTRADE is key-gated, excluded)
+make ingest-all                               # IBGE + both BCB series + COMEX (IBGE + BCB = delta; COMTRADE is key-gated, excluded)
 make ingest-ibge-historical                   # auto-chunked for large year windows
 uv run embrapa ingest {ibge|bcb-inflation|bcb-currency|all}
 uv run embrapa ingest bcb-inflation --full    # force refetch from BCB_START_YEAR
 uv run embrapa ingest ibge-batch --chunk-years 5
 ```
 
-**BCB pipelines are delta by default**: they query `max(reference_date_str)`
-already in Bronze for each series and only fetch from a small overlap window
-forward (12 months for inflation, 30 days for FX) — this absorbs BCB
-revisions of preliminary readings without re-pulling the whole history.
-Use `--full` after schema changes or to backfill a new series.
+**IBGE and BCB pipelines are delta by default.** Each queries the max reference
+already in Bronze and re-fetches only a small recent window. BCB rewinds an
+overlap (12 months inflation, 30 days FX). **IBGE** re-fetches from
+`latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` forward — absorbing PEVS revisions
+of recent years and a newly published year — instead of the whole 1986→today
+window, a huge SIDRA request that can blow the slow-byte deadline on an
+unattended Cloud Run job. A cold Bronze table falls back to the full window.
+Use `--full` to force the complete window (or `ingest ibge-batch` to chunk a
+first historical backfill).
 
 Cold-storage backup of the prod Gold tables. **The recommended prod path
 bundles build + snapshot in one target — reach for this instead of bare
