@@ -49,8 +49,9 @@ Custo estimado: ~U$ 30/mês/Gb.
 Há **uma única Gold física por fonte** — para o IBGE PEVS é
 `gold_pevs_production` (~95 mil linhas, uma por ano × UF × município × produto).
 As agregações por estado/ano ou Brasil-total são derivadas no próprio Looker
-Studio (campos calculados / GROUP BY na fonte), em vez de tabelas
-pré-agregadas separadas. Simplicidade de manutenção sobre eficiência de query.
+Studio (campos calculados / GROUP BY na fonte). Marts pré-agregados existem na
+camada `serving/` (para o dashboard Dash / Pushdown Computing), mas o Looker
+consome o Gold diretamente.
 
 | Tabela | Linhas (aprox.) | Grão |
 |---|---|---|

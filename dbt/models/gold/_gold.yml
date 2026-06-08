@@ -8,9 +8,10 @@ models:
       one row per produced/extracted measurement, no origin→destination).
       Wide, partitioned, clustered fact table. One row per
       (reference_year, state_acronym, city_name, product_code).
-      Any state/year/national aggregation is derived at query time via GROUP BY
-      — we deliberately keep ONE table per source instead of pre-aggregated
-      siblings (simplicity over query efficiency for now).
+      Ad-hoc state/year/national aggregation is derived at query time via GROUP BY.
+      For the Dash dashboard's Pushdown Computing, the `serving/` layer materializes
+      pre-aggregated marts at the chart grains — they derive from this Gold table,
+      not replace it.
       Physical table (not a view) so BI Engine can cache it.
 
       Value columns: val_yearfx_{brl,usd,eur,cny} (nominal at year-of-record FX),
