@@ -221,3 +221,17 @@ def test_memoize_avoids_repeated_bigquery_roundtrip(monkeypatch):
         gateway.fetch_current_classifications()  # served from cache
 
     assert calls["n"] == 1
+
+
+def test_classification_cache_uses_short_ttl_for_multiinstance():
+    """The curation read uses a SHORT TTL, not the long mart default.
+
+    That short window (not a shared Redis) is what bounds cross-instance
+    staleness, letting the dashboard scale to N Cloud Run instances for free.
+    """
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    mart_ttl = Settings(gcp_project_id="p").cache_default_timeout
+    assert gateway._CLASSIFICATION_TTL <= 60
+    assert mart_ttl > gateway._CLASSIFICATION_TTL

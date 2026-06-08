@@ -5,18 +5,22 @@ decorated with ``@cache.memoize()`` before a Flask server exists. The dashboard
 calls :func:`init_cache` once, passing its Flask ``server`` (Dash's underlying
 WSGI app), to bind and configure it.
 
-Cache backend — read this before deploying to Cloud Run:
+Cache backend — multi-instance Cloud Run on ``SimpleCache`` (the default) works,
+for free:
 
-    ``SimpleCache`` is in-process and PER INSTANCE. On a multi-instance Cloud Run
-    service each instance has its own cache, so a curation write that invalidates
-    the classification cache on instance A does NOT clear it on instance B —
-    instance B keeps serving the stale classification until its own TTL expires.
+    ``SimpleCache`` is in-process and PER INSTANCE. The mart caches tolerate that
+    trivially (marts change only on the nightly dbt rebuild, so every instance
+    converges within the TTL). The one caveat is the curation classification
+    cache — a write on instance A can't invalidate B's copy — and it is handled
+    NOT by Redis but by a SHORT TTL (``CACHE_CLASSIFICATION_TIMEOUT``, default
+    30s, applied in ``gateway.py``): the writing instance is invalidated
+    instantly, others converge within that window. Eventual consistency ≤30s is
+    fine for manual research curation, so the dashboard scales to N instances at
+    zero cost.
 
-    For correct cross-instance invalidation set ``CACHE_TYPE=RedisCache`` and
-    point ``CACHE_REDIS_URL`` at a shared Redis (Memorystore). The mart caches
-    are TTL-only (marts change solely on the nightly dbt rebuild), so they
-    tolerate per-instance caches; it is specifically the curation invalidation
-    that needs the shared backend.
+    ``CACHE_TYPE=RedisCache`` + ``CACHE_REDIS_URL`` (Memorystore) is OPTIONAL —
+    reach for it only if you ever need *instant* (sub-second) cross-instance
+    classification consistency under high traffic, which this workload does not.
 """
 
 from __future__ import annotations
@@ -30,9 +34,10 @@ cache = Cache()
 def init_cache(server, settings=None) -> Cache:
     """Bind and configure the cache on a Flask ``server`` from settings.
 
-    Defaults to ``SimpleCache`` (fine for single-instance / local dev). Set
-    ``CACHE_TYPE=RedisCache`` + ``CACHE_REDIS_URL`` in the environment for a
-    multi-instance Cloud Run deployment (see module docstring).
+    Defaults to ``SimpleCache``, which scales to N Cloud Run instances for free
+    (mart TTLs + a short classification TTL — see module docstring). Set
+    ``CACHE_TYPE=RedisCache`` + ``CACHE_REDIS_URL`` only for *instant*
+    cross-instance classification consistency (optional, not required).
     """
     from embrapa_commodities.config import get_settings
 
