@@ -10,7 +10,7 @@
 Foco: **estabilização, observabilidade e automação básica**.
 
 ### Pipeline & Dados
-- [ ] **Orquestração da ingestão**: empacotar `embrapa ingest all` como **Cloud Run Job** (batch, não Service) disparado por **Cloud Scheduler** nas madrugadas — aproveitando a resiliência atual com `tenacity` (retry/slow-byte) e o modo delta do BCB/COMEX. Ver [ARCHITECTURE § Orquestração da ingestão](ARCHITECTURE.md#orquestração-da-ingestão-cloud-run-job--cloud-scheduler).
+- [~] **Orquestração da ingestão**: `embrapa ingest all` empacotado como **Cloud Run Job** (batch, não Service) + trigger **Cloud Scheduler** nas madrugadas — artefatos em [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); falta o operador rodar o deploy no GCP. Aproveita a resiliência com `tenacity` (retry/slow-byte) + delta do BCB/COMEX. Ver [ARCHITECTURE § Orquestração da ingestão](ARCHITECTURE.md#orquestração-da-ingestão-cloud-run-job--cloud-scheduler).
 - [ ] Notificações de falha de ingestão (email ou Slack webhook)
 - [ ] Integrar SQLFluff no CI (atualmente rodado manualmente)
 - [ ] Testes de integridade end-to-end (row counts Bronze → Silver → Gold)

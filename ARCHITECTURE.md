@@ -500,9 +500,13 @@ típicas de uma fonte pública:
   cota diária. Reexecutar o Job é idempotente o suficiente para um cron cego.
 - Falha total emite evento (base para a notificação de falha do ROADMAP).
 
-> A imagem do Job e o YAML do Scheduler chegam junto com o empacotamento de
-> deploy (não scaffoldados aqui ainda); o backend de ingestão que eles invocam
-> (`embrapa ingest all`) já está pronto e é o mesmo caminho testado localmente.
+> **Artefatos** em [`deploy/ingestion/`](deploy/ingestion/): `Dockerfile` (imagem
+> do Job — distinta do Dockerfile do dashboard *Service*), `cloudbuild.yaml`,
+> `deploy.sh` (build + cria/atualiza o Job lendo o `.env`) e `schedule.sh` (cria/
+> atualiza o trigger do Scheduler). Atalhos: `make ingest-job-deploy` e
+> `make ingest-job-schedule`. O deploy efetivo (rodar os scripts no projeto GCP) é
+> passo do operador — o backend que eles invocam (`embrapa ingest all`) já está
+> pronto e é o mesmo caminho testado localmente.
 
 ---
 

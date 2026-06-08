@@ -1,5 +1,5 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        ingest-ibge-historical \
+        ingest-ibge-historical ingest-job-deploy ingest-job-schedule \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
         dbt-test dbt-clean lint test clean \
@@ -32,6 +32,12 @@ ingest-all:
 
 ingest-ibge-historical:    ## Ingest IBGE in safe 5-year chunks (for large historical windows)
 	$(PY) embrapa ingest ibge-batch --chunk-years 5
+
+ingest-job-deploy:    ## Build + deploy the `embrapa ingest all` Cloud Run Job (reads .env)
+	bash deploy/ingestion/deploy.sh
+
+ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for the job
+	bash deploy/ingestion/schedule.sh
 
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps
