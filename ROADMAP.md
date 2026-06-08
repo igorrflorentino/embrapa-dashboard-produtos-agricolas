@@ -10,7 +10,7 @@
 Foco: **estabilização, observabilidade e automação básica**.
 
 ### Pipeline & Dados
-- [ ] Scheduler automático para ingestão (Cloud Scheduler ou cron job)
+- [~] **Orquestração da ingestão**: `embrapa ingest all` empacotado como **Cloud Run Job** (batch, não Service) + trigger **Cloud Scheduler** nas madrugadas — artefatos em [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); falta o operador rodar o deploy no GCP. Aproveita a resiliência com `tenacity` (retry/slow-byte) + delta do BCB/COMEX. Ver [ARCHITECTURE § Orquestração da ingestão](ARCHITECTURE.md#orquestração-da-ingestão-cloud-run-job--cloud-scheduler).
 - [ ] Notificações de falha de ingestão (email ou Slack webhook)
 - [ ] Integrar SQLFluff no CI (atualmente rodado manualmente)
 - [ ] Testes de integridade end-to-end (row counts Bronze → Silver → Gold)
@@ -22,9 +22,10 @@ Foco: **estabilização, observabilidade e automação básica**.
 > Design System). Os itens abaixo aplicam-se ao dashboard dedicado; o Looker cobre
 > o caminho no-code em paralelo. Ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumo.
 
-- [ ] Exportação de dados (CSV/Excel) diretamente do dashboard
+- [x] **Pushdown Computing** — dashboard **stateless**: filtros da UI → SQL `@param` na camada `serving`, com `flask-caching` (TTL) nos resultados. Substitui o desenho in-memory/Pandas (risco de OOM/concorrência). Backend (BFF) já em [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/).
+- [x] **Curadoria dinâmica (SCD Tipo 2)** — log append-only `commodity_processing_stage_log` + view `dim_commodity_scd2` (`lead()`); LEFT JOIN ao vivo na UI; autor via header IAP. Sem sobrescrever o Gold.
+- [ ] Componentes de UI da curadoria + export CSV/Excel (chegam com o handoff do Design System)
 - [ ] Melhorias de UX baseadas em feedback de pesquisadores
-- [ ] Cache layer (TTL in-memory) para queries repetitivas no dashboard dedicado
 
 ### Qualidade
 - [ ] Aumentar cobertura de testes para ≥ 80%
@@ -62,7 +63,8 @@ Foco: **novas fontes de dados, IaC e melhorias de dashboard**.
 
 ### Dados
 - [ ] Particionamento otimizado das tabelas Gold (clustering por product_code + state_acronym)
-- [ ] (Deferido) Materialização de tabelas agregadas — apenas **se** a agregação em query-time se mostrar lenta na prática. Postura atual: **uma tabela Gold comprehensiva por fonte**, agregação em query-time (simplicidade > eficiência; ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Gold)
+- [x] **Camada `serving/` (Pushdown Computing)** — marts pré-agregados nos grãos exatos dos gráficos + dimensões conformadas (`dim_date`, `dim_geo_br`), reduzindo o scan de **GB → MB** para o dashboard. Substitui a postura anterior de "deliberadamente nunca pré-agregar"; o Gold permanece a fonte comprehensiva por fonte e o `serving` deriva dele (ver [`ARCHITECTURE.md`](ARCHITECTURE.md#camada-serving--pushdown-computing-dashboard-dash) § Camada Serving)
+- [ ] Materializações incrementais nos marts de serving **se** o volume crescer (hoje `table` full-refresh no rebuild noturno)
 - [ ] Data freshness monitoring (dbt source freshness)
 
 ---

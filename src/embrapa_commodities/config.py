@@ -152,6 +152,30 @@ class Settings(BaseSettings):
     # Gold table while excluding ad-hoc / temp exploration tables.
     backup_gold_prefix: str = Field(default="gold_")
 
+    # ─── Serving layer / dashboard data access ────────────────────────────────
+    # Pre-aggregated marts + the SCD2 curation view the stateless Dash app reads
+    # via Pushdown Computing. Un-prefixed name (dbt's generate_schema_name adds
+    # the dev prefix: dev → dbt_dev_serving, prod → serving). Point the deployed
+    # dashboard at "serving"; a developer testing against dev data sets it to
+    # "dbt_dev_serving".
+    bq_serving_dataset: str = Field(default="serving")
+    # Append-only researcher curation inputs (written by the dashboard, not dbt).
+    bq_research_inputs_dataset: str = Field(default="research_inputs")
+    bq_curation_log_table: str = Field(default="commodity_processing_stage_log")
+
+    # ─── Cache (flask-caching) ────────────────────────────────────────────────
+    # SimpleCache is in-process / per-instance — fine for single-instance or
+    # local dev. For multi-instance Cloud Run set CACHE_TYPE=RedisCache +
+    # CACHE_REDIS_URL so curation invalidation propagates across instances
+    # (see src/embrapa_commodities/serving/cache.py).
+    cache_type: str = Field(default="SimpleCache")
+    cache_default_timeout: int = Field(default=600, description="Seconds; mart read TTL.")
+    cache_redis_url: str | None = Field(default=None)
+    # Author email used when the IAP header is absent (local dev only). Leave
+    # unset in production — IAP always supplies the header, and an unset fallback
+    # makes an un-attributed write fail loudly instead of writing 'unknown'.
+    curation_dev_author: str | None = Field(default=None)
+
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:
         if not self.gcs_bucket:

@@ -1,6 +1,7 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        ingest-ibge-historical \
+        ingest-ibge-historical ingest-job-deploy ingest-job-schedule \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
+        dbt-build-curation serving-sync ensure-curation \
         dbt-test dbt-clean lint test clean \
         precommit-install precommit-run
 
@@ -32,6 +33,12 @@ ingest-all:
 ingest-ibge-historical:    ## Ingest IBGE in safe 5-year chunks (for large historical windows)
 	$(PY) embrapa ingest ibge-batch --chunk-years 5
 
+ingest-job-deploy:    ## Build + deploy the `embrapa ingest all` Cloud Run Job (reads .env)
+	bash deploy/ingestion/deploy.sh
+
+ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for the job
+	bash deploy/ingestion/schedule.sh
+
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps
 
@@ -46,6 +53,15 @@ backup-gold:    ## Snapshot prod Gold tables to gs://${GCS_BUCKET}/backups/run=<
 
 dbt-build-prod-with-backup: dbt-build-prod backup-gold    ## Recommended prod path: build then snapshot
 	@echo "[ok] prod build + Gold snapshot complete"
+
+serving-sync:    ## Install the dashboard data-access extra (flask + flask-caching)
+	uv sync --extra serving
+
+ensure-curation:    ## Create the append-only curation log table (research_inputs.*)
+	$(PY) python -c "from embrapa_commodities.serving.curation import ensure_curation_log_table as e; print('curation log ready:', e())"
+
+dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
+	cd $(DBT_DIR) && $(PY) dbt build --vars 'enable_curation: true'
 
 dbt-test:
 	cd $(DBT_DIR) && $(PY) dbt test

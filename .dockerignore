@@ -1,0 +1,28 @@
+# Build context hygiene for any image built from this repo (context = root).
+# Keeps the upload small and — critically — never ships secrets into a layer.
+
+# Version control / tooling
+.git
+.github
+.claude
+
+# Python caches / virtualenvs
+.venv
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Secrets & local env — NEVER bake these into an image
+.env
+.env.*
+!.env.example
+
+# dbt build artifacts
+dbt/target
+dbt/logs
+dbt/dbt_packages
+
+# Misc
+*.log

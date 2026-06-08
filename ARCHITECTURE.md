@@ -26,15 +26,19 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
                          ▼
  ┌─────────────────────────────────────────────────────┐
  │  dbt-bigquery  (dbt/)                               │
- │  Silver: tipagem, dedup, IPCA chain index           │
- │  Gold:   denormalização, FX, deflação real           │
+ │  Silver:  tipagem, dedup, IPCA chain index          │
+ │  Gold:    denormalização, FX, deflação real          │
+ │  core:    dim_date, dim_geo_br (conformadas)        │
+ │  serving: marts pré-agregados (Pushdown Computing)  │
  └───────────────────────┬─────────────────────────────┘
                          ▼
  ┌─────────────────────────────────────────────────────┐
  │  Consumo (dois caminhos paralelos)                  │
  │  • Looker Studio (direto na tabela Gold)             │
- │  • Dashboard Dash + HTML/CSS @ Cloud Run             │
- │    (em reconstrução · Claude Design System)          │
+ │  • Dashboard Dash @ Cloud Run — stateless           │
+ │    filtros → SQL @param no serving + flask-caching  │
+ │    curadoria: log append-only + SCD Tipo 2          │
+ │    (UI em reconstrução · Claude Design System)       │
  └─────────────────────────────────────────────────────┘
 ```
 
@@ -57,7 +61,8 @@ O projeto implementa uma **arquitetura Medallion** (Bronze → Silver → Gold) 
 | Pre-commit | gitleaks, ruff, file-hygiene hooks | Segurança de credenciais + qualidade de código |
 | Testes | pytest, responses, pytest-cov | Mocks HTTP, cobertura, markers customizados |
 | Configuração | pydantic-settings + `.env` | Validação tipada, zero hardcode |
-| Consumo / Visualização | Looker Studio · Dash + HTML/CSS @ Cloud Run | Dois caminhos paralelos sobre as mesmas tabelas Gold (ver seção Consumo) |
+| Consumo / Visualização | Looker Studio · Dash @ Cloud Run | Dois caminhos paralelos sobre as mesmas tabelas Gold (ver seção Consumo) |
+| Dashboard data access | `google-cloud-bigquery` + `flask-caching` | Pushdown Computing: filtros da UI → SQL `@param` no `serving`, resultados cacheados |
 
 > A camada de **visualização dedicada** (Dash + HTML/CSS, deploy no Cloud Run via Gunicorn) está sendo refeita no Claude Design System em um fluxo separado — é um alvo real, não abandonado. O Looker Studio é o segundo caminho de consumo e permanece disponível em paralelo. Quando o novo frontend chegar via handoff, a stack de UI/deploy (Dockerfile, Cloud Run, SA read-only) será reintroduzida e esta tabela atualizada.
 
@@ -88,6 +93,13 @@ embrapa-dashboard-commodities/
 │   ├── gcp/                          # Clientes GCP
 │   │   ├── bigquery.py               # Load Parquet → BQ, auto-create datasets
 │   │   └── storage.py                # Upload → GCS, auto-create bucket
+│   │
+│   ├── serving/                      # ⭐ Data-access layer do dashboard (Pushdown)
+│   │   ├── sql.py                    # SQL parametrizado (@param) + allowlist anti-injeção
+│   │   ├── gateway.py                # fetch_* cacheados (flask-caching) sobre os marts
+│   │   ├── cache.py                  # Instância flask-caching (SimpleCache/Redis)
+│   │   ├── iap.py                    # Autor via header IAP → edited_by
+│   │   └── curation.py               # Escritor append-only SCD2 + invalidação de cache
 │   │
 │   ├── ibge/                         # Pipeline IBGE PEVS
 │   │   ├── client.py                 # HTTP client SIDRA API
@@ -123,14 +135,26 @@ embrapa-dashboard-commodities/
 │   │   │   ├── silver_currency.sql       # UNION BCB ∪ externo (lido pela Gold)
 │   │   │   ├── silver_comex_flows.sql    # COMEX tipado + dedup (grão-fonte)
 │   │   │   └── silver_comtrade_flows.sql # COMTRADE HS6, 4 regimes; só registro agregado (anti-dupla-contagem)
-│   │   └── gold/
-│   │       ├── _gold.yml             # Schema + testes Gold
-│   │       ├── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
-│   │       ├── gold_comex_flows.sql      # Gold COMEX (forma: flows, Brasil)
-│   │       ├── gold_comtrade_flows.sql   # Gold COMTRADE (forma: flows, global bilateral)
-│   │       ├── gold_commodity_crosswalk.sql  # Ponte cross-source (source,code)→commodity
-│   │       └── gold_source_metadata.sql  # Proveniência por fonte (view; seam dataStore.meta)
-│   │                                     # Novas fontes: gold_<fonte>_<forma>
+│   │   ├── gold/
+│   │   │   ├── _gold.yml             # Schema + testes Gold
+│   │   │   ├── gold_pevs_production.sql  # Gold IBGE PEVS (forma: production)
+│   │   │   ├── gold_comex_flows.sql      # Gold COMEX (forma: flows, Brasil)
+│   │   │   ├── gold_comtrade_flows.sql   # Gold COMTRADE (forma: flows, global bilateral)
+│   │   │   ├── gold_commodity_crosswalk.sql  # Ponte cross-source (source,code)→commodity
+│   │   │   └── gold_source_metadata.sql  # Proveniência por fonte (view; seam dataStore.meta)
+│   │   │                                 # Novas fontes: gold_<fonte>_<forma>
+│   │   ├── core/                     # ⭐ Dimensões conformadas (Pushdown Computing)
+│   │   │   ├── _core.yml
+│   │   │   ├── dim_date.sql          # Calendário (grão mês, rótulos pt-BR)
+│   │   │   ├── dim_geo_br.sql        # 27 UFs → nome/região/abrev (N·NE·CO·SE·S)
+│   │   │   └── dim_commodity_scd2.sql  # SCD Tipo 2 da curadoria (view; gated)
+│   │   └── serving/                  # ⭐ Marts pré-agregados p/ o dashboard Dash
+│   │       ├── _serving.yml
+│   │       ├── serving_pevs_annual.sql
+│   │       ├── serving_comex_annual.sql
+│   │       ├── serving_comex_seasonality.sql
+│   │       ├── serving_comtrade_annual.sql
+│   │       └── serving_quality_by_source.sql
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
 │   │   ├── safe_numeric.sql          # Conversão segura (placeholders IBGE → NULL)
@@ -266,7 +290,7 @@ como objeto carimbado por run (trilha append-only).
 - Tabela da UN Comtrade: `gold_comtrade_flows` — comércio **global** bilateral, uma linha por `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Mesmas 4 convenções sobre `primaryValue` (US$), mas deflação **anual** (FX médio do ano, índice de inflação fim-de-ano — como o PEVS) por o grão ser anual. Geografia bilateral: `reporter` + `partner` (ambos M49 → nome/ISO3). Sem dupla-contagem (World dropado no Silver), então `SUM` sobre partners é total bilateral verdadeiro.
 - **Dimensão cross-source** (exceção ao "uma tabela por fonte"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolvido do seed `commodity_crosswalk` (vínculos por prefixo) contra os códigos reais das Gold. Liga a mesma commodity entre PEVS/COMEX/COMTRADE para as análises cross.
 - **Metadados por fonte** (view): `gold_source_metadata` — uma linha por fonte com proveniência derivada do Gold (tabela, cadência, cobertura, contadores, `last_refresh`). Alimenta o seam `dataStore.meta(id)` do frontend; `implStatus`/`visible` são config de runtime (ver [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
-- **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. Qualquer agregação (estado-ano, nacional) é derivada **em tempo de query** via `GROUP BY` — deliberadamente NÃO mantemos tabelas pré-agregadas (simplicidade sobre eficiência por ora). Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+- **Gold é por fonte, UMA tabela comprehensiva por fonte.** Nomenclatura: `gold_<fonte>_<forma>`, onde `<forma>` é o grão semântico — `production` (medição de saída produtiva, sem origem→destino; só o PEVS) ou `flows` (fluxo origem→destino; os bancos de comércio: COMEX, COMTRADE, NFe). Cada fonte tem sua própria linhagem consumindo as mesmas Silver de deflação/FX. O Gold é o **grão analítico comprehensivo** por fonte; agregações ad-hoc (Looker, exploração) saem dele via `GROUP BY` em tempo de query. **Para viabilizar o Pushdown Computing do dashboard Dash sem explodir custo e latência no BigQuery**, uma camada **`serving/`** materializa marts pré-agregados nos grãos exatos dos gráficos (ver [§ Camada Serving](#camada-serving--pushdown-computing-dashboard-dash)) — ela **deriva** do Gold, não o substitui. Grãos incompatíveis (mensal × país × HS code para COMEX, evento × UF para NFe) também justificam linhagens separadas — ver [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Quatro convenções monetárias (aplicáveis a qualquer Gold monetária):
   - `val_yearfx_*` — valor nominal convertido pelo FX médio do ano. NULL para moedas estrangeiras pré-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — valor deflacionado pela cadeia IPCA / IGP-M / IGP-DI, projetado para hoje. **Use esta coluna para comparações entre anos.**
@@ -276,7 +300,7 @@ como objeto carimbado por run (trilha append-only).
 Dois caminhos paralelos, ambos lendo as mesmas tabelas Gold — não são exclusivos e podem coexistir:
 
 - **Looker Studio** (no-code): conexão direta nas tabelas Gold (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Bom para relatórios padronizados e exploração rápida sem deploy. Disponível agora.
-- **Dashboard dedicado (HTML/CSS + Dash) no Cloud Run**: frontend sob medida para os pesquisadores, em reconstrução com o Claude Design System. Consome as mesmas tabelas Gold via BigQuery; deploy no Cloud Run com SA read-only e IAM. É um alvo de primeira classe — quando o handoff chegar, o Dockerfile/Cloud Run e a SA de leitura voltam ao repo.
+- **Dashboard dedicado (Dash) no Cloud Run — stateless, Pushdown Computing**: frontend sob medida para os pesquisadores (UI em reconstrução com o Claude Design System). **Não** carrega tabelas Gold em memória (Pandas) atrás de um lock global — esse desenho foi descartado por risco de OOM e concorrência. Traduz cada filtro da UI em **SQL parametrizado** (`@param`) sobre a camada **`serving`** (marts pré-agregados), com **flask-caching** nos resultados; a curadoria usa um **log append-only + SCD Tipo 2** (ver §§ [Camada Serving](#camada-serving--pushdown-computing-dashboard-dash) e [Curadoria dinâmica](#curadoria-dinâmica--log-append-only--scd-tipo-2)). A data-access layer (BFF) já vive em [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); o Dockerfile/Cloud Run e os componentes de UI chegam com o handoff do Design System.
 
 ---
 
@@ -292,6 +316,96 @@ Dois caminhos paralelos, ambos lendo as mesmas tabelas Gold — não são exclus
 Ponto importante: **não migrar** clientes existentes (IBGE/BCB) para abstrações compartilhadas só pelo gosto da DRY — o slow-byte / period-halving do SIDRA é defesa hard-won que está bem onde está. Os primitivos de `core/` são adotados conscientemente, fonte a fonte, conforme convém. Veja a seção "Itens deferidos" do plano de prep.
 
 Não mora em `core/`: lógica source-specific (parallelism por UF do IBGE, chunking de séries do BCB, etc.) — fica em `<fonte>/`.
+
+---
+
+## Camada Serving — Pushdown Computing (dashboard Dash)
+
+> **Pivô arquitetural (2026-06).** O dashboard Dash **não** carrega tabelas Gold
+> inteiras em memória (Pandas) atrás de um `threading.Lock()` global — desenho
+> descartado por risco de OOM e falhas de concorrência. O Cloud Run é
+> **stateless**: a UI traduz cada filtro em **SQL parametrizado** (`@param`)
+> executado pelo BigQuery, e o resultado (pequeno) é cacheado por `flask-caching`.
+
+**Por que uma camada `serving/`.** Pushdown ingênuo direto no Gold varreria
+gigabytes a cada filtro. Para viabilizar custo e latência, `dbt/models/serving/`
+materializa **marts pré-agregados nos grãos exatos dos gráficos** (mapeados em
+[`docs/frontend_data_contract.md`](docs/frontend_data_contract.md)), reduzindo o
+scan de **GB → MB**. São **tabelas**, não views: uma view sobre o Gold
+re-varreria o fato inteiro a cada query e não economizaria nada — o ganho vem da
+pré-agregação materializada, particionada por ano e clusterizada pelos filtros.
+
+| Mart (`serving`) | Grão | Alimenta |
+|---|---|---|
+| `serving_pevs_annual` | ano × UF × produto × família | overviewTS · productTS · ufData (PEVS) |
+| `serving_comex_annual` | ano × flow × NCM × UF × país | overview · produto · UF · partner · flow (COMEX) |
+| `serving_comex_seasonality` | ano × mês × flow × NCM | monthlyData / sazonalidade |
+| `serving_comtrade_annual` | ano × flow × cmd × reporter × partner | partner · flow · market-share (COMTRADE) |
+| `serving_quality_by_source` | fonte × data_quality_flag | donut de qualidade |
+
+**Dimensões conformadas** (`dbt/models/core/`): `dim_date` (grão mês, rótulos
+pt-BR, quarter/semestre) e `dim_geo_br` (27 UFs → nome / região / abreviação
+N·NE·CO·SE·S) são a **fonte única** dos joins do serving. Ficam no dataset Gold
+(são insumos de *build* assados nos marts, não lidos ao vivo pela UI). Os marts
+carregam `commodity_id` (via `gold_commodity_crosswalk`) para o LEFT JOIN ao vivo
+com a dimensão de curadoria.
+
+**Dataset próprio + menor privilégio.** Os marts vivem no dataset `serving`
+(`BQ_SERVING_DATASET`), separado do Gold, para que a SA do dashboard
+(`sa-web-dashboard-prod`) seja escopada **apenas** à superfície de serving.
+
+**Camada de acesso a dados (Python).** [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/)
+é o BFF **UI-agnóstico** que o Dash importa — **sem páginas/charts** (esses chegam
+no handoff do Design System):
+
+- `sql.py` — construtores de SQL **parametrizado** (`@param`); a coluna de medida
+  (que não pode ser bind param) passa por uma **allowlist** contra injeção.
+- `gateway.py` — funções `fetch_*` **cacheadas** (`@cache.memoize()`) que rodam os
+  marts. Sem DataFrame Pandas global, sem lock — o estado mora no BigQuery.
+- `cache.py` — instância `flask-caching`. ⚠️ **Multi-instância:** `SimpleCache` é
+  por processo; para a invalidação de curadoria propagar entre instâncias no
+  Cloud Run, use `CACHE_TYPE=RedisCache` (Memorystore).
+- `iap.py` — extrai o autor do header **IAP** (`edited_by`).
+- `curation.py` — escritor append-only da curadoria (abaixo).
+
+**Política de cache.** Marts mudam **só** no rebuild dbt noturno → cache por
+**TTL** (`CACHE_DEFAULT_TIMEOUT`). A classificação da curadoria **pode** mudar
+entre rebuilds → cache **explicitamente invalidado** na escrita.
+
+---
+
+## Curadoria dinâmica — log append-only + SCD Tipo 2
+
+Pesquisadores reclassificam commodities (estágio de processamento: `in_natura`,
+`beneficiado`, `semi_processado`, `industrializado`, …) pelo painel de curadoria.
+O fluxo **nunca sobrescreve o Gold**:
+
+1. **Escrita (botão "Salvar").** `serving.curation.record_processing_stage` anexa
+   **uma linha imutável** a `research_inputs.commodity_processing_stage_log` (DML
+   `INSERT` parametrizado — consistente para leitura imediata). O autor vem do
+   header **IAP** `X-Goog-Authenticated-User-Email` na coluna `edited_by` — toda
+   edição é atribuível a uma pessoa, nunca à Service Account. Em seguida o cache
+   da classificação é invalidado. A tabela é **auto-criada**
+   (`ensure_curation_log_table`, padrão da casa).
+2. **Histórico (SCD Tipo 2).** A view `dim_commodity_scd2` (`dbt/models/core/`)
+   deriva, por commodity, `valid_from` / `valid_to` / `is_current` via
+   `lead(edited_at)` sobre o log. É uma **view**, não tabela: um `INSERT` novo
+   aparece para a UI **na hora**, sem rebuild dbt. Fica gated por
+   `--vars 'enable_curation: true'` (ative quando o log existir, para o build
+   default permanecer verde até lá).
+3. **Leitura (UI).** O dashboard faz **LEFT JOIN ao vivo** entre a **Serving View
+   estática** (mart pré-agregado, pesado, com `commodity_id`) e a
+   `dim_commodity_scd2` **viva** (leve), filtrando `is_current` para "agora" — ou
+   `valid_from <= as_of < valid_to` para reconstruir como a commodity estava
+   classificada em uma data passada (rastreabilidade).
+
+```
+"Salvar" ─► INSERT append-only ─► research_inputs.commodity_processing_stage_log
+                                              │  (lead() → valid_from/valid_to/is_current)
+                                              ▼
+   Serving mart (estático)  ──LEFT JOIN ao vivo──►  dim_commodity_scd2 (view)
+   por commodity_id                                  is_current = true
+```
 
 ---
 
@@ -341,7 +455,7 @@ Modelo de **Service Account Impersonation** (OAuth 2.0) sem keyfiles distribuíd
 - **`sa-data-pipeline-prod`**: pipelines de ingestão (write GCS + BQ)
 - **`sa-ai-agent-admin-prod`**: agentes de IA (BQ editor + GCS)
 
-> A SA `sa-web-dashboard-prod` é a **runtime read-only do dashboard dedicado no Cloud Run** (`roles/bigquery.dataViewer` na Gold). Está dormente enquanto o frontend é reconstruído no Claude Design System e volta a ser usada quando ele for redeployado. O **Looker Studio não usa esta SA** — consome a Gold via OAuth do usuário final (caminho de consumo independente).
+> A SA `sa-web-dashboard-prod` é a **runtime do dashboard stateless no Cloud Run**. Com o Pushdown Computing ela é escopada a **menor privilégio**: `roles/bigquery.dataViewer` **apenas no dataset `serving`** (marts + `dim_commodity_scd2`) — não no Gold inteiro — mais `roles/bigquery.jobUser` para executar as queries, e `roles/bigquery.dataEditor` no dataset `research_inputs` para o `INSERT` append-only da curadoria. O dashboard fica **atrás do IAP**, que injeta `X-Goog-Authenticated-User-Email` (origem do `edited_by` auditável). Está dormente enquanto a UI é reconstruída no Claude Design System. O **Looker Studio não usa esta SA** — consome a Gold via OAuth do usuário final (caminho de consumo independente).
 
 Detalhes completos em [`docs/auth_architecture.md`](docs/auth_architecture.md) e [`docs/iam_setup.md`](docs/iam_setup.md).
 
@@ -359,6 +473,40 @@ Executa em cada PR para `main`:
 ### dbt build prod (`dbt-build-prod.yml`)
 
 Push para `main` que toque `dbt/**` ou `config.py` dispara um build do Silver/Gold em prod via Workload Identity Federation. Snapshots Gold seguem manuais (`make dbt-build-prod-with-backup` localmente, antes de release boundaries).
+
+---
+
+## Orquestração da ingestão (Cloud Run Job + Cloud Scheduler)
+
+O CLI `embrapa ingest all` é empacotado como um **Cloud Run Job** — **não** um
+Service. A distinção é deliberada:
+
+| | **Job** (ingestão) | **Service** (dashboard Dash) |
+|---|---|---|
+| Natureza | batch, efêmero — roda até concluir e encerra | stateless, sempre-on, escala a zero |
+| Porta HTTP | não | sim (Gunicorn) |
+| Disparo | **Cloud Scheduler** (cron) | requisição do usuário (atrás de IAP) |
+
+Um **Cloud Scheduler** dispara o Job **nas madrugadas** (ex.: cron diário em
+horário de baixa contenção, fora da janela de análise). A execução
+não-supervisionada é segura porque a resiliência atual já absorve as falhas
+típicas de uma fonte pública:
+
+- **`tenacity`** via `core.http.http_retry_policy` (`stop_after_attempt(5)` +
+  `wait_exponential` + drain sob deadline wall-clock) reabsorve transitórias
+  (HTTP 5xx, timeouts, slow-byte).
+- **BCB é delta por padrão** (janela de overlap) — absorve revisões sem re-puxar
+  o histórico; COMEX re-baixa só quando o ETag muda; COMTRADE é resumível por
+  cota diária. Reexecutar o Job é idempotente o suficiente para um cron cego.
+- Falha total emite evento (base para a notificação de falha do ROADMAP).
+
+> **Artefatos** em [`deploy/ingestion/`](deploy/ingestion/): `Dockerfile` (imagem
+> do Job — distinta do Dockerfile do dashboard *Service*), `cloudbuild.yaml`,
+> `deploy.sh` (build + cria/atualiza o Job lendo o `.env`) e `schedule.sh` (cria/
+> atualiza o trigger do Scheduler). Atalhos: `make ingest-job-deploy` e
+> `make ingest-job-schedule`. O deploy efetivo (rodar os scripts no projeto GCP) é
+> passo do operador — o backend que eles invocam (`embrapa ingest all`) já está
+> pronto e é o mesmo caminho testado localmente.
 
 ---
 

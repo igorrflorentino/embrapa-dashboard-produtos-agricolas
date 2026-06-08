@@ -1,0 +1,122 @@
+version: 2
+
+models:
+  - name: serving_pevs_annual
+    description: |
+      Pre-aggregated PEVS mart (Pushdown Computing serving layer). Gold rolled
+      from year×UF×city×product up to year×UF×product×family — the municipality
+      grain dropped — so the dashboard scans MB, not GB. Backs overviewTS /
+      productTS / ufData. Carries commodity_id for the live dim_commodity_scd2 join.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - state_acronym
+              - product_code
+              - family
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: region_abbrev
+        description: "From dim_geo_br (N/NE/CO/SE/S)."
+      - name: family
+        description: "Physical-unit family. qty_base is summed WITHIN a family — never across."
+        tests: [not_null]
+      - name: commodity_id
+        description: "Cross-source commodity slug (NULL when the product is não vinculado)."
+
+  - name: serving_comex_annual
+    description: |
+      Pre-aggregated COMEX mart, annual. Month and transport route (via)
+      collapsed out of the Gold grain down to year×flow×NCM×UF×country. Backs
+      overviewTS / productTS / ufData / partnerData / flowData. Raw US$/kg
+      magnitudes (the BFF scales to display units).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - flow
+              - ncm_code
+              - state_acronym
+              - country_code
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: flow
+        tests: [not_null]
+      - name: ncm_code
+        tests: [not_null]
+
+  - name: serving_comex_seasonality
+    description: |
+      Monthly COMEX mart — the only serving mart that keeps reference_month.
+      Backs the seasonality view (matrix[year][1..12], monthlyAvg). Joined to
+      dim_date for the pt-BR month label.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - reference_month
+              - flow
+              - ncm_code
+    columns:
+      - name: reference_month
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+                # INT64 column: compare numerically, not as quoted strings.
+                quote: false
+      - name: month_name_pt
+        description: "From dim_date (Janeiro … Dezembro)."
+
+  - name: serving_comtrade_annual
+    description: |
+      Pre-aggregated COMTRADE mart (global bilateral). Same grain as Gold —
+      the win is column pruning + clustering + crosswalk conformance. Backs
+      partnerData / flowData / market-share. world_exp derived by SUM over
+      reporters at query time (World partner already dropped in Silver).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - flow
+              - cmd_code
+              - reporter_code
+              - partner_code
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: flow
+        tests: [not_null]
+      - name: cmd_code
+        tests: [not_null]
+
+  - name: serving_quality_by_source
+    description: |
+      data_quality_flag breakdown per source (id, count, share) for the quality
+      donut. Tiny pre-counted table; share sums to 1 within each source.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source
+              - data_quality_flag
+    columns:
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["ibge_pevs", "mdic_comex", "un_comtrade"]
+      - name: data_quality_flag
+        tests: [not_null]
+      - name: share
+        description: "count ÷ source total; sums to 1 within a source."

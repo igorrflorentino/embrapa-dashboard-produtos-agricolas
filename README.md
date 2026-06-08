@@ -10,7 +10,7 @@ Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e
 
 > 📊 **Dois caminhos de consumo, em paralelo.** As tabelas Gold são servidas por dois frontends de primeira classe, ambos lendo os mesmos dados:
 > 1. **Looker Studio** — conexão no-code direta na tabela Gold; disponível agora.
-> 2. **Dashboard dedicado (HTML/CSS + Dash) com deploy no Google Cloud Run** — frontend sob medida, atualmente **em reconstrução com o [Claude Design System](https://claude.ai/)** (a UI Dash anterior foi removida em 2026-05-29 para um handoff limpo).
+> 2. **Dashboard dedicado (Dash) no Google Cloud Run — stateless, Pushdown Computing** — traduz cada filtro da UI em **SQL parametrizado** (`@param`) sobre uma camada **`serving`** de marts pré-agregados, com **flask-caching** nos resultados (sem carregar Gold em memória); curadoria via **log append-only + SCD Tipo 2**. A UI está **em reconstrução com o [Claude Design System](https://claude.ai/)** (removida em 2026-05-29 para handoff limpo); a *data-access layer* já vive em `src/embrapa_commodities/serving/`.
 >
 > O backend (pipeline Medallion + dbt + CLI `embrapa`) é independente da camada de visualização e já alimenta os dois caminhos. Nenhum dos dois é exclusivo — podem coexistir.
 
@@ -26,10 +26,12 @@ UN Comtrade API  ─┘                                           │
                                                               ▼
             gold_pevs_production · gold_comex_flows · gold_comtrade_flows (tabelas físicas)
                                                               │
+                                       dbt core/ + serving/ ──► dims conformadas + marts
+                                                              │   pré-agregados (Pushdown Computing)
                                           ┌───────────────────┴───────────────────┐
                                           ▼                                        ▼
                                    Looker Studio                    Dashboard Dash @ Cloud Run
-                                  (conexão direta)                  (em reconstrução · Claude DS)
+                                  (direto na Gold)             (stateless · SQL @param + flask-caching)
 ```
 
 > **Fontes hoje:** IBGE PEVS (`gold_pevs_production`, produção), MDIC COMEX
@@ -42,7 +44,7 @@ UN Comtrade API  ─┘                                           │
 
 Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · GitHub Actions
 
-**Consumo (paralelo):** Looker Studio (direto na Gold) · Dashboard Dash + HTML/CSS no Cloud Run (em reconstrução)
+**Consumo (paralelo):** Looker Studio (direto na Gold) · Dashboard Dash @ Cloud Run — *stateless, Pushdown Computing* (SQL `@param` na camada `serving` + `flask-caching`; UI em reconstrução)
 
 Tabela completa com justificativas técnicas em [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-de-tecnologias).
 

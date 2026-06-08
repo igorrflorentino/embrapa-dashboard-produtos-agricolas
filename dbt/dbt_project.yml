@@ -31,6 +31,21 @@ models:
     gold:
       +materialized: table
       +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
+    # Conformed dimensions (dim_date, dim_geo_br). Build-time inputs to the
+    # serving marts, so they live alongside the curated Gold layer. The SCD2
+    # curation dim overrides its own schema → the serving dataset (it is read
+    # live by the dashboard) and is gated behind var('enable_curation').
+    core:
+      +materialized: table
+      +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
+    # Serving layer — pre-aggregated marts for the Dash app's Pushdown Computing.
+    # Materialized as TABLES (not views): a view over Gold would re-scan the full
+    # fact every query and save nothing; pre-aggregated tables are the GB→MB cut.
+    # Its own dataset so the dashboard's read-only SA can be scoped to JUST the
+    # serving surface (least privilege).
+    serving:
+      +materialized: table
+      +schema: "{{ env_var('BQ_SERVING_DATASET', 'serving') }}"
 
 seeds:
   embrapa_commodities:

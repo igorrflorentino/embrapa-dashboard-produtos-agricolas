@@ -1,0 +1,18 @@
+# Build + push the ingestion Job image from the repo-root context.
+#   gcloud builds submit . --config deploy/ingestion/cloudbuild.yaml \
+#     --substitutions _IMAGE=<region>-docker.pkg.dev/<project>/<repo>/embrapa-ingest-all:<tag>
+#
+# Using an explicit Dockerfile path (the file lives under deploy/ingestion/, not
+# at the context root, so buildpacks/auto-detect are not involved).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=deploy/ingestion/Dockerfile
+      - --tag=${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  # Avoids the "build needs a logs bucket" failure when a custom build SA is used.
+  logging: CLOUD_LOGGING_ONLY

@@ -16,6 +16,7 @@
         {% set schemas = [
             target.schema ~ '_silver',
             target.schema ~ '_gold',
+            target.schema ~ '_serving',
         ] %}
         {% for schema in schemas %}
             {% set sql -%}
