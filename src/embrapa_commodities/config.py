@@ -171,12 +171,18 @@ class Settings(BaseSettings):
     bq_curation_log_table: str = Field(default="commodity_processing_stage_log")
 
     # ─── Cache (flask-caching) ────────────────────────────────────────────────
-    # SimpleCache is in-process / per-instance — fine for single-instance or
-    # local dev. For multi-instance Cloud Run set CACHE_TYPE=RedisCache +
-    # CACHE_REDIS_URL so curation invalidation propagates across instances
+    # SimpleCache (per-instance) scales to N Cloud Run instances for free: marts
+    # converge within cache_default_timeout (nightly data), and the curation read
+    # uses a SHORT TTL (cache_classification_timeout) so cross-instance staleness
+    # is bounded — eventual consistency, no shared Redis. CACHE_TYPE=RedisCache +
+    # CACHE_REDIS_URL is optional, only for *instant* cross-instance consistency
     # (see src/embrapa_commodities/serving/cache.py).
     cache_type: str = Field(default="SimpleCache")
     cache_default_timeout: int = Field(default=600, description="Seconds; mart read TTL.")
+    # Short TTL for the curation classification read; gateway.py reads the same
+    # env var (CACHE_CLASSIFICATION_TIMEOUT) at decoration time. Keep it small —
+    # it's the bound on cross-instance staleness that makes multi-instance free.
+    cache_classification_timeout: int = Field(default=30, description="Seconds; curation read TTL.")
     cache_redis_url: str | None = Field(default=None)
     # Author email used when the IAP header is absent (local dev only). Leave
     # unset in production — IAP always supplies the header, and an unset fallback

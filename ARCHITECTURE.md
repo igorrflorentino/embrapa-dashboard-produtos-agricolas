@@ -362,15 +362,21 @@ no handoff do Design System):
   (que não pode ser bind param) passa por uma **allowlist** contra injeção.
 - `gateway.py` — funções `fetch_*` **cacheadas** (`@cache.memoize()`) que rodam os
   marts. Sem DataFrame Pandas global, sem lock — o estado mora no BigQuery.
-- `cache.py` — instância `flask-caching`. ⚠️ **Multi-instância:** `SimpleCache` é
-  por processo; para a invalidação de curadoria propagar entre instâncias no
-  Cloud Run, use `CACHE_TYPE=RedisCache` (Memorystore).
+- `cache.py` — instância `flask-caching`. **Multi-instância no Cloud Run é grátis
+  com `SimpleCache`:** os marts convergem dentro do TTL (dados noturnos) e a
+  leitura de classificação usa um TTL curto (`CACHE_CLASSIFICATION_TIMEOUT`, 30s)
+  que limita a defasagem entre instâncias — a que edita invalida na hora, as
+  outras convergem em ≤30s. `CACHE_TYPE=RedisCache` (Memorystore) é **opcional**,
+  só para consistência cross-instância instantânea sob tráfego alto.
 - `iap.py` — extrai o autor do header **IAP** (`edited_by`).
 - `curation.py` — escritor append-only da curadoria (abaixo).
 
 **Política de cache.** Marts mudam **só** no rebuild dbt noturno → cache por
 **TTL** (`CACHE_DEFAULT_TIMEOUT`). A classificação da curadoria **pode** mudar
-entre rebuilds → cache **explicitamente invalidado** na escrita.
+entre rebuilds → cache **explicitamente invalidado** na escrita **+ TTL curto**
+(`CACHE_CLASSIFICATION_TIMEOUT`, 30s): a invalidação resolve a instância que
+escreve; o TTL curto resolve as demais (consistência eventual ≤30s) — é o que
+permite escalar para várias instâncias **sem Redis**.
 
 ---
 

@@ -7,12 +7,17 @@ repeated (filters) combination is answered from cache instead of re-querying
 BigQuery — the round-trip the stateless dashboard would otherwise pay on every
 identical callback.
 
-Caching policy:
-  * Mart reads (``fetch_production_*``, ``fetch_comex_seasonality``) are
-    TTL-only — the marts change solely on the nightly dbt rebuild.
-  * ``fetch_current_classifications`` is explicitly invalidated by the curation
-    writer on every save (see ``serving.curation``), because that data CAN change
-    between rebuilds.
+Caching policy (designed so the dashboard scales to N Cloud Run instances
+WITHOUT a shared Redis — see ``serving.cache``):
+  * Mart reads (``fetch_production_*``, ``fetch_comex_seasonality``) use the
+    default TTL — the marts change solely on the nightly dbt rebuild, so every
+    instance independently converges to the same data within the TTL.
+  * ``fetch_current_classifications`` uses a SHORT TTL
+    (``CACHE_CLASSIFICATION_TIMEOUT``, default 30s) AND is explicitly invalidated
+    by the curation writer. The invalidation makes a curation edit instant on the
+    writing instance; the short TTL bounds cross-instance staleness to that window
+    (eventual consistency) — which is what lets multiple instances run on
+    per-process SimpleCache for free.
 
 There is no global lock and no in-memory Gold DataFrame: state lives in BigQuery,
 results are cached, and the process stays stateless and horizontally scalable.
@@ -21,6 +26,7 @@ results are cached, and the process stays stateless and horizontally scalable.
 from __future__ import annotations
 
 import functools
+import os
 from collections.abc import Sequence
 
 from google.cloud import bigquery
@@ -28,6 +34,14 @@ from google.cloud import bigquery
 from embrapa_commodities.config import get_credentials, get_settings
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
+
+# Short TTL for the curation-classification read. On multi-instance Cloud Run,
+# per-process SimpleCache can't be invalidated across instances, so this TTL
+# (not Redis) bounds cross-instance staleness. Read from the env at import time
+# because @cache.memoize fixes its timeout at decoration, before Settings exists;
+# in Cloud Run the env var is real (set on the Service), so it's honored there.
+# Mirrors config.Settings.cache_classification_timeout.
+_CLASSIFICATION_TTL = int(os.environ.get("CACHE_CLASSIFICATION_TIMEOUT", "30"))
 
 
 @functools.lru_cache(maxsize=1)
@@ -110,11 +124,14 @@ def fetch_comex_seasonality(
     return run_query(sql, params)
 
 
-@cache.memoize()
+@cache.memoize(timeout=_CLASSIFICATION_TTL)
 def fetch_current_classifications():
     """Live current classification per commodity (from the SCD2 view).
 
-    Invalidated by ``serving.curation.record_processing_stage`` on every save.
+    Short TTL (``CACHE_CLASSIFICATION_TIMEOUT``, default 30s) + explicit
+    invalidation on save: the writing instance sees the edit instantly, other
+    instances converge within the TTL — so this scales across Cloud Run instances
+    on per-process SimpleCache, no shared Redis required.
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_commodity_scd2")

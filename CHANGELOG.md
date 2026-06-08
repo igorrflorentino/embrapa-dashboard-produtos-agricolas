@@ -35,8 +35,15 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     estático à dimensão de classificação.
   - **BFF Python** (`src/embrapa_commodities/serving/`, extra opcional `serving`):
     `sql` (@param + allowlist anti-injeção), `gateway` (`@cache.memoize`), `cache`
-    (flask-caching — `SimpleCache`; `RedisCache` p/ multi-instância), `iap`,
-    `curation` (INSERT append-only + invalidação de cache).
+    (flask-caching — `SimpleCache` escala multi-instância de graça; `RedisCache`
+    opcional), `iap`, `curation` (INSERT append-only + invalidação de cache).
+  - **Escala multi-instância sem Redis (de graça).** O dashboard escala para
+    3–5+ instâncias do Cloud Run sem Memorystore: marts convergem no
+    `CACHE_DEFAULT_TIMEOUT` (dados noturnos) e a leitura de classificação da
+    curadoria usa um **TTL curto** (`CACHE_CLASSIFICATION_TIMEOUT`, default 30s)
+    que limita a defasagem entre instâncias (consistência eventual ≤30s) — a
+    instância que edita invalida na hora. `RedisCache` vira **opcional** (só p/
+    consistência cross-instância instantânea sob tráfego alto).
   - **Ingestão automatizada**: `embrapa ingest all` empacotado como **Cloud Run
     Job** (`deploy/ingestion/`: Dockerfile, cloudbuild.yaml, deploy.sh, schedule.sh)
     + **Cloud Scheduler** nas madrugadas. Atalhos `make ingest-job-deploy` /

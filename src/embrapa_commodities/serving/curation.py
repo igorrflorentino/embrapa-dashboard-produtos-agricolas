@@ -134,9 +134,11 @@ def invalidate_classification_cache() -> None:
     """Drop the cached live-classification read so the next query is fresh.
 
     Best-effort: a no-op if the cache is not bound to an app (e.g. a CLI-driven
-    write outside the Dash server). NOTE: with the per-instance ``SimpleCache``
-    this clears only the current process — see ``serving.cache`` for why a
-    multi-instance Cloud Run deployment needs ``RedisCache``.
+    write outside the Dash server). With the per-instance ``SimpleCache`` this
+    clears only the current process — making the edit instant on the writing
+    instance; other instances converge within the short classification TTL
+    (``CACHE_CLASSIFICATION_TIMEOUT``). That bound is what lets multi-instance
+    Cloud Run run on ``SimpleCache`` without ``RedisCache`` (see ``serving.cache``).
     """
     try:
         cache.delete_memoized(gateway.fetch_current_classifications)
