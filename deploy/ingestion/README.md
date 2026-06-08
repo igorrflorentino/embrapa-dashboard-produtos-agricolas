@@ -23,8 +23,10 @@ feeds Silver → Gold → the `serving` marts.
 - **`tenacity` retries** (`core.http.http_retry_policy`: `stop_after_attempt(5)` +
   exponential backoff + a wall-clock slow-byte drain) reabsorb transient upstream
   failures (HTTP 5xx, timeouts, stalled reads).
-- **Delta by default** — BCB pulls only a small overlap window; COMEX re-downloads
-  only when the ETag changes. Re-running is cheap and idempotent enough for cron.
+- **Delta by default** — IBGE re-fetches only recent years (from
+  `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS`), BCB pulls a small overlap
+  window, COMEX re-downloads only on ETag change. No leg re-pulls its whole
+  history, so re-running is cheap and idempotent enough for cron.
 - **COMTRADE is excluded** from `all` (key-gated), so the job needs **no secret** —
   only the runtime SA's GCP credentials.
 
@@ -95,9 +97,10 @@ All have sensible defaults; set them in `.env` only to override:
 - **Single source per run:** override the command to ingest just one source, e.g.
   `gcloud run jobs execute embrapa-ingest-all --args=ibge …` (the entrypoint is
   `embrapa ingest`, so `--args ibge` runs `embrapa ingest ibge`).
-- **Long backfills:** a first historical IBGE/COMEX load can exceed the task
-  timeout — run those locally (`make ingest-ibge-historical`) once, then let the
-  nightly job keep them current via delta.
+- **First historical backfill:** the nightly job is **delta** (recent years
+  only), so it never does the full IBGE/COMEX history. Seed the history once
+  locally (`make ingest-ibge-historical` for IBGE; a `--full` COMEX run) — then
+  the job keeps it current via delta.
 - **Logs:** `gcloud run jobs executions list --job embrapa-ingest-all …` then
   `gcloud run jobs executions describe <execution> …`. The pipeline also emits
   structured events consumable by `embrapa monitor`.

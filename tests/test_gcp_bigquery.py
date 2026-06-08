@@ -13,6 +13,7 @@ from google.cloud.exceptions import NotFound
 from embrapa_commodities.gcp.bigquery import (
     ensure_dataset,
     latest_reference_date,
+    latest_reference_year,
     load_dataframe,
 )
 
@@ -102,3 +103,34 @@ def test_latest_reference_date_returns_max_when_rows_exist() -> None:
     call_kwargs = client.query.call_args.kwargs
     params = {p.name: p.value for p in call_kwargs["job_config"].query_parameters}
     assert params == {"fmt": "%d/%m/%Y", "code": "433"}
+
+
+def test_latest_reference_year_returns_none_when_table_missing() -> None:
+    client = MagicMock()
+    client.query.side_effect = NotFound("table missing")
+
+    assert latest_reference_year(client, "proj.dataset.tbl") is None
+
+
+def test_latest_reference_year_returns_max_year() -> None:
+    client = MagicMock()
+    row = MagicMock()
+    row.max_year = 2024
+    query_job = MagicMock()
+    query_job.result.return_value = iter([row])
+    client.query.return_value = query_job
+
+    assert latest_reference_year(client, "proj.dataset.tbl") == 2024
+    assert "safe_cast(ano as int64)" in client.query.call_args.args[0]
+
+
+def test_latest_reference_year_returns_none_on_empty_table() -> None:
+    """max() over an empty table yields a NULL max_year → None, not a crash."""
+    client = MagicMock()
+    row = MagicMock()
+    row.max_year = None
+    query_job = MagicMock()
+    query_job.result.return_value = iter([row])
+    client.query.return_value = query_job
+
+    assert latest_reference_year(client, "proj.dataset.tbl") is None

@@ -45,6 +45,30 @@ def latest_reference_date(
     return row.max_date if row else None
 
 
+def latest_reference_year(
+    client: bigquery.Client,
+    table_fqn: str,
+    year_column: str = "ano",
+) -> int | None:
+    """Return the max year present in an IBGE Bronze table (the column is STRING).
+
+    Returns None if the table doesn't exist or has no rows. Used to compute a
+    delta-fetch start year so a routine IBGE run re-fetches only recent years
+    instead of re-pulling 1986→today on every ingestion. ``year_column`` is a
+    fixed schema identifier, not user input, so the f-string is safe.
+    """
+    sql = f"""
+        select max(safe_cast({year_column} as int64)) as max_year
+        from `{table_fqn}`
+    """
+    try:
+        result = client.query(sql).result()
+    except NotFound:
+        return None
+    row = next(iter(result), None)
+    return int(row.max_year) if row and row.max_year is not None else None
+
+
 def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> None:
     try:
         existing = client.get_dataset(dataset_id)

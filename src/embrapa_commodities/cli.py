@@ -70,7 +70,7 @@ class IngestSpec:
 # chamada, mantendo monkeypatch.setattr(cli.bcb_inflation, "run", ...)
 # funcional (ver tests/test_cli.py).
 INGESTS: list[IngestSpec] = [
-    IngestSpec("ibge", ibge_pipeline, accepts_full=False, label="IBGE PEVS"),
+    IngestSpec("ibge", ibge_pipeline, accepts_full=True, label="IBGE PEVS"),
     IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflação"),
     IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB câmbio"),
     IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
@@ -83,10 +83,15 @@ INGESTS: list[IngestSpec] = [
 # ─── ingest ───────────────────────────────────────────────────────────────────
 @ingest_app.command("ibge")
 def ingest_ibge(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Re-fetch the whole IBGE_START_YEAR→END window (default is delta: recent years only).",
+    ),
     from_raw: bool = typer.Option(
         False,
         "--from-raw",
-        help="Rebuild Bronze from the archived raw SIDRA response, without re-querying SIDRA.",
+        help="Rebuild Bronze from the archived raw SIDRA response(s), without re-querying SIDRA.",
     ),
 ) -> None:
     """Ingest IBGE PEVS into the configured Bronze table (extract→raw→bronze)."""
@@ -97,18 +102,19 @@ def ingest_ibge(
             "start_year": settings.ibge_start_year,
             "end_year": settings.ibge_end_year,
             "products": settings.product_codes,
+            "full": full,
             "from_raw": from_raw,
         },
     ) as (_run_id, log_path):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = ibge_pipeline.run(settings, from_raw=from_raw)
+        destination = ibge_pipeline.run(settings, full=full, from_raw=from_raw)
     if destination:
         console.print(f"[green]✓[/green] IBGE bronze loaded → {destination}")
     else:
         console.print(
-            f"[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no rows for "
-            f"{settings.ibge_start_year}-{settings.ibge_end_year}. "
-            "Lower IBGE_END_YEAR in .env to the latest published year."
+            "[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no new rows. "
+            "On a delta run Bronze is likely already current; on --full, lower "
+            "IBGE_END_YEAR in .env to the latest published year."
         )
 
 
@@ -253,6 +259,7 @@ def ingest_ibge_batch(
         try:
             destination = ibge_pipeline.run(
                 chunk_settings,
+                full=True,
                 storage_client=storage_client,
                 bq_client=bq_client,
             )
@@ -577,7 +584,7 @@ def ingest_all(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Force full refetch on delta-aware pipelines (IBGE always fetches its full window).",
+        help="Force full refetch on delta-aware pipelines (whole windows, not just the delta).",
     ),
 ) -> None:
     """Run every registered Bronze pipeline sequentially in INGESTS order."""
