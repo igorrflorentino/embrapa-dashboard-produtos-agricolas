@@ -90,6 +90,39 @@ def test_table_ref_builds_fqn():
     )
 
 
+def test_production_by_uf_groups_by_state():
+    query, params = sql.production_by_uf(
+        "p.serving.serving_pevs_annual",
+        year_start=2010,
+        product_codes=("3405",),
+        value_column="val_yearfx_usd",
+    )
+    assert "group by state_acronym" in query
+    assert "sum(val_yearfx_usd)" in query
+    assert "reference_year >= @year_start" in query
+    assert "product_code in unnest(@product_codes)" in query.lower()
+    by_name = {p.name: p for p in params}
+    assert by_name["year_start"].value == 2010
+    assert by_name["product_codes"].values == ["3405"]
+
+
+def test_comex_seasonality_filters_flow_and_ncm():
+    query, params = sql.comex_seasonality(
+        "p.serving.serving_comex_seasonality",
+        year_start=2015,
+        year_end=2020,
+        ncm_codes=("08012100",),
+        flow="export",
+    )
+    assert "group by reference_year, reference_month" in query
+    assert "sum(val_yearfx_usd)" in query
+    assert "flow = @flow" in query
+    assert "ncm_code in unnest(@ncm_codes)" in query.lower()
+    by_name = {p.name: p for p in params}
+    assert by_name["flow"].value == "export"
+    assert by_name["ncm_codes"].values == ["08012100"]
+
+
 # ── curation: append-only SCD2 writer ─────────────────────────────────────────
 
 

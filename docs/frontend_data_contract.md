@@ -6,8 +6,10 @@ frontend's in-memory snapshot shapes (from the frontend brief, `dataStore.js` /
 `previewData.js` / `crossSource.js`) are produced from the **Gold** tables — so the
 BFF is a thin mapping and the UI lights up without rework.
 
-> This is a **data contract**, not an instruction to build the BFF here. Per the
-> repo guardrail the Dash app is built with the design-system handoff. What the
+> This is a **data contract**. **Update (2026-06 Pushdown pivot):** the BFF /
+> data-access layer now EXISTS — `src/embrapa_commodities/serving/` queries the
+> pre-aggregated `serving` marts (`dbt/models/serving/`) instead of loading Gold
+> in memory; the Dash **UI** still arrives with the design-system handoff. What the
 > backend guarantees is below: column names, **magnitudes**, units, and the few
 > transforms (family vocab, region code, `world_exp`) the BFF must apply.
 

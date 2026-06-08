@@ -19,6 +19,32 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   chunked; Bronze frio cai na janela cheia. Novo helper `latest_reference_year`
   (`gcp/bigquery.py`) + knob `IBGE_DELTA_OVERLAP_YEARS`. Motivado por um smoke-run
   do Cloud Run Job que falhou exatamente nesse fetch full-history do IBGE.
+- **Pivô arquitetural — Pushdown Computing no dashboard (substitui o desenho
+  in-memory/Pandas, risco de OOM/concorrência).** O dashboard Dash passa a ser
+  **stateless**: filtros da UI viram **SQL parametrizado** (`@param`) no BigQuery,
+  cacheado por **flask-caching**, em vez de carregar tabelas Gold em memória.
+  - **dbt `serving/`**: marts pré-agregados nos grãos dos gráficos
+    (`serving_pevs_annual`, `serving_comex_annual`, `serving_comex_seasonality`,
+    `serving_comtrade_annual`, `serving_quality_by_source`) no dataset `serving`
+    (`BQ_SERVING_DATASET`), materializados como **tabelas** (corte de scan GB→MB).
+  - **dbt `core/`**: dimensões conformadas `dim_date`, `dim_geo_br`; e a view
+    SCD Tipo 2 `dim_commodity_scd2` (gated por `--vars 'enable_curation: true'`).
+  - **Curadoria dinâmica (SCD2)**: log append-only
+    `research_inputs.commodity_processing_stage_log` (autor capturado do header
+    IAP `X-Goog-Authenticated-User-Email`); a UI faz LEFT JOIN ao vivo do mart
+    estático à dimensão de classificação.
+  - **BFF Python** (`src/embrapa_commodities/serving/`, extra opcional `serving`):
+    `sql` (@param + allowlist anti-injeção), `gateway` (`@cache.memoize`), `cache`
+    (flask-caching — `SimpleCache`; `RedisCache` p/ multi-instância), `iap`,
+    `curation` (INSERT append-only + invalidação de cache).
+  - **Ingestão automatizada**: `embrapa ingest all` empacotado como **Cloud Run
+    Job** (`deploy/ingestion/`: Dockerfile, cloudbuild.yaml, deploy.sh, schedule.sh)
+    + **Cloud Scheduler** nas madrugadas. Atalhos `make ingest-job-deploy` /
+    `make ingest-job-schedule`.
+  - **Reverte a postura anterior de "nunca pré-agregar"**: o Gold segue a fonte
+    comprehensiva por fonte (agregação ad-hoc em query-time), mas o `serving/`
+    materializa marts pré-agregados para o Pushdown — derivam do Gold, não o
+    substituem.
 - **Nova fonte: UN Comtrade (comércio global bilateral) — `gold_comtrade_flows`.**
   Complemento global ao COMEX (Brasil): fluxos `reporter→partner` mundiais para
   HS **0801** (castanhas) + **capítulo 44** (madeira/carvão), ingeridos no nível
@@ -265,8 +291,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a
   convenção `gold_<fonte>_<forma>` (`production` para medição de saída como PEVS;
   `flows` para fluxo origem→destino dos bancos de comércio futuros). Reforça a
-  regra de **uma tabela Gold comprehensiva por fonte** (sem siblings
-  pré-agregadas; agregação em tempo de query — simplicidade sobre eficiência).
+  regra de **uma tabela Gold comprehensiva por fonte** (agregação ad-hoc em
+  tempo de query; marts pré-agregados ficam na camada `serving/` — ver o item
+  do Pushdown Computing acima).
   **Ação externa necessária:** reapontar a fonte do Looker Studio para
   `gold.gold_pevs_production` e dropar a tabela órfã `gold.gold_commodity_matrix`
   no prod após o próximo `make dbt-build-prod` (ver `docs/migration_history.md`).
