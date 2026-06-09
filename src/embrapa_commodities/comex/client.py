@@ -1,7 +1,7 @@
 """HTTP client for the MDIC Comex Stat bulk CSV files.
 
 This is a *file downloader*, not a JSON API client: each call fetches one
-per-year, per-flow CSV (``EXP_<ano>.csv`` / ``IMP_<ano>.csv``, ``;``-separated,
+per-year, per-flow CSV (``EXP_<year>.csv`` / ``IMP_<year>.csv``, ``;``-separated,
 latin-1, history since 1997) and filters it down to the configured products
 locally. Two deliberate departures from the BCB/IBGE clients, both forced by
 the file sizes (tens to hundreds of MB):

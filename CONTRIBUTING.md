@@ -1,19 +1,19 @@
-# Contribuindo — Embrapa Commodities Dashboard
+# Contributing — Embrapa Commodities Dashboard
 
-Obrigado por considerar contribuir com este projeto! Este guia explica como colaborar de forma eficiente e padronizada.
+Thank you for considering contributing to this project! This guide explains how to collaborate efficiently and consistently.
 
 ---
 
-## 📋 Pré-requisitos
+## 📋 Prerequisites
 
-Antes de começar, certifique-se de ter:
+Before you begin, make sure you have:
 
 - **Python 3.12.11** (via `pyenv`)
-- **uv** (gerenciador de pacotes)
-- **Git** com suporte a hooks
-- **gcloud CLI** (para autenticação GCP)
+- **uv** (package manager)
+- **Git** with hook support
+- **gcloud CLI** (for GCP authentication)
 
-Setup rápido:
+Quick setup:
 ```bash
 # macOS / Linux
 ./setup.sh
@@ -24,181 +24,181 @@ setup.bat
 
 ---
 
-## 🌿 Fluxo de Branches
+## 🌿 Branch Flow
 
-Seguimos o modelo **GitHub Flow** simplificado:
+We follow a simplified **GitHub Flow** model:
 
 ```
-main (protegida)
- └── feature/nome-da-feature
- └── fix/descricao-do-bug
- └── docs/descricao-da-mudanca
- └── refactor/descricao
- └── chore/descricao
+main (protected)
+ └── feature/feature-name
+ └── fix/bug-description
+ └── docs/change-description
+ └── refactor/description
+ └── chore/description
 ```
 
-### Regras
+### Rules
 
-1. **`main` é a branch de produção** — sempre deve estar em estado deployável.
-2. **Nunca faça push direto para `main`** — sempre via Pull Request.
-3. **Nomeie branches com prefixo semântico**: `feature/`, `fix/`, `docs/`, `refactor/`, `chore/`.
-4. **Mantenha branches curtas** — PRs menores são revisados mais rápido.
+1. **`main` is the production branch** — it must always be in a deployable state.
+2. **Never push directly to `main`** — always via Pull Request.
+3. **Name branches with a semantic prefix**: `feature/`, `fix/`, `docs/`, `refactor/`, `chore/`.
+4. **Keep branches short** — smaller PRs are reviewed faster.
 
 ---
 
-## 📝 Padrão de Commits (Conventional Commits)
+## 📝 Commit Convention (Conventional Commits)
 
-Utilizamos [Conventional Commits](https://www.conventionalcommits.org/) para mensagens padronizadas:
+We use [Conventional Commits](https://www.conventionalcommits.org/) for standardized messages:
 
 ```
-<tipo>[escopo opcional]: <descrição>
+<type>[optional scope]: <description>
 
-[corpo opcional]
+[optional body]
 
-[rodapé opcional]
+[optional footer]
 ```
 
-### Tipos permitidos
+### Allowed types
 
-| Tipo | Quando usar |
+| Type | When to use |
 |---|---|
-| `feat` | Nova funcionalidade |
-| `fix` | Correção de bug |
-| `docs` | Apenas documentação |
-| `style` | Formatação (sem mudança de lógica) |
-| `refactor` | Refatoração (sem mudança de comportamento) |
-| `perf` | Melhoria de performance |
-| `test` | Adição/correção de testes |
-| `build` | Mudanças no build (pyproject.toml, Dockerfile, etc.) |
-| `ci` | Mudanças no CI/CD (GitHub Actions) |
-| `chore` | Tarefas auxiliares (deps, configs) |
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `style` | Formatting (no logic change) |
+| `refactor` | Refactoring (no behavior change) |
+| `perf` | Performance improvement |
+| `test` | Adding/fixing tests |
+| `build` | Build changes (pyproject.toml, Dockerfile, etc.) |
+| `ci` | CI/CD changes (GitHub Actions) |
+| `chore` | Auxiliary tasks (deps, configs) |
 
-### Exemplos
+### Examples
 
 ```bash
-feat(ibge): adicionar ingestão de dados de silvicultura
-fix(bcb): corrigir parsing de datas no SGS API
-docs: atualizar README com instruções de deploy
-refactor(core): extrair SourceTransientError para módulo compartilhado
-test(pipeline): adicionar testes para delta ingestion
-ci: adicionar step de SQLFluff no workflow
-chore(deps): atualizar dbt-core para 1.9
+feat(ibge): add silviculture data ingestion
+fix(bcb): fix date parsing in the SGS API
+docs: update README with deploy instructions
+refactor(core): extract SourceTransientError into shared module
+test(pipeline): add tests for delta ingestion
+ci: add SQLFluff step to the workflow
+chore(deps): bump dbt-core to 1.9
 ```
 
-### Escopos comuns
+### Common scopes
 
 `ibge`, `bcb`, `comex`, `comtrade`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
 
-Esta lista é aberta — adicione novos escopos quando criar um módulo ou fonte nova (ex.: `nfe`).
+This list is open-ended — add new scopes when you create a new module or source (e.g. `nfe`).
 
 ---
 
-## 🔄 Fluxo de Pull Request
+## 🔄 Pull Request Flow
 
-### 1. Crie a branch
+### 1. Create the branch
 
 ```bash
 git checkout main
 git pull origin main
-git checkout -b feature/minha-feature
+git checkout -b feature/my-feature
 ```
 
-### 2. Desenvolva
+### 2. Develop
 
 ```bash
-# Instale hooks de pré-commit (uma vez)
+# Install pre-commit hooks (once)
 make precommit-install
 
-# Rode lint e testes antes de commitar
+# Run lint and tests before committing
 make lint
 make test
 
-# Para mudanças no dbt
-make dbt-build    # sempre dev primeiro!
+# For dbt changes
+make dbt-build    # always dev first!
 make dbt-test
 ```
 
-### 3. Abra o PR
+### 3. Open the PR
 
-- **Título**: siga o padrão de Conventional Commits (ex.: `feat(ibge): adicionar nova série temporal de PEVS`)
-- **Descrição**: explique O QUE mudou e POR QUÊ
+- **Title**: follow the Conventional Commits convention (e.g. `feat(ibge): add new PEVS time series`)
+- **Description**: explain WHAT changed and WHY
 - **Checklist**:
-  - [ ] `make lint` passa sem erros
-  - [ ] `make test` passa sem erros
-  - [ ] Testes novos foram adicionados (se aplicável)
-  - [ ] Documentação foi atualizada (se aplicável)
-  - [ ] Mudanças no dbt foram validadas com `make dbt-build` (dev)
+  - [ ] `make lint` passes without errors
+  - [ ] `make test` passes without errors
+  - [ ] New tests were added (if applicable)
+  - [ ] Documentation was updated (if applicable)
+  - [ ] dbt changes were validated with `make dbt-build` (dev)
 
 ### 4. Code Review
 
-- O CI (GitHub Actions) deve passar: **`Lint, test, dbt parse`**.
-- A branch deve estar **atualizada com `main`** antes do merge (branch protection exige isso).
-- Aprovações de review são recomendadas mas não obrigatórias pela branch protection atual.
-- Use **Squash and Merge** para manter o histórico limpo.
+- CI (GitHub Actions) must pass: **`Lint, test, dbt parse`**.
+- The branch must be **up to date with `main`** before merging (branch protection requires this).
+- Review approvals are recommended but not required by the current branch protection.
+- Use **Squash and Merge** to keep the history clean.
 
 ---
 
-## 🛠️ Desenvolvimento Local
+## 🛠️ Local Development
 
-### Comandos mais usados
+### Most-used commands
 
-Referência completa em [`CLAUDE.md` → Commands](CLAUDE.md#commands). Os mais frequentes:
+Full reference in [`CLAUDE.md` → Commands](CLAUDE.md#commands). The most frequent ones:
 
 ```bash
 make lint               # Ruff check + format
-make test               # pytest (sem credenciais GCP)
-make dbt-build          # Transformações dev
-make ingest-all         # Ingestão Bronze de todas as fontes em cli.INGESTS
+make test               # pytest (no GCP credentials)
+make dbt-build          # dev transforms
+make ingest-all         # Bronze ingestion of all sources in cli.INGESTS
 ```
 
-### Qualidade de código
+### Code quality
 
-Regras de estilo (Ruff, SQLFluff, pre-commit) estão documentadas em [`CLAUDE.md` → Code Style](CLAUDE.md#code-style).
+Style rules (Ruff, SQLFluff, pre-commit) are documented in [`CLAUDE.md` → Code Style](CLAUDE.md#code-style).
 
-### Testes
+### Tests
 
-Referência completa de comandos de teste em [`CLAUDE.md` → Commands](CLAUDE.md#commands). Resumo:
+Full reference of test commands in [`CLAUDE.md` → Commands](CLAUDE.md#commands). Summary:
 
 ```bash
-make test                                            # toda a suíte (sem GCP)
-uv run pytest tests/test_ibge_client.py::test_name   # teste específico
+make test                                            # whole suite (no GCP)
+uv run pytest tests/test_ibge_client.py::test_name   # specific test
 ```
 
-### Mudanças no dbt
+### dbt changes
 
-1. **Sempre itere em dev**: `make dbt-build` (escreve em `dbt_dev_silver`, `dbt_dev_gold`)
-2. **Valide com testes**: `make dbt-test`
-3. **Só rode prod após validação**: `make dbt-build-prod-with-backup`
-4. Use `--full-refresh` após mudanças de schema
+1. **Always iterate in dev**: `make dbt-build` (writes to `dbt_dev_silver`, `dbt_dev_gold`)
+2. **Validate with tests**: `make dbt-test`
+3. **Only run prod after validation**: `make dbt-build-prod-with-backup`
+4. Use `--full-refresh` after schema changes
 
 ---
 
-## 📁 Onde colocar cada coisa
+## 📁 Where to put each thing
 
-| Tipo de mudança | Local |
+| Type of change | Location |
 |---|---|
-| **Adicionar uma nova fonte de dados** | Siga o checklist em [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md) |
-| Novo pipeline de ingestão | `src/embrapa_commodities/<fonte>/` |
-| Primitivos compartilhados entre fontes | `src/embrapa_commodities/core/` |
-| Novo modelo dbt | `dbt/models/<camada>/` (Gold é por fonte: `gold_<fonte>_*`) |
-| Novo macro dbt | `dbt/macros/` |
-| Testes Python | `tests/` |
-| Scripts auxiliares | `scripts/` |
-| Documentação técnica | `docs/` |
-| Feature plans detalhados | `PLANS/` |
+| **Adding a new data source** | Follow the checklist in [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md) |
+| New ingestion pipeline | `src/embrapa_commodities/<source>/` |
+| Primitives shared across sources | `src/embrapa_commodities/core/` |
+| New dbt model | `dbt/models/<layer>/` (Gold is per-source: `gold_<source>_*`) |
+| New dbt macro | `dbt/macros/` |
+| Python tests | `tests/` |
+| Auxiliary scripts | `scripts/` |
+| Technical documentation | `docs/` |
+| Detailed feature plans | `PLANS/` |
 
 ---
 
-## ⚠️ Regras Importantes
+## ⚠️ Important Rules
 
-1. **Nunca commite credenciais** — `.gitignore` cobre `.env`, `sa-*.json`, `sa-*.b64`.
-2. **Nunca commite `dbt/profiles.yml`** — use o template `profiles.yml.example`.
-3. **Sem hardcode** — tudo via `.env` e `config.py`.
-4. **Sempre adicione testes** para nova lógica de negócio.
-5. **Docstrings em português** — comentários técnicos podem ser em inglês.
+1. **Never commit credentials** — `.gitignore` covers `.env`, `sa-*.json`, `sa-*.b64`.
+2. **Never commit `dbt/profiles.yml`** — use the `profiles.yml.example` template.
+3. **No hardcoding** — everything via `.env` and `config.py`.
+4. **Always add tests** for new business logic.
+5. **Docstrings in Portuguese** — technical comments may be in English.
 
 ---
 
-## 📄 Licença
+## 📄 License
 
-Ao contribuir, você concorda que suas contribuições serão licenciadas sob a [Apache License 2.0](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).

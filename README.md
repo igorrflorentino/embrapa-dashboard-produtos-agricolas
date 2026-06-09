@@ -6,100 +6,100 @@
 [![uv](https://img.shields.io/badge/pkg-uv-blueviolet)](https://docs.astral.sh/uv/)
 [![dbt](https://img.shields.io/badge/transform-dbt-FF694B)](https://www.getdbt.com/)
 
-Pipeline Medalhão (**Bronze → Silver → Gold**) para **análise histórica e científica** da produção extrativa vegetal brasileira (IBGE PEVS), enriquecida com câmbio (USD, EUR, CNY) e inflação (IPCA, IGP-M, IGP-DI) do Banco Central do Brasil. Ferramenta voltada a **pesquisadores da Embrapa** — o foco é em séries históricas e exploração de dados, **não** em métricas de negócio nem em análise em tempo real (os dados são ingeridos e transformados em lote).
+Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scientific analysis** of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR, CNY) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank. A tool built for **Embrapa researchers** — the focus is on time series and data exploration, **not** business metrics or real-time analytics (data is ingested and transformed in batch).
 
-> 📊 **Dois caminhos de consumo, em paralelo.** As tabelas Gold são servidas por dois frontends de primeira classe, ambos lendo os mesmos dados:
-> 1. **Looker Studio** — conexão no-code direta na tabela Gold; disponível agora.
-> 2. **Dashboard dedicado (Dash) no Google Cloud Run — stateless, Pushdown Computing** — traduz cada filtro da UI em **SQL parametrizado** (`@param`) sobre uma camada **`serving`** de marts pré-agregados, com **flask-caching** nos resultados (sem carregar Gold em memória); curadoria via **log append-only + SCD Tipo 2**. A UI está **em reconstrução com o [Claude Design System](https://claude.ai/)** (removida em 2026-05-29 para handoff limpo); a *data-access layer* já vive em `src/embrapa_commodities/serving/`.
+> 📊 **Two consumption paths, in parallel.** The Gold tables are served by two first-class frontends, both reading the same data:
+> 1. **Looker Studio** — direct no-code connection to the Gold table; available today.
+> 2. **Dedicated dashboard (Dash) on Google Cloud Run — stateless, Pushdown Computing** — translates each UI filter into **parameterized SQL** (`@param`) over a **`serving`** layer of pre-aggregated marts, with **flask-caching** on the results (without loading Gold into memory); curation via an **append-only log + SCD Type 2**. The UI is **being rebuilt with the [Claude Design System](https://claude.ai/)** (removed on 2026-05-29 for a clean handoff); the *data-access layer* already lives in `src/embrapa_commodities/serving/`.
 >
-> O backend (pipeline Medallion + dbt + CLI `embrapa`) é independente da camada de visualização e já alimenta os dois caminhos. Nenhum dos dois é exclusivo — podem coexistir.
+> The backend (Medallion pipeline + dbt + `embrapa` CLI) is independent of the visualization layer and already feeds both paths. Neither one is exclusive — they can coexist.
 
 ```
 IBGE PEVS API    ─┐
 BCB Inflation    ─┤
 BCB Currency     ─┼─► Python (src/embrapa_commodities) — two-phase
-MDIC COMEX CSV   ─┤   extract → GCS raw/ (verbatim) → filtra → BigQuery Bronze
+MDIC COMEX CSV   ─┤   extract → GCS raw/ (verbatim) → filter → BigQuery Bronze
 UN Comtrade API  ─┘                                           │
                                                               ▼
-                              dbt-bigquery ──► Silver (tipada + IPCA encadeado)
+                              dbt-bigquery ──► Silver (typed + chained IPCA)
                                                               │
                                                               ▼
-            gold_pevs_production · gold_comex_flows · gold_comtrade_flows (tabelas físicas)
+            gold_pevs_production · gold_comex_flows · gold_comtrade_flows (physical tables)
                                                               │
-                                       dbt core/ + serving/ ──► dims conformadas + marts
-                                                              │   pré-agregados (Pushdown Computing)
+                                       dbt core/ + serving/ ──► conformed dims + marts
+                                                              │   pre-aggregated (Pushdown Computing)
                                           ┌───────────────────┴───────────────────┐
                                           ▼                                        ▼
                                    Looker Studio                    Dashboard Dash @ Cloud Run
-                                  (direto na Gold)             (stateless · SQL @param + flask-caching)
+                                  (direct on Gold)             (stateless · SQL @param + flask-caching)
 ```
 
-> **Fontes hoje:** IBGE PEVS (`gold_pevs_production`, produção), MDIC COMEX
-> (`gold_comex_flows`, comércio exterior brasileiro export+import) e UN Comtrade
-> (`gold_comtrade_flows`, comércio **global** bilateral reporter→partner), todas
-> enriquecidas com câmbio/inflação do BCB. O design `gold_<fonte>_<forma>` é
-> extensível — veja [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+> **Sources today:** IBGE PEVS (`gold_pevs_production`, production), MDIC COMEX
+> (`gold_comex_flows`, Brazilian foreign trade export+import) and UN Comtrade
+> (`gold_comtrade_flows`, **global** bilateral trade reporter→partner), all
+> enriched with FX/inflation from the BCB. The `gold_<source>_<form>` design is
+> extensible — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 
 ## Stack
 
 Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · GitHub Actions
 
-**Consumo (paralelo):** Looker Studio (direto na Gold) · Dashboard Dash @ Cloud Run — *stateless, Pushdown Computing* (SQL `@param` na camada `serving` + `flask-caching`; UI em reconstrução)
+**Consumption (parallel):** Looker Studio (direct on Gold) · Dash dashboard @ Cloud Run — *stateless, Pushdown Computing* (SQL `@param` on the `serving` layer + `flask-caching`; UI under reconstruction)
 
-Tabela completa com justificativas técnicas em [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-de-tecnologias).
+Full table with technical rationale in [`ARCHITECTURE.md`](ARCHITECTURE.md#technology-stack).
 
-## Tudo é configurável via `.env`
+## Everything is configurable via `.env`
 
-Buckets, prefixos, datasets, tabelas, códigos de produtos do IBGE e séries do BCB ficam em `.env`. Veja [.env.example](.env.example).
+Buckets, prefixes, datasets, tables, IBGE product codes and BCB series live in `.env`. See [.env.example](.env.example).
 
-Buckets e datasets são **criados automaticamente** na primeira execução de `embrapa ingest *`.
+Buckets and datasets are **created automatically** on the first run of `embrapa ingest *`.
 
 ## Quickstart
 
-### Caminho automatizado (recomendado para máquinas novas)
+### Automated path (recommended for new machines)
 
 ```bash
 # macOS / Linux
 ./setup.sh
 
-# Windows (Command Prompt ou PowerShell)
+# Windows (Command Prompt or PowerShell)
 setup.bat
 ```
 
-Os scripts instalam Python 3.12 e `uv` se faltarem, detectam o melhor modo de
-autenticação (impersonação OAuth ou keyfile legado) e geram `.env` +
-`~/.dbt/profiles.yml`. Detalhes em [docs/setup.md](docs/setup.md).
+The scripts install Python 3.12 and `uv` if missing, detect the best
+authentication mode (OAuth impersonation or legacy keyfile) and generate `.env` +
+`~/.dbt/profiles.yml`. Details in [docs/setup.md](docs/setup.md).
 
-Para sandboxes (incluindo Claude Code Web), o `init_dev_env.sh` decodifica um
-keyfile passado via `GCP_CREDENTIALS_B64` e dispara o mesmo fluxo de
-validação. Veja a seção *Claude Code Web* em [docs/setup.md](docs/setup.md).
+For sandboxes (including Claude Code Web), `init_dev_env.sh` decodes a
+keyfile passed via `GCP_CREDENTIALS_B64` and triggers the same
+validation flow. See the *Claude Code Web* section in [docs/setup.md](docs/setup.md).
 
-### Caminho manual
+### Manual path
 
 ```bash
 # 1. Python + venv
 pyenv local 3.12.11
 uv sync
 
-# 2. Credenciais GCP (uma vez por máquina)
+# 2. GCP credentials (once per machine)
 gcloud auth application-default login
 
-# 3. Configurar variáveis
-cp .env.example .env       # ajuste GCP_PROJECT_ID e demais campos
+# 3. Configure variables
+cp .env.example .env       # adjust GCP_PROJECT_ID and other fields
 
-# 4. (Opcional) Descobrir códigos antes de fixar no .env
+# 4. (Optional) Discover codes before pinning them in .env
 uv run embrapa discover ibge-periods --table-id 289
 uv run embrapa discover ibge-products --keywords castanha,madeira,pinheiro
 uv run embrapa discover bcb-series 433
 
-# 5. dbt profile (uma vez)
+# 5. dbt profile (once)
 mkdir -p ~/.dbt
 cp dbt/profiles.yml.example ~/.dbt/profiles.yml
 
-# 6. Ingestão Bronze (Python → GCS → BigQuery)
+# 6. Bronze ingestion (Python → GCS → BigQuery)
 uv run embrapa ingest all
 
-# 7. Transformações Silver + Gold
+# 7. Silver + Gold transforms
 make dbt-deps
 make dbt-build
 ```
@@ -108,122 +108,122 @@ make dbt-build
 
 ```text
 embrapa ingest ibge | bcb-inflation | bcb-currency | comex | comtrade | all
-embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-deriva o Bronze do raw sem re-baixar
-embrapa ingest comex [--full]                      # COMEX re-baixa só quando o ETag muda; --full ignora a checagem
-embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumível por cota diária. Fora do `ingest all` (key/quota-gated)
+embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-derives Bronze from raw without re-downloading
+embrapa ingest comex [--full]                      # COMEX re-downloads only when the ETag changes; --full ignores the check
+embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumable by daily quota. Outside `ingest all` (key/quota-gated)
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
-embrapa discover bcb-series     <code>            # ex: 433
-embrapa dbt <args>                                  # ex: dbt run --select gold
+embrapa discover bcb-series     <code>            # e.g.: 433
+embrapa dbt <args>                                  # e.g.: dbt run --select gold
 ```
 
-Os comandos `discover` são **auxiliares e não fazem parte do pipeline em produção**. Use-os para investigar APIs IBGE/BCB e descobrir os códigos exatos que quer colocar no `.env`.
+The `discover` commands are **auxiliary and not part of the production pipeline**. Use them to investigate the IBGE/BCB APIs and discover the exact codes you want to set in `.env`.
 
-## Convenções monetárias do Gold
+## Gold monetary conventions
 
-| Coluna | Significado | Quando é NULL |
+| Column | Meaning | When it is NULL |
 |---|---|---|
-| `val_yearfx_*` | `val_raw` (já em numerário R$ atual, sem correção inflacionária) convertido pelo **FX médio do mesmo ano**. Colunas em moeda estrangeira são `NULL` pré-1994 para não misturar Cruzeiros antigos com valores atuais. | FX do ano indisponível (ex.: EUR < 1999); ou `reference_year < 1994` para USD/EUR/CNY. |
-| `val_real_ipca_*` | Valor projetado para hoje pela **cadeia IPCA** (absorve inflação + reformas monetárias) e convertido para FX corrente. **Use esta coluna para comparações entre anos.** | IPCA do ano-base indisponível. |
-| `val_real_igpm_*` | Idem, usando IGP-M. | IGP-M do ano-base indisponível. |
-| `val_real_igpdi_*` | Idem, usando IGP-DI. | IGP-DI do ano-base indisponível. |
+| `val_yearfx_*` | `val_raw` (already in present-day R$ numéraire, without inflation adjustment) converted by the **average FX of the same year**. Foreign-currency columns are `NULL` pre-1994 so as not to mix old Cruzeiros with present-day values. | Year FX unavailable (e.g. EUR < 1999); or `reference_year < 1994` for USD/EUR/CNY. |
+| `val_real_ipca_*` | Value projected to today via the **IPCA chain** (absorbs inflation + currency reforms) and converted to current FX. **Use this column for cross-year comparisons.** | Base-year IPCA unavailable. |
+| `val_real_igpm_*` | Same, using IGP-M. | Base-year IGP-M unavailable. |
+| `val_real_igpdi_*` | Same, using IGP-DI. | Base-year IGP-DI unavailable. |
 
-> A série IPCA do BCB (SGS 433) é variação mensal. A camada Silver encadeia esse percentual em um número-índice de base 100, tornando matematicamente válido o produto `valor_em_cruzeiros * (IPCA_atual / IPCA_ano)` para chegar a Reais atuais — sem necessidade de tabela de conversão histórica de moedas.
+> The BCB IPCA series (SGS 433) is a monthly variation. The Silver layer chains that percentage into an index number with base 100, making the product `valor_em_cruzeiros * (IPCA_atual / IPCA_ano)` mathematically valid for arriving at present-day Reais — without needing a historical currency conversion table.
 
 ## `data_quality_flag`
 
-| Valor | Significado |
+| Value | Meaning |
 |---|---|
-| `OK` | linha tem quantidade (em qualquer unidade) **e** valor |
-| `MISSING_VALUE` | quantidade reportada mas valor monetário ausente |
-| `MISSING_QUANTITY` | valor monetário reportado mas quantidade ausente |
-| `INCOMPLETE` | ambos ausentes |
+| `OK` | row has quantity (in any unit) **and** value |
+| `MISSING_VALUE` | quantity reported but monetary value missing |
+| `MISSING_QUANTITY` | monetary value reported but quantity missing |
+| `INCOMPLETE` | both missing |
 
-Placeholders do IBGE (`-`, `...`, `..`, `*`, `X`) são convertidos para `NULL` na Silver pelo macro `safe_numeric`.
+IBGE placeholders (`-`, `...`, `..`, `*`, `X`) are converted to `NULL` in Silver by the `safe_numeric` macro.
 
-## Saída final — `gold.gold_pevs_production`
+## Final output — `gold.gold_pevs_production`
 
-Uma linha por `(reference_year, state_acronym, city_name, product_code)`. Colunas:
+One row per `(reference_year, state_acronym, city_name, product_code)`. Columns:
 
-**Tempo / geografia / produto**
+**Time / geography / product**
 `reference_year`, `reference_date`, `state_acronym`, `state_name`, `region`, `city_code`, `city_name`, `product_code`, `product_description`.
 
-**Quantidades (por família de unidade física)**
-`family` (`massa`|`volume`|`energia`|`contagem`|`area`|`desconhecida`), `unit_native` (rótulo da fonte), `qty_native` (valor na unidade nativa), `qty_base` (convertido para a unidade-base da família), `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`).
-> ⚠️ **Nunca some `qty_base` entre famílias.** Toda soma de quantidade exige `GROUP BY family` (monte `q_by_family = {massa:Σt, volume:Σm³, …}` em tempo de consulta). Fatores vêm dos seeds `unit_family_conversions` + `product_unit_factors`; unidade sem conversão → `qty_base` nulo (curadoria). Valor monetário continua família-agnóstico e somável.
+**Quantities (by physical unit family)**
+`family` (`massa`|`volume`|`energia`|`contagem`|`area`|`desconhecida`), `unit_native` (source label), `qty_native` (value in the native unit), `qty_base` (converted to the family's base unit), `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`).
+> ⚠️ **Never sum `qty_base` across families.** Every quantity sum requires `GROUP BY family` (build `q_by_family = {massa:Σt, volume:Σm³, …}` at query time). Factors come from the `unit_family_conversions` + `product_unit_factors` seeds; a unit without a conversion → null `qty_base` (curation). Monetary value remains family-agnostic and summable.
 
-**Valores por FX do ano (foreign zerado pré-1994)**
+**Values by year FX (foreign zeroed pre-1994)**
 `val_yearfx_brl`, `val_yearfx_usd`, `val_yearfx_eur`, `val_yearfx_cny`.
 
-**Valores reais via IPCA**
+**Real values via IPCA**
 `val_real_ipca_brl`, `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny`.
 
-**Valores reais via IGP-M**
+**Real values via IGP-M**
 `val_real_igpm_brl`, `val_real_igpm_usd`, `val_real_igpm_eur`, `val_real_igpm_cny`.
 
-**Valores reais via IGP-DI**
+**Real values via IGP-DI**
 `val_real_igpdi_brl`, `val_real_igpdi_usd`, `val_real_igpdi_eur`, `val_real_igpdi_cny`.
 
-**Qualidade / proveniência**
+**Quality / provenance**
 `data_quality_flag`, `last_refresh`.
 
-## Looker Studio — recomendações
+## Looker Studio — recommendations
 
-- Conectar **diretamente** na tabela `${BQ_GOLD_DATASET}.gold_pevs_production` (não em views nem em "custom query").
-- Habilite **BI Engine** com 1–2 GB cobrindo o dataset Gold — corta latência e custos de queries repetitivas.
-- Filtro padrão sugerido para análises exploratórias: `data_quality_flag = 'OK'`.
+- Connect **directly** to the `${BQ_GOLD_DATASET}.gold_pevs_production` table (not to views or a "custom query").
+- Enable **BI Engine** with 1–2 GB covering the Gold dataset — it cuts latency and the cost of repeated queries.
+- Suggested default filter for exploratory analyses: `data_quality_flag = 'OK'`.
 
-## Estrutura
+## Structure
 
-Estrutura completa de pastas (arquivo-a-arquivo) em [`ARCHITECTURE.md`](ARCHITECTURE.md#estrutura-de-pastas).
+Full folder structure (file by file) in [`ARCHITECTURE.md`](ARCHITECTURE.md#folder-structure).
 
-> Tooling auxiliar (setup do ambiente, scripts de IAM) está em [`scripts/README.md`](scripts/README.md).
+> Auxiliary tooling (environment setup, IAM scripts) is in [`scripts/README.md`](scripts/README.md).
 
-## Transferência futura para a empresa
+## Future transfer to the company
 
-Veja [docs/ownership_transfer.md](docs/ownership_transfer.md). Nada está hardcoded — basta um novo `.env` e a primeira execução de `uv run embrapa ingest all` recria toda a infraestrutura (bucket, datasets, tabelas) no novo projeto GCP.
+See [docs/ownership_transfer.md](docs/ownership_transfer.md). Nothing is hardcoded — just a new `.env` and the first run of `uv run embrapa ingest all` recreates the entire infrastructure (bucket, datasets, tables) in the new GCP project.
 
 ## Cost safety
 
-Configurações **uma-vez** no Cloud Console (budget alert + custom quota) que protegem contra cobrança inesperada estão em [docs/cost_safety.md](docs/cost_safety.md). Recomendado fazer **antes** de habilitar BI Engine.
+**One-time** settings in the Cloud Console (budget alert + custom quota) that protect against unexpected charges are in [docs/cost_safety.md](docs/cost_safety.md). Recommended **before** enabling BI Engine.
 
 ---
 
-## 📚 Documentação
+## 📚 Documentation
 
-| Documento | Descrição |
+| Document | Description |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | Guia para assistentes de IA (comandos, arquitetura, skills) |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura técnica — stack, estrutura de pastas, fluxo de dados |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Guia de contribuição — commits, branches, PRs |
-| [CHANGELOG.md](CHANGELOG.md) | Histórico de versões |
-| [TODO.md](TODO.md) | Lista macro de tarefas pendentes e concluídas |
-| [ROADMAP.md](ROADMAP.md) | Visão de futuro (curto, médio e longo prazo) |
-| [SECURITY.md](SECURITY.md) | Política de segurança e reporte de vulnerabilidades |
-| [PLANS/](PLANS/) | Planos detalhados de features complexas |
+| [CLAUDE.md](CLAUDE.md) | Guide for AI assistants (commands, architecture, skills) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture — stack, folder structure, data flow |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide — commits, branches, PRs |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [TODO.md](TODO.md) | Macro list of pending and completed tasks |
+| [ROADMAP.md](ROADMAP.md) | Future vision (short, medium and long term) |
+| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
+| [PLANS/](PLANS/) | Detailed plans for complex features |
 
 <details>
-<summary>Documentação detalhada (docs/)</summary>
+<summary>Detailed documentation (docs/)</summary>
 
-| Documento | Conteúdo |
+| Document | Contents |
 |---|---|
-| [docs/setup.md](docs/setup.md) | Guia completo de setup do ambiente |
-| [docs/auth_architecture.md](docs/auth_architecture.md) | Arquitetura de autenticação (Cadeia de Confiança) |
-| [docs/iam_setup.md](docs/iam_setup.md) | Setup de IAM e Service Accounts |
-| [docs/cost_safety.md](docs/cost_safety.md) | Budget alerts e quotas |
-| [docs/testing.md](docs/testing.md) | Estratégia e guia de testes |
-| [docs/ownership_transfer.md](docs/ownership_transfer.md) | Checklist de transferência para a empresa |
-| [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Conexão Looker Studio → Gold |
-| [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Contrato de dados Gold → snapshot do frontend (handoff) |
-| [docs/migration_history.md](docs/migration_history.md) | Histórico de migrações |
-| [scripts/README.md](scripts/README.md) | Documentação dos scripts auxiliares |
+| [docs/setup.md](docs/setup.md) | Complete environment setup guide |
+| [docs/auth_architecture.md](docs/auth_architecture.md) | Authentication architecture (Chain of Trust) |
+| [docs/iam_setup.md](docs/iam_setup.md) | IAM and Service Account setup |
+| [docs/cost_safety.md](docs/cost_safety.md) | Budget alerts and quotas |
+| [docs/testing.md](docs/testing.md) | Testing strategy and guide |
+| [docs/ownership_transfer.md](docs/ownership_transfer.md) | Company transfer checklist |
+| [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Looker Studio → Gold connection |
+| [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Gold → frontend snapshot data contract (handoff) |
+| [docs/migration_history.md](docs/migration_history.md) | Migration history |
+| [scripts/README.md](scripts/README.md) | Auxiliary scripts documentation |
 
 </details>
 
 ---
 
-## 📄 Licença
+## 📄 License
 
-Este projeto é licenciado sob a [Apache License 2.0](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
-Desenvolvido por [Igor Florentino](mailto:igorlopesc@gmail.com).
+Developed by [Igor Florentino](mailto:igorlopesc@gmail.com).

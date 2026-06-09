@@ -1,363 +1,365 @@
 # Changelog
 
-Todas as mudanças notáveis do projeto serão documentadas neste arquivo.
+All notable changes to this project will be documented in this file.
 
-O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
-e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+The format follows [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
 ## [Unreleased]
 
 ### Added
-- **IBGE PEVS agora é delta por padrão** (como o BCB). `ingest ibge` / `ingest all`
-  re-buscam só de `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` (default 1) em
-  diante — absorvendo revisões do PEVS e um ano recém-publicado — em vez de
-  re-puxar 1986→hoje a cada run (request gigante que estoura o deadline slow-byte
-  do SIDRA num Cloud Run Job não-supervisionado). `--full` força a janela
-  completa; `ingest ibge-batch` continua para o backfill histórico inicial
-  chunked; Bronze frio cai na janela cheia. Novo helper `latest_reference_year`
-  (`gcp/bigquery.py`) + knob `IBGE_DELTA_OVERLAP_YEARS`. Motivado por um smoke-run
-  do Cloud Run Job que falhou exatamente nesse fetch full-history do IBGE.
-- **Pivô arquitetural — Pushdown Computing no dashboard (substitui o desenho
-  in-memory/Pandas, risco de OOM/concorrência).** O dashboard Dash passa a ser
-  **stateless**: filtros da UI viram **SQL parametrizado** (`@param`) no BigQuery,
-  cacheado por **flask-caching**, em vez de carregar tabelas Gold em memória.
-  - **dbt `serving/`**: marts pré-agregados nos grãos dos gráficos
+- **IBGE PEVS is now delta by default** (like the BCB). `ingest ibge` / `ingest all`
+  re-fetch only from `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` (default 1)
+  forward — absorbing PEVS revisions and a newly published year — instead of
+  re-pulling 1986→today on every run (a huge request that blows SIDRA's slow-byte
+  deadline on an unattended Cloud Run Job). `--full` forces the full window;
+  `ingest ibge-batch` remains for the initial chunked historical backfill; a cold
+  Bronze falls back to the full window. New helper `latest_reference_year`
+  (`gcp/bigquery.py`) + `IBGE_DELTA_OVERLAP_YEARS` knob. Motivated by a Cloud Run
+  Job smoke-run that failed on exactly this IBGE full-history fetch.
+- **Architectural pivot — Pushdown Computing in the dashboard (replaces the
+  in-memory/Pandas design, with its OOM/concurrency risk).** The Dash dashboard
+  becomes **stateless**: UI filters turn into **parameterized SQL** (`@param`) on
+  BigQuery, cached by **flask-caching**, instead of loading Gold tables into memory.
+  - **dbt `serving/`**: marts pre-aggregated at the chart grains
     (`serving_pevs_annual`, `serving_comex_annual`, `serving_comex_seasonality`,
-    `serving_comtrade_annual`, `serving_quality_by_source`) no dataset `serving`
-    (`BQ_SERVING_DATASET`), materializados como **tabelas** (corte de scan GB→MB).
-  - **dbt `core/`**: dimensões conformadas `dim_date`, `dim_geo_br`; e a view
-    SCD Tipo 2 `dim_commodity_scd2` (gated por `--vars 'enable_curation: true'`).
-  - **Curadoria dinâmica (SCD2)**: log append-only
-    `research_inputs.commodity_processing_stage_log` (autor capturado do header
-    IAP `X-Goog-Authenticated-User-Email`); a UI faz LEFT JOIN ao vivo do mart
-    estático à dimensão de classificação.
-  - **BFF Python** (`src/embrapa_commodities/serving/`, extra opcional `serving`):
-    `sql` (@param + allowlist anti-injeção), `gateway` (`@cache.memoize`), `cache`
-    (flask-caching — `SimpleCache` escala multi-instância de graça; `RedisCache`
-    opcional), `iap`, `curation` (INSERT append-only + invalidação de cache).
-  - **Escala multi-instância sem Redis (de graça).** O dashboard escala para
-    3–5+ instâncias do Cloud Run sem Memorystore: marts convergem no
-    `CACHE_DEFAULT_TIMEOUT` (dados noturnos) e a leitura de classificação da
-    curadoria usa um **TTL curto** (`CACHE_CLASSIFICATION_TIMEOUT`, default 30s)
-    que limita a defasagem entre instâncias (consistência eventual ≤30s) — a
-    instância que edita invalida na hora. `RedisCache` vira **opcional** (só p/
-    consistência cross-instância instantânea sob tráfego alto).
-  - **Ingestão automatizada**: `embrapa ingest all` empacotado como **Cloud Run
+    `serving_comtrade_annual`, `serving_quality_by_source`) in the `serving` dataset
+    (`BQ_SERVING_DATASET`), materialized as **tables** (cutting scan from GB→MB).
+  - **dbt `core/`**: conformed dimensions `dim_date`, `dim_geo_br`; and the SCD
+    Type 2 view `dim_commodity_scd2` (gated by `--vars 'enable_curation: true'`).
+  - **Dynamic curation (SCD2)**: append-only log
+    `research_inputs.commodity_processing_stage_log` (author captured from the IAP
+    header `X-Goog-Authenticated-User-Email`); the UI does a live LEFT JOIN of the
+    static mart to the classification dimension.
+  - **Python BFF** (`src/embrapa_commodities/serving/`, optional `serving` extra):
+    `sql` (@param + anti-injection allowlist), `gateway` (`@cache.memoize`), `cache`
+    (flask-caching — `SimpleCache` scales multi-instance for free; `RedisCache`
+    optional), `iap`, `curation` (append-only INSERT + cache invalidation).
+  - **Multi-instance scaling without Redis (for free).** The dashboard scales to
+    3–5+ Cloud Run instances without Memorystore: marts converge on
+    `CACHE_DEFAULT_TIMEOUT` (overnight data) and the curation classification read
+    uses a **short TTL** (`CACHE_CLASSIFICATION_TIMEOUT`, default 30s) that bounds
+    the staleness between instances (eventual consistency ≤30s) — the instance that
+    edits invalidates immediately. `RedisCache` becomes **optional** (only for
+    instant cross-instance consistency under high traffic).
+  - **Automated ingestion**: `embrapa ingest all` packaged as a **Cloud Run
     Job** (`deploy/ingestion/`: Dockerfile, cloudbuild.yaml, deploy.sh, schedule.sh)
-    + **Cloud Scheduler** nas madrugadas. Atalhos `make ingest-job-deploy` /
+    + **Cloud Scheduler** overnight (off-peak). Shortcuts `make ingest-job-deploy` /
     `make ingest-job-schedule`.
-  - **Reverte a postura anterior de "nunca pré-agregar"**: o Gold segue a fonte
-    comprehensiva por fonte (agregação ad-hoc em query-time), mas o `serving/`
-    materializa marts pré-agregados para o Pushdown — derivam do Gold, não o
-    substituem.
-- **Nova fonte: UN Comtrade (comércio global bilateral) — `gold_comtrade_flows`.**
-  Complemento global ao COMEX (Brasil): fluxos `reporter→partner` mundiais para
-  HS **0801** (castanhas) + **capítulo 44** (madeira/carvão), ingeridos no nível
-  **HS6** (escopo expandido para as 156 folhas de 6 dígitos), nos **quatro regimes
-  primários** X/M/RX/RM, todos os reporters × todos os partners, grão anual.
-  - **Ingestão** (`embrapa ingest comtrade [--full] [--from-raw]`): API JSON
-    *keyed* (`COMTRADE_API_KEY`, gratuita), com a chave **só** no header
-    `Ocp-Apim-Subscription-Key` (nunca na URL/log). Zona raw em duas fases,
-    *chunked* por `(ano, batch de 8 reporters)` e **resumível**. **Split
-    adaptativo** anti-truncamento (`fetch_chunk_adaptive`): quando uma chamada
-    bate o cap de 100k linhas (um único reporter denso já estoura), divide
-    recursivamente reporters→fluxos→cmd e concatena. Fica **fora do
+  - **Reverts the previous "never pre-aggregate" stance**: Gold remains the
+    comprehensive per-source table (ad-hoc aggregation at query time), but `serving/`
+    materializes pre-aggregated marts for Pushdown — they derive from Gold, they do
+    not replace it.
+- **New source: UN Comtrade (global bilateral trade) — `gold_comtrade_flows`.**
+  A global complement to COMEX (Brazil): worldwide `reporter→partner` flows for
+  HS **0801** (nuts) + **chapter 44** (wood/charcoal), ingested at the
+  **HS6** level (scope expanded to the 156 six-digit leaves), across the **four
+  primary regimes** X/M/RX/RM, all reporters × all partners, annual grain.
+  - **Ingestion** (`embrapa ingest comtrade [--full] [--from-raw]`): a *keyed*
+    JSON API (`COMTRADE_API_KEY`, free), with the key **only** in the
+    `Ocp-Apim-Subscription-Key` header (never in the URL/log). Two-phase raw zone,
+    *chunked* by `(year, batch of 8 reporters)` and **resumable**. **Adaptive
+    split** against truncation (`fetch_chunk_adaptive`): when a call hits the
+    100k-row cap (a single dense reporter already overflows it), it recursively
+    splits reporters→flows→cmd and concatenates. It stays **outside
     `embrapa ingest all`** (key/quota-gated).
-  - **dbt**: `silver_comtrade_flows` (mantém só o registro totalmente agregado —
-    `motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0` — e só HS6; dropa o
-    partner World `0`; normaliza `flowCode` X/M/RX/RM →
-    `export`/`import`/`re-export`/`re-import`) e `gold_comtrade_flows` (as 4
-    convenções monetárias sobre `primaryValue` US$, deflação **anual**; geografia
-    bilateral reporter+partner via M49). Reusa `silver_currency` (USD/EUR/CNY) e
-    `unit_family_conversions` (famílias).
-  - **Seeds** de referência autoritativa: `comtrade_country` (M49 → ISO3/nome,
-    `partnerAreas.json`), `comtrade_unit` (qtyUnitCode → família — 5=itens, 8=kg,
-    12=m³) e `comtrade_hs` (0801 + cap. 44, `HS.json`). Script
+  - **dbt**: `silver_comtrade_flows` (keeps only the fully aggregated record —
+    `motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0` — and HS6 only; drops
+    the World partner `0`; normalizes `flowCode` X/M/RX/RM →
+    `export`/`import`/`re-export`/`re-import`) and `gold_comtrade_flows` (the 4
+    monetary conventions over `primaryValue` US$, **annual** deflation; bilateral
+    reporter+partner geography via M49). Reuses `silver_currency` (USD/EUR/CNY) and
+    `unit_family_conversions` (families).
+  - **Seeds** of authoritative reference: `comtrade_country` (M49 → ISO3/name,
+    `partnerAreas.json`), `comtrade_unit` (qtyUnitCode → family — 5=items, 8=kg,
+    12=m³) and `comtrade_hs` (0801 + ch. 44, `HS.json`). Script
     `scripts/refresh_comtrade_country_seed.py`.
-  - Janela histórica inicial limitada a **2022-2023** (config `COMTRADE_START_YEAR`/
-    `COMTRADE_END_YEAR`) para desenvolvimento; estender depois para histórico antigo.
-- **Dimensão de modal de transporte no COMEX (`via`).** `gold_comex_flows` ganha
-  `transport_route_code` (no grão) + `via_name` via novo seed `comex_via`
-  (códigos MDIC CO_VIA → rótulos PT: Marítima, Aérea, Rodoviária…).
-- **Crosswalk de produto cross-source** — seed `commodity_crosswalk` (vínculos
-  por *prefixo*, nível commodity-conceito) + modelo `gold_commodity_crosswalk`
-  (resolve para `(source, code) → commodity` exato). Liga a mesma commodity entre
-  PEVS (código extrativo) / COMEX (NCM8) / COMTRADE (HS6) — base das análises
-  cross (coeficiente de exportação, market-share, espelho comercial).
-- **Documento de contrato de dados** `docs/frontend_data_contract.md` — mapa
-  Gold → snapshot do frontend (campo, magnitude, unidade) para o handoff do BFF.
-- **Metadados de proveniência por fonte** — view `gold_source_metadata` (uma linha
-  por fonte: tabela, cadência, cobertura ano, contadores `total_rows`/
-  `products_total`/`ufs_total`, `last_refresh`), derivada das Gold. Alimenta o seam
-  `dataStore.meta(id)` do frontend (proveniência vem do backend, não de literais);
-  `implStatus`/`visible` ficam como config de runtime, documentados no contrato.
-- **Câmbio BRL/CNY via fonte externa (ECB/Frankfurter) — coluna de iuan na Gold.**
-  O BCB não publica BRL/CNY (PTAX cota só 10 moedas, sem iuan), então a CNY é
-  obtida das taxas de referência do BCE via [Frankfurter](https://frankfurter.dev)
-  (gratuito, sem chave). Seed mensal `extfx_cny_brl` (regenerável com
-  `scripts/refresh_cny_seed.py`) → `silver_extfx_currency` (mesmo schema do
-  `silver_bcb_currency`) → `silver_currency` (UNION BCB ∪ externo). As Gold
-  passam a ler `silver_currency`, então as colunas `val_*_cny` voltam a
-  preencher em `gold_comex_flows` (100%) **e** `gold_pevs_production` (a partir
-  de ~2005, quando começa o dado de CNY do BCE). USD/CNY implícito ≈ 6,7
-  (historicamente correto).
+  - Initial historical window limited to **2022-2023** (config `COMTRADE_START_YEAR`/
+    `COMTRADE_END_YEAR`) for development; extend later to older history.
+- **Transport-modal dimension in COMEX (`via`).** `gold_comex_flows` gains
+  `transport_route_code` (in the grain) + `via_name` via the new `comex_via` seed
+  (MDIC CO_VIA codes → PT labels: Marítima, Aérea, Rodoviária…).
+- **Cross-source product crosswalk** — seed `commodity_crosswalk` (links by
+  *prefix*, at the commodity-concept level) + model `gold_commodity_crosswalk`
+  (resolves to an exact `(source, code) → commodity`). Links the same commodity
+  across PEVS (extractive code) / COMEX (NCM8) / COMTRADE (HS6) — the basis for the
+  cross analyses (export coefficient, market share, trade mirror).
+- **Data contract document** `docs/frontend_data_contract.md` — a Gold →
+  frontend-snapshot map (field, magnitude, unit) for the BFF handoff.
+- **Per-source provenance metadata** — view `gold_source_metadata` (one row per
+  source: table, cadence, year coverage, counters `total_rows`/
+  `products_total`/`ufs_total`, `last_refresh`), derived from the Gold tables. It
+  feeds the frontend `dataStore.meta(id)` seam (provenance comes from the backend,
+  not from literals); `implStatus`/`visible` stay as runtime config, documented in
+  the contract.
+- **BRL/CNY FX via an external source (ECB/Frankfurter) — a yuan column in Gold.**
+  The BCB does not publish BRL/CNY (PTAX quotes only 10 currencies, no yuan), so CNY
+  is obtained from the ECB reference rates via [Frankfurter](https://frankfurter.dev)
+  (free, no key). Monthly seed `extfx_cny_brl` (regenerable with
+  `scripts/refresh_cny_seed.py`) → `silver_extfx_currency` (same schema as
+  `silver_bcb_currency`) → `silver_currency` (UNION BCB ∪ external). The Gold tables
+  now read `silver_currency`, so the `val_*_cny` columns fill again in
+  `gold_comex_flows` (100%) **and** `gold_pevs_production` (from ~2005 onward, when
+  the ECB CNY data begins). Implied USD/CNY ≈ 6.7 (historically correct).
 
 ### Changed
-- **Quantidades por família de unidade física (quebra de schema, sem
-  retrocompat).** O formato fixo `[kg, t, m³, L]` foi removido. Toda linha de
-  quantidade na Gold passa a expor `family` (`massa`|`volume`|`energia`|
-  `contagem`|`area`|`desconhecida`), `unit_native` (rótulo da fonte), `qty_native`
-  (valor nativo), `qty_base` (convertido para a unidade-base da família) e
-  `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`). A conversão acontece no **Silver**
-  (Gold já entrega no formato final). **`gold_pevs_production`** troca
-  `quantity_tons`/`quantity_m3` por essas colunas; **`gold_comex_flows`** troca
-  `stat_unit`/`stat_unit_symbol`/`statistical_quantity` por
+- **Quantities by physical unit family (schema break, no backward
+  compatibility).** The fixed `[kg, t, m³, L]` format was removed. Every quantity
+  row in Gold now exposes `family` (`massa`|`volume`|`energia`|
+  `contagem`|`area`|`desconhecida`), `unit_native` (source label), `qty_native`
+  (native value), `qty_base` (converted to the family's base unit) and
+  `base_unit` (`t`/`m³`/`MWh`/`un`/`ha`). The conversion happens in **Silver**
+  (Gold already delivers the final format). **`gold_pevs_production`** swaps
+  `quantity_tons`/`quantity_m3` for these columns; **`gold_comex_flows`** swaps
+  `stat_unit`/`stat_unit_symbol`/`statistical_quantity` for
   `unit_native`/`unit_native_symbol`/`qty_native`+`qty_base`+`family`+`base_unit`
-  (a resolução da unidade estatística migrou do Gold para o Silver;
-  `net_weight_kg` segue como massa-kg paralela). **Regra:** nunca somar
-  `qty_base` entre famílias — toda agregação exige `GROUP BY family` (monte
-  `q_by_family = {massa:Σt, volume:Σm³, …}` em tempo de consulta). Valor
-  monetário continua família-agnóstico e somável.
-  - Novos seeds versionados: **`unit_family_conversions`** (unidade →
-    família + `to_base`, fonte única — sem fator hard-coded em query) e
-    **`product_unit_factors`** (crosswalk produto→fator para unidades de
-    commodity como saca/@/bushel/barril, que sobrepõe o seed genérico; sem
-    linha → `qty_base` nulo, marcado para curadoria — nunca conversão inventada).
-  - `data_quality_flag` reassinado para `(qty, val_brl)`. Novo teste de
-    curadoria (warn) `assert_unconvertible_quantities_for_curation` e um
-    **dbt unit test** com um caso por família + override do crosswalk.
-  - ⚠️ **Operacional:** `silver_ibge_pevs` é incremental — rode
-    `dbt build --select silver_ibge_pevs+ --full-refresh` (dev **e** prod) ao
-    aplicar esta mudança, senão as partições antigas ficam com as colunas novas
-    nulas.
+  (statistical-unit resolution moved from Gold to Silver;
+  `net_weight_kg` remains as a parallel mass-kg). **Rule:** never sum
+  `qty_base` across families — every aggregation requires `GROUP BY family` (build
+  `q_by_family = {massa:Σt, volume:Σm³, …}` at query time). Monetary value
+  remains family-agnostic and summable.
+  - New versioned seeds: **`unit_family_conversions`** (unit →
+    family + `to_base`, single source — no factor hardcoded in queries) and
+    **`product_unit_factors`** (a product→factor crosswalk for commodity units
+    like saca/@/bushel/barril, which overrides the generic seed; no row → null
+    `qty_base`, flagged for curation — never an invented conversion).
+  - `data_quality_flag` reassigned to `(qty, val_brl)`. New curation (warn) test
+    `assert_unconvertible_quantities_for_curation` and a
+    **dbt unit test** with one case per family + a crosswalk override.
+  - ⚠️ **Operational:** `silver_ibge_pevs` is incremental — run
+    `dbt build --select silver_ibge_pevs+ --full-refresh` (dev **and** prod) when
+    applying this change, otherwise the old partitions are left with the new
+    columns null.
 
 ### Fixed
-- **COMTRADE: resume agora identifica o lote de reporters por conteúdo, não por
-  índice posicional.** O objeto raw era nomeado `<ano>_r<índice>`, onde o índice
-  vinha de fatiar `list_reporters()` na ordem do JSON de referência da UN — se a
-  UN reordenasse/alterasse o conjunto de reporters entre execuções, o mesmo
-  índice passava a mapear reporters diferentes e o resume pulava silenciosamente
-  um lote cuja composição mudou, deixando dados nunca ingeridos. Agora os
-  reporters são **ordenados** antes de lotear e o basename é um **hash estável**
-  dos códigos do lote (`<ano>_r<hash>`), com `reporter_codes` gravado na
-  proveniência. **Operação:** o primeiro run após esta mudança re-busca os anos
-  passados uma vez (basenames antigos ficam órfãos; Silver deduplica).
-- **COMEX/COMTRADE: o skip de delta podia deixar um `(fluxo,ano)`/lote
-  permanentemente ausente do Bronze.** Quando o raw estava atual o Phase 2 era
-  pulado assumindo "raw presente ⇒ Bronze carregado" — falso se um run anterior
-  arquivou o raw e abortou antes da carga. Agora um marcador `bronze_loaded_at`
-  na metadata do objeto raw (gravado após o Phase 2; limpo automaticamente num
-  re-extract) é a fonte de verdade: o skip só ocorre quando o raw está atual **e**
-  já foi carregado.
-- **BCB: basename/proveniência do raw refletem a janela realmente arquivada.**
-  Em modo delta cada série busca só sua janela de overlap recente, mas o objeto
-  raw era rotulado com o `bcb_start_year` configurado (ex. "1980-2026") — janela
-  que o objeto não contém. Agora o rótulo deriva do intervalo real de anos nos
-  dados (`min`/`max` de `reference_date_str`).
-- **`pyproject.toml`: licença corrigida de `MIT` para `Apache-2.0`** (o arquivo
-  `LICENSE` e todos os demais docs já eram Apache 2.0); description atualizada
-  para incluir COMEX/COMTRADE.
-- **COMTRADE: dupla-contagem de ~2,5× nos valores/quantidades da Gold.** A API
-  keyed retorna, por `(reporter, partner, cmd, flow)`, um registro **totalmente
-  agregado** (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) **mais**
-  linhas de breakdown por modo de transporte / aduana / 2º parceiro — cujo valor
-  **soma no agregado**. O Silver mantinha tudo e o Gold somava junto. Corrigido
-  mantendo só o registro agregado em `silver_comtrade_flows` (lossless: 546.812
-  grupos = 546.812 linhas; Bronze intocado, sem re-ingest). Total COMTRADE
-  US$1.779bn → US$692bn; espelho COMEX↔COMTRADE passa a bater.
-- **COMTRADE: famílias de unidade física erradas.** O seed `comtrade_unit` usava
-  uma tabela legada de qtyUnitCode que não bate com os códigos da API. Validados
-  contra o `standardUnitAbbr` do HS6: **5=nº de itens (contagem)**, **8=kg
-  (massa)**, **12=m³ (volume)** — antes ~24% das linhas caíam em família errada.
-- **Séries de câmbio do BCB corrigidas (afetava PEVS e COMEX).** As séries
-  configuradas estavam erradas: `3694` (USD) é **anual** — insuficiente para a
-  deflação mensal do COMEX (só preenchia janeiros); `4393` (EUR) retornava
-  ~127 e `20542` (CNY) ~4 milhões — **não são cotações BRL/unidade**. Trocadas
-  por PTAX **venda diária**: `1`=USD, `21619`=EUR (a Gold faz a média por ano/
-  mês). A **CNY foi removida** — o BCB não publica BRL/CNY (nem USD/CNY) no SGS
-  ou PTAX; uma coluna de iuan exigiria fonte externa (follow-up). Isso conserta
-  `val_yearfx_{brl,usd,eur}` e `val_real_*_{brl,usd,eur}` em
-  `gold_pevs_production` **e** `gold_comex_flows`.
-- **`bcb/client`: HTTP 404 do SGS tratado como janela sem dado**, não erro —
-  séries têm datas de início diferentes (USD 1984, EUR 1999), então o
-  year-chunking do `--full` consulta janelas que antecedem algumas séries.
-  Antes, um `--full` de `BCB_START_YEAR` quebrava com 404 na primeira janela
-  vazia.
+- **COMTRADE: resume now identifies the reporter batch by content, not by
+  positional index.** The raw object was named `<ano>_r<índice>`, where the index
+  came from slicing `list_reporters()` in the order of the UN reference JSON — if
+  the UN reordered/changed the reporter set between runs, the same index would map
+  to different reporters and resume silently skipped a batch whose composition had
+  changed, leaving data never ingested. Now the reporters are **sorted** before
+  batching and the basename is a **stable hash** of the batch's codes
+  (`<ano>_r<hash>`), with `reporter_codes` recorded in the provenance.
+  **Operation:** the first run after this change re-fetches the past years once
+  (old basenames become orphaned; Silver dedupes).
+- **COMEX/COMTRADE: the delta skip could leave a `(flow,year)`/batch
+  permanently missing from Bronze.** When the raw was current, Phase 2 was skipped
+  assuming "raw present ⇒ Bronze loaded" — false if a previous run archived the raw
+  and aborted before the load. Now a `bronze_loaded_at` marker in the raw object's
+  metadata (written after Phase 2; cleared automatically on a re-extract) is the
+  source of truth: the skip happens only when the raw is current **and** has
+  already been loaded.
+- **BCB: the raw basename/provenance reflect the window actually archived.**
+  In delta mode each series fetches only its recent overlap window, but the raw
+  object was labeled with the configured `bcb_start_year` (e.g. "1980-2026") — a
+  window the object does not contain. Now the label derives from the actual range
+  of years in the data (`min`/`max` of `reference_date_str`).
+- **`pyproject.toml`: license corrected from `MIT` to `Apache-2.0`** (the
+  `LICENSE` file and all the other docs were already Apache 2.0); description
+  updated to include COMEX/COMTRADE.
+- **COMTRADE: ~2.5× double-counting in the Gold values/quantities.** The keyed API
+  returns, per `(reporter, partner, cmd, flow)`, a **fully aggregated** record
+  (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) **plus** breakdown
+  rows by transport mode / customs / 2nd partner — whose value **sums into the
+  aggregate**. Silver kept everything and Gold summed it all together. Fixed by
+  keeping only the aggregated record in `silver_comtrade_flows` (lossless: 546,812
+  groups = 546,812 rows; Bronze untouched, no re-ingest). Total COMTRADE
+  US$1,779bn → US$692bn; the COMEX↔COMTRADE mirror now matches.
+- **COMTRADE: wrong physical unit families.** The `comtrade_unit` seed used a
+  legacy qtyUnitCode table that does not match the API's codes. Validated against
+  the HS6 `standardUnitAbbr`: **5=number of items (count)**, **8=kg
+  (mass)**, **12=m³ (volume)** — previously ~24% of rows fell into the wrong family.
+- **BCB FX series corrected (affected PEVS and COMEX).** The configured series
+  were wrong: `3694` (USD) is **annual** — insufficient for COMEX's monthly
+  deflation (it only filled Januaries); `4393` (EUR) returned ~127 and `20542`
+  (CNY) ~4 million — **these are not BRL/unit quotes**. Swapped for PTAX **daily
+  sell**: `1`=USD, `21619`=EUR (Gold averages by year/month). **CNY was removed** —
+  the BCB does not publish BRL/CNY (nor USD/CNY) in the SGS or PTAX; a yuan column
+  would require an external source (follow-up). This fixes
+  `val_yearfx_{brl,usd,eur}` and `val_real_*_{brl,usd,eur}` in
+  `gold_pevs_production` **and** `gold_comex_flows`.
+- **`bcb/client`: SGS HTTP 404 treated as a window with no data**, not an error —
+  series have different start dates (USD 1984, EUR 1999), so the `--full`
+  year-chunking queries windows that predate some series. Previously, a `--full`
+  from `BCB_START_YEAR` broke with a 404 on the first empty window.
 
 ### Added
-- **Dimensões de referência do COMEX — rótulos legíveis na `gold_comex_flows`.**
-  Três seeds das tabelas auxiliares do MDIC (`bd/tabelas/`): `comex_unit`
-  (`NCM_UNIDADE.csv` → unidade estatística, ex. `16`=METRO CUBICO, `10`=
-  QUILOGRAMA LIQUIDO), `comex_country` (`PAIS.csv` → ISO-3 + nome PT) e
-  `comex_ncm` (`NCM.csv`, filtrado p/ castanha `0801*` + cap. 44 → descrição PT).
-  A `gold_comex_flows` ganha colunas legíveis via `ref()`: `ncm_description`,
-  `country_name`/`country_iso_a3`, `stat_unit`/`stat_unit_symbol` — 100% de
-  cobertura dos dados atuais. Esclarece a semântica de quantidade: `net_weight_kg`
-  é sempre kg (comparável entre produtos); `statistical_quantity` é na unidade do
-  NCM (m³ p/ a maioria da madeira, kg p/ castanha) — não somar entre unidades
-  diferentes.
+- **COMEX reference dimensions — readable labels on `gold_comex_flows`.**
+  Three seeds from the MDIC auxiliary tables (`bd/tabelas/`): `comex_unit`
+  (`NCM_UNIDADE.csv` → statistical unit, e.g. `16`=METRO CUBICO, `10`=
+  QUILOGRAMA LIQUIDO), `comex_country` (`PAIS.csv` → ISO-3 + PT name) and
+  `comex_ncm` (`NCM.csv`, filtered for nuts `0801*` + ch. 44 → PT description).
+  `gold_comex_flows` gains readable columns via `ref()`: `ncm_description`,
+  `country_name`/`country_iso_a3`, `stat_unit`/`stat_unit_symbol` — 100%
+  coverage of the current data. Clarifies the quantity semantics: `net_weight_kg`
+  is always kg (comparable across products); `statistical_quantity` is in the NCM
+  unit (m³ for most wood, kg for nuts) — do not sum across different units.
 
 ### Changed
-- **Ingestão two-phase com zona `raw/` — padronizada em TODAS as fontes.**
-  Toda fonte agora segue **extract→raw→bronze**: a Fase 1 arquiva o extrato
-  *verbatim* no GCS (`raw/<source>/<dataset>/<basename>.parquet`, com metadata de
-  proveniência — URL, ETag/Last-Modified, `fetched_at`, `rows`); a Fase 2 lê o
-  raw de volta, filtra/molda e carrega o Bronze. Re-filtrar, mudar produtos/regras
-  ou re-derivar o Bronze **não re-bate na fonte** — só uma revisão real do dado
-  dispara re-fetch. Novo primitivo `core/raw.py` (`land_raw`/`land_raw_file`/
-  `read_raw`/`download_raw`/`list_raw`/`raw_provenance`) + `GCS_RAW_PREFIX`.
-  - **COMEX:** Fase 1 baixa o CSV→Parquet completo (todos NCM) e re-baixa **só
-    quando o ETag mudou** (pega revisões de qualquer ano, não só o corrente);
-    Fase 2 filtra o raw via `iter_batches`. `--from-raw` re-filtra sem internet.
-  - **IBGE:** Fase 1 arquiva a resposta SIDRA; Fase 2 carrega o Bronze.
-  - **BCB:** cada janela delta vira um objeto raw carimbado por run (trilha
-    append-only); `--from-raw` reconstrói o Bronze relendo a trilha.
-  - Todo `embrapa ingest <source>` ganha `--from-raw`. O primitivo morto
-    `core/bronze.land_and_load` foi removido (todas as fontes usam o novo fluxo).
-    Plano: `PLANS/raw_zone_architecture.md`. dbt/Silver/Gold inalterados.
+- **Two-phase ingestion with a `raw/` zone — standardized across ALL sources.**
+  Every source now follows **extract→raw→bronze**: Phase 1 archives the extract
+  *verbatim* in GCS (`raw/<source>/<dataset>/<basename>.parquet`, with provenance
+  metadata — URL, ETag/Last-Modified, `fetched_at`, `rows`); Phase 2 reads the
+  raw back, filters/shapes it and loads Bronze. Re-filtering, changing
+  products/rules or re-deriving Bronze **does not hit the source again** — only a
+  real data revision triggers a re-fetch. New primitive `core/raw.py`
+  (`land_raw`/`land_raw_file`/`read_raw`/`download_raw`/`list_raw`/`raw_provenance`)
+  + `GCS_RAW_PREFIX`.
+  - **COMEX:** Phase 1 downloads the full CSV→Parquet (all NCMs) and re-downloads
+    **only when the ETag changed** (catching revisions to any year, not just the
+    current one); Phase 2 filters the raw via `iter_batches`. `--from-raw`
+    re-filters with no internet.
+  - **IBGE:** Phase 1 archives the SIDRA response; Phase 2 loads Bronze.
+  - **BCB:** each delta window becomes a raw object stamped per run (an
+    append-only trail); `--from-raw` rebuilds Bronze by re-reading the trail.
+  - Every `embrapa ingest <source>` gains `--from-raw`. The dead primitive
+    `core/bronze.land_and_load` was removed (all sources use the new flow).
+    Plan: `PLANS/raw_zone_architecture.md`. dbt/Silver/Gold unchanged.
 
 ### Added
-- **Fonte COMEX (MDIC Comex Stat) — pipeline Bronze→Silver→Gold completo.**
-  Nova fonte de *comércio exterior* (a primeira da forma `flows` —
-  origem→destino), cruzando produção × comércio × câmbio × inflação do mesmo
-  produto. Escopo: export **e** import, castanha-do-brasil (NCM `08012100`/
-  `08012200`) + capítulo 44 inteiro (madeira/carvão), no grão mês×NCM×país×UF.
-  - **Bronze (`src/embrapa_commodities/comex/`):** `client.py` baixa os CSVs
-    anuais em massa do Comex Stat (`EXP_<ano>.csv`/`IMP_<ano>.csv`; `;`/latin-1)
-    — *stream para disco* (arquivos de 100+ MB), parse pandas em chunks, filtro
-    coluna-preciso em `CO_NCM`/`CO_NCM[:2]`. EXP (11 col) e IMP (13 col: +
-    `VL_FRETE`/`VL_SEGURO`) unificados em schema-union (export grava NULL nas
-    duas). **NÃO** usa a API JSON (retornava o total Brasil agregado em filtro
-    malformado, HTTP 200). `pipeline.py` tem `run()` próprio com delta por
-    `(fluxo, ano)` (re-busca o ano corrente, pula anos já em Bronze). Comando
-    `embrapa ingest comex` multi-chunk (eventos por `(fluxo, ano)` no monitor);
-    registrado em `cli.INGESTS`, `doctor.SOURCE_CHECKS` (`_check_comex`) e
-    `doctor.BRONZE_TARGETS`. Config `COMEX_*` em `config.py`/`.env.example`.
-  - **TLS:** o host `balanca.economia.gov.br` omite a CA intermediária do
-    handshake (`requests`/certifi falha; curl passa via AIA). A intermediária
-    pública (Sectigo R36) está vendorizada em `comex/_ca.py` e anexada ao bundle
-    do certifi em runtime — **sem desabilitar verificação**.
-  - **Silver/Gold (dbt):** `silver_comex_flows` (dedup no grão-fonte completo);
-    `gold_comex_flows` (UMA tabela comprehensiva `flows`, grão
-    flow×mês×NCM×país×UF, agregação por `GROUP BY` em query). Aplica as 4
-    convenções monetárias sobre `VL_FOB` (US$): `val_yearfx_*` no FX do mês e
-    `val_real_{ipca,igpm,igpdi}_*` (US$→BRL no FX do mês → índice BCB → hoje).
-  - Cobertura: `tests/test_comex_client.py` + `tests/test_comex_pipeline.py`;
-    testes de schema em `_silver.yml`/`_gold.yml`. Plano em
+- **COMEX source (MDIC Comex Stat) — complete Bronze→Silver→Gold pipeline.**
+  A new *foreign trade* source (the first of the `flows` form —
+  origin→destination), cross-referencing production × trade × FX × inflation of the
+  same product. Scope: export **and** import, Brazil nut (NCM `08012100`/
+  `08012200`) + the entire chapter 44 (wood/charcoal), at the month×NCM×country×UF
+  grain.
+  - **Bronze (`src/embrapa_commodities/comex/`):** `client.py` bulk-downloads the
+    annual CSVs from Comex Stat (`EXP_<ano>.csv`/`IMP_<ano>.csv`; `;`/latin-1)
+    — *stream to disk* (100+ MB files), pandas parse in chunks, column-precise
+    filter on `CO_NCM`/`CO_NCM[:2]`. EXP (11 cols) and IMP (13 cols: +
+    `VL_FRETE`/`VL_SEGURO`) unified into a schema-union (export writes NULL in the
+    two). It does **NOT** use the JSON API (which returned the aggregated Brazil
+    total under a malformed filter, HTTP 200). `pipeline.py` has its own `run()`
+    with delta by `(flow, year)` (re-fetches the current year, skips years already
+    in Bronze). The command `embrapa ingest comex` is multi-chunk (events per
+    `(flow, year)` in the monitor); registered in `cli.INGESTS`,
+    `doctor.SOURCE_CHECKS` (`_check_comex`) and `doctor.BRONZE_TARGETS`. Config
+    `COMEX_*` in `config.py`/`.env.example`.
+  - **TLS:** the host `balanca.economia.gov.br` omits the intermediate CA from the
+    handshake (`requests`/certifi fails; curl passes via AIA). The public
+    intermediate (Sectigo R36) is vendored in `comex/_ca.py` and appended to the
+    certifi bundle at runtime — **without disabling verification**.
+  - **Silver/Gold (dbt):** `silver_comex_flows` (dedup at the full source grain);
+    `gold_comex_flows` (ONE comprehensive `flows` table, grain
+    flow×month×NCM×country×UF, aggregation via `GROUP BY` in queries). Applies the
+    4 monetary conventions over `VL_FOB` (US$): `val_yearfx_*` at the month FX and
+    `val_real_{ipca,igpm,igpdi}_*` (US$→BRL at the month FX → BCB index → today).
+  - Coverage: `tests/test_comex_client.py` + `tests/test_comex_pipeline.py`;
+    schema tests in `_silver.yml`/`_gold.yml`. Plan in
     `PLANS/comex_flows.md`.
-- **Primitivo de aterrissagem Bronze compartilhado (D4).** A cauda idêntica
-  dos pipelines Bronze (`ensure_bucket` → upload Parquet → `load_dataframe` com
-  partition/cluster keys) foi extraída para um primitivo source-agnostic,
-  análogo ao D1 (`core/http.py`): cada `run()` mantém só o que é específico da
-  fonte. `ensure_dataset` fica de fora porque o BCB precisa do dataset *antes*
-  do extract (lookup delta). **Nota:** este passo evoluiu, ainda dentro deste
-  ciclo, para a ingestão two-phase com zona `raw/` — o primitivo final é
-  `core/raw.py` (ver "Changed" acima), não um `core/bronze.land_and_load`
-  intermediário (introduzido e removido neste mesmo ciclo). Comportamento
-  observável preservado; cobertura em `tests/test_core_raw.py`.
-- **`core/http.py` — primitivos HTTP compartilhados (D1).** Nova fábrica
+- **Shared Bronze landing primitive (D4).** The identical tail of the Bronze
+  pipelines (`ensure_bucket` → Parquet upload → `load_dataframe` with
+  partition/cluster keys) was extracted into a source-agnostic primitive,
+  analogous to D1 (`core/http.py`): each `run()` keeps only what is specific to the
+  source. `ensure_dataset` is left out because the BCB needs the dataset *before*
+  the extract (delta lookup). **Note:** this step evolved, still within this
+  cycle, into the two-phase ingestion with a `raw/` zone — the final primitive is
+  `core/raw.py` (see "Changed" above), not an intermediate
+  `core/bronze.land_and_load` (introduced and removed within this same cycle).
+  Observable behavior preserved; coverage in `tests/test_core_raw.py`.
+- **`core/http.py` — shared HTTP primitives (D1).** A new factory
   `http_retry_policy(transient_exc, deadline_s, max_attempts=5, before_sleep=None)`
-  e helper `get_drained(url, *, total_deadline_s, transient_exc, context, ...)`
-  encapsulam a política de retry tenacity e o drain manual do body sob deadline
-  wall-clock (defesa slow-byte) que antes estavam duplicados nos clients IBGE e
-  BCB. Constantes compartilhadas: `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS`,
-  `RETRYABLE_STATUS_CODES`. Comportamento observável preservado byte-a-byte —
-  deadlines source-specific (75s/180s no IBGE, 60s/120s no BCB) permanecem nos
-  clients; lógica defensiva única (period-halving do IBGE, year-chunking do
-  BCB) também não migrou. Cobertura: 11 testes novos em
-  `tests/test_core_http.py` (inclui o slow-byte deadline test migrado de
-  `test_ibge_client.py`) + 2 "delegate" tests assertando os kwargs passados ao
-  `get_drained` em cada client.
-- **Observabilidade de retry no client BCB (D1.1).** O `_fetch_window` agora
-  cabeia um hook `before_sleep=_emit_retry` na política tenacity, simétrico ao
-  IBGE — os retries de séries SGS passam a emitir um evento `retry`
-  (`series`, `window`, `attempt`, `reason`) que aparece no `embrapa monitor`.
-  Diferente do IBGE (que usa contextvar porque a UF vive um frame acima), o
-  contexto `(code, window)` vem direto de `retry_state.args`, já que a própria
-  `_fetch_window` é a função retried. Cobertura: teste da lógica do hook +
-  guard de regressão da fiação (`before_sleep`).
+  and helper `get_drained(url, *, total_deadline_s, transient_exc, context, ...)`
+  encapsulate the tenacity retry policy and the manual body drain under a
+  wall-clock deadline (slow-byte defense) that were previously duplicated in the
+  IBGE and BCB clients. Shared constants: `DEFAULT_TIMEOUT`, `DEFAULT_HEADERS`,
+  `RETRYABLE_STATUS_CODES`. Observable behavior preserved byte for byte —
+  source-specific deadlines (75s/180s in IBGE, 60s/120s in BCB) remain in the
+  clients; unique defensive logic (IBGE period-halving, BCB year-chunking) also
+  did not migrate. Coverage: 11 new tests in
+  `tests/test_core_http.py` (including the slow-byte deadline test migrated from
+  `test_ibge_client.py`) + 2 "delegate" tests asserting the kwargs passed to
+  `get_drained` in each client.
+- **Retry observability in the BCB client (D1.1).** `_fetch_window` now wires a
+  `before_sleep=_emit_retry` hook into the tenacity policy, symmetric to IBGE —
+  SGS series retries now emit a `retry` event
+  (`series`, `window`, `attempt`, `reason`) that shows up in `embrapa monitor`.
+  Unlike IBGE (which uses a contextvar because the UF lives one frame up), the
+  `(code, window)` context comes directly from `retry_state.args`, since
+  `_fetch_window` is itself the retried function. Coverage: a test of the hook's
+  logic + a regression guard on the wiring (`before_sleep`).
 
 ### Changed
-- **Pipelines BCB inflation/currency colapsados em `bcb/series.py`.** Os dois
-  pipelines eram ~90% idênticos (`_extract`, `_effective_start_year`, `run`);
-  agora compartilham um pipeline genérico de série SGS parametrizado por um
-  `BcbSeriesSpec` (`kind`, `label_column`, `series_map`, `table`, `schema`, e a
-  única linha genuinamente source-specific — `overlap_start_year(last) -> int`).
-  `bcb/inflation.py` e `bcb/currency.py` viraram shims finos definindo seu spec
-  e delegando. Entry points públicos (`inflation.run`/`currency.run`),
-  constantes (`DELTA_OVERLAP_MONTHS`, `BRONZE_SCHEMA`) e o comportamento
-  observável preservados. **Reverte deliberadamente** a antiga nota de
-  `docs/adding_a_data_source.md` ("não extraia `_effective_start_year`"):
-  vista de perto, a diferença era uma linha, hoje um knob `Callable`. O doc foi
-  atualizado para orientar séries SGS a usar o spec, e fontes de shape
-  diferente a escreverem o próprio `run()`. Testes consolidados: a duplicação
-  dos dois arquivos de teste virou um `tests/test_bcb_series.py` parametrizado
-  sobre os dois specs + dois arquivos por-variante finos (contrato do spec).
-- **Gold renomeada `gold_commodity_matrix` → `gold_pevs_production`**, adotando a
-  convenção `gold_<fonte>_<forma>` (`production` para medição de saída como PEVS;
-  `flows` para fluxo origem→destino dos bancos de comércio futuros). Reforça a
-  regra de **uma tabela Gold comprehensiva por fonte** (agregação ad-hoc em
-  tempo de query; marts pré-agregados ficam na camada `serving/` — ver o item
-  do Pushdown Computing acima).
-  **Ação externa necessária:** reapontar a fonte do Looker Studio para
-  `gold.gold_pevs_production` e dropar a tabela órfã `gold.gold_commodity_matrix`
-  no prod após o próximo `make dbt-build-prod` (ver `docs/migration_history.md`).
+- **BCB inflation/currency pipelines collapsed into `bcb/series.py`.** The two
+  pipelines were ~90% identical (`_extract`, `_effective_start_year`, `run`);
+  they now share a generic SGS series pipeline parameterized by a
+  `BcbSeriesSpec` (`kind`, `label_column`, `series_map`, `table`, `schema`, and the
+  only genuinely source-specific line — `overlap_start_year(last) -> int`).
+  `bcb/inflation.py` and `bcb/currency.py` became thin shims defining their spec
+  and delegating. Public entry points (`inflation.run`/`currency.run`),
+  constants (`DELTA_OVERLAP_MONTHS`, `BRONZE_SCHEMA`) and observable behavior
+  preserved. **Deliberately reverts** the old note in
+  `docs/adding_a_data_source.md` ("do not extract `_effective_start_year`"):
+  on closer inspection, the difference was one line, today a `Callable` knob. The
+  doc was updated to steer SGS series toward the spec, and differently-shaped
+  sources toward writing their own `run()`. Tests consolidated: the duplication
+  of the two test files became a single `tests/test_bcb_series.py` parameterized
+  over the two specs + two thin per-variant files (the spec contract).
+- **Gold renamed `gold_commodity_matrix` → `gold_pevs_production`**, adopting the
+  `gold_<source>_<form>` convention (`production` for output measurement like PEVS;
+  `flows` for origin→destination flow in future trade databases). Reinforces the
+  rule of **one comprehensive Gold table per source** (ad-hoc aggregation at
+  query time; pre-aggregated marts live in the `serving/` layer — see the
+  Pushdown Computing item above).
+  **External action required:** repoint the Looker Studio source to
+  `gold.gold_pevs_production` and drop the orphaned `gold.gold_commodity_matrix`
+  table in prod after the next `make dbt-build-prod` (see `docs/migration_history.md`).
 
 ### Fixed
-<!-- Correções de bugs -->
+<!-- Bug fixes -->
 
 ### Removed
-- **Camada de UI Dash + Plotly removida (2026-05-29).** O frontend está sendo
-  reconstruído com o Claude Design System em fluxo separado. Foram apagados:
-  o pacote `src/embrapa_commodities/dashboard/`, os testes
-  `tests/test_dashboard_*`, os scripts `scripts/dashboard_*` /
-  `scripts/check_dashboard_size.py` / `scripts/dashboard-*.ps1`, o
-  `Dockerfile`, o workflow `.github/workflows/dashboard-smoke.yml`, o
-  `docs/auth.md` e os skills do Claude Code `run-dashboard`,
-  `dash-page-scaffold`, `new-chart-component`, `deploy-cloud-run`. Os extras
-  `dashboard` e `visual` em `pyproject.toml`, o hook `check-dashboard-size`
-  em `.pre-commit-config.yaml`, o `--extra dashboard` em `ci.yml` e os
-  alvos `dashboard-*` / `test-smoke` no `Makefile` também foram retirados.
-  Backend (pipeline Medallion + dbt + CLI `embrapa`) permanece 100%
-  funcional. O próximo handoff fará a junção do novo design system com
-  este backend.
+- **Dash + Plotly UI layer removed (2026-05-29).** The frontend is being
+  rebuilt with the Claude Design System in a separate flow. The following were
+  deleted: the `src/embrapa_commodities/dashboard/` package, the
+  `tests/test_dashboard_*` tests, the scripts `scripts/dashboard_*` /
+  `scripts/check_dashboard_size.py` / `scripts/dashboard-*.ps1`, the
+  `Dockerfile`, the workflow `.github/workflows/dashboard-smoke.yml`, the
+  `docs/auth.md` and the Claude Code skills `run-dashboard`,
+  `dash-page-scaffold`, `new-chart-component`, `deploy-cloud-run`. The `dashboard`
+  and `visual` extras in `pyproject.toml`, the `check-dashboard-size` hook
+  in `.pre-commit-config.yaml`, the `--extra dashboard` in `ci.yml` and the
+  `dashboard-*` / `test-smoke` targets in the `Makefile` were also removed.
+  The backend (Medallion pipeline + dbt + `embrapa` CLI) remains 100%
+  functional. The next handoff will join the new design system with
+  this backend.
 
 ---
 
 ## [0.1.0] — 2026-05-26
 
-> Release inicial — pipeline Medallion funcional end-to-end.
+> Initial release — functional end-to-end Medallion pipeline.
 
 ### Added
 
-- **Pipeline de ingestão IBGE PEVS** via API SIDRA com suporte a múltiplos produtos e períodos.
-- **Pipeline de ingestão BCB** (inflação IPCA/IGP-M/IGP-DI + câmbio USD/EUR/CNY) via API SGS.
-- **Delta ingestion** para BCB — apenas dados novos são buscados por padrão.
-- **Ingestão em chunks** (`ibge-batch --chunk-years`) para janelas históricas grandes.
-- **Camada Silver (dbt)**: tipagem, dedup, cadeia IPCA chain index.
-- **Seed `historical_currency_factors`**: absorve reformas monetárias brasileiras (1942–1994).
-- **Camada Gold (dbt)**: tabela `gold_commodity_matrix` com 22 colunas denormalizadas.
-- **Tabelas Gold agregadas**: `gold_commodity_state_year`, `gold_commodity_year_product`.
-- **CLI unificado** com Typer: `embrapa ingest|discover|dbt|doctor|backup-gold`.
-- **Dashboard web** com Dash + Plotly (multi-page), deploy via Cloud Run.
-- **Dockerfile multi-stage** com imagem slim, non-root, Gunicorn.
-- **Service Account Impersonation** (OAuth 2.0) — sem keyfiles distribuídos.
-- **Quatro Service Accounts** com separação de responsabilidades (reader, pipeline, dashboard, AI).
-- **Backup Gold → GCS** (`embrapa backup-gold`, `make dbt-build-prod-with-backup`).
-- **`embrapa doctor`**: diagnóstico de saúde do ambiente.
-- **Separação dev/prod** nos schemas dbt com auto-expiração de tabelas dev (7 dias).
-- **CI/CD**: GitHub Actions com lint (Ruff), test (pytest), dbt parse.
+- **IBGE PEVS ingestion pipeline** via the SIDRA API with support for multiple products and periods.
+- **BCB ingestion pipeline** (IPCA/IGP-M/IGP-DI inflation + USD/EUR/CNY FX) via the SGS API.
+- **Delta ingestion** for the BCB — only new data is fetched by default.
+- **Chunked ingestion** (`ibge-batch --chunk-years`) for large historical windows.
+- **Silver layer (dbt)**: typing, dedup, IPCA chain index.
+- **Seed `historical_currency_factors`**: absorbs Brazilian currency reforms (1942–1994).
+- **Gold layer (dbt)**: `gold_commodity_matrix` table with 22 denormalized columns.
+- **Aggregated Gold tables**: `gold_commodity_state_year`, `gold_commodity_year_product`.
+- **Unified CLI** with Typer: `embrapa ingest|discover|dbt|doctor|backup-gold`.
+- **Web dashboard** with Dash + Plotly (multi-page), deployed via Cloud Run.
+- **Multi-stage Dockerfile** with a slim, non-root image, Gunicorn.
+- **Service Account Impersonation** (OAuth 2.0) — no distributed keyfiles.
+- **Four Service Accounts** with separation of responsibilities (reader, pipeline, dashboard, AI).
+- **Gold backup → GCS** (`embrapa backup-gold`, `make dbt-build-prod-with-backup`).
+- **`embrapa doctor`**: environment health diagnostics.
+- **dev/prod separation** in the dbt schemas with auto-expiration of dev tables (7 days).
+- **CI/CD**: GitHub Actions with lint (Ruff), test (pytest), dbt parse.
 - **Pre-commit hooks**: gitleaks, ruff, file-hygiene, dashboard size ceiling (500 LOC).
-- **Smoke test** do dashboard com BQ real.
-- **Visual check** com Playwright (headless screenshots → `artifacts/`).
-- **Setup automatizado** cross-platform: `setup.sh`, `setup.bat`, `setup.ps1`.
-- **Documentação completa**: setup, IAM, auth, cost safety, ownership transfer, testing.
+- **Smoke test** of the dashboard with real BQ.
+- **Visual check** with Playwright (headless screenshots → `artifacts/`).
+- **Cross-platform automated setup**: `setup.sh`, `setup.bat`, `setup.ps1`.
+- **Complete documentation**: setup, IAM, auth, cost safety, ownership transfer, testing.
 
 ---
 
-<!-- Template para novas versões:
+<!-- Template for new versions:
 
 ## [X.Y.Z] — YYYY-MM-DD
 

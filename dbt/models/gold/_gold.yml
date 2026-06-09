@@ -4,7 +4,7 @@ models:
   - name: gold_pevs_production
     description: |
       Gold table for IBGE PEVS — the single, comprehensive `production` table
-      for this source (naming convention: gold_<fonte>_<forma>; `production` =
+      for this source (naming convention: gold_<source>_<form>; `production` =
       one row per produced/extracted measurement, no origin→destination).
       Wide, partitioned, clustered fact table. One row per
       (reference_year, state_acronym, city_code, product_code) — city_code is the
@@ -83,7 +83,7 @@ models:
   - name: gold_comex_flows
     description: |
       Gold table for MDIC Comex Stat — the single comprehensive `flows` table
-      for this source (naming: gold_<fonte>_<forma>; `flows` = origin→destination
+      for this source (naming: gold_<source>_<form>; `flows` = origin→destination
       trade). One row per (flow, reference_year, reference_month, ncm_code,
       country_code, state_acronym); the Silver source grain (also split by
       transport route / customs office / statistical unit) is summed up here.
@@ -185,7 +185,7 @@ models:
   - name: gold_comtrade_flows
     description: |
       Gold table for UN Comtrade — the single comprehensive `flows` table for
-      this source (naming: gold_<fonte>_<forma>; `flows` = origin→destination
+      this source (naming: gold_<source>_<form>; `flows` = origin→destination
       trade). The global complement to gold_comex_flows. One row per (flow,
       reference_year, reporter_code, partner_code, cmd_code); the Silver source
       grain (also split by partner2 / customs / mode-of-supply / mode-of-transport
@@ -278,7 +278,7 @@ models:
       expanded from the commodity_crosswalk seed's prefixes against the codes that
       actually appear in the Gold fact tables. A consumer joins each fact's product
       code on (source, code) to group the SAME commodity across PEVS / COMEX /
-      COMTRADE. Codes matching no commodity are absent ("não vinculado").
+      COMTRADE. Codes matching no commodity are absent ("unlinked").
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

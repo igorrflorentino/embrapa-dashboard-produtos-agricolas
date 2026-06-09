@@ -34,17 +34,17 @@ EXTRACT_TIMEOUT_S: float = 1800.0
 
 
 def _gold_tables(settings: Settings, bq_client: bigquery.Client) -> list[str]:
-    """Lista as tabelas Gold a serem snapshotadas, derivada por introspecção do dataset.
+    """List the Gold tables to snapshot, derived by introspecting the dataset.
 
-    Substitui a antiga lista hardcoded — ela silenciou um bug real quando o
-    commit a078a24 removeu 3 dos 4 modelos Gold do dbt sem ninguém atualizar
-    o backup. Agora a verdade vem do BigQuery em tempo de execução.
+    Replaces the old hardcoded list — it silenced a real bug when
+    commit a078a24 removed 3 of the 4 Gold dbt models without anyone updating
+    the backup. The truth now comes from BigQuery at runtime.
 
-    Filtros:
-    - ``settings.backup_gold_prefix`` (default ``"gold_"``) exclui tabelas
-      ad-hoc / temp que o operador possa ter criado para exploração.
-    - ``table_type == "TABLE"`` exclui views (não há views Gold hoje, mas a
-      guarda evita surpresa quando alguém adicionar uma).
+    Filters:
+    - ``settings.backup_gold_prefix`` (default ``"gold_"``) excludes ad-hoc /
+      temp tables the operator may have created for exploration.
+    - ``table_type == "TABLE"`` excludes views (there are no Gold views today, but
+      the guard avoids a surprise when someone adds one).
     """
     dataset_ref = f"{settings.gcp_project_id}.{settings.bq_gold_dataset}"
     prefix = settings.backup_gold_prefix

@@ -1,70 +1,70 @@
-# Política de Segurança
+# Security Policy
 
-## Versões Suportadas
+## Supported Versions
 
-| Versão | Suporte |
+| Version | Support |
 |---|---|
-| 0.1.x | ✅ Suporte ativo |
+| 0.1.x | ✅ Actively supported |
 
 ---
 
-## Reportando Vulnerabilidades
+## Reporting Vulnerabilities
 
-Se você descobrir uma vulnerabilidade de segurança neste projeto, **não abra uma issue pública**.
+If you discover a security vulnerability in this project, **do not open a public issue**.
 
-### Canal privado
+### Private channel
 
-Envie um email para: **igorlopesc@gmail.com**
+Send an email to: **igorlopesc@gmail.com**
 
-<!-- Alternativa: se o repositório tiver GitHub Security Advisories habilitado:
-Use o recurso [Security Advisories](https://github.com/igorrflorentino/embrapa-dashboard-commodities/security/advisories/new) do GitHub para reportar de forma privada.
+<!-- Alternative: if the repository has GitHub Security Advisories enabled:
+Use GitHub's [Security Advisories](https://github.com/igorrflorentino/embrapa-dashboard-commodities/security/advisories/new) feature to report privately.
 -->
 
-### O que incluir no reporte
+### What to include in the report
 
-- Descrição da vulnerabilidade
-- Passos para reproduzir
-- Impacto potencial
-- Versão afetada
-- Sugestão de correção (se houver)
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Affected version
+- Suggested fix (if any)
 
-### Tempo de resposta
+### Response time
 
-| Etapa | Prazo |
+| Stage | Deadline |
 |---|---|
-| Confirmação de recebimento | 48 horas |
-| Avaliação inicial | 7 dias |
-| Correção (se confirmado) | 30 dias |
+| Acknowledgment of receipt | 48 hours |
+| Initial assessment | 7 days |
+| Fix (if confirmed) | 30 days |
 
-Vulnerabilidades críticas que afetam dados em produção serão priorizadas.
-
----
-
-## Práticas de Segurança do Projeto
-
-Resumo das práticas implementadas. Detalhes técnicos completos em [`ARCHITECTURE.md` → Segurança e Autenticação](ARCHITECTURE.md#segurança-e-autenticação) e [`docs/iam_setup.md`](docs/iam_setup.md).
-
-- **Autenticação**: Service Account Impersonation (OAuth 2.0) — nenhum keyfile JSON distribuído. Detalhes em [`docs/auth_architecture.md`](docs/auth_architecture.md).
-- **Proteção de credenciais**: gitleaks no pre-commit, `.gitignore` abrangente, variáveis sensíveis filtradas nos logs.
-- **Infraestrutura**: Cloud Run com IAM obrigatório, 4 Service Accounts com roles mínimas, budget alerts.
-- **Dependências**: lockfile determinístico (`uv.lock`), `--frozen` no CI, separação dev/runtime.
+Critical vulnerabilities affecting production data will be prioritized.
 
 ---
 
-## Escopo
+## Project Security Practices
 
-Esta política cobre:
-- O código-fonte deste repositório
-- As configurações de infraestrutura GCP descritas na documentação
-- Os workflows de CI/CD (GitHub Actions)
+A summary of the implemented practices. Full technical details in [`ARCHITECTURE.md` → Security and Authentication](ARCHITECTURE.md#security-and-authentication) and [`docs/iam_setup.md`](docs/iam_setup.md).
 
-**Fora de escopo:**
-- Vulnerabilidades em dependências upstream (reporte ao projeto upstream)
-- Vulnerabilidades nos serviços GCP em si (reporte ao Google)
-- Configurações específicas de ambientes individuais de desenvolvedores
+- **Authentication**: Service Account Impersonation (OAuth 2.0) — no distributed JSON keyfile. Details in [`docs/auth_architecture.md`](docs/auth_architecture.md).
+- **Credential protection**: gitleaks in pre-commit, a comprehensive `.gitignore`, sensitive variables filtered out of the logs.
+- **Infrastructure**: Cloud Run with mandatory IAM, 4 Service Accounts with minimal roles, budget alerts.
+- **Dependencies**: deterministic lockfile (`uv.lock`), `--frozen` in CI, dev/runtime separation.
 
 ---
 
-## Agradecimentos
+## Scope
 
-Agradecemos a todos que ajudam a manter este projeto seguro. Contribuidores que reportarem vulnerabilidades válidas serão reconhecidos (com permissão) no CHANGELOG.
+This policy covers:
+- The source code in this repository
+- The GCP infrastructure configurations described in the documentation
+- The CI/CD workflows (GitHub Actions)
+
+**Out of scope:**
+- Vulnerabilities in upstream dependencies (report to the upstream project)
+- Vulnerabilities in the GCP services themselves (report to Google)
+- Configurations specific to individual developer environments
+
+---
+
+## Acknowledgments
+
+We thank everyone who helps keep this project secure. Contributors who report valid vulnerabilities will be acknowledged (with permission) in the CHANGELOG.

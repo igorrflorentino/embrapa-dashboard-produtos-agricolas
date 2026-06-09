@@ -26,7 +26,7 @@ The 4 BRL/USD/EUR/CNY columns were renamed because "nominal" was misleading (Sil
 
 ## Gold table rename: `gold_commodity_matrix` → `gold_pevs_production` (2026-05-29)
 
-Adopted the `gold_<fonte>_<forma>` naming convention. The single PEVS Gold table
+Adopted the `gold_<source>_<form>` naming convention. The single PEVS Gold table
 was renamed from `gold_commodity_matrix` to `gold_pevs_production` (`production` =
 output-measurement grain). The dbt model file, `_gold.yml`, and the
 `assert_gold_has_rows` test were updated; `dbt build` recreates the table under

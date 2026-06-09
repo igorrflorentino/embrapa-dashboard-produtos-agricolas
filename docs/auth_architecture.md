@@ -4,7 +4,7 @@ Modern GCP authentication using **Service Account Impersonation** (OAuth) instea
 
 ## Overview
 
-This document describes the **Cadeia de Confiança** (Chain of Trust) security model that eliminates JSON credential files from developer machines while maintaining secure, auditable access to GCP resources.
+This document describes the **Chain of Trust** security model that eliminates JSON credential files from developer machines while maintaining secure, auditable access to GCP resources.
 
 ## The Problem with JSON Keyfiles
 
@@ -91,7 +91,7 @@ OAuth 2.0 with service account impersonation:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Cadeia de Confiança (Chain of Trust)
+## Chain of Trust
 
 The trust relationship flows downward:
 
@@ -254,8 +254,8 @@ Why each flag is load-bearing:
 > ingress lock — both layers are required.
 
 This is the same boundary referenced as "behind IAP" in
-[`ARCHITECTURE.md`](../ARCHITECTURE.md) (§ Segurança e Autenticação and §
-Curadoria dinâmica). The least-privilege IAM for the Service's runtime SA
+[`ARCHITECTURE.md`](../ARCHITECTURE.md) (§ Security and Authentication and §
+Dynamic Curation). The least-privilege IAM for the Service's runtime SA
 (`sa-web-dashboard-prod`) is in [`iam_setup.md`](iam_setup.md) §2.3.
 
 ## Credential Management

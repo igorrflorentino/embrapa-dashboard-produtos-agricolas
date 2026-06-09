@@ -33,8 +33,8 @@ Built for **Embrapa researchers** — the purpose is historical/scientific explo
 ## Code Style
 
 - **Formatter/Linter**: Ruff (line-length=100, target=py312)
-- **Rules**: E, F, I, B, UP, SIM, RUF (ignoring RUF001-003 for pt-BR Unicode)
-- **Docstrings**: Portuguese (technical comments may be in English)
+- **Rules**: E, F, I, B, UP, SIM, RUF (ignoring RUF001-003 for the pt-BR Unicode that remains in UI/i18n data values)
+- **Language**: English everywhere developer-facing — identifiers, docstrings, comments, log/error messages, and technical docs (README, ARCHITECTURE, docs/, PLANS/, …). Portuguese is reserved for end-user/UI-facing text only: i18n data values (e.g. `month_name_pt` → `'Janeiro'`, Brazilian region and state names) and dashboard display strings. Rule of thumb: read by a developer → English; read by the end user → Portuguese.
 - **SQL**: SQLFluff for dbt models
 - **Pre-commit**: gitleaks + ruff + file-hygiene hooks (install with `make precommit-install`)
 

@@ -2,7 +2,7 @@
 
 Comprehensive testing for the development environment setup.
 
-> ⚠️ **Frontend em reconstrução.** Esta guia cobre o backend (ingest + dbt + CLI). Os testes específicos de UI (smoke do Dash, visual check com Playwright) foram removidos em 2026-05-29 junto com a camada Dash. O novo frontend, ao ser entregue pelo handoff do Claude Design System, trará sua própria estratégia de testes.
+> ⚠️ **Frontend under reconstruction.** This guide covers the backend (ingest + dbt + CLI). The UI-specific tests (Dash smoke test, visual check with Playwright) were removed on 2026-05-29 alongside the Dash layer. The new frontend, once delivered by the Claude Design System handoff, will bring its own testing strategy.
 
 ## Quick Test
 

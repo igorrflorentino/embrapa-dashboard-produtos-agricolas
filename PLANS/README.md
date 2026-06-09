@@ -1,40 +1,40 @@
 # PLANS/
 
-Diretório para armazenar planos detalhados de features complexas.
+Directory for storing detailed plans of complex features.
 
-Cada arquivo `.md` neste diretório deve conter o escopo técnico completo de uma feature que demanda mais de uma sessão de trabalho.
+Each `.md` file in this directory should contain the complete technical scope of a feature that takes more than one work session.
 
-## Formato sugerido
+## Suggested format
 
 ```markdown
-# Título da Feature
+# Feature Title
 
-## Contexto
-Por que essa feature é necessária.
+## Context
+Why this feature is needed.
 
-## Escopo
-O que está incluído e excluído.
+## Scope
+What is included and excluded.
 
-## Design Técnico
-Decisões de arquitetura, fluxo de dados, interfaces.
+## Technical Design
+Architecture decisions, data flow, interfaces.
 
-## Tarefas
-- [ ] Tarefa 1
-- [ ] Tarefa 2
+## Tasks
+- [ ] Task 1
+- [ ] Task 2
 
-## Riscos & Mitigações
-Possíveis problemas e como resolvê-los.
+## Risks & Mitigations
+Possible problems and how to resolve them.
 
-## Critérios de Aceite
-Como saber que a feature está pronta.
+## Acceptance Criteria
+How to know the feature is done.
 ```
 
-## Planos existentes
+## Existing plans
 
-| Arquivo | Feature | Status |
+| File | Feature | Status |
 |---|---|---|
-| `raw_zone_architecture.md` | Zona raw two-phase (extract→raw→bronze) | Implementado |
-| `comex_flows.md` | Fonte COMEX (bulk CSV MDIC) → `gold_comex_flows` | Implementado |
-| `comtrade_flows.md` | Fonte UN Comtrade (API keyed) → `gold_comtrade_flows` | Implementado |
+| `raw_zone_architecture.md` | Two-phase raw zone (extract→raw→bronze) | Implemented |
+| `comex_flows.md` | COMEX source (bulk MDIC CSV) → `gold_comex_flows` | Implemented |
+| `comtrade_flows.md` | UN Comtrade source (keyed API) → `gold_comtrade_flows` | Implemented |
 
-> Crie novos planos com nomes descritivos: `scheduler-pipeline.md`, `api-rest-publica.md`, `novas-fontes-conab.md`, etc.
+> Create new plans with descriptive names: `scheduler-pipeline.md`, `api-rest-publica.md`, `novas-fontes-conab.md`, etc.

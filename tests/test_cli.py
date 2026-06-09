@@ -509,7 +509,7 @@ def test_ingest_all_continues_after_a_source_fails(
     assert ran == ["ibge", "inflation", "currency", "comex"]
     assert result.exit_code == 1
     assert "1 source(s) failed" in result.output
-    assert "BCB inflação" in result.output  # the failed source's label
+    assert "BCB inflation" in result.output  # the failed source's label
 
 
 def test_ingest_all_aborts_cleanly_listing_partial_chunk_failure(

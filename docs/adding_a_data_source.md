@@ -1,51 +1,51 @@
-# Adicionando uma nova fonte de dados
+# Adding a new data source
 
-Guia passo-a-passo para integrar uma fonte nova ao pipeline (Bronze → Silver → Gold) sem precisar fazer engenharia reversa dos padrões existentes.
+Step-by-step guide for integrating a new source into the pipeline (Bronze → Silver → Gold) without having to reverse-engineer the existing patterns.
 
-**Quando usar:** ao adicionar MDIC COMEX, UN COMTRADE, SEFAZ NFe, ou qualquer outra fonte futura. O projeto já está preparado — as fricções estruturais foram resolvidas no PR de prep que introduziu o pacote [`core/`](../src/embrapa_commodities/core/), o registry `cli.INGESTS`, o registry `doctor.SOURCE_CHECKS`, e a introspecção do `backup.py`.
+**When to use:** when adding MDIC COMEX, UN COMTRADE, SEFAZ NFe, or any other future source. The project is already prepared — the structural frictions were resolved in the prep PR that introduced the [`core/`](../src/embrapa_commodities/core/) package, the `cli.INGESTS` registry, the `doctor.SOURCE_CHECKS` registry, and the introspection in `backup.py`.
 
-**Premissa arquitetural (importante):** **Gold é por fonte — UMA tabela comprehensiva por fonte**, nomeada `gold_<fonte>_<forma>`. O `<forma>` é o grão semântico: `production` (medição de saída produtiva, sem origem→destino; só o PEVS → `gold_pevs_production`) ou `flows` (fluxo origem→destino; bancos de comércio → `gold_comex_flows`, `gold_comtrade_flows`, `gold_nfe_flows`). Agregações ad-hoc saem do Gold em tempo de query via `GROUP BY`; marts pré-agregados (para o Pushdown Computing do dashboard) ficam na camada `serving/`, derivando do Gold — não crie siblings pré-agregadas no dataset Gold. E não tente forçar COMEX (mensal × país × HS code) ou NFe (evento × UF) dentro de `gold_pevs_production` — os grãos são incompatíveis. As Silver de deflação e câmbio (`silver_bcb_inflation`, `silver_bcb_currency`) ficam compartilhadas via `ref()`.
+**Architectural premise (important):** **Gold is per-source — ONE comprehensive table per source**, named `gold_<source>_<form>`. The `<form>` is the semantic grain: `production` (output measurement, no origin→destination; only PEVS → `gold_pevs_production`) or `flows` (origin→destination flow; trade databases → `gold_comex_flows`, `gold_comtrade_flows`, `gold_nfe_flows`). Ad-hoc aggregations come out of Gold at query time via `GROUP BY`; pre-aggregated marts (for the dashboard's Pushdown Computing) live in the `serving/` layer, deriving from Gold — do not create pre-aggregated siblings in the Gold dataset. And do not try to force COMEX (monthly × country × HS code) or NFe (event × UF) into `gold_pevs_production` — the grains are incompatible. The deflation and FX Silver models (`silver_bcb_inflation`, `silver_bcb_currency`) are shared via `ref()`.
 
 ---
 
-## Checklist (11 passos)
+## Checklist (11 steps)
 
-### 1. Cliente HTTP
+### 1. HTTP client
 
-Local: `src/embrapa_commodities/<fonte>/client.py`
+Location: `src/embrapa_commodities/<source>/client.py`
 
-Padrão mínimo:
+Minimal pattern:
 
 ```python
 from embrapa_commodities.core import SourceTransientError
 
 
-class <Fonte>RequestError(Exception):
-    """Non-200 response from the <Fonte> API (base class)."""
+class <Source>RequestError(Exception):
+    """Non-200 response from the <Source> API (base class)."""
 
 
-class <Fonte>TransientError(<Fonte>RequestError, SourceTransientError):
+class <Source>TransientError(<Source>RequestError, SourceTransientError):
     """Retryable error (5xx, 408, 429, …)."""
 ```
 
-A mixin com `SourceTransientError` permite que o decorator compartilhado em [`core/http.py`](../src/embrapa_commodities/core/http.py) (`http_retry_policy`) pegue todas as transientes sem listar cada classe nominalmente.
+The mixin with `SourceTransientError` lets the shared decorator in [`core/http.py`](../src/embrapa_commodities/core/http.py) (`http_retry_policy`) catch all transients without listing each class by name.
 
-**Retry padrão + drain slow-byte** (5 tentativas, exponencial 2-30s, timeout `(10, 30)`, `Connection: close`, defesa contra slow-byte via `iter_content` sob deadline wall-clock): use os primitivos compartilhados de `core/http.py`:
+**Default retry + slow-byte drain** (5 attempts, exponential 2-30s, timeout `(10, 30)`, `Connection: close`, slow-byte defense via `iter_content` under a wall-clock deadline): use the shared primitives from `core/http.py`:
 
 ```python
 from embrapa_commodities.core import http as core_http
 
 @core_http.http_retry_policy(
-    transient_exc=<Fonte>TransientError,
-    deadline_s=PER_REQUEST_DEADLINE_S,   # source-specific (180s no IBGE, 120s no BCB)
-    before_sleep=_emit_retry,            # opcional — para observabilidade (ver IBGE)
+    transient_exc=<Source>TransientError,
+    deadline_s=PER_REQUEST_DEADLINE_S,   # source-specific (180s for IBGE, 120s for BCB)
+    before_sleep=_emit_retry,            # optional — for observability (see IBGE)
 )
 def _http_get(url: str) -> requests.Response:
     response = core_http.get_drained(
         url,
         total_deadline_s=REQUEST_TOTAL_DEADLINE_S,  # source-specific (75s IBGE, 60s BCB)
-        transient_exc=<Fonte>TransientError,
-        context=...,                                 # string para a mensagem de erro
+        transient_exc=<Source>TransientError,
+        context=...,                                 # string for the error message
     )
     try:
         # status-code handling source-specific
@@ -55,126 +55,126 @@ def _http_get(url: str) -> requests.Response:
         raise
 ```
 
-`http_retry_policy` aceita `transient_exc`, `deadline_s`, `max_attempts=5` e `before_sleep=None`. `get_drained` retorna a `Response` já com body em `_content` — preserva `.json()` / `.text`. Veja [`ibge/client.py:_http_get`](../src/embrapa_commodities/ibge/client.py) e [`bcb/client.py:_fetch_window`](../src/embrapa_commodities/bcb/client.py) para os dois call-sites de referência. Constantes de deadline ficam no client (são source-specific).
+`http_retry_policy` accepts `transient_exc`, `deadline_s`, `max_attempts=5`, and `before_sleep=None`. `get_drained` returns the `Response` with its body already in `_content` — it preserves `.json()` / `.text`. See [`ibge/client.py:_http_get`](../src/embrapa_commodities/ibge/client.py) and [`bcb/client.py:_fetch_window`](../src/embrapa_commodities/bcb/client.py) for the two reference call-sites. Deadline constants live in the client (they are source-specific).
 
-**Lógica que NÃO deve ir para `core/`** (caso a API apresente): period-halving recursivo (como `SidraLimitExceeded` no IBGE), chunking por ano (como o `MAX_YEARS_PER_REQUEST` do BCB), paralelismo por entidade — código hard-won que merece ficar no client da fonte.
+**Logic that should NOT go into `core/`** (in case the API has it): recursive period-halving (like `SidraLimitExceeded` in IBGE), chunking by year (like the BCB's `MAX_YEARS_PER_REQUEST`), per-entity parallelism — hard-won code that deserves to stay in the source's client.
 
 ### 2. Pipeline (two-phase: extract→raw→bronze)
 
-Local: `src/embrapa_commodities/<fonte>/pipeline.py`
+Location: `src/embrapa_commodities/<source>/pipeline.py`
 
-**Modelo two-phase (obrigatório, todas as fontes).** O pipeline tem duas fases:
+**Two-phase model (mandatory, all sources).** The pipeline has two phases:
 
-1. **Fase 1 — extract→raw:** busque o extrato *verbatim* e arquive-o no GCS via
-   [`core.land_raw(df, ...)`](../src/embrapa_commodities/core/raw.py) (ou
-   `land_raw_file(path, ...)` para extratos grandes demais p/ memória). Passe
-   `provenance` (URL, ETag/Last-Modified, params da query) — vira metadata do
-   objeto e base da checagem de freshness.
-2. **Fase 2 — raw→bronze:** leia o raw de volta (`read_raw` / `download_raw +
-   iter_batches`), filtre/molde, **stamp `ingestion_timestamp`** e carregue o
+1. **Phase 1 — extract→raw:** fetch the *verbatim* extract and archive it in GCS via
+   [`core.land_raw(df, ...)`](../src/embrapa_commodities/core/raw.py) (or
+   `land_raw_file(path, ...)` for extracts too large for memory). Pass
+   `provenance` (URL, ETag/Last-Modified, query params) — it becomes object
+   metadata and the basis of the freshness check.
+2. **Phase 2 — raw→bronze:** read the raw back (`read_raw` / `download_raw +
+   iter_batches`), filter/shape it, **stamp `ingestion_timestamp`**, and load
    Bronze via [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py)
-   (schema explícito + `clustering_fields`).
+   (explicit schema + `clustering_fields`).
 
 ```python
 def run(settings: Settings, *, full: bool = False, from_raw: bool = False) -> str:
-    """Extract→raw (Fase 1) então raw→Bronze (Fase 2). Retorna destination, ou ''.
+    """Extract→raw (Phase 1) then raw→Bronze (Phase 2). Returns destination, or ''.
 
-    from_raw pula a Fase 1 e reconstrói o Bronze do raw já arquivado (re-filtrar
-    sem re-bater na fonte). Veja PLANS/raw_zone_architecture.md e os 3 exemplos:
-    comex/pipeline.py, ibge/pipeline.py, bcb/series.py.
+    from_raw skips Phase 1 and rebuilds Bronze from the already-archived raw
+    (re-filter without re-hitting the source). See PLANS/raw_zone_architecture.md
+    and the 3 examples: comex/pipeline.py, ibge/pipeline.py, bcb/series.py.
     """
 ```
 
-`ensure_dataset` fica com você, *antes* do extract (o lookup delta consulta o
-Bronze). Curto-circuite a fetch vazia (retornando `""`). Exponha `--from-raw` no
-comando CLI. **Freshness** é source-specific na Fase 1: ETag (COMEX, via
-`raw_provenance` vs HEAD), `max(reference_date)` (BCB), ou re-extração por run
-(IBGE). Para re-derivar a partir da trilha completa, use
+`ensure_dataset` is on you, *before* the extract (the delta lookup queries
+Bronze). Short-circuit the empty fetch (by returning `""`). Expose `--from-raw` on
+the CLI command. **Freshness** is source-specific in Phase 1: ETag (COMEX, via
+`raw_provenance` vs HEAD), `max(reference_date)` (BCB), or re-extraction per run
+(IBGE). To re-derive from the complete trail, use
 [`core.list_raw()`](../src/embrapa_commodities/core/raw.py).
 
-**Delta-aware?** Reaproveite [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) para computar o start de re-fetch na Fase 1.
+**Delta-aware?** Reuse [`latest_reference_date()`](../src/embrapa_commodities/gcp/bigquery.py) to compute the re-fetch start in Phase 1.
 
-- **Se a fonte é uma série SGS do BCB** (shape `data`/`valor`, chave natural `reference_date_str`, lookup delta por série), você não escreve pipeline: defina um [`BcbSeriesSpec`](../src/embrapa_commodities/bcb/series.py) e delegue para `bcb.series.run`. As variantes inflation/currency são exatamente isso — diferem só no `label_column`, no schema e numa única função `overlap_start_year(last) -> int` (mensal rebobina sempre 1 ano; diária só em janeiro). Veja [`bcb/inflation.py`](../src/embrapa_commodities/bcb/inflation.py) e [`bcb/currency.py`](../src/embrapa_commodities/bcb/currency.py).
-- **Se a fonte tem shape genuinamente diferente** (API não-SGS, granularidade de evento/timestamp como NFe, outra chave natural), escreva o seu próprio `run()` em vez de forçar um spec sobre `bcb.series` — use `latest_reference_date` com `date_format` custom e a janela de overlap apropriada (pode ser horas). Não tente generalizar `bcb.series` para cobrir formas heterogêneas; o custo de legibilidade não compensa.
+- **If the source is a BCB SGS series** (shape `data`/`valor`, natural key `reference_date_str`, delta lookup per series), you don't write a pipeline: define a [`BcbSeriesSpec`](../src/embrapa_commodities/bcb/series.py) and delegate to `bcb.series.run`. The inflation/currency variants are exactly this — they differ only in the `label_column`, the schema, and a single `overlap_start_year(last) -> int` function (monthly always rewinds 1 year; daily only in January). See [`bcb/inflation.py`](../src/embrapa_commodities/bcb/inflation.py) and [`bcb/currency.py`](../src/embrapa_commodities/bcb/currency.py).
+- **If the source has a genuinely different shape** (non-SGS API, event/timestamp granularity like NFe, a different natural key), write your own `run()` instead of forcing a spec onto `bcb.series` — use `latest_reference_date` with a custom `date_format` and the appropriate overlap window (it can be hours). Don't try to generalize `bcb.series` to cover heterogeneous shapes; the readability cost isn't worth it.
 
-**Schema explícito.** O loader [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py) exige `list[SchemaField]` — não use autodetect.
+**Explicit schema.** The loader [`gcp/bigquery.load_dataframe()`](../src/embrapa_commodities/gcp/bigquery.py) requires `list[SchemaField]` — do not use autodetect.
 
-**Aterrissagem.** A Fase 1 grava o raw com `core.land_raw`/`land_raw_file`; a
-Fase 2 carrega o Bronze com `gcp/bigquery.load_dataframe` (não há mais um único
-primitivo land+load — o GCS guarda o raw verbatim, o BQ guarda o Bronze
-derivado). `ensure_bucket` é chamado dentro do `land_raw`; `ensure_dataset` fica
-com você antes do extract.
+**Landing.** Phase 1 writes the raw with `core.land_raw`/`land_raw_file`; Phase 2
+loads Bronze with `gcp/bigquery.load_dataframe` (there is no longer a single
+land+load primitive — GCS keeps the verbatim raw, BQ keeps the derived
+Bronze). `ensure_bucket` is called inside `land_raw`; `ensure_dataset` is on
+you before the extract.
 
-### 3. Configuração
+### 3. Configuration
 
-Local: [`.env.example`](../.env.example) e [`src/embrapa_commodities/config.py`](../src/embrapa_commodities/config.py).
+Location: [`.env.example`](../.env.example) and [`src/embrapa_commodities/config.py`](../src/embrapa_commodities/config.py).
 
-Padrão (espelhe `IBGE_*` / `BCB_*`):
+Pattern (mirror `IBGE_*` / `BCB_*`):
 
 ```bash
-# ─── <Fonte> ──────────────────────────────────────────────────────────────────
-BQ_BRONZE_<FONTE>_DATASET=bronze_<fonte>
-BQ_BRONZE_<FONTE>_<TABELA>_TABLE=<tabela>_raw
+# ─── <Source> ──────────────────────────────────────────────────────────────────
+BQ_BRONZE_<SOURCE>_DATASET=bronze_<source>
+BQ_BRONZE_<SOURCE>_<TABLE>_TABLE=<table>_raw
 
-<FONTE>_API_BASE_URL=https://...
-<FONTE>_START_DATE=2010-01
-<FONTE>_END_DATE=2026-12
-# ... séries / códigos específicos
+<SOURCE>_API_BASE_URL=https://...
+<SOURCE>_START_DATE=2010-01
+<SOURCE>_END_DATE=2026-12
+# ... source-specific series / codes
 ```
 
-No `Settings`:
+In `Settings`:
 
 ```python
-bq_bronze_<fonte>_dataset: str = Field(default="bronze_<fonte>")
-bq_bronze_<fonte>_<tabela>_table: str = Field(default="<tabela>_raw")
-<fonte>_api_base_url: str = Field(default="https://...")
+bq_bronze_<source>_dataset: str = Field(default="bronze_<source>")
+bq_bronze_<source>_<table>_table: str = Field(default="<table>_raw")
+<source>_api_base_url: str = Field(default="https://...")
 # ...
 ```
 
-### 4. Registrar nos três registries (CLI + Doctor)
+### 4. Register in the three registries (CLI + Doctor)
 
-| Registry | Arquivo | O que acrescentar |
+| Registry | File | What to add |
 |---|---|---|
-| `cli.INGESTS` | [`cli.py`](../src/embrapa_commodities/cli.py) (logo após declaração de `discover_app`) | `IngestSpec("<fonte>", <fonte>_pipeline, accepts_full=True/False, label="…")` |
-| `doctor.SOURCE_CHECKS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) (fim do arquivo) | `("<fonte>", _check_<fonte>)` |
-| `doctor.BRONZE_TARGETS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) | `("bq_bronze_<fonte>_dataset", "bq_bronze_<fonte>_<tabela>_table")` |
+| `cli.INGESTS` | [`cli.py`](../src/embrapa_commodities/cli.py) (right after the `discover_app` declaration) | `IngestSpec("<source>", <source>_pipeline, accepts_full=True/False, label="…")` |
+| `doctor.SOURCE_CHECKS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) (end of file) | `("<source>", _check_<source>)` |
+| `doctor.BRONZE_TARGETS` | [`doctor.py`](../src/embrapa_commodities/doctor.py) | `("bq_bronze_<source>_dataset", "bq_bronze_<source>_<table>_table")` |
 
-E escreva o `@ingest_app.command("<fonte>")` manuscrito no `cli.py` — o `ingest all` usa o registry, mas cada comando individual é escrito à mão (mensagens próprias). Para a **visibilidade no `embrapa monitor`**, envolva o trabalho no context manager `pipeline_run` de [`core/observability_helpers.py`](../src/embrapa_commodities/core/observability_helpers.py):
+And write the hand-maintained `@ingest_app.command("<source>")` in `cli.py` — `ingest all` uses the registry, but each individual command is hand-written (its own messages). For **visibility in `embrapa monitor`**, wrap the work in the `pipeline_run` context manager from [`core/observability_helpers.py`](../src/embrapa_commodities/core/observability_helpers.py):
 
 ```python
 from embrapa_commodities.core import pipeline_run
 
-@ingest_app.command("<fonte>")
-def ingest_<fonte>(full: bool = typer.Option(False, "--full")) -> None:
+@ingest_app.command("<source>")
+def ingest_<source>(full: bool = typer.Option(False, "--full")) -> None:
     settings = get_settings()
-    with pipeline_run("<fonte>", params={"full": full}) as (_run_id, log_path):
+    with pipeline_run("<source>", params={"full": full}) as (_run_id, log_path):
         console.print(f"[dim]event log:[/dim] {log_path}")
-        destination = <fonte>_pipeline.run(settings, full=full)
+        destination = <source>_pipeline.run(settings, full=full)
     if destination:
-        console.print(f"[green]✓[/green] <Fonte> bronze loaded → {destination}")
+        console.print(f"[green]✓[/green] <Source> bronze loaded → {destination}")
     else:
-        console.print("[dim]<fonte>: nothing new since last ingest.[/dim]")
+        console.print("[dim]<source>: nothing new since last ingest.[/dim]")
 ```
 
-- **Single-shot** (uma varredura, como IBGE/BCB): use `pipeline_run` como acima. Ele emite a sequência `pipeline_start → chunk_start → chunk_end/chunk_error → pipeline_end` e a fonte aparece no monitor.
-- **Multi-chunk** (progresso por estado/série/mês, como `ingest ibge-batch`): NÃO use `pipeline_run`; copie a estrutura manuscrita de `ingest_ibge_batch` em [`cli.py`](../src/embrapa_commodities/cli.py), que emite `chunk_start`/`chunk_end`/`chunk_error` por chunk e `state_*` por unidade.
+- **Single-shot** (one sweep, like IBGE/BCB): use `pipeline_run` as above. It emits the sequence `pipeline_start → chunk_start → chunk_end/chunk_error → pipeline_end` and the source shows up in the monitor.
+- **Multi-chunk** (progress per state/series/month, like `ingest ibge-batch`): do NOT use `pipeline_run`; copy the hand-maintained structure of `ingest_ibge_batch` in [`cli.py`](../src/embrapa_commodities/cli.py), which emits `chunk_start`/`chunk_end`/`chunk_error` per chunk and `state_*` per unit.
 
-Para fontes sem API pública (NFe via XML em lote), o `_check_<fonte>` pode ser um stub: `return CheckResult("<fonte>", True, "sem probe público (ingestão por lote)")`.
+For sources without a public API (NFe via batch XML), `_check_<source>` can be a stub: `return CheckResult("<source>", True, "no public probe (batch ingestion)")`.
 
 ### 5. dbt Bronze source
 
-Local: [`dbt/models/_sources.yml`](../dbt/models/_sources.yml).
+Location: [`dbt/models/_sources.yml`](../dbt/models/_sources.yml).
 
-Acrescente um bloco `bronze_<fonte>` espelhando os existentes (linhas 4-29):
+Add a `bronze_<source>` block mirroring the existing ones (lines 4-29):
 
 ```yaml
-- name: bronze_<fonte>
-  description: "Raw <Fonte> payloads ingested by `embrapa ingest <fonte>`."
+- name: bronze_<source>
+  description: "Raw <Source> payloads ingested by `embrapa ingest <source>`."
   database: "{{ target.project }}"
-  schema: "{{ env_var('BQ_BRONZE_<FONTE>_DATASET', 'bronze_<fonte>') }}"
+  schema: "{{ env_var('BQ_BRONZE_<SOURCE>_DATASET', 'bronze_<source>') }}"
   tables:
-    - name: <tabela>_raw
-      identifier: "{{ env_var('BQ_BRONZE_<FONTE>_<TABELA>_TABLE', '<tabela>_raw') }}"
+    - name: <table>_raw
+      identifier: "{{ env_var('BQ_BRONZE_<SOURCE>_<TABLE>_TABLE', '<table>_raw') }}"
       description: "..."
       config:
         loaded_at_field: ingestion_timestamp
@@ -182,118 +182,118 @@ Acrescente um bloco `bronze_<fonte>` espelhando os existentes (linhas 4-29):
 
 ### 6. dbt Silver
 
-Local: `dbt/models/silver/silver_<fonte>_<tabela>.sql`.
+Location: `dbt/models/silver/silver_<source>_<table>.sql`.
 
-Copie [`silver_ibge_pevs.sql`](../dbt/models/silver/silver_ibge_pevs.sql) como template. Padrão:
+Copy [`silver_ibge_pevs.sql`](../dbt/models/silver/silver_ibge_pevs.sql) as the template. Pattern:
 
 1. **Dedup** via `qualify row_number() over (partition by <natural_key> order by ingestion_timestamp desc) = 1`.
-2. **Tipagem** com [`safe_numeric()`](../dbt/macros/safe_numeric.sql) para colunas STRING → NUMERIC com placeholders (`-`, `...`, `..`, `*`, `X`) → NULL.
-3. **Enriquecimento** com seeds e CTEs específicos da fonte.
+2. **Typing** with [`safe_numeric()`](../dbt/macros/safe_numeric.sql) for STRING → NUMERIC columns with placeholders (`-`, `...`, `..`, `*`, `X`) → NULL.
+3. **Enrichment** with source-specific seeds and CTEs.
 
-Adicione testes em `dbt/models/silver/_silver.yml` no mesmo padrão dos existentes — `unique_combination_of_columns`, `not_null`, `accepted_values` para domínios fechados.
+Add tests in `dbt/models/silver/_silver.yml` following the same pattern as the existing ones — `unique_combination_of_columns`, `not_null`, `accepted_values` for closed domains.
 
-### 7. dbt Gold (linhagem própria, UMA tabela por fonte)
+### 7. dbt Gold (its own lineage, ONE table per source)
 
-Local: `dbt/models/gold/gold_<fonte>_<forma>.sql` — ex.: `gold_comex_flows.sql`, `gold_comtrade_flows.sql`, `gold_nfe_flows.sql`. `<forma>` = `production` (medição de saída, como PEVS) ou `flows` (fluxo origem→destino, bancos de comércio).
+Location: `dbt/models/gold/gold_<source>_<form>.sql` — e.g. `gold_comex_flows.sql`, `gold_comtrade_flows.sql`, `gold_nfe_flows.sql`. `<form>` = `production` (output measurement, like PEVS) or `flows` (origin→destination flow, trade databases).
 
-**Uma tabela comprehensiva por fonte** — agregação ad-hoc em tempo de query via `GROUP BY`; marts pré-agregados (Pushdown do dashboard) ficam na camada `serving/`, não no dataset Gold. E **não** junte a fonte dentro de `gold_pevs_production`: grãos e geografias incompatíveis.
+**One comprehensive table per source** — ad-hoc aggregation at query time via `GROUP BY`; pre-aggregated marts (the dashboard's Pushdown) live in the `serving/` layer, not in the Gold dataset. And **do not** join the source into `gold_pevs_production`: incompatible grains and geographies.
 
-Para deflação monetária: reaproveite as Silver compartilhadas via `ref()`:
+For monetary deflation: reuse the shared Silver models via `ref()`:
 
 ```sql
 inflation_year_end as (
-  -- ver os CTEs de deflação em gold_pevs_production.sql
+  -- see the deflation CTEs in gold_pevs_production.sql
   select ... from {{ ref('silver_bcb_inflation') }} ...
 ),
 
 fx_year as (
-  -- ver os CTEs de FX em gold_pevs_production.sql
+  -- see the FX CTEs in gold_pevs_production.sql
   select ... from {{ ref('silver_bcb_currency') }} ...
 )
 ```
 
-Aplique as quatro convenções monetárias do projeto (`val_yearfx_*`, `val_real_ipca_*`, `val_real_igpm_*`, `val_real_igpdi_*`) se a fonte tiver valores monetários.
+Apply the project's four monetary conventions (`val_yearfx_*`, `val_real_ipca_*`, `val_real_igpm_*`, `val_real_igpdi_*`) if the source has monetary values.
 
-**Importante:** depois do `dbt build` em prod, a tabela aparece automaticamente em `make backup-gold` (introspecção via `list_tables` + prefixo `gold_`). Sem manutenção manual de listas.
+**Important:** after the `dbt build` in prod, the table shows up automatically in `make backup-gold` (introspection via `list_tables` + the `gold_` prefix). No manual list maintenance.
 
-### 8. Seeds de referência (se aplicável)
+### 8. Reference seeds (if applicable)
 
-Local: `dbt/seeds/`.
+Location: `dbt/seeds/`.
 
-Tabelas de mapeamento típicas:
-- **HS codes** (COMEX, COMTRADE): `hs_code_<ano>.csv` com colunas `code`, `name`, `parent_code`.
-- **Países ISO** (COMTRADE): `country_iso.csv` com `iso2`, `iso3`, `name`, `region`.
-- **NCM** (NFe): `ncm_to_hs.csv` para harmonizar com COMEX.
+Typical mapping tables:
+- **HS codes** (COMEX, COMTRADE): `hs_code_<ano>.csv` with columns `code`, `name`, `parent_code`.
+- **ISO countries** (COMTRADE): `country_iso.csv` with `iso2`, `iso3`, `name`, `region`.
+- **NCM** (NFe): `ncm_to_hs.csv` to harmonize with COMEX.
 
-Padrão YAML em [`dbt/seeds/_seeds.yml`](../dbt/seeds/_seeds.yml) — declare `column_types` explícitos e testes (`not_null`, `unique`).
+YAML pattern in [`dbt/seeds/_seeds.yml`](../dbt/seeds/_seeds.yml) — declare explicit `column_types` and tests (`not_null`, `unique`).
 
-### 9. Testes Python
+### 9. Python tests
 
-Locais: `tests/test_<fonte>_client.py` + `tests/test_<fonte>_pipeline.py`.
+Locations: `tests/test_<source>_client.py` + `tests/test_<source>_pipeline.py`.
 
 Templates:
-- Cliente HTTP mockado: copie [`tests/test_bcb_client.py`](../tests/test_bcb_client.py) (usa `responses`).
-- Pipeline com delta + mocks de GCP: copie [`tests/test_bcb_inflation_pipeline.py`](../tests/test_bcb_inflation_pipeline.py). **Patch `latest_reference_date`** no namespace da sua fonte, não `_effective_start_year`.
+- Mocked HTTP client: copy [`tests/test_bcb_client.py`](../tests/test_bcb_client.py) (uses `responses`).
+- Pipeline with delta + GCP mocks: copy [`tests/test_bcb_inflation_pipeline.py`](../tests/test_bcb_inflation_pipeline.py). **Patch `latest_reference_date`** in your source's namespace, not `_effective_start_year`.
 
-Cobertura mínima:
-- Schema correto no Bronze (assertion sobre `load_dataframe` kwargs).
-- Delta computa corretamente para casos: (a) Bronze vazio → `configured_start`; (b) Bronze com dados → overlap aplicado; (c) `--full` ignora delta.
-- HTTP transient (5xx) é retornado como `<Fonte>TransientError`.
+Minimum coverage:
+- Correct schema in Bronze (assertion on `load_dataframe` kwargs).
+- Delta computes correctly for the cases: (a) empty Bronze → `configured_start`; (b) Bronze with data → overlap applied; (c) `--full` ignores delta.
+- HTTP transient (5xx) is returned as `<Source>TransientError`.
 
-### 10. Segredo (decisão por fonte)
+### 10. Secret (per-source decision)
 
-- **API pública sem auth** (COMEX, hoje): nada a fazer. Espelha IBGE/BCB.
-- **API key não-sensível** (COMTRADE, hoje): use env var em `.env` (`COMTRADE_API_KEY=...`) + GitHub Actions secret no CI. Adicione ao [`.gitignore`](../.gitignore) se nunca foi commitado.
-- **Credencial sensível** (cert A1/A3 da SEFAZ NFe; OAuth de longa duração): **abra a decisão de Secret Manager**. O projeto descartou Secret Manager em [`docs/iam_setup.md:70-73`](iam_setup.md) — para esses casos vale revisitar conscientemente. Documente a decisão e o caminho aqui depois.
+- **Public API without auth** (COMEX, today): nothing to do. Mirrors IBGE/BCB.
+- **Non-sensitive API key** (COMTRADE, today): use an env var in `.env` (`COMTRADE_API_KEY=...`) + a GitHub Actions secret in CI. Add it to [`.gitignore`](../.gitignore) if it was never committed.
+- **Sensitive credential** (SEFAZ NFe A1/A3 cert; long-lived OAuth): **reopen the Secret Manager decision**. The project dropped Secret Manager in [`docs/iam_setup.md:70-73`](iam_setup.md) — for these cases it's worth consciously revisiting. Document the decision and the path here afterward.
 
-### 11. Documentação leve
+### 11. Light documentation
 
-- Acrescente a fonte ao diagrama de pipeline em [`README.md`](../README.md) e [`ARCHITECTURE.md`](../ARCHITECTURE.md) (atualizar as caixas Bronze e Consumo).
-- Acrescente o escopo da fonte (`comex`, `comtrade`, `nfe`) à lista em [`CONTRIBUTING.md`](../CONTRIBUTING.md) → Escopos comuns (linha 90).
-- Acrescente uma entrada em `CHANGELOG.md` em `[Unreleased] / Added`.
+- Add the source to the pipeline diagram in [`README.md`](../README.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) (update the Bronze and Consumption boxes).
+- Add the source's scope (`comex`, `comtrade`, `nfe`) to the list in [`CONTRIBUTING.md`](../CONTRIBUTING.md) → Common scopes (line 90).
+- Add an entry to `CHANGELOG.md` under `[Unreleased] / Added`.
 
 ---
 
-## Verificação end-to-end
+## End-to-end verification
 
-Antes de declarar a fonte pronta para PR:
+Before declaring the source ready for PR:
 
 ```powershell
-# 1. Suíte de testes (incluir os novos test_<fonte>_*.py)
+# 1. Test suite (include the new test_<source>_*.py)
 uv run pytest
 
 # 2. Lint
 uv run ruff check .
 uv run ruff format --check .
 
-# 3. CLI smoke — nova fonte aparece nos help e nos registries
-uv run python -m embrapa_commodities.cli ingest --help        # deve listar <fonte>
-uv run python -m embrapa_commodities.cli doctor                # deve incluir check <fonte>
+# 3. CLI smoke — new source shows up in help and in the registries
+uv run python -m embrapa_commodities.cli ingest --help        # should list <source>
+uv run python -m embrapa_commodities.cli doctor                # should include check <source>
 
-# 4. Ingestão dev (precisa ADC + .env válido)
-uv run python -m embrapa_commodities.cli ingest <fonte>
+# 4. Dev ingestion (needs ADC + valid .env)
+uv run python -m embrapa_commodities.cli ingest <source>
 
-# 5. dbt parse + build em dev
+# 5. dbt parse + build in dev
 Set-Location dbt
 uv run python -m dbt.cli.main deps
 uv run python -m dbt.cli.main parse
-uv run python -m dbt.cli.main build --select silver_<fonte>_+ gold_<fonte>_+
+uv run python -m dbt.cli.main build --select silver_<source>_+ gold_<source>_+
 Set-Location ..
 
-# 6. Backup-gold introspectiva inclui automaticamente
-uv run python -m embrapa_commodities.cli backup-gold           # nova tabela aparece
+# 6. Introspective backup-gold includes it automatically
+uv run python -m embrapa_commodities.cli backup-gold           # new table shows up
 ```
 
-Se cada passo retorna verde e a nova `gold_<fonte>_*` é citada no log do `backup-gold`, a fonte está integrada.
+If every step comes back green and the new `gold_<source>_*` is cited in the `backup-gold` log, the source is integrated.
 
 ---
 
-## Anti-padrões a evitar
+## Anti-patterns to avoid
 
-- ❌ **Forçar a fonte em `gold_pevs_production`.** Cria join impossível ou aglutina grãos incompatíveis. Crie a linhagem própria `gold_<fonte>_<forma>`.
-- ❌ **Criar tabelas pré-agregadas no dataset Gold.** O Gold é UMA tabela comprehensiva por fonte (agregação ad-hoc em query-time). Marts pré-agregados existem — mas na camada `serving/` (Pushdown do dashboard), derivando do Gold, não como siblings no dataset Gold.
-- ❌ **Hardcodar listas que devem ser registries.** Se você editar `backup.py` ou `doctor.py` em vez de só acrescentar entry em registry, está fora do padrão.
-- ❌ **Pular `SourceTransientError`.** Sem o mixin, retry compartilhado futuro não funcionará.
-- ❌ **Reescrever slow-byte / period-halving copy-pasted do IBGE para outra fonte.** Esse código é caro de manter; só replique se a sua API realmente apresenta o mesmo patológico.
-- ❌ **Commitar credenciais em `.env`.** Use `.env.example` como template; o real `.env` está no `.gitignore`.
-- ❌ **Esquecer de adicionar Bronze TABLE_TABLE config em `BRONZE_TARGETS`.** O `embrapa doctor` não vai checar e o operador descobre só quando a tabela não materializa.
+- ❌ **Forcing the source into `gold_pevs_production`.** Creates an impossible join or lumps incompatible grains together. Create its own `gold_<source>_<form>` lineage.
+- ❌ **Creating pre-aggregated tables in the Gold dataset.** Gold is ONE comprehensive table per source (ad-hoc aggregation at query time). Pre-aggregated marts do exist — but in the `serving/` layer (the dashboard's Pushdown), deriving from Gold, not as siblings in the Gold dataset.
+- ❌ **Hardcoding lists that should be registries.** If you edit `backup.py` or `doctor.py` instead of just adding a registry entry, you're off-pattern.
+- ❌ **Skipping `SourceTransientError`.** Without the mixin, a future shared retry won't work.
+- ❌ **Rewriting slow-byte / period-halving copy-pasted from IBGE to another source.** That code is expensive to maintain; only replicate it if your API truly exhibits the same pathology.
+- ❌ **Committing credentials in `.env`.** Use `.env.example` as the template; the real `.env` is in `.gitignore`.
+- ❌ **Forgetting to add the Bronze TABLE config to `BRONZE_TARGETS`.** `embrapa doctor` won't check it and the operator only finds out when the table doesn't materialize.

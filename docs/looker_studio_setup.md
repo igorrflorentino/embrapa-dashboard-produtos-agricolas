@@ -1,170 +1,170 @@
-# Looker Studio — Setup do Dashboard
+# Looker Studio — Dashboard Setup
 
-## Pré-requisito: rode `make dbt-build-prod`
+## Prerequisite: run `make dbt-build-prod`
 
-O Looker Studio deve apontar para os datasets **de produção** (`silver`, `gold`),
-não para os de dev (`dbt_dev_silver`, `dbt_dev_gold`). Certifique-se de ter rodado:
+Looker Studio must point to the **production** datasets (`silver`, `gold`),
+not the dev ones (`dbt_dev_silver`, `dbt_dev_gold`). Make sure you have run:
 
 ```bash
 make dbt-build-prod
 ```
 
-Isso cria `embrapa-dashboard-commodities.gold.gold_pevs_production` com os dados completos.
+This creates `embrapa-dashboard-commodities.gold.gold_pevs_production` with the complete data.
 
 ---
 
-## 1. Habilitar BI Engine (opcional)
+## 1. Enable BI Engine (optional)
 
-O BI Engine é uma tecnologia de cache para acelerar consultas ao BigQuery.
+BI Engine is a caching technology that speeds up BigQuery queries.
 
-Looker Studio disponibiliza 1Gb de BI Engine gratuitamente. Para o projeto em questão não será necessário, mas pode ser útil em casos de uso futuro.
+Looker Studio provides 1Gb of BI Engine for free. It will not be necessary for this project, but it may be useful for future use cases.
 
-Ele melhora o desempenho do dashboard, especialmente se você tiver consultas complexas ou grandes volumes de dados. Ele também pode ajudar a reduzir custos, pois as consultas que usam o BI Engine não são cobradas por bytes escaneados.
+It improves dashboard performance, especially if you have complex queries or large data volumes. It can also help reduce costs, since queries that use BI Engine are not billed by bytes scanned.
 
-1. Acesse: **BigQuery → BI Engine → Reservations** no console GCP
-2. Clique em **Create Reservation**
-3. Configurações:
+1. Go to: **BigQuery → BI Engine → Reservations** in the GCP console
+2. Click **Create Reservation**
+3. Settings:
    - **Project**: `embrapa-dashboard-commodities`
-   - **Location**: `us-central1` (mesmo da sua BQ_LOCATION)
-   - **Capacity**: `[defina a capacidade, ex: 1Gb]`
-4. Clique em **Create**
+   - **Location**: `us-central1` (same as your BQ_LOCATION)
+   - **Capacity**: `[set the capacity, e.g.: 1Gb]`
+4. Click **Create**
 
-Custo estimado: ~U$ 30/mês/Gb.
+Estimated cost: ~US$ 30/month/Gb.
 
-> Antes de habilitar BI Engine, configure o budget e a quota em
-> [cost_safety.md](cost_safety.md) — assim qualquer custo inesperado dispara
-> alerta automático.
+> Before enabling BI Engine, configure the budget and quota in
+> [cost_safety.md](cost_safety.md) — that way any unexpected cost triggers
+> an automatic alert.
 
 ---
 
-## 2. Criar o relatório no Looker Studio
+## 2. Create the report in Looker Studio
 
-### 2a. Acessar o Looker Studio
+### 2a. Access Looker Studio
 
-1. Vá para [lookerstudio.google.com](https://lookerstudio.google.com)
-2. Clique em **+ Criar → Relatório**
+1. Go to [lookerstudio.google.com](https://lookerstudio.google.com)
+2. Click **+ Create → Report**
 
-### 2b. Conectar à tabela Gold
+### 2b. Connect to the Gold table
 
-Há **uma única Gold física por fonte** — para o IBGE PEVS é
-`gold_pevs_production` (~95 mil linhas, uma por ano × UF × município × produto).
-As agregações por estado/ano ou Brasil-total são derivadas no próprio Looker
-Studio (campos calculados / GROUP BY na fonte). Marts pré-agregados existem na
-camada `serving/` (para o dashboard Dash / Pushdown Computing), mas o Looker
-consome o Gold diretamente.
+There is **a single physical Gold table per source** — for IBGE PEVS it is
+`gold_pevs_production` (~95 thousand rows, one per year × UF × municipality × product).
+Aggregations by state/year or Brazil-total are derived within Looker
+Studio itself (calculated fields / GROUP BY on the source). Pre-aggregated marts exist in the
+`serving/` layer (for the Dash dashboard / Pushdown Computing), but Looker
+consumes Gold directly.
 
-| Tabela | Linhas (aprox.) | Grão |
+| Table | Rows (approx.) | Grain |
 |---|---|---|
-| `gold_pevs_production` | ~95 mil | ano × UF × município × produto (drill-down completo) |
+| `gold_pevs_production` | ~95 thousand | year × UF × municipality × product (full drill-down) |
 
-Conecte:
+Connect:
 
-1. Em "Adicionar dados ao relatório", selecione **BigQuery**
-2. Faça login com a conta que tem acesso ao projeto
-3. Navegue: **Meus projetos → embrapa-dashboard-commodities → gold → gold_pevs_production**
-4. Clique em **Adicionar** → **Adicionar ao relatório**
+1. Under "Add data to report", select **BigQuery**
+2. Sign in with the account that has access to the project
+3. Navigate: **My projects → embrapa-dashboard-commodities → gold → gold_pevs_production**
+4. Click **Add** → **Add to report**
 
-> **Importante:** conecte diretamente à tabela, não via "Custom Query".
-> BI Engine só acelera conexões diretas à tabela física.
+> **Important:** connect directly to the table, not via "Custom Query".
+> BI Engine only accelerates direct connections to the physical table.
 
-### 2c. Configurar campos padrão
+### 2c. Configure default fields
 
-Na tela de configuração da fonte de dados, ajuste:
+On the data source configuration screen, adjust:
 
-| Campo | Tipo sugerido | Agregação padrão |
+| Field | Suggested type | Default aggregation |
 |---|---|---|
-| `reference_year` | Número (ano) | — |
-| `reference_date` | Data (YYYY-MM-DD) | — |
-| `state_acronym` | Texto | — |
-| `state_name` | Texto | — |
-| `region` | Texto | — |
-| `city_code` | Texto / Geo → "Brazilian Municipality" | — |
-| `city_name` | Texto | — |
-| `product_code` | Texto | — |
-| `product_description` | Texto | — |
-| `family` | Texto | — (use sempre como dimensão/filtro de quantidade) |
-| `unit_native` | Texto | — |
-| `base_unit` | Texto | — |
-| `qty_native` | Número | Soma (**somente filtrando uma `family`/`unit_native`**) |
-| `qty_base` | Número | Soma (**somente com `family` no detalhamento — nunca entre famílias**) |
-| `val_yearfx_brl` | Número (moeda BRL) | Soma |
-| `val_yearfx_usd` | Número (moeda USD) | Soma |
-| `val_yearfx_eur` | Número (moeda EUR) | Soma |
-| `val_yearfx_cny` | Número (moeda CNY) | Soma |
-| `val_real_ipca_brl` | Número (moeda BRL) | Soma |
-| `val_real_ipca_usd` | Número (moeda USD) | Soma |
-| `val_real_ipca_eur` | Número (moeda EUR) | Soma |
-| `val_real_ipca_cny` | Número (moeda CNY) | Soma |
-| `val_real_igpm_brl` | Número (moeda BRL) | Soma |
-| `val_real_igpm_usd` | Número (moeda USD) | Soma |
-| `val_real_igpm_eur` | Número (moeda EUR) | Soma |
-| `val_real_igpm_cny` | Número (moeda CNY) | Soma |
-| `data_quality_flag` | Texto | — |
-| `last_refresh` | Data e hora | Máximo |
+| `reference_year` | Number (year) | — |
+| `reference_date` | Date (YYYY-MM-DD) | — |
+| `state_acronym` | Text | — |
+| `state_name` | Text | — |
+| `region` | Text | — |
+| `city_code` | Text / Geo → "Brazilian Municipality" | — |
+| `city_name` | Text | — |
+| `product_code` | Text | — |
+| `product_description` | Text | — |
+| `family` | Text | — (always use as a quantity dimension/filter) |
+| `unit_native` | Text | — |
+| `base_unit` | Text | — |
+| `qty_native` | Number | Sum (**only when filtering by a single `family`/`unit_native`**) |
+| `qty_base` | Number | Sum (**only with `family` in the breakdown — never across families**) |
+| `val_yearfx_brl` | Number (BRL currency) | Sum |
+| `val_yearfx_usd` | Number (USD currency) | Sum |
+| `val_yearfx_eur` | Number (EUR currency) | Sum |
+| `val_yearfx_cny` | Number (CNY currency) | Sum |
+| `val_real_ipca_brl` | Number (BRL currency) | Sum |
+| `val_real_ipca_usd` | Number (USD currency) | Sum |
+| `val_real_ipca_eur` | Number (EUR currency) | Sum |
+| `val_real_ipca_cny` | Number (CNY currency) | Sum |
+| `val_real_igpm_brl` | Number (BRL currency) | Sum |
+| `val_real_igpm_usd` | Number (USD currency) | Sum |
+| `val_real_igpm_eur` | Number (EUR currency) | Sum |
+| `val_real_igpm_cny` | Number (CNY currency) | Sum |
+| `data_quality_flag` | Text | — |
+| `last_refresh` | Date and time | Maximum |
 
 ---
 
-## 3. Filtro padrão recomendado
+## 3. Recommended default filter
 
-Adicione um **filtro de relatório** para análises exploratórias:
+Add a **report filter** for exploratory analyses:
 
-- Campo: `data_quality_flag`
-- Condição: **Igual a** `OK`
+- Field: `data_quality_flag`
+- Condition: **Equal to** `OK`
 
-Isso exclui linhas onde o IBGE não publicou valor monetário (ex.: Pinheiro brasileiro).
-
----
-
-## 4. Estrutura de páginas sugerida
-
-### Página 1 — Visão geral
-
-| Gráfico | Configuração |
-|---|---|
-| Scorecard — Valor Real IPCA Total (BRL) | `val_real_ipca_brl` Soma |
-| Scorecard — Massa Total (t) | `qty_base` Soma · **filtro `family = massa`** |
-| Scorecard — Volume Total (m³) | `qty_base` Soma · **filtro `family = volume`** |
-| Gráfico de linhas — Série histórica | Dimensão: `reference_year` · Métrica: `val_real_ipca_brl` |
-| Gráfico de barras — Por produto | Dimensão: `product_description` · Métrica: `val_real_ipca_brl` |
-| Filtro — Ano | Controle deslizante em `reference_year` |
-| Filtro — Estado | Seletor em `state_acronym` |
-| Filtro — Produto | Seletor em `product_description` |
-
-### Página 2 — Análise geográfica
-
-| Gráfico | Configuração |
-|---|---|
-| Mapa coroplético (Brasil) | Geo: `state_acronym` · Cor: `val_real_ipca_brl` |
-| Tabela detalhada — Top municípios | Dimensões: `city_name`, `state_acronym`, `family` · Métricas: `qty_base`, `val_yearfx_brl`, `val_real_ipca_brl` |
-
-### Página 3 — Análise monetária comparada
-
-| Gráfico | Configuração |
-|---|---|
-| Gráfico de linhas — Valores nominais vs reais | Série 1: `val_yearfx_brl` · Série 2: `val_real_ipca_brl` · Série 3: `val_real_igpm_brl` |
-| Gráfico de barras — Por moeda | Métricas: `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny` |
+This excludes rows where IBGE did not publish a monetary value (e.g.: Pinheiro brasileiro).
 
 ---
 
-## 5. Atualização automática dos dados
+## 4. Suggested page structure
 
-O dashboard reflete a tabela Gold no momento da consulta. Para atualizar:
+### Page 1 — Overview
+
+| Chart | Configuration |
+|---|---|
+| Scorecard — Total Real Value IPCA (BRL) | `val_real_ipca_brl` Sum |
+| Scorecard — Total Mass (t) | `qty_base` Sum · **filter `family = massa`** |
+| Scorecard — Total Volume (m³) | `qty_base` Sum · **filter `family = volume`** |
+| Line chart — Historical series | Dimension: `reference_year` · Metric: `val_real_ipca_brl` |
+| Bar chart — By product | Dimension: `product_description` · Metric: `val_real_ipca_brl` |
+| Filter — Year | Slider control on `reference_year` |
+| Filter — State | Selector on `state_acronym` |
+| Filter — Product | Selector on `product_description` |
+
+### Page 2 — Geographic analysis
+
+| Chart | Configuration |
+|---|---|
+| Choropleth map (Brazil) | Geo: `state_acronym` · Color: `val_real_ipca_brl` |
+| Detailed table — Top municipalities | Dimensions: `city_name`, `state_acronym`, `family` · Metrics: `qty_base`, `val_yearfx_brl`, `val_real_ipca_brl` |
+
+### Page 3 — Comparative monetary analysis
+
+| Chart | Configuration |
+|---|---|
+| Line chart — Nominal vs real values | Series 1: `val_yearfx_brl` · Series 2: `val_real_ipca_brl` · Series 3: `val_real_igpm_brl` |
+| Bar chart — By currency | Metrics: `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny` |
+
+---
+
+## 5. Automatic data refresh
+
+The dashboard reflects the Gold table at query time. To refresh:
 
 ```bash
-# Ingestão incremental (só novos dados)
+# Incremental ingestion (only new data)
 uv run embrapa ingest all
 
-# Reconstruir transformações
+# Rebuild transformations
 make dbt-build-prod
 ```
 
-Configure um cron ou GitHub Actions para rodar isso anualmente (PEVS é publicado 1× ao ano).
+Set up a cron or GitHub Actions to run this annually (PEVS is published 1× per year).
 
 ---
 
-## 6. Transferência para a empresa
+## 6. Transfer to the company
 
-Ao mover o projeto para a empresa:
-1. Transfira o relatório: **Compartilhar → Transferir propriedade** no Looker Studio.
-2. Atualize a fonte de dados para apontar para o novo `GCP_PROJECT_ID`.
-3. Não há hardcode de projeto no relatório — só a fonte de dados precisa ser atualizada.
+When moving the project to the company:
+1. Transfer the report: **Share → Transfer ownership** in Looker Studio.
+2. Update the data source to point to the new `GCP_PROJECT_ID`.
+3. There is no hardcoded project in the report — only the data source needs to be updated.

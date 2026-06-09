@@ -11,12 +11,12 @@ Two groups, distinguished by audience:
 - **Local dev / setup** — run once per machine when you start contributing.
 - **GCP IAM / service accounts** — one-shots run by the project owner.
 
-> ⚠️ **Frontend em reconstrução.** Os scripts de run / build / deploy do
-> dashboard Dash (`dashboard-*.ps1`, `dashboard_smoke.py`,
+> ⚠️ **Frontend under reconstruction.** The run / build / deploy scripts for the
+> Dash dashboard (`dashboard-*.ps1`, `dashboard_smoke.py`,
 > `dashboard_visual_check.py`, `check_dashboard_size.py`,
-> `dashboard-setup-sa.ps1`) foram removidos em 2026-05-29 junto com a UI.
-> O próximo handoff do Claude Design System trará a nova camada de
-> tooling de frontend.
+> `dashboard-setup-sa.ps1`) were removed on 2026-05-29 along with the UI.
+> The next Claude Design System handoff will bring the new frontend
+> tooling layer.
 
 The `.ps1` files are **Windows PowerShell** wrappers that exist as a
 convenience for this Windows-first repo. They all delegate to the same Python
