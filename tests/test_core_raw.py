@@ -184,7 +184,9 @@ def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings)
     ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
     gcs.bucket.return_value.blob.assert_called_once_with("raw/comex/comex_flows/EXP_2023.parquet")
     blob.upload_from_filename.assert_called_once_with(
-        "/tmp/EXP_2023.parquet", content_type="application/octet-stream"
+        "/tmp/EXP_2023.parquet",
+        content_type="application/octet-stream",
+        timeout=raw.GCS_TIMEOUT_S,
     )
     assert blob.metadata["source_etag"] == "v9"
     assert blob.metadata["source"] == "comex"  # auto-added

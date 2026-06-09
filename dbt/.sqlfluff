@@ -1,0 +1,106 @@
+## SQLFluff config for the dbt/ project.
+##
+## The repo declares sqlfluff + sqlfluff-templater-dbt as deps and documents
+## SQLFluff as the SQL linter (CLAUDE.md "Code Style"), but no config existed —
+## so `sqlfluff lint` could not parse the BigQuery + Jinja models. This file
+## wires the dbt templater (resolves {{ ref }}/{{ config }}/macros against the
+## real project) and the BigQuery dialect, then tunes rules to the existing
+## house style instead of forcing a tree-wide rewrite.
+##
+## House style (from the models): lowercase keywords, 4-space indent, trailing
+## commas, snake_case identifiers, and heavy column-alias alignment (many spaces
+## before `as`). The config below keeps the meaningful checks and relaxes the
+## ones that would fight that intentional alignment.
+
+[sqlfluff]
+templater = dbt
+dialect = bigquery
+# Keep lines readable but don't churn the wide, aligned SELECT lists.
+max_line_length = 120
+# The Silver models compile (via the dbt templater) to deep BigQuery trees —
+# long qualify/case/window chains over UNION ALL — that blow SQLFluff's default
+# guards. These are trusted first-party models, so raise the depth ceiling and
+# lift the size-skip so they actually get linted instead of erroring/skipping.
+max_parse_depth = 1000
+large_file_skip_byte_limit = 0
+# Rules deliberately disabled — each fights an INTENTIONAL house-style choice or
+# a correctness constraint, so enforcing it would churn the whole tree (or break
+# queries). The substantive checks stay on: keyword/function/type/literal
+# capitalisation (CP01/CP03/CP04/CP05), structure (LT06/ST01..05), references
+# (RF01), and the terminator/count conventions below. (CP02 — identifier case —
+# is the one capitalisation rule excluded, because Bronze columns are not lower.)
+#   LT01 - whitespace: the models intentionally ALIGN `as` aliases with padding
+#          (a deliberate, non-uniform house style); LT01 fights it everywhere.
+#   LT02 - indentation: compact multi-line CASE/JOIN-ON formatting is the house
+#          style across every model; re-indenting would rewrite the whole tree.
+#   LT05 - long lines: aligned-alias SELECTs and rich pt-BR comments run long.
+#   LT09 - one select target per line: models intentionally pack short targets.
+#   ST06 - select-target ordering: monetary blocks are grouped by meaning.
+#   ST09 - join-condition order: CTE joins read source→dim, not earliest-first.
+#   AL01 - implicit/explicit table aliasing: bare ref() in single-table CTEs.
+#   AL03 - expression without alias: UNION-ALL branches inherit the first SELECT's
+#          aliases (positional), so aliasing every branch is redundant noise.
+#   AL09 - self-aliased column (`val_real_ipca_brl as val_real_ipca_brl`): kept
+#          on purpose so the wide monetary block reads uniformly with its siblings.
+#   AM03 - order-by direction: the array_agg(... order by x desc, y) tiebreaks
+#          intentionally leave the secondary key at the default ASC.
+#   AM04 - "column count unknown" (select *): silver_currency UNIONs ref() *.
+#   AM05 - join fully qualified: bare `join` (implicit INNER) is the house style.
+#   CP02 - identifier case: Bronze source columns are UPPER_SNAKE (MDIC: CO_ANO)
+#          or camelCase (Comtrade: partnerCode). Lowercasing them breaks the read.
+#   JJ01 - jinja padding: the inflation-series {{ var() }} calls use a 2nd space
+#          to vertically ALIGN the IPCA/IGPM/IGPDI `}}` (same intent as LT01);
+#          "fixing" it would de-align the block. Same aligned-style exception.
+#   RF02 - qualified refs in multi-table queries: many CTE selects use bare cols.
+#   RF03 - consistent column qualification: same reason.
+#   RF04 - keywords as identifiers: pt-BR/domain columns occasionally collide.
+exclude_rules = LT01, LT02, LT05, LT09, ST06, ST09, AL01, AL03, AL09, AM03, AM04, AM05, CP02, JJ01, RF02, RF03, RF04
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = ~/.dbt
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+# dbt {% ... %} blocks are templated; don't demand SQL-style indent inside them.
+template_blocks_indent = false
+
+## ── Capitalisation: lowercase everything, matching the models ───────────────
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower
+
+## ── Aliasing conventions the models follow ──────────────────────────────────
+## (table-alias alignment / explicit-alias enforcement lives in the excluded
+## LT01/AL01 above — the aligned `as` style is intentional and not churned.)
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit
+
+[sqlfluff:rules:aliasing.expression]
+allow_scalar = true
+
+## ── References ──────────────────────────────────────────────────────────────
+[sqlfluff:rules:references.special_chars]
+# pt-BR identifiers/accented seed labels appear in string literals, not refs.
+allow_space_in_identifier = true
+
+[sqlfluff:rules:convention.count_rows]
+# Prefer count(*) — the models use it throughout.
+prefer_count_1 = false
+prefer_count_0 = false
+
+[sqlfluff:rules:convention.terminator]
+# Models are single statements with no trailing semicolon (dbt convention).
+require_final_semicolon = false

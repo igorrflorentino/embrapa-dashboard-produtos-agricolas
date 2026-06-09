@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 BACKUP_PREFIX = "backups"
 
+# Wall-clock ceiling for blocking on one Gold→GCS extract job. Generous (Gold
+# tables can be large) but bounded so a wedged export can't hang the backup
+# step indefinitely; the job keeps running server-side past this.
+EXTRACT_TIMEOUT_S: float = 1800.0
+
 
 def _gold_tables(settings: Settings, bq_client: bigquery.Client) -> list[str]:
     """Lista as tabelas Gold a serem snapshotadas, derivada por introspecção do dataset.
@@ -91,7 +96,7 @@ def run(settings: Settings) -> tuple[str, list[str]]:
             location=settings.bq_location,
             job_config=job_config,
         )
-        extract_job.result()
+        extract_job.result(timeout=EXTRACT_TIMEOUT_S)
         uris.append(destination_uri)
 
     return run_id, uris

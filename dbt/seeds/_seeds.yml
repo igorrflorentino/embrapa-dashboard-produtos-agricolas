@@ -96,6 +96,18 @@ seeds:
       sentinel source '_reference' are documented canonical factors that match
       NO real join — replace source/product_code with the real identifiers when
       a source that reports these units is added.
+
+      INERT BY DESIGN today (not a wiring bug): every shipped row uses
+      source='_reference', and Silver joins on source IN ('pevs','comex'), so
+      none are selected — none of PEVS/COMEX/COMTRADE currently report these
+      commodity units. The override path itself IS correct and is exercised by
+      the _silver.yml unit test (a synthetic pevs/9999/saca row). To activate a
+      factor, copy its row and set source/product_code to the real identifiers.
+
+      NOT the same thing as the cross-source COMMODITY crosswalk
+      (commodity_crosswalk seed → gold_commodity_crosswalk model, the "Fase 3"
+      product bridge, which IS fully wired). This seed is the per-product UNIT
+      crosswalk — a different concern.
     config:
       column_types:
         source: string

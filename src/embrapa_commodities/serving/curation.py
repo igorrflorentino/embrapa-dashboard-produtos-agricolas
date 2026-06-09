@@ -30,6 +30,14 @@ from embrapa_commodities.serving.iap import author_email_from_headers
 
 logger = logging.getLogger(__name__)
 
+# Free-text length caps. processing_stage / note are intentionally NOT allowlisted:
+# the research curation flow lets a researcher coin arbitrary stage labels and
+# notes (open vocabulary by design — an allowlist would break that UX). These caps
+# are a cheap guard against an absurdly large value (a runaway paste / malformed
+# client) bloating the immutable audit row, not a content restriction.
+MAX_STAGE_LEN = 200
+MAX_NOTE_LEN = 2000
+
 # Explicit schema — autodetect is never used (it drifts silently across runs).
 CURATION_LOG_SCHEMA = [
     bigquery.SchemaField("commodity_id", "STRING", mode="REQUIRED"),
@@ -72,6 +80,20 @@ def ensure_curation_log_table(
     return table_fqn
 
 
+def _validate_edit_text(commodity_id: str, processing_stage: str, note: str | None) -> None:
+    """Validate edit inputs: required fields present and free text within size caps.
+
+    Stages/notes are open-vocabulary by design (no allowlist); these are only
+    sanity bounds so a runaway value can't bloat the immutable audit row.
+    """
+    if not commodity_id or not processing_stage:
+        raise ValueError("commodity_id and processing_stage are required.")
+    if len(processing_stage) > MAX_STAGE_LEN:
+        raise ValueError(f"processing_stage exceeds {MAX_STAGE_LEN} chars.")
+    if note is not None and len(note) > MAX_NOTE_LEN:
+        raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
+
+
 def record_processing_stage(
     commodity_id: str,
     processing_stage: str,
@@ -86,16 +108,23 @@ def record_processing_stage(
 
     ``headers`` is the inbound request's headers (``flask.request.headers`` in a
     Dash callback); the author email is read from the IAP header. Returns the row
-    as written (for the UI to confirm). Raises on empty inputs or a missing
-    author with no dev fallback.
+    as written (for the UI to confirm). Raises on empty inputs, an over-length
+    stage/note, or a missing author with no dev fallback.
     """
     cfg = settings or get_settings()
     commodity_id = (commodity_id or "").strip()
     processing_stage = (processing_stage or "").strip()
-    if not commodity_id or not processing_stage:
-        raise ValueError("commodity_id and processing_stage are required.")
+    note = note.strip() if note else note
+    _validate_edit_text(commodity_id, processing_stage, note)
 
-    edited_by = author_email_from_headers(headers, dev_fallback=cfg.curation_dev_author)
+    # When iap_audience is set (production), the author comes from the verified
+    # IAP JWT — the plaintext header is spoofable and must not decide edited_by.
+    # When unset (local dev), fall back to the plaintext header + dev author.
+    edited_by = author_email_from_headers(
+        headers,
+        dev_fallback=cfg.curation_dev_author,
+        audience=cfg.iap_audience,
+    )
     change_id = uuid.uuid4().hex
     bq = client or _bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curation_log_table)
@@ -116,6 +145,10 @@ def record_processing_stage(
         bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
     ]
     bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    # INTENTIONAL: log the researcher's email at INFO on every save. This is the
+    # operational side of the audit trail (who reclassified what) — deliberate
+    # attribution of a human action, the same identity already persisted in the
+    # immutable edited_by column. Keep it; it is not incidental PII leakage.
     logger.info("Curation: %s -> %s by %s", commodity_id, processing_stage, edited_by)
 
     if invalidate_cache:
@@ -141,6 +174,12 @@ def invalidate_classification_cache() -> None:
     Cloud Run run on ``SimpleCache`` without ``RedisCache`` (see ``serving.cache``).
     """
     try:
+        # flask-caching's delete_memoized bumps a per-function VERSION sentinel
+        # rather than deleting each cached entry: the next read computes a fresh
+        # key and misses, so subsequent reads see new data immediately. The old
+        # entries are orphaned (unreferenced) and simply expire at their TTL —
+        # we accept that small, bounded residue (consistency restored at once;
+        # eviction within <= TTL) instead of re-architecting flask-caching.
         cache.delete_memoized(gateway.fetch_current_classifications)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
         logger.warning("Could not invalidate classification cache: %s", exc)

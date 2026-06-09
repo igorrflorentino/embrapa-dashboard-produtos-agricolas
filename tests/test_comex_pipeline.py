@@ -13,6 +13,7 @@ import pytest
 
 from embrapa_commodities.comex import client, pipeline
 from embrapa_commodities.config import Settings
+from embrapa_commodities.core import ChunkOutcome, IngestPartialFailure
 
 
 @pytest.fixture
@@ -254,3 +255,122 @@ def test_run_reloads_unchanged_raw_when_bronze_marker_absent(settings) -> None:
     n = len(pipeline.all_chunks(settings))
     assert bronze.call_count == n  # every unchanged-but-unloaded chunk still loads
     assert mark.call_count == n
+
+
+# ─── continue-on-failure + aggregation (now inside run) ──────────────────────
+def test_run_continues_after_chunk_failure_and_raises_aggregate(settings) -> None:
+    """A chunk that raises must not strand the rest; with no on_chunk consumer the
+    loop finishes every chunk then raises an aggregated IngestPartialFailure."""
+    seen: list[tuple[str, int]] = []
+
+    def flaky_sync(_s, flow, year, *, storage_client, force):
+        seen.append((flow, year))
+        if (flow, year) == ("export", 2021):
+            raise RuntimeError("source 503")
+        return True
+
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comex.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comex.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
+        patch.object(pipeline, "sync_raw", side_effect=flaky_sync),
+        patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
+        patch.object(pipeline, "mark_bronze_loaded"),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+        pytest.raises(IngestPartialFailure) as exc,
+    ):
+        pipeline.run(settings, full=False)
+
+    # Every (flow, year) was attempted despite the 2021 failure.
+    assert seen == pipeline.all_chunks(settings)
+    # The aggregate names exactly the one failed chunk.
+    assert [cid for cid, _ in exc.value.failures] == ["EXP_2021"]
+
+
+def test_run_with_on_chunk_reports_each_outcome_and_does_not_raise(settings) -> None:
+    """With an on_chunk consumer, run() forwards a ChunkOutcome per chunk and
+    returns normally even on failure (the consumer owns the exit decision)."""
+    outcomes: list[ChunkOutcome] = []
+
+    def flaky_sync(_s, flow, year, *, storage_client, force):
+        if (flow, year) == ("import", 2020):
+            raise RuntimeError("boom")
+        return True
+
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comex.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comex.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
+        patch.object(pipeline, "sync_raw", side_effect=flaky_sync),
+        patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
+        patch.object(pipeline, "mark_bronze_loaded"),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+    ):
+        starts: list[str] = []
+        pipeline.run(
+            settings,
+            full=False,
+            on_chunk_start=starts.append,
+            on_chunk=outcomes.append,
+        )
+
+    n = len(pipeline.all_chunks(settings))
+    assert len(outcomes) == n and len(starts) == n
+    failed = [o for o in outcomes if o.status == "failed"]
+    assert [o.chunk_id for o in failed] == ["IMP_2020"]
+
+
+def test_process_chunk_current_year_404_is_skipped_not_failed(settings) -> None:
+    """A 404 for the latest configured year (file not published yet) is a skip,
+    so the blind cron never aborts on it."""
+    # settings.comex_end_year == 2023 (fixture) → 2023 is the "current" year.
+    with patch.object(
+        pipeline, "sync_raw", side_effect=client.ComexRequestError("HTTP 404 for .../EXP_2023.csv")
+    ):
+        outcome = pipeline.process_chunk(
+            settings,
+            "export",
+            2023,
+            storage_client=MagicMock(),
+            bq_client=MagicMock(),
+            table_fqn="p.d.t",
+        )
+    assert outcome.status == "skipped"
+    assert "404" in outcome.detail
+
+
+def test_process_chunk_404_on_past_year_still_raises(settings) -> None:
+    """A 404 on a historical year is anomalous → it must surface, not be skipped."""
+    with (
+        patch.object(
+            pipeline,
+            "sync_raw",
+            side_effect=client.ComexRequestError("HTTP 404 for .../EXP_2020.csv"),
+        ),
+        pytest.raises(client.ComexRequestError),
+    ):
+        pipeline.process_chunk(
+            settings,
+            "export",
+            2020,  # not the latest configured year
+            storage_client=MagicMock(),
+            bq_client=MagicMock(),
+            table_fqn="p.d.t",
+        )
+
+
+# ─── freshness-degradation warning (task 7) ──────────────────────────────────
+def test_raw_is_current_warns_when_no_comparable_identifier(caplog) -> None:
+    """An archived raw with no comparable freshness header on either side forces a
+    re-download AND logs a WARNING so the silent degradation is visible."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        result = pipeline._raw_is_current(
+            {"some_other_meta": "x"}, {"source_url": "u"}, label="EXP_2026"
+        )
+    assert result is False
+    assert any("freshness identifier" in r.message for r in caplog.records)
+    assert any("EXP_2026" in r.getMessage() for r in caplog.records)

@@ -19,6 +19,7 @@ import contextlib
 import logging
 import os
 import tempfile
+from collections.abc import Callable
 from datetime import UTC
 
 import pandas as pd
@@ -27,6 +28,8 @@ from google.cloud import bigquery, storage
 from embrapa_commodities.comex import client
 from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.core import (
+    ChunkOutcome,
+    IngestPartialFailure,
     download_raw,
     land_raw_file,
     mark_raw_bronze_loaded,
@@ -81,16 +84,32 @@ def all_chunks(settings: Settings) -> list[tuple[str, int]]:
     return [(flow, year) for flow in settings.comex_flows_list for year in range(start, end + 1)]
 
 
-def _raw_is_current(stored: dict[str, str] | None, head: dict[str, str]) -> bool:
+def _raw_is_current(
+    stored: dict[str, str] | None, head: dict[str, str], *, label: str = ""
+) -> bool:
     """True when the archived raw matches the live source by the first shared
     identifier (ETag > Last-Modified > Content-Length). Missing archive or no
-    comparable identifier → not current (re-extract to be safe)."""
+    comparable identifier → not current (re-extract to be safe).
+
+    When an archive *does* exist but neither side exposes a comparable freshness
+    identifier, the function returns ``False`` (forcing a full re-download) and
+    emits a WARNING: that silent degradation — a server dropping ETag /
+    Last-Modified / Content-Length — would otherwise re-download every file every
+    run with no visible cause. ``label`` (e.g. ``"EXP_2026"``) tags the warning.
+    """
     if not stored:
         return False
     for key in ("source_etag", "source_last_modified", "source_content_length"):
         live, archived = head.get(key), stored.get(key)
         if live is not None and archived is not None:
             return live == archived
+    logger.warning(
+        "Comex %s: raw is archived but no comparable freshness identifier "
+        "(ETag/Last-Modified/Content-Length) is present on both sides — "
+        "forcing a full re-download. The source may have stopped sending these "
+        "headers; freshness short-circuiting is degraded until it resumes.",
+        label or "(unknown)",
+    )
     return False
 
 
@@ -117,7 +136,7 @@ def sync_raw(
             dataset=RAW_DATASET,
             basename=basename,
         )
-        if _raw_is_current(stored, head):
+        if _raw_is_current(stored, head, label=basename):
             logger.info(
                 "Comex %s %d: raw current (source unchanged), skipping download.", flow, year
             )
@@ -225,7 +244,14 @@ def needs_bronze(
 def mark_bronze_loaded(
     settings: Settings, flow: str, year: int, *, storage_client: storage.Client
 ) -> None:
-    """Stamp the ``(flow, year)`` raw object as loaded into Bronze (Phase 2 done)."""
+    """Stamp the ``(flow, year)`` raw object as loaded into Bronze (Phase 2 done).
+
+    **Semantics: at-least-once, not exactly-once.** The marker is written *after*
+    the Bronze load, so a crash in the window between the load and this stamp
+    leaves the partition loaded but unmarked; the next run sees ``needs_bronze``
+    true and loads it again. Duplicate rows are expected and safe: Silver dedupes
+    on the natural key by ``ingestion_timestamp desc``, so Gold stays correct.
+    """
     mark_raw_bronze_loaded(
         storage_client,
         settings=settings,
@@ -242,6 +268,74 @@ def ensure_destination(settings: Settings, bq_client: bigquery.Client) -> str:
     return f"{dataset_id}.{settings.bq_bronze_comex_flows_table}"
 
 
+def _is_current_year_missing(exc: Exception, flow: str, year: int, settings: Settings) -> bool:
+    """True when ``exc`` is a 404 for the latest configured year.
+
+    The blind cron asks for the current calendar year before MDIC has published
+    its file; the HEAD/GET then 404s. That is an *expected* not-yet-published
+    state, not a pipeline failure — so the orchestrator skips it instead of
+    aborting. Scoped to the latest year on purpose: a 404 on a historical year is
+    anomalous and must surface as a real failure.
+    """
+    return year == settings.comex_end_year and "HTTP 404" in str(exc)
+
+
+def process_chunk(
+    settings: Settings,
+    flow: str,
+    year: int,
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client,
+    table_fqn: str,
+    from_raw: bool = False,
+    force: bool = False,
+) -> ChunkOutcome:
+    """Run both phases for a single ``(flow, year)`` chunk and describe the result.
+
+    The one per-chunk unit of work, shared by :func:`run` and the CLI so the
+    orchestration logic lives in exactly one place. Resume/idempotency is
+    preserved verbatim: ``needs_bronze`` still reloads an unchanged-but-unmarked
+    raw (a prior run that aborted before Phase 2), and the load is still followed
+    by :func:`mark_bronze_loaded` (at-least-once — see its docstring).
+
+    A current-year 404 (file not published yet) is reported as ``skipped``, not
+    raised, so the blind cron never aborts on it.
+    """
+    chunk_id = _basename(flow, year)
+    try:
+        if from_raw:
+            process = has_raw(settings, flow, year, storage_client=storage_client)
+        else:
+            extracted = sync_raw(settings, flow, year, storage_client=storage_client, force=force)
+            # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
+            # an unchanged-but-never-loaded raw (aborted prior run) still loads.
+            process = needs_bronze(
+                settings, flow, year, extracted=extracted, storage_client=storage_client
+            )
+    except Exception as exc:
+        if _is_current_year_missing(exc, flow, year, settings):
+            logger.info("Comex %s %d: source file not published yet (404), skipping.", flow, year)
+            return ChunkOutcome(chunk_id, "skipped", detail="not published yet (404)")
+        raise
+
+    if not process:
+        return ChunkOutcome(chunk_id, "skipped", detail="source unchanged")
+
+    destination = bronze_one(
+        settings,
+        flow,
+        year,
+        storage_client=storage_client,
+        bq_client=bq_client,
+        table_fqn=table_fqn,
+    )
+    mark_bronze_loaded(settings, flow, year, storage_client=storage_client)
+    if not destination:
+        return ChunkOutcome(chunk_id, "skipped", detail="no configured products")
+    return ChunkOutcome(chunk_id, "loaded", destination=destination)
+
+
 def run(
     settings: Settings,
     *,
@@ -249,13 +343,25 @@ def run(
     from_raw: bool = False,
     storage_client: storage.Client | None = None,
     bq_client: bigquery.Client | None = None,
+    on_chunk_start: Callable[[str], None] | None = None,
+    on_chunk: Callable[[ChunkOutcome], None] | None = None,
 ) -> str:
     """Sync raw (Phase 1) then load Bronze (Phase 2). Returns the last destination, or ``""``.
 
-    Default: per (flow, year), re-download only if the source changed, and load
-    Bronze for the ones that changed. ``full`` forces a re-download of every
-    file. ``from_raw`` skips Phase 1 entirely and rebuilds Bronze from whatever
-    raw is already archived (re-filter without touching the source).
+    **Single source of truth for the ``(flow, year)`` loop**, with continue-on-
+    failure baked in: one bad chunk (a 503, a non-current-year glitch) is recorded
+    and the loop moves on instead of stranding the rest. Default: per (flow,
+    year), re-download only if the source changed, and load Bronze for the ones
+    that changed. ``full`` forces a re-download of every file. ``from_raw`` skips
+    Phase 1 entirely and rebuilds Bronze from whatever raw is already archived.
+
+    Hooks let the CLI present progress without re-deriving the loop:
+    ``on_chunk_start(chunk_id)`` fires before each chunk; ``on_chunk(outcome)``
+    fires after with its :class:`ChunkOutcome`. When **no** ``on_chunk`` consumer
+    is given (e.g. ``ingest all`` calls ``run`` bare) and any chunk failed, the
+    aggregated failures are raised as :class:`IngestPartialFailure` so a
+    source-level handler can collect them; with a consumer, ``run`` returns
+    normally and the caller decides the exit code from the outcomes it saw.
     """
     creds = get_credentials(settings)
     bq_client = bq_client or bigquery.Client(
@@ -267,27 +373,31 @@ def run(
     table_fqn = ensure_destination(settings, bq_client)
 
     last_destination = ""
+    failures: list[tuple[str, str]] = []
     for flow, year in all_chunks(settings):
-        if from_raw:
-            if not has_raw(settings, flow, year, storage_client=storage_client):
-                continue
-        else:
-            extracted = sync_raw(settings, flow, year, storage_client=storage_client, force=full)
-            # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
-            # an unchanged-but-never-loaded raw (aborted prior run) still loads.
-            if not needs_bronze(
-                settings, flow, year, extracted=extracted, storage_client=storage_client
-            ):
-                continue
-        destination = bronze_one(
-            settings,
-            flow,
-            year,
-            storage_client=storage_client,
-            bq_client=bq_client,
-            table_fqn=table_fqn,
-        )
-        if destination:
-            last_destination = destination
-        mark_bronze_loaded(settings, flow, year, storage_client=storage_client)
+        chunk_id = _basename(flow, year)
+        if on_chunk_start is not None:
+            on_chunk_start(chunk_id)
+        try:
+            outcome = process_chunk(
+                settings,
+                flow,
+                year,
+                storage_client=storage_client,
+                bq_client=bq_client,
+                table_fqn=table_fqn,
+                from_raw=from_raw,
+                force=full,
+            )
+        except Exception as exc:
+            outcome = ChunkOutcome(chunk_id, "failed", detail=str(exc))
+        if outcome.status == "failed":
+            failures.append((chunk_id, outcome.detail[:200]))
+        elif outcome.destination:
+            last_destination = outcome.destination
+        if on_chunk is not None:
+            on_chunk(outcome)
+
+    if failures and on_chunk is None:
+        raise IngestPartialFailure(failures)
     return last_destination

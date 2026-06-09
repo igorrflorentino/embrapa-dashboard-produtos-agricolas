@@ -29,6 +29,12 @@ from embrapa_commodities.gcp.storage import ensure_bucket
 
 logger = logging.getLogger(__name__)
 
+# Wall-clock ceiling for a single GCS object op (upload / download / metadata).
+# google-cloud-storage defaults to 60s; raw Parquet objects are small but a
+# stalled connection on an unattended Cloud Run ingest should still time out
+# rather than hang the job forever. 300s leaves slack for the largest raw blobs.
+GCS_TIMEOUT_S: float = 300.0
+
 
 def raw_object_name(settings: Settings, source: str, dataset: str, basename: str) -> str:
     """Canonical GCS object path for a raw extract.
@@ -67,7 +73,7 @@ def land_raw(
 
     blob = storage_client.bucket(settings.gcs_bucket).blob(object_name)
     blob.metadata = _raw_metadata(provenance, source, len(df))
-    blob.upload_from_file(buffer, content_type="application/octet-stream")
+    blob.upload_from_file(buffer, content_type="application/octet-stream", timeout=GCS_TIMEOUT_S)
     uri = f"gs://{settings.gcs_bucket}/{object_name}"
     logger.info("Raw-landed %d rows → %s", len(df), uri)
     return uri
@@ -105,7 +111,9 @@ def land_raw_file(
     object_name = raw_object_name(settings, source, dataset, basename)
     blob = storage_client.bucket(settings.gcs_bucket).blob(object_name)
     blob.metadata = _raw_metadata(provenance, source, rows)
-    blob.upload_from_filename(local_path, content_type="application/octet-stream")
+    blob.upload_from_filename(
+        local_path, content_type="application/octet-stream", timeout=GCS_TIMEOUT_S
+    )
     uri = f"gs://{settings.gcs_bucket}/{object_name}"
     logger.info("Raw-landed file → %s", uri)
     return uri
@@ -142,7 +150,7 @@ def download_raw(
     stays memory-bounded (the compressed Parquet download is small)."""
     object_name = raw_object_name(settings, source, dataset, basename)
     blob = storage_client.bucket(settings.gcs_bucket).blob(object_name)
-    return blob.download_as_bytes()
+    return blob.download_as_bytes(timeout=GCS_TIMEOUT_S)
 
 
 def list_raw(
@@ -181,7 +189,7 @@ def raw_provenance(
     source-specific freshness check treats that as "must extract".
     """
     object_name = raw_object_name(settings, source, dataset, basename)
-    blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name)
+    blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name, timeout=GCS_TIMEOUT_S)
     if blob is None:
         return None
     return blob.metadata or {}
@@ -211,13 +219,13 @@ def mark_raw_bronze_loaded(
     *the current raw version* has been loaded.
     """
     object_name = raw_object_name(settings, source, dataset, basename)
-    blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name)
+    blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name, timeout=GCS_TIMEOUT_S)
     if blob is None:  # nothing archived (e.g. an empty fetch landed no object)
         return
     metadata = dict(blob.metadata or {})
     metadata[BRONZE_LOADED_KEY] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     blob.metadata = metadata
-    blob.patch()
+    blob.patch(timeout=GCS_TIMEOUT_S)
 
 
 def raw_bronze_loaded(stored: dict[str, str] | None) -> bool:

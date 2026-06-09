@@ -10,7 +10,13 @@ respective ``ibge/`` / ``bcb/`` packages.
 """
 
 from embrapa_commodities.core.exceptions import SourceTransientError
-from embrapa_commodities.core.observability_helpers import pipeline_run
+from embrapa_commodities.core.observability_helpers import (
+    ChunkOutcome,
+    ChunkTracker,
+    IngestPartialFailure,
+    chunked_run,
+    pipeline_run,
+)
 from embrapa_commodities.core.raw import (
     download_raw,
     land_raw,
@@ -24,7 +30,11 @@ from embrapa_commodities.core.raw import (
 )
 
 __all__ = [
+    "ChunkOutcome",
+    "ChunkTracker",
+    "IngestPartialFailure",
     "SourceTransientError",
+    "chunked_run",
     "download_raw",
     "land_raw",
     "land_raw_file",

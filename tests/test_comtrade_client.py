@@ -193,12 +193,17 @@ def test_fetch_chunk_raises_permanent_on_400() -> None:
 
 
 @responses.activate
-def test_fetch_chunk_raises_transient_on_429() -> None:
+def test_fetch_chunk_raises_quota_error_on_429() -> None:
+    """A keyed-call 429 means the daily quota is spent → ComtradeQuotaError, and it
+    is deliberately NOT a transient/retryable error (the pipeline stops on it and
+    the user re-runs later to resume)."""
     responses.add(responses.GET, re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"), status=429)
-    with pytest.raises(client.ComtradeTransientError):  # rate limit → retryable
+    with pytest.raises(client.ComtradeQuotaError) as exc:
         client.fetch_chunk.__wrapped__(  # type: ignore[attr-defined]
             BASE_URL, API_KEY, reporters=["76"], years=[2022], cmd_codes=["0801"], flows=["X"]
         )
+    assert not isinstance(exc.value, client.ComtradeTransientError)  # not retried
+    assert "re-run to resume" in str(exc.value)
 
 
 # ─── fetch_chunk_adaptive (recursive split on the per-call cap) ───────────────
@@ -243,3 +248,23 @@ def test_fetch_chunk_adaptive_falls_back_to_flows_then_cmd(monkeypatch) -> None:
     # 2 flows × 2 cmd = 4 leaves, each (1 flow, 1 cmd), 5 rows → 20 total.
     assert len(df) == 20
     assert leaf_dims == [(1, 1)] * 4
+
+
+def test_fetch_chunk_adaptive_raises_truncation_when_singleton_still_caps(monkeypatch) -> None:
+    """An indivisible (single reporter/flow/cmd) call that STILL returns the cap
+    cannot be split further; rather than silently archive a truncated chunk, it
+    emits a ``truncated`` event and raises ComtradeTruncationError so the chunk is
+    left un-archived for a later run to re-attempt."""
+    emitted: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        client.observability, "emit", lambda event, **fields: emitted.append((event, fields))
+    )
+    # Every call is at the cap, even the indivisible leaf.
+    monkeypatch.setattr(client, "fetch_chunk", lambda *a, **k: _frame(client.PER_CALL_ROW_CAP))
+    with pytest.raises(client.ComtradeTruncationError):
+        client.fetch_chunk_adaptive(
+            "u", "k", reporters=["1"], years=[2023], cmd_codes=["a"], flows=["X"]
+        )
+    assert any(event == "truncated" for event, _ in emitted)
+    # Not a transient error → the pipeline records it as a chunk failure, no retry.
+    assert not issubclass(client.ComtradeTruncationError, client.ComtradeTransientError)

@@ -21,6 +21,19 @@ for free:
     ``CACHE_TYPE=RedisCache`` + ``CACHE_REDIS_URL`` (Memorystore) is OPTIONAL —
     reach for it only if you ever need *instant* (sub-second) cross-instance
     classification consistency under high traffic, which this workload does not.
+
+Two ``SimpleCache`` internals are knowingly accepted (NOT worked around — they are
+flask-caching/Werkzeug behaviour, not our bug):
+
+  * Eviction at the 500-entry threshold (Werkzeug default) prunes expired-then-
+    oldest entries NON-atomically. Under concurrent writes an entry can be
+    evicted slightly early or a stale one linger briefly. The serving keyspace is
+    tiny (a handful of mart shapes + one classification read), so the cap is never
+    realistically hit; if it were, an early eviction is just a cache miss → a
+    correct re-query. No correctness impact, only a marginal extra BigQuery read.
+  * Invalidation via ``delete_memoized`` bumps a version sentinel instead of
+    deleting entries, so orphaned values persist until their TTL (documented at
+    the call site in ``serving.curation``). Bounded, eventual (<= TTL) — fine here.
 """
 
 from __future__ import annotations
@@ -38,6 +51,12 @@ def init_cache(server, settings=None) -> Cache:
     (mart TTLs + a short classification TTL — see module docstring). Set
     ``CACHE_TYPE=RedisCache`` + ``CACHE_REDIS_URL`` only for *instant*
     cross-instance classification consistency (optional, not required).
+
+    Also binds the *authoritative* curation-read TTL: the classification fetch is
+    decorated with a static default before Settings exists, so here — where we have
+    Settings — we set its writable ``cache_timeout`` attribute (which flask-caching
+    re-reads per call) to ``cache_classification_timeout``. That makes the config
+    field the single source of truth instead of a separately-read env var.
     """
     from embrapa_commodities.config import get_settings
 
@@ -49,4 +68,17 @@ def init_cache(server, settings=None) -> Cache:
     if cfg.cache_redis_url:
         config["CACHE_REDIS_URL"] = cfg.cache_redis_url
     cache.init_app(server, config=config)
+    _bind_classification_ttl(cfg.cache_classification_timeout)
     return cache
+
+
+def _bind_classification_ttl(timeout: int) -> None:
+    """Point the memoized classification read at the Settings-derived TTL.
+
+    Imported lazily (gateway imports this module) to dodge a circular import.
+    flask-caching reads ``decorated_fn.cache_timeout`` on every call, so updating
+    it here overrides the decoration-time default with the authoritative value.
+    """
+    from embrapa_commodities.serving import gateway
+
+    gateway.fetch_current_classifications.cache_timeout = timeout

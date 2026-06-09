@@ -21,9 +21,35 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 # odd values); strips a trailing CR so Windows CRLF files work too.
 get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
+# Resolve the Cloud Run region. Cloud Run requires a SINGLE region (e.g.
+# us-central1) and rejects a BigQuery multi-region locator like "US"/"EU" —
+# `gcloud run jobs deploy --region US` fails. So INGEST_JOB_REGION is a
+# first-class input, DECOUPLED from BQ_LOCATION, defaulting to us-central1.
+# As a convenience, an explicitly-set multi-region locator is mapped to a
+# concrete region; a bare/unmapped multi-region is rejected with a clear error
+# rather than passed through to gcloud (which would fail cryptically).
+resolve_region() {
+  local r="${INGEST_JOB_REGION:-}"
+  if [ -z "$r" ]; then
+    echo us-central1
+    return 0
+  fi
+  case "$r" in
+    US|us) echo us-central1 ;;       # BigQuery "US" multi-region → default Cloud Run region
+    EU|eu) echo europe-west1 ;;      # BigQuery "EU" multi-region → a concrete EU region
+    *-*)   echo "$r" ;;              # already a concrete region (has a hyphen, e.g. us-east1)
+    *)
+      echo "ERROR: INGEST_JOB_REGION='$r' is not a Cloud Run region. Cloud Run needs a" >&2
+      echo "       single region (e.g. us-central1, europe-west1), not a multi-region." >&2
+      echo "       Set INGEST_JOB_REGION explicitly in .env (it is decoupled from BQ_LOCATION)." >&2
+      exit 1
+      ;;
+  esac
+}
+
 PROJECT="${GCP_PROJECT_ID:-$(get_env GCP_PROJECT_ID)}"
 [ -n "$PROJECT" ] || { echo "ERROR: GCP_PROJECT_ID not set"; exit 1; }
-REGION="${INGEST_JOB_REGION:-$(get_env BQ_LOCATION)}"; REGION="${REGION:-us-central1}"
+REGION="$(INGEST_JOB_REGION="${INGEST_JOB_REGION:-$(get_env INGEST_JOB_REGION)}" resolve_region)"
 JOB_NAME="${INGEST_JOB_NAME:-embrapa-ingest-all}"
 AR_REPO="${INGEST_JOB_AR_REPO:-embrapa-jobs}"
 INGEST_SA="${INGEST_JOB_SA:-sa-data-pipeline-prod@${PROJECT}.iam.gserviceaccount.com}"
@@ -52,16 +78,29 @@ gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
   --config "$REPO_ROOT/deploy/ingestion/cloudbuild.yaml" \
   --substitutions "_IMAGE=${IMAGE}"
 
-# 3) Build the Job env vars from .env. Forward the non-secret config; the job
-#    runs AS the ingestion SA, so it needs no impersonation and no API key
-#    (COMTRADE is excluded from `ingest all`). A YAML file handles values with
-#    commas/colons (e.g. BCB_INFLATION_SERIES=433:IPCA,189:IGPM) safely.
+# 3) Build the Job env vars from .env via an EXPLICIT ALLOWLIST — forward ONLY
+#    the keys `embrapa ingest all` actually reads, not the whole .env. The job
+#    runs AS the ingestion SA (no impersonation, no API key) and is a batch with
+#    no UI, so the serving/cache/dbt and deploy-time INGEST_*/INGEST_SCHEDULE_*
+#    vars are irrelevant to it; shipping them would only leak config surface
+#    into the Job's environment. COMTRADE is excluded from `ingest all`
+#    (key-gated), so its Bronze/scope vars are omitted too. A YAML file handles
+#    values with commas/colons (e.g. BCB_INFLATION_SERIES=433:IPCA,189:IGPM).
+#
+# Allowlist (anchored, prefix-based so new per-source knobs are auto-covered):
+#   GCP_PROJECT_ID, GCS_*                       — project + landing/raw bucket + prefixes
+#   BQ_LOCATION                                 — dataset region
+#   BQ_BRONZE_{IBGE,BCB,COMEX}_*                — Bronze dataset/table names for the
+#                                                 sources `all` runs (NOT COMTRADE:
+#                                                 it is key-gated and excluded from `all`)
+#   IBGE_* / BCB_* / COMEX_*                     — per-source scope (codes, years, flows, delta)
+INGEST_ALLOWLIST='^(GCP_PROJECT_ID|GCS_[A-Z0-9_]+|BQ_LOCATION|BQ_BRONZE_(IBGE|BCB|COMEX)_[A-Z0-9_]+|IBGE_[A-Z0-9_]+|BCB_[A-Z0-9_]+|COMEX_[A-Z0-9_]+)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
-grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" \
-  | grep -vE '^(COMTRADE_API_KEY|GCP_IMPERSONATION_SA|CACHE_REDIS_URL|CURATION_DEV_AUTHOR)=' \
+grep -E "$INGEST_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
       printf "%s: '%s'\n" "$key" "$(printf '%s' "$val" | tr -d '\r')"
     done > "$ENV_YAML"
+[ -s "$ENV_YAML" ] || { echo "ERROR: no ingestion config matched in $ENV_FILE (check GCP_PROJECT_ID etc.)"; exit 1; }
 
 # 4) Deploy / update the Cloud Run Job (create-or-update).
 echo "Deploying Cloud Run Job…"

@@ -7,6 +7,7 @@ import logging
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -21,8 +22,14 @@ from embrapa_commodities.bcb import currency as bcb_currency
 from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.comex import pipeline as comex_pipeline
 from embrapa_commodities.comtrade import pipeline as comtrade_pipeline
+from embrapa_commodities.comtrade.client import ComtradeQuotaError
 from embrapa_commodities.config import get_credentials, get_settings
-from embrapa_commodities.core import pipeline_run
+from embrapa_commodities.core import (
+    ChunkOutcome,
+    ChunkTracker,
+    chunked_run,
+    pipeline_run,
+)
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
 
@@ -78,6 +85,69 @@ INGESTS: list[IngestSpec] = [
     # quota-gated/massivo (252 reporters × anos) — roda só via `ingest comtrade`.
     IngestSpec("comtrade", comtrade_pipeline, accepts_full=True, label="UN COMTRADE", in_all=False),
 ]
+
+
+# ─── chunked-command presentation helpers ──────────────────────────────────────
+# The CLI is presentation-only: the per-(flow, year)/(year, batch) loop and its
+# continue-on-failure now live in each pipeline's run(); these helpers turn the
+# ChunkOutcome stream that run() emits into console lines + the failure summary.
+# The observability emit pair / chunks_ok-failed bookkeeping lives in
+# core.chunked_run (the ChunkTracker yielded below).
+
+
+def _echo_chunk_result(tracker: ChunkTracker, outcome: ChunkOutcome) -> None:
+    """Print one finished chunk's result line, mirroring its status."""
+    duration = tracker.last_duration_s
+    cid = outcome.chunk_id
+    if outcome.status == "loaded":
+        console.print(f"  [green]✓[/green] {cid} → {outcome.destination} [dim]({duration}s)[/dim]")
+    elif outcome.status == "skipped":
+        console.print(f"  [dim]·[/dim] {cid} — {outcome.detail} [dim](skipped, {duration}s)[/dim]")
+    else:
+        console.print(f"  [red]✗ {cid} failed:[/red] {outcome.detail[:200]}")
+
+
+def _make_chunk_handlers(
+    tracker: ChunkTracker,
+) -> tuple[Callable[[str], None], Callable[[ChunkOutcome], None]]:
+    """Build the ``(on_chunk_start, on_chunk)`` callbacks a pipeline ``run`` drives.
+
+    ``on_chunk_start`` emits ``chunk_start`` (via the tracker) and prints the
+    ``[i/total] -> chunk_id`` heading; ``on_chunk`` emits ``chunk_end`` /
+    ``chunk_error`` (via the tracker) and prints the result line.
+    """
+
+    def on_chunk_start(chunk_id: str) -> None:
+        i = tracker.start_chunk(chunk_id)
+        console.print(f"  [dim][{i}/{tracker.total}][/dim] [bold]-> {chunk_id}[/bold]")
+
+    def on_chunk(outcome: ChunkOutcome) -> None:
+        tracker.finish(outcome)
+        _echo_chunk_result(tracker, outcome)
+
+    return on_chunk_start, on_chunk
+
+
+def _summarize_and_exit(
+    tracker: ChunkTracker, *, label: str, success_msg: str, retry_hint: str = ""
+) -> None:
+    """Print the run's closing summary and exit non-zero if any chunk failed.
+
+    Shared tail of every chunked command so the failure listing and exit code
+    are identical across sources; ``retry_hint`` carries the source-specific
+    "how to re-run" line (empty to omit).
+    """
+    if tracker.chunks_failed:
+        console.print(
+            f"\n[yellow bold]⚠ {len(tracker.chunks_failed)} {label} chunk(s) failed; "
+            f"{len(tracker.chunks_ok)} succeeded[/yellow bold]"
+        )
+        for chunk_id, err in tracker.chunks_failed:
+            console.print(f"  [red]✗[/red] {chunk_id} — {err}")
+        if retry_hint:
+            console.print(retry_hint)
+        raise typer.Exit(code=1)
+    console.print(success_msg)
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
@@ -217,25 +287,6 @@ def ingest_ibge_batch(
         f"in {total} chunk(s) of {chunk_years} year(s) [dim]({chunk_source})[/dim]"
     )
 
-    run_id, log_path = observability.init_run("ibge-batch")
-    console.print(f"[dim]event log:[/dim] {log_path}")
-    console.print(
-        "[dim]tip:[/dim] run [bold]uv run embrapa monitor[/bold] in another terminal "
-        "to watch progress live"
-    )
-    observability.emit(
-        "pipeline_start",
-        pipeline="ibge-batch",
-        run_id=run_id,
-        chunks_total=total,
-        params={
-            "start_year": range_start,
-            "end_year": range_end,
-            "chunk_years": chunk_years,
-            "products": settings.product_codes,
-        },
-    )
-
     # Build clients once; reuse across all chunks to avoid repeated auth.
     creds = get_credentials(settings)
     storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
@@ -243,79 +294,59 @@ def ingest_ibge_batch(
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
 
-    pipeline_started = time.monotonic()
-    chunks_ok: list[str] = []
-    chunks_failed: list[tuple[str, str]] = []
-
-    for i, chunk_start in enumerate(chunks, 1):
-        chunk_end = min(chunk_start + chunk_years - 1, range_end)
-        chunk_id = f"{chunk_start}-{chunk_end}"
-        chunk_settings = settings.model_copy(
-            update={"ibge_start_year": chunk_start, "ibge_end_year": chunk_end}
+    # ibge-batch drives its own per-chunk loop (each chunk is a year-range that
+    # calls ibge_pipeline.run with full=True); chunked_run owns the event
+    # scaffold + ok/failed bookkeeping, matching comex/comtrade.
+    params = {
+        "start_year": range_start,
+        "end_year": range_end,
+        "chunk_years": chunk_years,
+        "products": settings.product_codes,
+    }
+    with chunked_run("ibge-batch", total=total, params=params) as tracker:
+        console.print(f"[dim]event log:[/dim] {tracker.log_path}")
+        console.print(
+            "[dim]tip:[/dim] run [bold]uv run embrapa monitor[/bold] in another terminal "
+            "to watch progress live"
         )
-        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
-        chunk_started = time.monotonic()
-        console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
-        try:
-            destination = ibge_pipeline.run(
-                chunk_settings,
-                full=True,
-                storage_client=storage_client,
-                bq_client=bq_client,
+        for chunk_start in chunks:
+            chunk_end = min(chunk_start + chunk_years - 1, range_end)
+            chunk_id = f"{chunk_start}-{chunk_end}"
+            chunk_settings = settings.model_copy(
+                update={"ibge_start_year": chunk_start, "ibge_end_year": chunk_end}
             )
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_end",
-                chunk_id=chunk_id,
-                chunk_n=i,
-                chunk_total=total,
-                duration_s=duration,
-                destination=destination,
-            )
-            chunks_ok.append(chunk_id)
-            if destination:
-                console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
-            else:
-                console.print(
-                    f"  [yellow]⚠[/yellow] {chunk_id} — SIDRA returned no rows "
-                    f"[dim](skipped, {duration}s)[/dim]"
+            i = tracker.start_chunk(chunk_id)
+            console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
+            try:
+                destination = ibge_pipeline.run(
+                    chunk_settings,
+                    full=True,
+                    storage_client=storage_client,
+                    bq_client=bq_client,
                 )
-        except Exception as exc:
-            # Continue-on-failure: a single hung chunk should not strand the rest.
-            # The chunk_error event in the log + the summary below tell the user
-            # exactly which year ranges need a re-run.
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_error",
-                chunk_id=chunk_id,
-                chunk_n=i,
-                chunk_total=total,
-                duration_s=duration,
-                error=str(exc)[:300],
-            )
-            chunks_failed.append((chunk_id, str(exc)[:200]))
-            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:200]}")
+            except Exception as exc:
+                # Continue-on-failure: a single hung chunk must not strand the
+                # rest; the chunk_error event + summary point at the year ranges
+                # that need a re-run.
+                outcome = ChunkOutcome(chunk_id, "failed", detail=str(exc))
+            else:
+                outcome = (
+                    ChunkOutcome(chunk_id, "loaded", destination=destination)
+                    if destination
+                    else ChunkOutcome(chunk_id, "skipped", detail="SIDRA returned no rows")
+                )
+            tracker.finish(outcome)
+            _echo_chunk_result(tracker, outcome)
 
-    observability.emit(
-        "pipeline_end",
-        duration_s=round(time.monotonic() - pipeline_started, 2),
-        chunks_ok=len(chunks_ok),
-        chunks_failed=len(chunks_failed),
-    )
-
-    if chunks_failed:
-        console.print(
-            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed; "
-            f"{len(chunks_ok)} succeeded[/yellow bold]"
-        )
-        for chunk_id, err in chunks_failed:
-            console.print(f"  [red]✗[/red] {chunk_id} — {err}")
-        console.print(
+    _summarize_and_exit(
+        tracker,
+        label="IBGE",
+        success_msg=f"\n[green bold]✓ All {total} batches complete[/green bold]",
+        retry_hint=(
             "\n[dim]Re-run failed chunks individually with:[/dim]\n"
             "  IBGE_START_YEAR=<start> IBGE_END_YEAR=<end> uv run embrapa ingest ibge"
-        )
-        raise typer.Exit(code=1)
-    console.print(f"\n[green bold]✓ All {total} batches complete[/green bold]")
+        ),
+    )
 
 
 @ingest_app.command("comex")
@@ -346,113 +377,32 @@ def ingest_comex(
     bq_client = bigquery.Client(
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
-    table_fqn = comex_pipeline.ensure_destination(settings, bq_client)
-    chunks = comex_pipeline.all_chunks(settings)
-    total = len(chunks)
-
+    total = len(comex_pipeline.all_chunks(settings))
     mode = "from-raw" if from_raw else ("full" if full else "delta")
-    run_id, log_path = observability.init_run("comex")
-    console.print(f"[dim]event log:[/dim] {log_path}")
-    console.print(f"[bold]COMEX ingest:[/bold] {total} chunk(s) [dim]({mode})[/dim]")
-    observability.emit(
-        "pipeline_start",
-        pipeline="comex",
-        run_id=run_id,
-        chunks_total=total,
-        params={"full": full, "from_raw": from_raw, "flows": settings.comex_flows_list},
-    )
+    params = {"full": full, "from_raw": from_raw, "flows": settings.comex_flows_list}
 
-    chunks_ok: list[str] = []
-    chunks_failed: list[tuple[str, str]] = []
-    pipeline_started = time.monotonic()
-
-    for i, (flow, year) in enumerate(chunks, 1):
-        chunk_id = comex_pipeline._basename(flow, year)
-        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
-        chunk_started = time.monotonic()
-        console.print(f"  [dim][{i}/{total}][/dim] [bold]-> {chunk_id}[/bold]")
-        try:
-            if from_raw:
-                process = comex_pipeline.has_raw(
-                    settings, flow, year, storage_client=storage_client
-                )
-            else:
-                extracted = comex_pipeline.sync_raw(
-                    settings, flow, year, storage_client=storage_client, force=full
-                )
-                process = comex_pipeline.needs_bronze(
-                    settings, flow, year, extracted=extracted, storage_client=storage_client
-                )
-            destination = (
-                comex_pipeline.bronze_one(
-                    settings,
-                    flow,
-                    year,
-                    storage_client=storage_client,
-                    bq_client=bq_client,
-                    table_fqn=table_fqn,
-                )
-                if process
-                else ""
-            )
-            if process:
-                comex_pipeline.mark_bronze_loaded(
-                    settings, flow, year, storage_client=storage_client
-                )
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_end",
-                chunk_id=chunk_id,
-                chunk_n=i,
-                chunk_total=total,
-                duration_s=duration,
-                destination=destination,
-            )
-            chunks_ok.append(chunk_id)
-            if destination:
-                console.print(f"  [green]✓[/green] loaded → {destination} [dim]({duration}s)[/dim]")
-            elif not process:
-                console.print(
-                    f"  [dim]·[/dim] {chunk_id} — source unchanged "
-                    f"[dim](skipped, {duration}s)[/dim]"
-                )
-            else:
-                console.print(
-                    f"  [yellow]⚠[/yellow] {chunk_id} — no configured products "
-                    f"[dim](skipped, {duration}s)[/dim]"
-                )
-        except Exception as exc:
-            # Continue-on-failure: one bad year (e.g. a 404 for an unpublished
-            # file) shouldn't strand the rest. The chunk_error + summary tell
-            # the user which (flow, year) to re-run.
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_error",
-                chunk_id=chunk_id,
-                chunk_n=i,
-                chunk_total=total,
-                duration_s=duration,
-                error=str(exc)[:300],
-            )
-            chunks_failed.append((chunk_id, str(exc)[:200]))
-            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:200]}")
-
-    observability.emit(
-        "pipeline_end",
-        duration_s=round(time.monotonic() - pipeline_started, 2),
-        chunks_ok=len(chunks_ok),
-        chunks_failed=len(chunks_failed),
-    )
-
-    if chunks_failed:
-        console.print(
-            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed; "
-            f"{len(chunks_ok)} succeeded[/yellow bold]"
+    # The (flow, year) loop + continue-on-failure live in comex_pipeline.run; the
+    # CLI only presents it. chunked_run owns the event scaffold; run() drives the
+    # tracker via the start/finish callbacks.
+    with chunked_run("comex", total=total, params=params) as tracker:
+        console.print(f"[dim]event log:[/dim] {tracker.log_path}")
+        console.print(f"[bold]COMEX ingest:[/bold] {total} chunk(s) [dim]({mode})[/dim]")
+        on_chunk_start, on_chunk = _make_chunk_handlers(tracker)
+        comex_pipeline.run(
+            settings,
+            full=full,
+            from_raw=from_raw,
+            storage_client=storage_client,
+            bq_client=bq_client,
+            on_chunk_start=on_chunk_start,
+            on_chunk=on_chunk,
         )
-        for chunk_id, err in chunks_failed:
-            console.print(f"  [red]✗[/red] {chunk_id} — {err}")
-        raise typer.Exit(code=1)
-    console.print(f"\n[green bold]✓ All {total} COMEX chunk(s) complete[/green bold]")
+
+    _summarize_and_exit(
+        tracker,
+        label="COMEX",
+        success_msg=f"\n[green bold]✓ All {total} COMEX chunk(s) complete[/green bold]",
+    )
 
 
 @ingest_app.command("comtrade")
@@ -483,100 +433,49 @@ def ingest_comtrade(
     bq_client = bigquery.Client(
         project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
     )
-    table_fqn = comtrade_pipeline.ensure_destination(settings, bq_client)
-    reporters = (
-        comtrade_pipeline.client.list_reporters()
-        if settings.comtrade_reporters.strip().lower() == "all"
-        else [c.strip() for c in settings.comtrade_reporters.split(",") if c.strip()]
-    )
-    chunks = comtrade_pipeline.plan_chunks(settings, reporters)
-    total = len(chunks)
-
+    # Resolve reporters once (here, for the header count) — run() resolves them
+    # again from the same resolve_reporters(), so the two never drift.
+    reporters = comtrade_pipeline.resolve_reporters(settings)
+    total = len(comtrade_pipeline.plan_chunks(settings, reporters))
     mode = "from-raw" if from_raw else ("full" if full else "resume")
-    run_id, log_path = observability.init_run("comtrade")
-    console.print(f"[dim]event log:[/dim] {log_path}")
-    console.print(
-        f"[bold]COMTRADE ingest:[/bold] {total} chunk(s) "
-        f"[dim]({mode}, {len(reporters)} reporters)[/dim]"
-    )
-    observability.emit("pipeline_start", pipeline="comtrade", run_id=run_id, chunks_total=total)
 
-    chunks_ok: list[str] = []
-    chunks_failed: list[tuple[str, str]] = []
-    started = time.monotonic()
-    for i, (year, reporter_batch) in enumerate(chunks, 1):
-        chunk_id = comtrade_pipeline._basename(year, reporter_batch)
-        observability.emit("chunk_start", chunk_id=chunk_id, chunk_n=i, chunk_total=total)
-        chunk_started = time.monotonic()
-        try:
-            if from_raw:
-                process = comtrade_pipeline.has_raw(
-                    settings, year, reporter_batch, storage_client=storage_client
-                )
-            else:
-                extracted = comtrade_pipeline.sync_raw(
-                    settings,
-                    year,
-                    reporter_batch,
-                    storage_client=storage_client,
-                    force=full,
-                )
-                process = comtrade_pipeline.needs_bronze(
-                    settings,
-                    year,
-                    reporter_batch,
-                    extracted=extracted,
-                    storage_client=storage_client,
-                )
-            destination = (
-                comtrade_pipeline.bronze_one(
-                    settings,
-                    year,
-                    reporter_batch,
-                    storage_client=storage_client,
-                    bq_client=bq_client,
-                    table_fqn=table_fqn,
-                )
-                if process
-                else ""
-            )
-            if process:
-                comtrade_pipeline.mark_bronze_loaded(
-                    settings, year, reporter_batch, storage_client=storage_client
-                )
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_end", chunk_id=chunk_id, chunk_n=i, chunk_total=total, duration_s=duration
-            )
-            chunks_ok.append(chunk_id)
-            if destination:
-                console.print(
-                    f"  [dim][{i}/{total}][/dim] [green]✓[/green] {chunk_id} → Bronze "
-                    f"[dim]({duration}s)[/dim]"
-                )
-            else:
-                console.print(f"  [dim][{i}/{total}] · {chunk_id} — skipped ({duration}s)[/dim]")
-        except Exception as exc:
-            duration = round(time.monotonic() - chunk_started, 2)
-            observability.emit(
-                "chunk_error", chunk_id=chunk_id, chunk_n=i, chunk_total=total, error=str(exc)[:300]
-            )
-            chunks_failed.append((chunk_id, str(exc)[:200]))
-            console.print(f"  [red]✗ {chunk_id} failed:[/red] {str(exc)[:160]}")
-
-    observability.emit(
-        "pipeline_end",
-        duration_s=round(time.monotonic() - started, 2),
-        chunks_ok=len(chunks_ok),
-        chunks_failed=len(chunks_failed),
-    )
-    if chunks_failed:
+    # The (year, reporter-batch) loop, continue-on-failure, and stop-on-quota all
+    # live in comtrade_pipeline.run; the CLI presents the ChunkOutcome stream.
+    quota_hit = False
+    with chunked_run("comtrade", total=total) as tracker:
+        console.print(f"[dim]event log:[/dim] {tracker.log_path}")
         console.print(
-            f"\n[yellow bold]⚠ {len(chunks_failed)} chunk(s) failed[/yellow bold] "
-            "[dim](quota? rate limit? re-run to resume — archived chunks are skipped)[/dim]"
+            f"[bold]COMTRADE ingest:[/bold] {total} chunk(s) "
+            f"[dim]({mode}, {len(reporters)} reporters)[/dim]"
         )
+        on_chunk_start, on_chunk = _make_chunk_handlers(tracker)
+        try:
+            comtrade_pipeline.run(
+                settings,
+                full=full,
+                from_raw=from_raw,
+                storage_client=storage_client,
+                bq_client=bq_client,
+                on_chunk_start=on_chunk_start,
+                on_chunk=on_chunk,
+            )
+        except ComtradeQuotaError as exc:
+            # Daily quota exhausted mid-run — stop cleanly; re-running resumes
+            # from the un-archived chunks. (pipeline_end still emits on __exit__.)
+            quota_hit = True
+            console.print(
+                f"\n[yellow bold]⚠ COMTRADE quota exhausted[/yellow bold] [dim]({exc})[/dim]\n"
+                "[dim]Re-run to resume — archived chunks are skipped.[/dim]"
+            )
+
+    if quota_hit:
         raise typer.Exit(code=1)
-    console.print(f"\n[green bold]✓ All {total} COMTRADE chunk(s) complete[/green bold]")
+    _summarize_and_exit(
+        tracker,
+        label="COMTRADE",
+        success_msg=f"\n[green bold]✓ All {total} COMTRADE chunk(s) complete[/green bold]",
+        retry_hint="[dim](quota? rate limit? re-run to resume — archived chunks are skipped)[/dim]",
+    )
 
 
 @ingest_app.command("all")
@@ -587,8 +486,17 @@ def ingest_all(
         help="Force full refetch on delta-aware pipelines (whole windows, not just the delta).",
     ),
 ) -> None:
-    """Run every registered Bronze pipeline sequentially in INGESTS order."""
+    """Run every registered Bronze pipeline sequentially in INGESTS order.
+
+    Continue-on-failure at the *source* level, mirroring the per-chunk policy
+    inside each pipeline: a source that raises (a hard error, or an aggregated
+    ``IngestPartialFailure`` from its own chunk loop) is recorded and the next
+    source still runs. The blind nightly cron thus never aborts the whole batch
+    on one source's transient trouble. A non-zero exit at the end reports that
+    at least one source failed.
+    """
     settings = get_settings()
+    failures: list[tuple[str, str]] = []
     for spec in INGESTS:
         if not spec.in_all:
             continue
@@ -598,9 +506,19 @@ def ingest_all(
         # `ingest <source>` commands use, so `ingest all` shows up in
         # `embrapa monitor` and a mid-batch failure leaves a chunk_error in the
         # event log instead of running completely silent.
-        with pipeline_run(spec.name, params=kwargs) as (_run_id, log_path):
-            console.print(f"[dim]event log:[/dim] {log_path}")
-            spec.module.run(settings, **kwargs)
+        try:
+            with pipeline_run(spec.name, params=kwargs) as (_run_id, log_path):
+                console.print(f"[dim]event log:[/dim] {log_path}")
+                spec.module.run(settings, **kwargs)
+        except Exception as exc:
+            failures.append((spec.label, str(exc)[:200]))
+            console.print(f"[red]✗ {spec.label} failed:[/red] {str(exc)[:200]}")
+
+    if failures:
+        console.print(f"\n[yellow bold]⚠ {len(failures)} source(s) failed[/yellow bold]")
+        for label, err in failures:
+            console.print(f"  [red]✗[/red] {label} — {err}")
+        raise typer.Exit(code=1)
     console.print("[green bold]✓ All Bronze pipelines completed[/green bold]")
 
 

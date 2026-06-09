@@ -65,6 +65,14 @@ def _year_bounds(
         params.append(bigquery.ScalarQueryParameter("year_end", "INT64", year_end))
 
 
+# Columns a filter may constrain with `IN UNNEST`. Like value_column, a column
+# IDENTIFIER cannot be a bind parameter, so it is interpolated into the SQL and
+# therefore MUST be validated against this allowlist. Every builder passes an
+# internal literal today; this guarantees a future caller cannot interpolate a
+# user-derived identifier (defense-in-depth — there is no current injection path).
+ALLOWED_FILTER_COLUMNS = frozenset({"product_code", "ncm_code"})
+
+
 def _in_array(
     conditions: list[str],
     params: list[bigquery.ArrayQueryParameter],
@@ -73,6 +81,11 @@ def _in_array(
     values: Sequence[str],
 ) -> None:
     if values:
+        if column not in ALLOWED_FILTER_COLUMNS:
+            raise ValueError(
+                f"filter column {column!r} is not allowed; "
+                f"choose one of {sorted(ALLOWED_FILTER_COLUMNS)}"
+            )
         conditions.append(f"{column} IN UNNEST(@{param_name})")
         params.append(bigquery.ArrayQueryParameter(param_name, "STRING", list(values)))
 

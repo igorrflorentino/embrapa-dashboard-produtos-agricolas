@@ -21,14 +21,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from datetime import UTC
 
 import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.comtrade import client
+from embrapa_commodities.comtrade.client import ComtradeQuotaError
 from embrapa_commodities.config import Settings, get_credentials
 from embrapa_commodities.core import (
+    ChunkOutcome,
+    IngestPartialFailure,
     land_raw,
     mark_raw_bronze_loaded,
     raw_bronze_loaded,
@@ -70,6 +74,19 @@ def resolve_cmd_codes(settings: Settings) -> list[str]:
     if scope not in _CMD_CODES_CACHE:
         _CMD_CODES_CACHE[scope] = client.list_hs6_codes(list(scope))
     return _CMD_CODES_CACHE[scope]
+
+
+def resolve_reporters(settings: Settings) -> list[str]:
+    """The reporter M49 codes to fetch, from ``comtrade_reporters``.
+
+    ``"all"`` (case-insensitive) expands to every real reporter via the public
+    Reporters reference; otherwise the comma-separated list is parsed verbatim.
+    One definition shared by :func:`run` and the CLI so the two never drift on
+    how ``all`` is interpreted.
+    """
+    if settings.comtrade_reporters.strip().lower() == "all":
+        return client.list_reporters()
+    return [c.strip() for c in settings.comtrade_reporters.split(",") if c.strip()]
 
 
 def _reporter_batches(reporters: list[str]) -> list[list[str]]:
@@ -247,7 +264,14 @@ def needs_bronze(
 def mark_bronze_loaded(
     settings: Settings, year: int, reporters: list[str], *, storage_client: storage.Client
 ) -> None:
-    """Stamp the (year, reporter-batch) raw object as loaded into Bronze."""
+    """Stamp the (year, reporter-batch) raw object as loaded into Bronze.
+
+    **Semantics: at-least-once, not exactly-once.** The marker is written *after*
+    the Bronze load, so a crash between the load and this stamp leaves the chunk
+    loaded but unmarked, and the next run reloads it. Duplicate rows are expected
+    and safe: Silver dedupes on the natural key by ``ingestion_timestamp desc``,
+    so Gold stays correct.
+    """
     mark_raw_bronze_loaded(
         storage_client,
         settings=settings,
@@ -263,6 +287,53 @@ def ensure_destination(settings: Settings, bq_client: bigquery.Client) -> str:
     return f"{dataset_id}.{settings.bq_bronze_comtrade_flows_table}"
 
 
+def process_chunk(
+    settings: Settings,
+    year: int,
+    reporters: list[str],
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client,
+    table_fqn: str,
+    from_raw: bool = False,
+    force: bool = False,
+) -> ChunkOutcome:
+    """Run both phases for a single ``(year, reporter-batch)`` chunk.
+
+    The one per-chunk unit of work, shared by :func:`run` and the CLI. Resume is
+    preserved verbatim: a past-year chunk already archived is skipped, the latest
+    year is always re-fetched, and an unchanged-but-unmarked raw still loads
+    (``needs_bronze``). ``ComtradeQuotaError`` from the fetch is **not** caught
+    here — it propagates so :func:`run` can stop the whole run early (re-running
+    resumes from the un-archived chunks).
+    """
+    chunk_id = _basename(year, reporters)
+    if from_raw:
+        process = has_raw(settings, year, reporters, storage_client=storage_client)
+    else:
+        extracted = sync_raw(settings, year, reporters, storage_client=storage_client, force=force)
+        # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
+        # an unchanged-but-never-loaded raw (aborted prior run) still loads.
+        process = needs_bronze(
+            settings, year, reporters, extracted=extracted, storage_client=storage_client
+        )
+    if not process:
+        return ChunkOutcome(chunk_id, "skipped", detail="already archived")
+
+    destination = bronze_one(
+        settings,
+        year,
+        reporters,
+        storage_client=storage_client,
+        bq_client=bq_client,
+        table_fqn=table_fqn,
+    )
+    mark_bronze_loaded(settings, year, reporters, storage_client=storage_client)
+    if not destination:
+        return ChunkOutcome(chunk_id, "skipped", detail="no rows")
+    return ChunkOutcome(chunk_id, "loaded", destination=destination)
+
+
 def run(
     settings: Settings,
     *,
@@ -270,11 +341,25 @@ def run(
     from_raw: bool = False,
     storage_client: storage.Client | None = None,
     bq_client: bigquery.Client | None = None,
+    on_chunk_start: Callable[[str], None] | None = None,
+    on_chunk: Callable[[ChunkOutcome], None] | None = None,
 ) -> str:
     """Sync raw (Phase 1) then load Bronze (Phase 2), chunk by (year, batch).
 
-    Resumable: re-running picks up only chunks not yet archived (+ the latest
-    year). ``from_raw`` rebuilds Bronze from archived raw without calling the API.
+    **Single source of truth for the ``(year, reporter-batch)`` loop**, with
+    continue-on-failure: a transient chunk error is recorded and the loop moves
+    on. Resumable across runs: re-running picks up only chunks not yet archived
+    (+ the latest year). ``from_raw`` rebuilds Bronze from archived raw without
+    calling the API.
+
+    **Stops on quota.** When a chunk raises :class:`ComtradeQuotaError` (the
+    daily call budget is exhausted), the loop breaks immediately and the error
+    propagates — retrying the remaining chunks would only burn failed calls.
+    Re-run later to resume from the un-archived chunks; nothing is lost.
+
+    Hooks mirror the other pipelines: ``on_chunk_start(chunk_id)`` before each
+    chunk, ``on_chunk(outcome)`` after. With no ``on_chunk`` consumer and any
+    failure, the aggregated failures raise :class:`IngestPartialFailure`.
     """
     if not settings.comtrade_api_key:
         raise RuntimeError(
@@ -289,36 +374,39 @@ def run(
     )
     table_fqn = ensure_destination(settings, bq_client)
 
-    reporters = (
-        client.list_reporters()
-        if settings.comtrade_reporters.strip().lower() == "all"
-        else [c.strip() for c in settings.comtrade_reporters.split(",") if c.strip()]
-    )
+    reporters = resolve_reporters(settings)
 
     last_destination = ""
+    failures: list[tuple[str, str]] = []
     for year, reporter_batch in plan_chunks(settings, reporters):
-        if from_raw:
-            if not has_raw(settings, year, reporter_batch, storage_client=storage_client):
-                continue
-        else:
-            extracted = sync_raw(
-                settings, year, reporter_batch, storage_client=storage_client, force=full
+        chunk_id = _basename(year, reporter_batch)
+        if on_chunk_start is not None:
+            on_chunk_start(chunk_id)
+        try:
+            outcome = process_chunk(
+                settings,
+                year,
+                reporter_batch,
+                storage_client=storage_client,
+                bq_client=bq_client,
+                table_fqn=table_fqn,
+                from_raw=from_raw,
+                force=full,
             )
-            # Skip Phase 2 only when the raw is unchanged AND already in Bronze;
-            # an unchanged-but-never-loaded raw (aborted prior run) still loads.
-            if not needs_bronze(
-                settings, year, reporter_batch, extracted=extracted, storage_client=storage_client
-            ):
-                continue
-        destination = bronze_one(
-            settings,
-            year,
-            reporter_batch,
-            storage_client=storage_client,
-            bq_client=bq_client,
-            table_fqn=table_fqn,
-        )
-        if destination:
-            last_destination = destination
-        mark_bronze_loaded(settings, year, reporter_batch, storage_client=storage_client)
+        except ComtradeQuotaError:
+            # Daily quota exhausted — stop the whole run; remaining chunks would
+            # only burn failed calls. Re-running resumes from here.
+            logger.warning("Comtrade quota exhausted at %s — stopping run.", chunk_id)
+            raise
+        except Exception as exc:
+            outcome = ChunkOutcome(chunk_id, "failed", detail=str(exc))
+        if outcome.status == "failed":
+            failures.append((chunk_id, outcome.detail[:200]))
+        elif outcome.destination:
+            last_destination = outcome.destination
+        if on_chunk is not None:
+            on_chunk(outcome)
+
+    if failures and on_chunk is None:
+        raise IngestPartialFailure(failures)
     return last_destination

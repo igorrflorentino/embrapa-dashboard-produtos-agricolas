@@ -68,19 +68,23 @@ OAuth 2.0 with service account impersonation:
 │  │    └─ NO human access                                  │  │
 │  │                                                         │  │
 │  │ 3. sa-web-dashboard-prod                               │  │
-│  │    ├─ Looker Studio / Web App read access              │  │
-│  │    ├─ Impersonated by web frontend                     │  │
-│  │    ├─ Permissions: bigquery.dataViewer (read-only)     │  │
-│  │    └─ NO write access to data                          │  │
+│  │    ├─ Cloud Run dashboard runtime (stateless)          │  │
+│  │    ├─ Dataset-scoped least privilege:                  │  │
+│  │    │  - bigquery.dataViewer  ON serving (read marts)   │  │
+│  │    │  - bigquery.dataEditor  ON research_inputs only   │  │
+│  │    │  - bigquery.jobUser     (project, run queries)    │  │
+│  │    └─ NO project-wide read; NO write outside curation  │  │
 │  │                                                         │  │
 │  │ 4. sa-ai-agent-admin-prod                              │  │
 │  │    ├─ AI agent administration (Claude, Vertex AI)      │  │
 │  │    ├─ Impersonated by AI agents                        │  │
 │  │    ├─ Permissions:                                      │  │
-│  │    │  - bigquery.dataEditor (for analysis)             │  │
+│  │    │  - bigquery.dataViewer (project, READ-ONLY)       │  │
+│  │    │  - bigquery.jobUser    (project, run queries)     │  │
+│  │    │  - bigquery.dataEditor ON one sandbox dataset     │  │
 │  │    │  - storage.objectViewer (read GCS)                │  │
 │  │    │  - storage.objectCreator (write reports)          │  │
-│  │    └─ Subject to quota/rate limits                     │  │
+│  │    └─ NO project-wide write (protects gold + curation) │  │
 │  │                                                         │  │
 │  └─────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -202,8 +206,57 @@ Role on sa-secret-reader-prod:
 |---|---|---|
 | `sa-secret-reader-prod` | `roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser`<br/>`roles/storage.objectViewer` | Impersonation target for developers (dbt + ad-hoc queries) |
 | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | Ingest data (IBGE, BCB) |
-| `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Read-only on Gold for the dedicated Cloud Run dashboard (under reconstruction). Looker Studio uses end-user OAuth, not this SA. |
-| `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectCreator` | Data analysis + report generation |
+| `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` **on `serving`**<br/>`roles/bigquery.dataEditor` **on `research_inputs`**<br/>`roles/bigquery.jobUser` (project) | Dataset-scoped least privilege for the Cloud Run dashboard: read marts, append curation log — **not** project-wide on Gold. Looker Studio uses end-user OAuth, not this SA. |
+| `sa-ai-agent-admin-prod` | `roles/bigquery.dataViewer` (project, read-only)<br/>`roles/bigquery.jobUser` (project)<br/>`roles/bigquery.dataEditor` **on one sandbox dataset only**<br/>`roles/storage.objectCreator` | Read-only analysis; writes confined to a report sandbox (never Gold prod / the curation log) |
+
+## Dashboard ingress — IAP behind a load balancer (HARD REQUIREMENT)
+
+> Applies to the Cloud Run **Service** (the Dash dashboard), not the ingestion
+> Job. The Service itself is built during the Claude Design System handoff, but
+> the ingress posture below is a **non-negotiable deploy-time requirement** the
+> operator must satisfy when that Service ships.
+
+The dashboard derives the audit field `edited_by` (who classified a commodity in
+the append-only curation log) **solely** from the IAP-injected request header
+`X-Goog-Authenticated-User-Email`. That header is only trustworthy if **IAP is
+the sole ingress path** to the Service. If the Cloud Run URL is reachable
+directly — bypassing the load balancer and IAP — then **any caller can forge
+that header**, and the curation audit trail (`edited_by`) becomes falsifiable.
+There is no in-app password; IAP *is* the authentication boundary.
+
+**Therefore the dashboard Service MUST be deployed with both of:**
+
+```bash
+gcloud run deploy <dashboard-service> \
+  --ingress internal-and-cloud-load-balancing \  # reject direct *.run.app traffic; only the LB (+ internal) can reach it
+  --no-allow-unauthenticated \                    # require an authenticated principal — no public invoker
+  ...
+```
+
+…**behind an external HTTPS Load Balancer with Identity-Aware Proxy (IAP)
+enabled** on the backend service, so every request is authenticated by IAP
+before it reaches the container (and IAP is what stamps the trusted
+`X-Goog-Authenticated-User-Email`).
+
+Why each flag is load-bearing:
+
+| Control | What it prevents |
+|---|---|
+| `--ingress internal-and-cloud-load-balancing` | Blocks the default public `*.run.app` URL. Without it, requests skip the LB/IAP entirely and arrive with a **client-supplied** (forgeable) email header. |
+| `--no-allow-unauthenticated` | Removes the public `allUsers` invoker binding. Defense-in-depth: even via the LB, the request must carry a valid identity. |
+| **IAP enabled on the LB backend** | Performs the actual Google sign-in and **overwrites** any client-supplied `X-Goog-Authenticated-User-Email` with the verified identity — the trust anchor for `edited_by`. |
+
+> **Defense in depth — the app must also verify the IAP JWT.** Ingress lock + IAP
+> is the primary boundary; `src/embrapa_commodities/serving/iap.py` additionally
+> validates the signed `X-Goog-IAP-JWT-Assertion` so a misconfiguration (e.g. an
+> accidental public ingress) fails closed rather than trusting a forged plain
+> header. Operators must **not** rely on the JWT check as a substitute for the
+> ingress lock — both layers are required.
+
+This is the same boundary referenced as "behind IAP" in
+[`ARCHITECTURE.md`](../ARCHITECTURE.md) (§ Segurança e Autenticação and §
+Curadoria dinâmica). The least-privilege IAM for the Service's runtime SA
+(`sa-web-dashboard-prod`) is in [`iam_setup.md`](iam_setup.md) §2.3.
 
 ## Credential Management
 

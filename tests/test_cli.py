@@ -321,6 +321,29 @@ def test_ingest_comtrade_continues_after_chunk_failure(
     assert "failed" in result.output
 
 
+def test_ingest_comtrade_quota_exhausted_reports_and_exits(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A quota error mid-run surfaces a clean 'quota exhausted — re-run to resume'
+    message and exits 1 (no traceback)."""
+    from embrapa_commodities.comtrade.client import ComtradeQuotaError
+
+    _wire_comtrade(monkeypatch, settings)
+    settings.comtrade_start_year = 2022
+    settings.comtrade_end_year = 2023
+
+    def quota(_s: Settings, year: int, _batch: object, **kwargs: object) -> bool:
+        raise ComtradeQuotaError("quota exhausted — re-run to resume")
+
+    monkeypatch.setattr(cli.comtrade_pipeline, "sync_raw", quota)
+
+    result = runner.invoke(cli.app, ["ingest", "comtrade"])
+
+    assert result.exit_code == 1
+    assert "quota exhausted" in result.output
+    assert "re-run to resume" in result.output
+
+
 def test_ingest_comtrade_from_raw_skips_api(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
@@ -461,6 +484,55 @@ def test_ingest_all_wraps_each_pipeline_in_observability(
     assert result.exit_code == 0, result.output
     # One event log opened per registered pipeline, in INGESTS order.
     assert init_calls == ["ibge", "bcb-inflation", "bcb-currency", "comex"]
+
+
+def test_ingest_all_continues_after_a_source_fails(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A source that raises (here BCB inflation) must not abort the batch: the
+    remaining sources still run, and the command exits non-zero to flag it."""
+    ran: list[str] = []
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: ran.append("ibge") or "")
+
+    def boom(_s: Settings, full: bool) -> str:
+        ran.append("inflation")
+        raise RuntimeError("BCB 503")
+
+    monkeypatch.setattr(cli.bcb_inflation, "run", boom)
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: ran.append("currency") or "")
+    monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: ran.append("comex") or "")
+
+    result = runner.invoke(cli.app, ["ingest", "all"])
+
+    # Every source attempted despite the inflation failure.
+    assert ran == ["ibge", "inflation", "currency", "comex"]
+    assert result.exit_code == 1
+    assert "1 source(s) failed" in result.output
+    assert "BCB inflação" in result.output  # the failed source's label
+
+
+def test_ingest_all_aborts_cleanly_listing_partial_chunk_failure(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """When a pipeline raises IngestPartialFailure (its own chunk loop had a
+    failure), `ingest all` records it as a source failure and exits 1."""
+    from embrapa_commodities.core import IngestPartialFailure
+
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: "")
+    monkeypatch.setattr(cli.bcb_inflation, "run", lambda s, full: "")
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: "")
+
+    def comex_partial(_s: Settings, full: bool) -> str:
+        raise IngestPartialFailure([("EXP_2026", "HTTP 503")])
+
+    monkeypatch.setattr(cli.comex_pipeline, "run", comex_partial)
+
+    result = runner.invoke(cli.app, ["ingest", "all"])
+
+    assert result.exit_code == 1
+    assert "MDIC COMEX" in result.output
 
 
 # ─── discover ────────────────────────────────────────────────────────────────

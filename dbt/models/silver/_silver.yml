@@ -56,12 +56,19 @@ models:
                 expression: "is null or monthly_pct_change between -100 and 100"
 
   - name: silver_bcb_currency
-    description: "Daily FX rates: BRL per foreign currency unit."
+    description: "Daily FX rates: BRL per foreign currency unit (BCB SGS: USD, EUR)."
     columns:
       - name: reference_date
         tests: [not_null]
       - name: currency
-        tests: [not_null]
+        # Guards the series_code filter: only configured BCB FX currencies may
+        # surface here. CNY is NOT a BCB series — it is seed-sourced via
+        # silver_extfx_currency. A stale Bronze series leaking in would fail this.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [USD, EUR]
       - name: brl_per_foreign_unit
         tests:
           - dbt_utils.expression_is_true:

@@ -11,6 +11,14 @@ from google.cloud.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
 
+# Wall-clock ceiling for blocking on a BigQuery job (``job.result(timeout=...)``).
+# A hung query/load job should not hang an unattended Cloud Run ingest forever;
+# 10 minutes is far above any Bronze load/delta query we run while still bounded.
+# ``result(timeout=...)`` raises ``concurrent.futures.TimeoutError`` if the job
+# has not finished in time (the job keeps running server-side — this only caps
+# how long we block waiting on it).
+JOB_TIMEOUT_S: float = 600.0
+
 
 def latest_reference_date(
     client: bigquery.Client,
@@ -38,7 +46,7 @@ def latest_reference_date(
                     bigquery.ScalarQueryParameter("code", "STRING", series_code),
                 ]
             ),
-        ).result()
+        ).result(timeout=JOB_TIMEOUT_S)
     except NotFound:
         return None
     row = next(iter(result), None)
@@ -62,7 +70,7 @@ def latest_reference_year(
         from `{table_fqn}`
     """
     try:
-        result = client.query(sql).result()
+        result = client.query(sql).result(timeout=JOB_TIMEOUT_S)
     except NotFound:
         return None
     row = next(iter(result), None)
@@ -123,4 +131,4 @@ def load_dataframe(
 
     logger.info("Loading %d rows into %s", len(df), destination)
     job = client.load_table_from_dataframe(df, destination, job_config=job_config)
-    job.result()
+    job.result(timeout=JOB_TIMEOUT_S)

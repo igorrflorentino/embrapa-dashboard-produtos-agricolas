@@ -106,41 +106,102 @@ gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
 ```bash
 gcloud iam service-accounts create sa-web-dashboard-prod \
   --display-name="Web Dashboard (Prod)" \
-  --description="Read-only on Gold for the dedicated Cloud Run dashboard app."
+  --description="Stateless Cloud Run dashboard: read 'serving', append to 'research_inputs'."
 ```
 
-Grant read-only access:
+**Least privilege — dataset-scoped, NOT project-wide.** The dashboard only ever
+reads the pre-aggregated `serving` marts and appends curation rows to
+`research_inputs`. It must **not** be able to read the whole Gold dataset, nor
+write anywhere except the curation log. So grant:
+
+- `roles/bigquery.dataViewer` **scoped to the `serving` dataset** (read marts + `dim_commodity_scd2`),
+- `roles/bigquery.dataEditor` **scoped to the `research_inputs` dataset** (the append-only `INSERT`),
+- `roles/bigquery.jobUser` **at project level** (required to *run* a query job — this role grants no data access on its own).
+
+BigQuery dataset-level roles are granted on the dataset resource (not via
+`gcloud projects add-iam-policy-binding`, which is project-wide). The portable
+way is to merge an access entry into the dataset with `bq`:
+
 ```bash
+SA="sa-web-dashboard-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com"
+
+# READ on the serving dataset only.
+bq show --format=prettyjson embrapa-dashboard-commodities:serving > /tmp/serving.json
+jq --arg sa "$SA" \
+  '.access += [{"role":"READER","userByEmail":$sa}]' /tmp/serving.json > /tmp/serving.patched.json
+bq update --source /tmp/serving.patched.json embrapa-dashboard-commodities:serving
+
+# WRITE (append) on the research_inputs dataset only.
+bq show --format=prettyjson embrapa-dashboard-commodities:research_inputs > /tmp/research.json
+jq --arg sa "$SA" \
+  '.access += [{"role":"WRITER","userByEmail":$sa}]' /tmp/research.json > /tmp/research.patched.json
+bq update --source /tmp/research.patched.json embrapa-dashboard-commodities:research_inputs
+
+# jobUser is the ONLY project-level role — needed to execute query jobs, grants no data access.
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-web-dashboard-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/bigquery.dataViewer
+  --member="serviceAccount:${SA}" \
+  --role=roles/bigquery.jobUser
 ```
+
+> BigQuery's legacy dataset roles `READER`/`WRITER`/`OWNER` map to
+> `dataViewer`/`dataEditor`/`dataOwner`. The `serving` and `research_inputs`
+> datasets are auto-created on first prod build / first curation write — run
+> these grants **after** those datasets exist. Looker Studio does **not** use
+> this SA (it reads Gold via end-user OAuth), so scoping the SA to `serving`
+> does not affect the no-code path.
 
 ### 2.4 AI Agent Admin SA
 
 ```bash
 gcloud iam service-accounts create sa-ai-agent-admin-prod \
   --display-name="AI Agent Admin (Prod)" \
-  --description="AI agents for analysis, reporting. Subject to quotas."
+  --description="AI agents: read-only analysis; writes confined to one report sandbox."
 ```
 
-Grant analytics permissions:
+**Least privilege — read-only on data, writes confined to a sandbox.** An AI
+agent analyzes the warehouse and emits reports. It must be able to *read* and
+*run queries*, but it must **never** hold project-wide `dataEditor` — that would
+let it overwrite Gold prod tables or, worse, tamper with the append-only
+curation log in `research_inputs` (which would destroy the `edited_by` audit
+trail). So grant read-only data access project-wide, `jobUser` to run queries,
+and confine all *write* to a single dedicated report/sandbox dataset.
+
 ```bash
-# Read and analyze data
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/bigquery.dataEditor
+SA="sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com"
+AGENT_SANDBOX_DATASET=ai_reports   # one dedicated dataset for agent output; create it first.
 
-# Read from GCS
+# Create the sandbox dataset the agent is allowed to write to.
+bq mk --dataset --location=us-central1 embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET}
+
+# Read-only on data (project-wide) — analysis across Bronze/Silver/Gold.
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --member="serviceAccount:${SA}" \
+  --role=roles/bigquery.dataViewer
+
+# Run query jobs (no data access on its own).
+gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+  --member="serviceAccount:${SA}" \
+  --role=roles/bigquery.jobUser
+
+# WRITE confined to the sandbox dataset ONLY (never project-wide, never on gold/research_inputs).
+bq show --format=prettyjson embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET} > /tmp/agent.json
+jq --arg sa "$SA" \
+  '.access += [{"role":"WRITER","userByEmail":$sa}]' /tmp/agent.json > /tmp/agent.patched.json
+bq update --source /tmp/agent.patched.json embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET}
+
+# Read from GCS + write reports to GCS.
+gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+  --member="serviceAccount:${SA}" \
   --role=roles/storage.objectViewer
-
-# Write reports to GCS
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  --member="serviceAccount:${SA}" \
   --role=roles/storage.objectCreator
 ```
+
+> The previous version granted project-wide `roles/bigquery.dataEditor`, which
+> let this SA write **any** dataset — including `gold` prod and the
+> `research_inputs` curation log. Read-only + a write-scoped sandbox closes that
+> gap while still letting the agent materialize its own report tables.
 
 ### 2.5 Verify Service Accounts Created
 
@@ -390,8 +451,8 @@ gcloud auth login florenciaitalo@gmail.com
 | **Developer Local** | (user email) | `roles/iam.serviceAccountTokenCreator` on `sa-secret-reader-prod` | Can impersonate developer workflow SA |
 | **Developer Workflow** | `sa-secret-reader-prod` | `roles/bigquery.user`<br/>`roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/serviceusage.serviceUsageConsumer` | dbt builds + ad-hoc queries |
 | **Data Pipeline** | `sa-data-pipeline-prod` | `roles/storage.objectCreator`<br/>`roles/bigquery.dataEditor`<br/>`roles/bigquery.jobUser` | IBGE/BCB ingestion |
-| **Web Dashboard (Cloud Run)** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` | Read-only on Gold for the dedicated Cloud Run dashboard (Looker uses end-user OAuth) |
-| **AI Agent Admin** | `sa-ai-agent-admin-prod` | `roles/bigquery.dataEditor`<br/>`roles/storage.objectViewer`<br/>`roles/storage.objectCreator` | Data analysis + reporting |
+| **Web Dashboard (Cloud Run)** | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` **on `serving`**<br/>`roles/bigquery.dataEditor` **on `research_inputs`**<br/>`roles/bigquery.jobUser` (project) | Dataset-scoped: read marts, append curation log. NOT project-wide on Gold. Looker uses end-user OAuth, not this SA. |
+| **AI Agent Admin** | `sa-ai-agent-admin-prod` | `roles/bigquery.dataViewer` (project, read-only)<br/>`roles/bigquery.jobUser` (project)<br/>`roles/bigquery.dataEditor` **on `ai_reports` sandbox only**<br/>`roles/storage.objectViewer`<br/>`roles/storage.objectCreator` | Read-only analysis; writes confined to a sandbox dataset (never Gold prod / curation log) + GCS reports |
 
 ## Common Commands
 
