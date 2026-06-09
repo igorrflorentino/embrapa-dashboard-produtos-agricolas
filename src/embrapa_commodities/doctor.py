@@ -247,6 +247,65 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
         return CheckResult("Bronze tables", False, str(exc)[:120])
 
 
+# ★ Ponto de extensão: cada (dataset_attr, table) é um objeto que o BFF do
+# dashboard lê. _check_serving_marts itera sobre esta lista. dim_commodity_scd2
+# (a view SCD2 de curadoria) é DELIBERADAMENTE excluída: ela é gated por
+# `enable_curation` (make dbt-build-curation), então sua ausência é esperada num
+# build padrão e geraria falso-alarme aqui.
+SERVING_TARGETS: list[tuple[str, str]] = [
+    ("bq_serving_dataset", "serving_pevs_annual"),
+    ("bq_serving_dataset", "serving_comex_annual"),
+    ("bq_serving_dataset", "serving_comex_seasonality"),
+    ("bq_serving_dataset", "serving_comtrade_annual"),
+    ("bq_serving_dataset", "serving_quality_by_source"),
+    ("bq_gold_dataset", "gold_source_metadata"),
+]
+
+
+def _check_serving_marts(settings: Settings) -> CheckResult:
+    """Report whether the serving objects the dashboard BFF reads exist + are populated.
+
+    A deploy-readiness gate for the data layer: the dashboard's ``gateway.fetch_*``
+    readers query these marts (+ ``gold_source_metadata`` for provenance). Informational
+    like ``_check_bronze_tables`` — a fresh project has none until ``make dbt-build-prod``
+    builds them, so a missing mart is reported (with the fix) rather than failing doctor.
+    ``num_rows`` is populated for the materialized marts and ``None`` for the
+    ``gold_source_metadata`` view (existence-only there).
+    """
+    try:
+        client = bigquery.Client(
+            project=settings.gcp_project_id,
+            location=settings.bq_location,
+            credentials=get_credentials(settings),
+        )
+        present: list[str] = []
+        missing: list[str] = []
+        empty: list[str] = []
+        for dataset_attr, table in SERVING_TARGETS:
+            dataset = getattr(settings, dataset_attr)
+            fqn = f"{settings.gcp_project_id}.{dataset}.{table}"
+            try:
+                tbl = client.get_table(fqn)
+            except NotFound:
+                missing.append(table)
+                continue
+            present.append(table)
+            if tbl.num_rows == 0:  # 0 only for an empty materialized mart; None for views
+                empty.append(table)
+        parts: list[str] = []
+        if missing:
+            parts.append(f"missing={missing} (run `make dbt-build-prod`)")
+        if empty:
+            parts.append(f"⚠ empty={empty}")
+        if not missing and not empty:
+            parts.append(f"all present + populated: {present}")
+        elif present:
+            parts.append(f"present={present}")
+        return CheckResult("Serving marts", True, "; ".join(parts))
+    except Exception as exc:
+        return CheckResult("Serving marts", False, str(exc)[:120])
+
+
 # `embrapa backup-gold` lays down prefixes shaped `backups/run=YYYYMMDDTHHMMSSZ/...`.
 # The trailing slash is important — without it `list_blobs(delimiter="/")` would
 # return individual blob names instead of the `run=*/` directory prefixes.
@@ -347,6 +406,7 @@ BRONZE_TARGETS: list[tuple[str, str]] = [
 
 _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("bronze", _check_bronze_tables),
+    ("serving", _check_serving_marts),
     ("backup", _check_backup_freshness),
 ]
 
