@@ -1,5 +1,5 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        ingest-ibge-historical ingest-job-deploy ingest-job-schedule \
+        ingest-ibge-historical ingest-job-deploy ingest-job-schedule iam-grant \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
         dbt-test dbt-clean lint sqlfluff test clean \
@@ -38,6 +38,9 @@ ingest-job-deploy:    ## Build + deploy the `embrapa ingest all` Cloud Run Job (
 
 ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for the job
 	bash deploy/ingestion/schedule.sh
+
+iam-grant:    ## Apply dataset-scoped least-privilege IAM grants (DRY_RUN=1 to preview)
+	bash deploy/iam/grant_least_privilege.sh
 
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps

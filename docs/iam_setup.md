@@ -103,6 +103,14 @@ gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
 
 ### 2.3 Web Dashboard SA
 
+> **One-command path:** §2.3 + §2.4 are codified idempotently in
+> [`deploy/iam/grant_least_privilege.sh`](../deploy/iam/grant_least_privilege.sh) —
+> run `make iam-grant` (or `DRY_RUN=1 make iam-grant` to preview). It reads
+> `GCP_PROJECT_ID` / dataset names from `.env`, creates the SAs if missing, and
+> re-asserts the grants without appending duplicate ACL entries. Run it **after**
+> the `serving` / `research_inputs` datasets exist (first prod dbt build / first
+> curation write). The manual steps below document exactly what it does.
+
 ```bash
 gcloud iam service-accounts create sa-web-dashboard-prod \
   --display-name="Web Dashboard (Prod)" \
