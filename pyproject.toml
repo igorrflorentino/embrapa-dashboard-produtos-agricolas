@@ -40,6 +40,12 @@ dashboard = [
     "flask-caching>=2.3",
     "dash>=2.17,<3.0",
     "plotly>=5.22",
+    # Production WSGI server for the Cloud Run Service (deploy/dashboard). Local
+    # dev uses Dash's built-in server via `embrapa-dashboard`; gunicorn binds the
+    # Flask `server` on $PORT in the container. Pure-Python wheel — installs on
+    # every platform but only *runs* under Linux (it uses fcntl), which is fine:
+    # it is only invoked inside the Linux image.
+    "gunicorn>=22",
 ]
 
 [project.scripts]
