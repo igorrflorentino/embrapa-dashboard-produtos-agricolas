@@ -241,6 +241,215 @@ def test_comex_seasonality_filters_flow_and_ncm():
     assert by_name["ncm_codes"].values == ["08012100"]
 
 
+# ── trade marts: overview / ufData / partner / flows / quality ─────────────────
+
+
+def test_trade_overview_sums_value_and_weight_by_year():
+    query, params = sql.trade_overview(
+        "p.serving.serving_comex_annual",
+        code_column="ncm_code",
+        year_start=2018,
+        year_end=2022,
+        codes=("08012100",),
+        flow="export",
+    )
+    assert "group by reference_year" in query
+    assert "sum(val_yearfx_usd)" in query
+    assert "sum(net_weight_kg)" in query
+    assert "flow = @flow" in query
+    assert "ncm_code in unnest(@codes)" in query.lower()
+    by_name = {p.name: p for p in params}
+    assert by_name["flow"].value == "export"
+    assert by_name["codes"].values == ["08012100"]
+    assert by_name["year_start"].value == 2018
+
+
+def test_trade_overview_comtrade_uses_cmd_code():
+    query, params = sql.trade_overview(
+        "p.serving.serving_comtrade_annual", code_column="cmd_code", codes=("440710",)
+    )
+    assert "cmd_code in unnest(@codes)" in query.lower()
+    assert {p.name: p for p in params}["codes"].values == ["440710"]
+
+
+def test_comex_by_uf_groups_by_state_with_weight():
+    query, params = sql.comex_by_uf(
+        "p.serving.serving_comex_annual", year_start=2020, ncm_codes=("08012100",), flow="import"
+    )
+    assert "group by state_acronym" in query
+    assert "sum(val_yearfx_usd)" in query
+    assert "sum(net_weight_kg)" in query
+    assert "any_value(region_abbrev)" in query
+    assert {p.name: p for p in params}["flow"].value == "import"
+
+
+def test_trade_by_partner_splits_export_and_import():
+    query, params = sql.trade_by_partner(
+        "p.serving.serving_comex_annual",
+        partner_code_column="country_code",
+        partner_name_column="country_name",
+        code_column="ncm_code",
+        year_start=2021,
+        codes=("08012100",),
+    )
+    assert "group by country_code" in query
+    assert "case when flow = 'export' then val_yearfx_usd end" in query
+    assert "case when flow = 'import' then val_yearfx_usd end" in query
+    assert "any_value(country_name)" in query
+    assert "order by value_usd desc" in query
+    assert {p.name: p for p in params}["codes"].values == ["08012100"]
+
+
+def test_trade_flows_groups_by_origin_and_dest():
+    query, _ = sql.trade_flows(
+        "p.serving.serving_comtrade_annual",
+        origin_code_column="reporter_code",
+        origin_name_column="reporter_name",
+        dest_code_column="partner_code",
+        dest_name_column="partner_name",
+        code_column="cmd_code",
+    )
+    assert "group by reporter_code, partner_code" in query
+    assert "any_value(reporter_name)" in query
+    assert "any_value(partner_name)" in query
+    assert "sum(val_yearfx_usd)" in query
+
+
+def test_quality_by_source_filters_source():
+    query, params = sql.quality_by_source(
+        "p.serving.serving_quality_by_source", source="mdic_comex"
+    )
+    assert "source = @source" in query
+    assert "data_quality_flag" in query
+    assert "order by n_rows desc" in query
+    assert {p.name: p for p in params}["source"].value == "mdic_comex"
+
+
+def test_quality_by_source_no_filter_has_no_where():
+    query, params = sql.quality_by_source("p.serving.serving_quality_by_source")
+    assert "where" not in query.lower()
+    assert params == []
+
+
+def test_dimension_column_allowlist_blocks_injection():
+    # origin/dest/partner identifiers are interpolated, so they must be allowlisted.
+    with pytest.raises(ValueError, match="not allowed"):
+        sql.trade_by_partner(
+            "p.serving.serving_comex_annual",
+            partner_code_column="country_code); drop table x; --",
+            partner_name_column="country_name",
+            code_column="ncm_code",
+        )
+    with pytest.raises(ValueError, match="not allowed"):
+        sql.trade_flows(
+            "p.serving.serving_comex_annual",
+            origin_code_column="state_acronym",
+            origin_name_column="state_name",
+            dest_code_column="evil_column",
+            dest_name_column="country_name",
+            code_column="ncm_code",
+        )
+
+
+# ── sql: products / productTS / provenance (uniform across sources) ────────────
+
+
+def test_products_lists_distinct_codes_with_unit_and_family():
+    query, params = sql.products(
+        "p.serving.serving_comex_annual", code_column="ncm_code", name_column="ncm_description"
+    )
+    assert "group by ncm_code" in query
+    assert "any_value(ncm_description)" in query
+    assert "any_value(base_unit)" in query
+    assert "any_value(unit_native)" in query
+    assert "any_value(family)" in query
+    assert params == []
+
+
+def test_product_timeseries_sums_value_and_native_quantity():
+    query, params = sql.product_timeseries(
+        "p.serving.serving_pevs_annual",
+        code_column="product_code",
+        value_column="val_real_ipca_brl",
+        year_start=2000,
+        codes=("3405",),
+    )
+    assert "group by product_code, reference_year" in query
+    assert "sum(val_real_ipca_brl)" in query
+    assert "sum(qty_native)" in query
+    assert "any_value(family)" in query
+    assert "product_code in unnest(@codes)" in query.lower()
+    by_name = {p.name: p for p in params}
+    assert by_name["codes"].values == ["3405"]
+    assert by_name["year_start"].value == 2000
+
+
+def test_product_columns_allowlist_blocks_injection():
+    with pytest.raises(ValueError, match="not allowed"):
+        sql.products(
+            "p.serving.serving_comex_annual",
+            code_column="ncm_code); drop table x; --",
+            name_column="ncm_description",
+        )
+    with pytest.raises(ValueError, match="not allowed"):
+        sql.product_timeseries("p.serving.serving_pevs_annual", code_column="evil")
+
+
+def test_source_metadata_selects_provenance_columns():
+    query, params = sql.source_metadata("p.gold.gold_source_metadata", source="mdic_comex")
+    assert "gold_table" in query
+    assert "products_total" in query
+    assert "ufs_total" in query
+    assert "source = @source" in query
+    assert {p.name: p for p in params}["source"].value == "mdic_comex"
+
+
+def test_source_metadata_no_filter_has_no_where():
+    query, params = sql.source_metadata("p.gold.gold_source_metadata")
+    assert "where" not in query.lower()
+    assert params == []
+
+
+# ── sql: cross_annual (cross-source view) ─────────────────────────────────────
+
+
+def test_cross_annual_comex_export_has_no_reporter_filter():
+    query, params = sql.cross_annual(
+        "p.serving.serving_comex_annual",
+        measure_column="val_yearfx_usd",
+        flow="export",
+        code_column="ncm_code",
+        codes=("08012100",),
+        year_start=2018,
+    )
+    assert "sum(val_yearfx_usd) as value" in query
+    assert "flow = @flow" in query
+    assert "ncm_code in unnest(@codes)" in query.lower()
+    assert "group by reference_year" in query
+    assert "@reporter" not in query  # COMEX is Brazil's own customs — no reporter split
+    assert {p.name: p for p in params}["flow"].value == "export"
+
+
+def test_cross_annual_comtrade_brazil_applies_reporter_filter():
+    query, params = sql.cross_annual(
+        "p.serving.serving_comtrade_annual",
+        measure_column="val_yearfx_usd",
+        flow="export",
+        reporter_column="reporter_iso_a3",
+        reporter_value="BRA",
+    )
+    assert "reporter_iso_a3 = @reporter" in query
+    assert {p.name: p for p in params}["reporter"].value == "BRA"
+
+
+def test_cross_annual_world_total_omits_reporter_filter():
+    query, _ = sql.cross_annual(
+        "p.serving.serving_comtrade_annual", measure_column="val_yearfx_usd", flow="export"
+    )
+    assert "@reporter" not in query
+    assert "reporter_iso_a3" not in query
+
+
 # ── curation: append-only SCD2 writer ─────────────────────────────────────────
 
 
@@ -469,6 +678,226 @@ def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
     assert "group by reference_year, reference_month" in recorded["query"]
     assert recorded["params"]["flow"].value == "export"
     assert recorded["params"]["ncm_codes"].values == ["08012100"]
+
+
+def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comex_overview(year_start=2019, ncm_codes=("08012100",), flow="export")
+
+    assert "p.serving.serving_comex_annual" in recorded["query"]
+    assert "sum(val_yearfx_usd)" in recorded["query"]
+    assert "sum(net_weight_kg)" in recorded["query"]
+    assert recorded["params"]["codes"].values == ["08012100"]
+    assert recorded["params"]["flow"].value == "export"
+
+
+def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_partners(year_start=2022, cmd_codes=("440710",))
+
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "group by partner_code" in recorded["query"]
+    assert "case when flow = 'export'" in recorded["query"]
+    assert recorded["params"]["codes"].values == ["440710"]
+
+
+def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_quality_by_source(source="un_comtrade")
+
+    assert "p.serving.serving_quality_by_source" in recorded["query"]
+    assert "data_quality_flag" in recorded["query"]
+    assert recorded["params"]["source"].value == "un_comtrade"
+
+
+def test_fetch_products_dispatches_to_source_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_products("un_comtrade")
+
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "group by cmd_code" in recorded["query"]
+
+
+def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_product_timeseries("ibge_pevs", year_start=2010, codes=("3405",))
+
+    assert "p.serving.serving_pevs_annual" in recorded["query"]
+    assert "sum(val_real_ipca_brl)" in recorded["query"]  # PEVS default value column
+    assert "group by product_code, reference_year" in recorded["query"]
+    assert recorded["params"]["codes"].values == ["3405"]
+
+
+def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_source_metadata(source="ibge_pevs")
+
+    assert "p.gold.gold_source_metadata" in recorded["query"]
+    assert recorded["params"]["source"].value == "ibge_pevs"
+
+
+def test_fetch_products_unknown_source_raises(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        with pytest.raises(ValueError, match="unknown source"):
+            gateway.fetch_products("nope")
+
+
+def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_cross_series("un_comtrade:exp_value", year_start=2022, codes=("440710",))
+
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "reporter_iso_a3 = @reporter" in recorded["query"]
+    assert recorded["params"]["reporter"].value == "BRA"
+    assert recorded["params"]["flow"].value == "export"
+
+
+def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_cross_series("un_comtrade:world_exp", year_start=2022)
+
+    assert "@reporter" not in recorded["query"]  # world total — no Brazil filter
+
+
+def test_fetch_cross_series_unknown_metric_raises(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        with pytest.raises(ValueError, match="unknown cross metric"):
+            gateway.fetch_cross_series("bogus:metric")
 
 
 @pytest.mark.parametrize("fetch_name", ["fetch_production_overview", "fetch_production_by_uf"])

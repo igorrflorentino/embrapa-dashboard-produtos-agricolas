@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     # from the Comtrade Reporters reference; or a comma list of M49 codes). The
     # keyed endpoint rejects "all" literally, so the client enumerates and batches.
     comtrade_reporters: str = Field(default="all")
+    # ISO-A3 of the reporter treated as "home" (Brazil) when the serving layer
+    # splits Brazil's own trade from the world total — COMTRADE ingests ALL
+    # reporters, so this filter is applied at query time (serving), never at
+    # ingestion. Backs crossSeries: exp_value/imp_value filter to this reporter;
+    # world_exp sums over all reporters.
+    comtrade_brazil_iso: str = Field(default="BRA")
     # DEV window — kept small/recent on purpose while building and testing (avoid
     # the massive full backfill). Lower COMTRADE_START_YEAR for older history once
     # the pipeline is validated; raise COMTRADE_END_YEAR past 2023 when ready.

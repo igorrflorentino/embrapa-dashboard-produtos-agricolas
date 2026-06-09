@@ -35,8 +35,12 @@ with pevs as (
         family,
         any_value(product_description)  as product_description,
         any_value(base_unit)            as base_unit,
-        -- qty_base is summed WITHIN a family (family is in the grain), so this is
-        -- never the forbidden cross-family sum. Monetary values are family-agnostic.
+        any_value(unit_native)          as unit_native,
+        -- qty_native / qty_base are summed WITHIN a family (family is in the grain),
+        -- so this is never the forbidden cross-family sum. Monetary values are
+        -- family-agnostic. qty_native stays in unit_native — the quantity productTS
+        -- charts (frontend_data_contract.md §3.3); qty_base is the normalised one.
+        sum(qty_native)                 as qty_native,
         sum(qty_base)                   as qty_base,
         sum(val_yearfx_brl)             as val_yearfx_brl,
         sum(val_yearfx_usd)             as val_yearfx_usd,
@@ -65,6 +69,8 @@ select
     p.product_description,
     p.family,
     p.base_unit,
+    p.unit_native,
+    p.qty_native,
     p.qty_base,
     p.val_yearfx_brl,
     p.val_yearfx_usd,
