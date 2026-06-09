@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "embrapa-dashboard",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "python", "-m", "embrapa_commodities.dashboard.app"],
+      "port": 8050
+    }
+  ]
+}

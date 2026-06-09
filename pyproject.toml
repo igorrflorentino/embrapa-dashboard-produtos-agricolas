@@ -32,9 +32,19 @@ serving = [
     "flask>=3.0",
     "flask-caching>=2.3",
 ]
+# Dash dashboard UI (src/embrapa_commodities/dashboard) — the Claude Design
+# System reimplementation. Reuses the `serving` BFF as its data seam, so it
+# pulls those deps too. `uv sync --extra dashboard` (or the Cloud Run image).
+dashboard = [
+    "flask>=3.0",
+    "flask-caching>=2.3",
+    "dash>=2.17,<3.0",
+    "plotly>=5.22",
+]
 
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
+embrapa-dashboard = "embrapa_commodities.dashboard.app:main"
 
 [build-system]
 requires = ["hatchling"]
