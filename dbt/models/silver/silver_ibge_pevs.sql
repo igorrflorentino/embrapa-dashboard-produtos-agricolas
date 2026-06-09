@@ -145,6 +145,10 @@ left join {{ ref('historical_currency_factors') }} fx
     and p.reference_year between fx.year_from and fx.year_to
 left join {{ ref('unit_family_conversions') }} ufc
     on lower(trim(p.unit_of_measure)) = ufc.unit_raw
+-- Per-product unit override. Staged/inert today: the seed ships only
+-- source='_reference' sentinel rows (which this 'pevs' filter excludes by
+-- design), so no PEVS unit is overridden yet — see seeds/_seeds.yml. The join
+-- is wired and correct; it activates the moment a real 'pevs' row is added.
 left join {{ ref('product_unit_factors') }} ufp
     on ufp.source = 'pevs'
     and ufp.product_code = p.product_code

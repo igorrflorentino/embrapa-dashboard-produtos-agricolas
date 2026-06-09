@@ -154,14 +154,20 @@ def bronze_from_raw(
     return destination
 
 
-def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Settings:
+def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Settings | None:
     """Re-window ``settings`` to a recent delta start so a routine run re-fetches
     only the latest (still-revisable) years, not the whole 1986→today history.
 
     PEVS only revises recent years, so refetching the last few absorbs revisions
     and picks up a newly published year, while the heavy full-history request
     (which can blow the SIDRA slow-byte deadline) is reserved for ``--full``.
-    Returns ``settings`` unchanged when Bronze has no data yet (cold table → full).
+
+    Returns ``settings`` unchanged when Bronze has no data yet (cold table →
+    full). Returns ``None`` — a logged clean no-op — when Bronze is already at or
+    past ``ibge_end_year``: there is no newer year to fetch, and the naive
+    ``last_year - overlap`` could otherwise land *after* ``end_year`` and produce
+    an inverted (empty) period list that crashes the SIDRA client. The effective
+    start is also clamped to never exceed ``end_year`` for the same reason.
     """
     table_fqn = (
         f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}."
@@ -170,8 +176,22 @@ def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Setting
     last_year = latest_reference_year(bq_client, table_fqn)
     if last_year is None:
         return settings
+    if last_year >= settings.ibge_end_year:
+        # Bronze already holds the latest configured year — nothing newer to
+        # pull. Skip cleanly instead of building an inverted window.
+        logger.info(
+            "IBGE delta: Bronze already at year %d (>= IBGE_END_YEAR %d) — "
+            "nothing new to fetch, skipping. Raise IBGE_END_YEAR or use --full "
+            "to force a re-fetch.",
+            last_year,
+            settings.ibge_end_year,
+        )
+        return None
     floor = settings.ibge_start_year if settings.ibge_start_year is not None else 0
-    effective_start = max(floor, last_year - settings.ibge_delta_overlap_years)
+    # Clamp to <= end_year so the window can never invert (start > end).
+    effective_start = min(
+        max(floor, last_year - settings.ibge_delta_overlap_years), settings.ibge_end_year
+    )
     logger.info(
         "IBGE delta: re-fetching %d-%d (latest Bronze year %d, overlap %d).",
         effective_start,
@@ -215,7 +235,11 @@ def run(
             return ""
     else:
         if not full:
-            settings = _delta_start_year(settings, bq_client)
+            delta_settings = _delta_start_year(settings, bq_client)
+            if delta_settings is None:
+                # Bronze already current — clean no-op (see _delta_start_year).
+                return ""
+            settings = delta_settings
         basename = extract_raw(settings, storage_client=storage_client)
         if basename is None:
             return ""

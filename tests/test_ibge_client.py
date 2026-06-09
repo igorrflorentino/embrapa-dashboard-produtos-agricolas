@@ -182,6 +182,80 @@ def test_http_get_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> 
     assert captured["context"] == url[:200]
 
 
+# ─── empty period window (task 5 defensiveness) ──────────────────────────────
+def test_periods_string_rejects_empty_list() -> None:
+    """An empty period list has no SIDRA range — raise rather than index [0]."""
+    with pytest.raises(ValueError, match="empty"):
+        client._periods_string([])
+
+
+def test_fetch_sidra_dataframe_empty_window_returns_empty_frame() -> None:
+    """An inverted window (start > end → no periods) is treated as 'no rows', not
+    an IndexError. The delta path can hand us such a window."""
+    df = client.fetch_sidra_dataframe(
+        table_id="289",
+        start_year=2025,
+        end_year=2024,  # start > end → empty period list
+        classification="193",
+        products=["3405"],
+        geo_level="n6",
+    )
+    assert df.empty
+
+
+# ─── single state alone exceeds the cell limit (task 12) ─────────────────────
+def test_single_state_over_cell_limit_raises_actionable_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If one state's single-year request still busts the SIDRA cell cap, the
+    parallel fetch must raise a clear, actionable RuntimeError (not a bare 400)."""
+
+    def boom(*_a, **_k):
+        raise client.SidraLimitExceeded("limite de valores excedido")
+
+    monkeypatch.setattr(client, "_fetch_block", boom)
+    with pytest.raises(RuntimeError, match=r"exceeds.*SIDRA cell limit"):
+        client._fetch_by_state_parallel("289", [2020], "193", ["3405", "3406", "3407"])
+
+
+def test_fetch_one_state_emits_state_error_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing state emits a `state_error` event (with the UF) before propagating,
+    so `embrapa monitor` shows which state broke."""
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        client.observability, "emit", lambda event, **fields: events.append((event, fields))
+    )
+    monkeypatch.setattr(
+        client, "_fetch_block", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("kaboom"))
+    )
+    with pytest.raises(RuntimeError, match="kaboom"):
+        client._fetch_one_state(29, "289", [2020], "193", ["3405"])  # 29 = BA
+
+    error_events = [f for ev, f in events if ev == "state_error"]
+    assert len(error_events) == 1
+    assert error_events[0]["state"] == "BA"  # UF acronym, not the numeric code
+    assert error_events[0]["state_code"] == 29
+
+
+def test_fetch_one_state_emits_start_and_end_on_success(
+    monkeypatch: pytest.MonkeyPatch, sidra_payload: list[dict]
+) -> None:
+    """A successful state emits state_start then state_end with a row count."""
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        client.observability, "emit", lambda event, **fields: events.append((event, fields))
+    )
+    # One payload with a header row + one data row → rows == 1.
+    monkeypatch.setattr(client, "_fetch_block", lambda *_a, **_k: [sidra_payload])
+    client._fetch_one_state(29, "289", [2020], "193", ["3405"])
+
+    names = [ev for ev, _ in events]
+    assert names == ["state_start", "state_end"]
+    assert dict(events[1][1])["rows"] == 1  # header row excluded from the count
+
+
 @responses.activate
 def test_list_ibge_periods_sorts_and_dedups() -> None:
     responses.add(

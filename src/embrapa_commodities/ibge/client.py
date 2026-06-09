@@ -203,6 +203,11 @@ def _http_get(url: str) -> requests.Response:
 
 
 def _periods_string(periods: list[int]) -> str:
+    if not periods:
+        # Defensive: an empty period list has no SIDRA representation. Callers
+        # short-circuit on it (see fetch_sidra_dataframe), so this only guards
+        # against an accidental index-into-empty if one ever slips through.
+        raise ValueError("periods is empty — no SIDRA period range to format")
     return f"{periods[0]}-{periods[-1]}" if len(periods) > 1 else str(periods[0])
 
 
@@ -346,6 +351,16 @@ def fetch_sidra_dataframe(
     limit for a long-enough window.
     """
     periods = list(range(start_year, end_year + 1))
+    if not periods:
+        # An inverted window (start_year > end_year) yields no periods. Treat it
+        # as "no rows" rather than indexing into an empty list downstream — the
+        # delta path can hand us such a window when Bronze is already current.
+        logger.warning(
+            "SIDRA fetch skipped: empty period window %d-%d (start > end).",
+            start_year,
+            end_year,
+        )
+        return pd.DataFrame()
 
     if geo_level == "n6":
         payloads = _fetch_by_state_parallel(table_id, periods, classification, products)

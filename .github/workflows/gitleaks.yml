@@ -1,0 +1,46 @@
+# Server-side secret scanning.
+#
+# The gitleaks pre-commit hook (.pre-commit-config.yaml) is LOCAL and OPT-IN —
+# it only runs if a contributor installed it via `make precommit-install`. This
+# workflow enforces the same scan on the server for every push and PR, so a
+# leaked credential is caught even when the author skipped (or never installed)
+# the local hook.
+#
+# To make this a hard gate, enable "Require status checks to pass before
+# merging" on the `main` branch (Settings → Branches) and select the
+# "gitleaks" check produced here.
+
+name: gitleaks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: gitleaks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history so gitleaks can scan every commit in the range)
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 gives gitleaks-action the full commit graph; on a PR
+          # it then scans every commit in the PR, not just the tip — a secret
+          # that was added and later "removed" in the same PR is still caught.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # No GITLEAKS_LICENSE needed: this is a public/personal repo, and the
+          # action only requires a license key for use in a GitHub Organization.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

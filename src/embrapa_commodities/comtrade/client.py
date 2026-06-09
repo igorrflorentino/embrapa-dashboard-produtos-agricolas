@@ -66,7 +66,35 @@ class ComtradeRequestError(Exception):
 
 
 class ComtradeTransientError(ComtradeRequestError, SourceTransientError):
-    """Transient (retryable) error: 5xx/408/429 (incl. short rate limits)."""
+    """Transient (retryable) error: 5xx/408 (incl. short reference-file hiccups)."""
+
+
+class ComtradeQuotaError(ComtradeRequestError):
+    """The daily keyed-call quota is exhausted (HTTP 429 on a keyed data call).
+
+    Deliberately **not** a :class:`SourceTransientError`: the shared retry policy
+    must not retry it. Retrying would only burn the (already spent) daily budget;
+    the resumable two-phase raw zone means the right move is to stop and re-run
+    later, which picks up exactly the un-archived chunks. The pipeline catches
+    this to break its chunk loop early ("quota exhausted — re-run to resume").
+
+    Scoped to keyed *data* calls (:func:`fetch_chunk`); a 429 on the public,
+    key-less reference files (:func:`list_reporters` / :func:`list_hs6_codes`) is
+    a momentary rate limit and stays transient/retryable.
+    """
+
+
+class ComtradeTruncationError(ComtradeRequestError):
+    """A single (reporter, flow, cmd) call still hit the per-call row cap.
+
+    The adaptive splitter has nothing left to split (reporters/flows/cmd are all
+    singletons) yet the call came back at :data:`PER_CALL_ROW_CAP` — only a
+    partner-dimension split would help, which the keyed endpoint can't express.
+    Rather than silently archive a TRUNCATED chunk (which the resume logic would
+    then treat as complete forever), the fetch raises this so the chunk is left
+    un-archived and a later run re-attempts it. Non-transient: an immediate retry
+    of the identical call would truncate identically.
+    """
 
 
 def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
@@ -185,6 +213,9 @@ def fetch_chunk(
     try:
         if response.status_code != 200:
             msg = f"HTTP {response.status_code} for {context}"
+            if response.status_code == 429:
+                # Daily keyed-call quota — stop, don't retry (see ComtradeQuotaError).
+                raise ComtradeQuotaError(f"quota exhausted ({msg}) — re-run to resume")
             if response.status_code in core_http.RETRYABLE_STATUS_CODES:
                 raise ComtradeTransientError(msg)
             raise ComtradeRequestError(msg)
@@ -215,9 +246,14 @@ def fetch_chunk_adaptive(
     so no fixed batch size is safe. When a call comes back at the cap, the largest
     divisible request dimension is split in half — reporters, then flows, then
     cmd codes — and the halves are fetched (recursively) and concatenated, so every
-    real API call stays under the cap. A single (reporter, flow, cmd) that still
-    caps is logged and returned as-is (only a partner split would help — not
-    expected within the 0801+44 scope)."""
+    real API call stays under the cap.
+
+    A single (reporter, flow, cmd) that *still* caps cannot be split further (only
+    a partner split would help, which the keyed endpoint can't express). Rather
+    than return the truncated frame and let it be archived as if complete, this
+    emits a ``truncated`` event and raises :class:`ComtradeTruncationError` so the
+    chunk is left un-archived for a later run to re-attempt (not expected within
+    the 0801+44 scope)."""
     df = fetch_chunk(
         base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
     )
@@ -239,12 +275,25 @@ def fetch_chunk_adaptive(
             right = fetch_chunk_adaptive(base_url, api_key, **kwargs)
             return pd.concat([left, right], ignore_index=True)
 
-    logger.warning(
+    observability.emit(
+        "truncated",
+        series="comtrade",
+        reporters=",".join(reporters),
+        flows=",".join(flows),
+        cmd_codes=",".join(cmd_codes),
+        years=",".join(str(y) for y in years),
+        row_cap=PER_CALL_ROW_CAP,
+    )
+    logger.error(
         "Comtrade call still at the %d-row cap for a single reporter/flow/cmd "
-        "(reporters=%s flows=%s cmd=%s) — data may be TRUNCATED.",
+        "(reporters=%s flows=%s cmd=%s) — refusing to archive a TRUNCATED chunk; "
+        "it will be retried on the next run.",
         PER_CALL_ROW_CAP,
         reporters,
         flows,
         cmd_codes,
     )
-    return df
+    raise ComtradeTruncationError(
+        f"truncated at {PER_CALL_ROW_CAP} rows for reporters={reporters} "
+        f"flows={flows} cmd={cmd_codes}"
+    )

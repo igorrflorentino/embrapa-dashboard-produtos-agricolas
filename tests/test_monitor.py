@@ -28,6 +28,10 @@ def _evt(event: str, **fields: object) -> dict:
     }
 
 
+def _write_log(path: Path, events: list[dict]) -> None:
+    path.write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
+
+
 def test_pipeline_lifecycle_updates_aggregates() -> None:
     state = MonitorState()
 
@@ -559,3 +563,81 @@ def test_render_handles_idle_pipeline_between_chunks(tmp_path: Path) -> None:
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
     panel = _render(state, tmp_path / "fake-log.jsonl")
     assert isinstance(panel, Panel)
+
+
+# ── run() — the live tail+render loop ────────────────────────────────────
+
+
+def test_run_tails_renders_and_exits_on_pipeline_end(tmp_path: Path, monkeypatch) -> None:
+    """run() tails the log, applies events, renders, and exits on pipeline_end."""
+    from io import StringIO
+
+    from rich.console import Console
+    from rich.text import Text
+
+    from embrapa_commodities.monitor import render
+
+    monkeypatch.setattr(render.time, "sleep", lambda *a, **k: None)  # no real 1s pause
+    rendered: list[MonitorState] = []
+
+    def _spy(state: MonitorState, log_path: Path) -> Text:
+        rendered.append(state)
+        return Text("frame")
+
+    monkeypatch.setattr(render, "_render", _spy)
+
+    log = tmp_path / "run.jsonl"
+    _write_log(
+        log,
+        [
+            _evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=1),
+            _evt("chunk_start", chunk_id="2020", chunk_n=1, chunk_total=1),
+            _evt("chunk_end", chunk_id="2020", chunk_n=1, chunk_total=1, duration_s=1.0),
+            _evt("pipeline_end", duration_s=1.0, chunks_ok=1, chunks_failed=0),
+        ],
+    )
+    render.run(
+        log, follow=True, console=Console(file=StringIO(), force_terminal=False), tick_seconds=0.0
+    )
+
+    assert rendered, "run() never rendered a frame"
+    assert rendered[-1].ended_at is not None  # saw pipeline_end and stopped
+
+
+def test_run_reports_missing_log(tmp_path: Path) -> None:
+    """A non-existent log path prints a clear error and returns (no crash)."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from embrapa_commodities.monitor import render
+
+    buf = StringIO()
+    render.run(tmp_path / "absent.jsonl", console=Console(file=buf, force_terminal=False))
+    assert "Log not found" in buf.getvalue()
+
+
+def test_run_without_follow_renders_once(tmp_path: Path, monkeypatch) -> None:
+    """follow=False renders the current state once and returns without looping."""
+    from io import StringIO
+
+    from rich.console import Console
+    from rich.text import Text
+
+    from embrapa_commodities.monitor import render
+
+    monkeypatch.setattr(render.time, "sleep", lambda *a, **k: None)
+    calls: list[int] = []
+
+    def _spy(state: MonitorState, log_path: Path) -> Text:
+        calls.append(1)
+        return Text("f")
+
+    monkeypatch.setattr(render, "_render", _spy)
+    log = tmp_path / "once.jsonl"
+    _write_log(log, [_evt("pipeline_start", pipeline="bcb", run_id="r2", chunks_total=0)])
+    render.run(
+        log, follow=False, console=Console(file=StringIO(), force_terminal=False), tick_seconds=0.0
+    )
+
+    assert calls  # rendered, then returned (no pipeline_end, no hang)

@@ -14,7 +14,9 @@ import pandas as pd
 import pytest
 
 from embrapa_commodities.comtrade import client, pipeline
+from embrapa_commodities.comtrade.client import ComtradeQuotaError
 from embrapa_commodities.config import Settings
+from embrapa_commodities.core import ChunkOutcome, IngestPartialFailure
 
 
 @pytest.fixture
@@ -292,3 +294,96 @@ def test_run_explicit_reporter_list_skips_enumeration(settings) -> None:
     ):
         pipeline.run(settings)
     lr.assert_not_called()  # explicit list → no reference lookup
+
+
+# ─── resolve_reporters (shared by run + CLI) ─────────────────────────────────
+def test_resolve_reporters_all_enumerates_reference(settings) -> None:
+    with patch.object(client, "list_reporters", return_value=["76", "842"]) as lr:
+        assert pipeline.resolve_reporters(settings) == ["76", "842"]
+    lr.assert_called_once()
+
+
+def test_resolve_reporters_explicit_list_parses_csv(settings) -> None:
+    settings = settings.model_copy(update={"comtrade_reporters": " 76 , 842 ,"})
+    with patch.object(client, "list_reporters") as lr:
+        assert pipeline.resolve_reporters(settings) == ["76", "842"]
+    lr.assert_not_called()
+
+
+# ─── continue-on-failure + aggregation + stop-on-quota (now inside run) ───────
+def test_run_continues_after_chunk_failure_and_raises_aggregate(settings) -> None:
+    """A transient chunk error doesn't strand the rest; with no on_chunk consumer
+    the loop finishes then raises an aggregated IngestPartialFailure."""
+    settings = settings.model_copy(update={"comtrade_reporters": "76,842"})  # 1 batch
+    seen_years: list[int] = []
+
+    def flaky(_s, year, _batch, *, storage_client, force):
+        seen_years.append(year)
+        if year == 2022:
+            raise RuntimeError("network blip")
+        return True
+
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comtrade.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comtrade.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
+        patch.object(pipeline, "sync_raw", side_effect=flaky),
+        patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
+        patch.object(pipeline, "mark_bronze_loaded"),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+        pytest.raises(IngestPartialFailure) as exc,
+    ):
+        pipeline.run(settings, full=False)
+
+    assert seen_years == [2022, 2023]  # 2022 failure did not stop 2023
+    assert len(exc.value.failures) == 1  # the 2022 chunk
+
+
+def test_run_with_on_chunk_reports_outcomes_without_raising(settings) -> None:
+    settings = settings.model_copy(update={"comtrade_reporters": "76,842"})
+    outcomes: list[ChunkOutcome] = []
+
+    def flaky(_s, year, _batch, *, storage_client, force):
+        if year == 2022:
+            raise RuntimeError("blip")
+        return True
+
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comtrade.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comtrade.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
+        patch.object(pipeline, "sync_raw", side_effect=flaky),
+        patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
+        patch.object(pipeline, "mark_bronze_loaded"),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+    ):
+        pipeline.run(settings, full=False, on_chunk=outcomes.append)
+
+    assert [o.status for o in outcomes] == ["failed", "loaded"]
+
+
+def test_run_stops_on_quota_and_propagates(settings) -> None:
+    """A ComtradeQuotaError stops the loop immediately (no further chunks) and
+    propagates so the CLI can report 'quota exhausted — re-run to resume'."""
+    settings = settings.model_copy(update={"comtrade_reporters": "76,842"})
+    seen_years: list[int] = []
+
+    def quota_then_never(_s, year, _batch, *, storage_client, force):
+        seen_years.append(year)
+        raise ComtradeQuotaError("quota exhausted — re-run to resume")
+
+    with (
+        patch.object(pipeline, "get_credentials", return_value=None),
+        patch("embrapa_commodities.comtrade.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.comtrade.pipeline.storage.Client"),
+        patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
+        patch.object(pipeline, "sync_raw", side_effect=quota_then_never),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+        pytest.raises(ComtradeQuotaError),
+    ):
+        pipeline.run(settings, full=False)
+
+    # Broke on the FIRST chunk's quota error — 2023 was never attempted.
+    assert seen_years == [2022]

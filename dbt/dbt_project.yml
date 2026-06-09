@@ -63,3 +63,9 @@ vars:
   inflation_series_ipca:  "{{ env_var('BCB_INFLATION_SERIES_IPCA_CODE',  '433') }}"
   inflation_series_igpm:  "{{ env_var('BCB_INFLATION_SERIES_IGPM_CODE',  '189') }}"
   inflation_series_igpdi: "{{ env_var('BCB_INFLATION_SERIES_IGPDI_CODE', '190') }}"
+
+  # CODE:LABEL pairs of the BCB FX series to surface in Silver (mirror
+  # BCB_CURRENCY_SERIES in .env / config.py). silver_bcb_currency filters
+  # series_code to these so a series removed from the config but still lingering
+  # in append-only Bronze never leaks into Silver.
+  currency_series: "{{ env_var('BCB_CURRENCY_SERIES', '1:USD,21619:EUR') }}"

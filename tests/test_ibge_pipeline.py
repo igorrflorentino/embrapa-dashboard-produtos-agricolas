@@ -271,6 +271,61 @@ def test_run_full_bypasses_delta_and_uses_configured_window(
     assert fetch.call_args.kwargs["start_year"] == 1986
 
 
+def test_run_delta_noop_when_bronze_already_at_end_year(settings: Settings) -> None:
+    """Bronze already holds IBGE_END_YEAR → clean no-op: no SIDRA fetch, no load,
+    no inverted window. Regression for the start>end IndexError."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        # Bronze is already AT the configured end year (and would push start past end).
+        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2024),
+        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+    ):
+        destination = ibge_pipeline.run(settings)  # delta default
+
+    assert destination == ""
+    fetch.assert_not_called()  # no SIDRA query at all
+    land_raw.assert_not_called()
+    load.assert_not_called()
+
+
+def test_run_delta_noop_when_bronze_ahead_of_end_year(settings: Settings) -> None:
+    """Bronze ahead of IBGE_END_YEAR (operator lowered it) must also no-op cleanly,
+    never build start>end."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2020
+    with (
+        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2024),
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+    ):
+        assert ibge_pipeline.run(settings) == ""
+    fetch.assert_not_called()
+    load.assert_not_called()
+
+
+def test_delta_start_year_clamps_effective_start_to_end_year(settings: Settings) -> None:
+    """When overlap would push the start beyond end_year but Bronze is just under
+    end_year, the effective start is clamped to end_year (never inverted)."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    settings.ibge_delta_overlap_years = 0
+    with patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2023):
+        rewound = ibge_pipeline._delta_start_year(settings, MagicMock())
+    assert rewound is not None
+    # last_year - overlap = 2023, clamped <= end_year(2024) → 2023; window [2023, 2024] valid.
+    assert rewound.ibge_start_year == 2023
+    assert rewound.ibge_start_year <= rewound.ibge_end_year
+
+
 def test_run_delta_cold_bronze_keeps_configured_window(
     settings: Settings, sidra_df: pd.DataFrame
 ) -> None:

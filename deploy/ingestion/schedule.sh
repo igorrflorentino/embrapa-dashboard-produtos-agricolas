@@ -14,9 +14,32 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE not found"; exit 1; }
 get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
+# Resolve the Cloud Run region — must match deploy.sh so the scheduler targets
+# the same region the Job was deployed to. INGEST_JOB_REGION is a first-class
+# input DECOUPLED from BQ_LOCATION (a BigQuery multi-region like "US"/"EU" is
+# NOT a valid Cloud Run region), defaulting to us-central1; an explicit
+# multi-region locator is mapped, a bare/unmapped one is rejected.
+resolve_region() {
+  local r="${INGEST_JOB_REGION:-}"
+  if [ -z "$r" ]; then
+    echo us-central1
+    return 0
+  fi
+  case "$r" in
+    US|us) echo us-central1 ;;
+    EU|eu) echo europe-west1 ;;
+    *-*)   echo "$r" ;;
+    *)
+      echo "ERROR: INGEST_JOB_REGION='$r' is not a Cloud Run region (multi-region not allowed)." >&2
+      echo "       Set INGEST_JOB_REGION explicitly in .env (decoupled from BQ_LOCATION)." >&2
+      exit 1
+      ;;
+  esac
+}
+
 PROJECT="${GCP_PROJECT_ID:-$(get_env GCP_PROJECT_ID)}"
 [ -n "$PROJECT" ] || { echo "ERROR: GCP_PROJECT_ID not set"; exit 1; }
-REGION="${INGEST_JOB_REGION:-$(get_env BQ_LOCATION)}"; REGION="${REGION:-us-central1}"
+REGION="$(INGEST_JOB_REGION="${INGEST_JOB_REGION:-$(get_env INGEST_JOB_REGION)}" resolve_region)"
 JOB_NAME="${INGEST_JOB_NAME:-embrapa-ingest-all}"
 SCHED_NAME="${INGEST_SCHEDULE_NAME:-${JOB_NAME}-nightly}"
 CRON="${INGEST_SCHEDULE_CRON:-0 5 * * *}"

@@ -48,13 +48,23 @@ with base_pevs as (
     select
         reference_year,
         state_acronym,
-        city_name,
-        any_value(city_code)            as city_code,
+        -- Group by city_code (the natural geographic key from Silver), NOT
+        -- city_name (a display label): two municipalities can share a name, so
+        -- grouping on the name would silently fan-in their rows. city_name is
+        -- lifted via any_value() — it is functionally dependent on city_code.
+        city_code,
+        any_value(city_name)            as city_name,
         product_code,
         any_value(product_description)  as product_description,
         -- One quantity row per (year, state, city, product) — PEVS reports a
         -- single physical unit per product — so max() simply lifts the
         -- quantity row's family/unit/qty (NULL on the monetary row).
+        -- CAVEAT: max() (not sum()) assumes exactly ONE physical unit per
+        -- product at this grain. If a product ever reported under TWO units in
+        -- the same (year, state, city) — which PEVS does not today — max()
+        -- would keep one row and DROP the other instead of summing. Were that
+        -- to happen, add unit_native to the grain (group by) so each unit gets
+        -- its own row, rather than switching to sum() across mixed units.
         max(family)                     as family,
         max(unit_native)                as unit_native,
         max(base_unit)                  as base_unit,
@@ -63,7 +73,7 @@ with base_pevs as (
         max(case when is_monetary_value then numeric_value end) as val_raw,
         max(ingestion_timestamp)        as last_refresh
     from {{ ref('silver_ibge_pevs') }}
-    group by reference_year, state_acronym, city_name, product_code
+    group by reference_year, state_acronym, city_code, product_code
     having qty_native is not null
         or val_raw    is not null
 

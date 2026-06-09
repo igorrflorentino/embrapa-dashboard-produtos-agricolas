@@ -69,6 +69,14 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 # We use those intentionally for pt-BR typography per the design system.
 ignore = ["RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.mccabe]
+# Cap cyclomatic complexity per function. The ingestion CLI commands used to
+# bury the per-chunk loop + continue-on-failure inline (well over this); that
+# logic now lives in each pipeline's run() and the shared chunked_run helper,
+# so every function in src/ stays at or under 10. (C90 is opt-in per run:
+# `uv run ruff check src/ --select C90`.)
+max-complexity = 10
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

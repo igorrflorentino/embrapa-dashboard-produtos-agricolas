@@ -26,7 +26,6 @@ results are cached, and the process stays stateless and horizontally scalable.
 from __future__ import annotations
 
 import functools
-import os
 from collections.abc import Sequence
 
 from google.cloud import bigquery
@@ -35,13 +34,18 @@ from embrapa_commodities.config import get_credentials, get_settings
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
 
-# Short TTL for the curation-classification read. On multi-instance Cloud Run,
-# per-process SimpleCache can't be invalidated across instances, so this TTL
-# (not Redis) bounds cross-instance staleness. Read from the env at import time
-# because @cache.memoize fixes its timeout at decoration, before Settings exists;
-# in Cloud Run the env var is real (set on the Service), so it's honored there.
-# Mirrors config.Settings.cache_classification_timeout.
-_CLASSIFICATION_TTL = int(os.environ.get("CACHE_CLASSIFICATION_TIMEOUT", "30"))
+# Fallback short TTL for the curation-classification read, used only until
+# init_cache() binds the authoritative value from config.Settings. On
+# multi-instance Cloud Run, per-process SimpleCache can't be invalidated across
+# instances, so this TTL (not Redis) bounds cross-instance staleness.
+#
+# @cache.memoize fixes a *default* timeout at decoration time (before Settings
+# exists), but flask-caching exposes a writable ``cache_timeout`` attribute on the
+# decorated function that it re-reads on every call. init_cache() — which has
+# Settings — sets that attribute to cfg.cache_classification_timeout, making the
+# config field authoritative (no os.environ drift). See cache.init_cache and
+# config.Settings.cache_classification_timeout.
+DEFAULT_CLASSIFICATION_TTL = 30
 
 
 @functools.lru_cache(maxsize=1)
@@ -124,11 +128,12 @@ def fetch_comex_seasonality(
     return run_query(sql, params)
 
 
-@cache.memoize(timeout=_CLASSIFICATION_TTL)
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_classifications():
     """Live current classification per commodity (from the SCD2 view).
 
-    Short TTL (``CACHE_CLASSIFICATION_TIMEOUT``, default 30s) + explicit
+    Short TTL (``Settings.cache_classification_timeout``, default 30s, bound by
+    ``init_cache`` onto this function's writable ``cache_timeout``) + explicit
     invalidation on save: the writing instance sees the edit instantly, other
     instances converge within the TTL — so this scales across Cloud Run instances
     on per-process SimpleCache, no shared Redis required.

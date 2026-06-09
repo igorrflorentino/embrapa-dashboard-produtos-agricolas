@@ -7,7 +7,8 @@ models:
       for this source (naming convention: gold_<fonte>_<forma>; `production` =
       one row per produced/extracted measurement, no origin→destination).
       Wide, partitioned, clustered fact table. One row per
-      (reference_year, state_acronym, city_name, product_code).
+      (reference_year, state_acronym, city_code, product_code) — city_code is the
+      natural geographic key (city_name is a display label lifted via any_value).
       Ad-hoc state/year/national aggregation is derived at query time via GROUP BY.
       For the Dash dashboard's Pushdown Computing, the `serving/` layer materializes
       pre-aggregated marts at the chart grains — they derive from this Gold table,
@@ -24,7 +25,7 @@ models:
             combination_of_columns:
               - reference_year
               - state_acronym
-              - city_name
+              - city_code
               - product_code
     columns:
       - name: reference_year

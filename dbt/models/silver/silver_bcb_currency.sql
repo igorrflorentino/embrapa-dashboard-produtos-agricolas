@@ -8,15 +8,35 @@
 
 {#-
     Stays materialized=table (not incremental) for symmetry with
-    silver_bcb_inflation. The table is small (~20k rows for daily FX 1980-now
-    across 3 currencies) so the rebuild cost is negligible — the real win
-    against API/Bronze growth comes from BCB delta-ingest (see bcb pipelines).
+    silver_bcb_inflation. The table is small (USD + EUR daily PTAX) so the
+    rebuild cost is negligible — the real win against API/Bronze growth comes
+    from BCB delta-ingest (see bcb pipelines).
+
+    Surfaces ONLY the BCB SGS series the ingestion config currently pulls —
+    USD (1) + EUR (21619) as daily PTAX — by filtering series_code to the
+    `currency_series` var (mirrors BCB_CURRENCY_SERIES / config.py). The BCB
+    publishes no BRL/CNY rate, so CNY is SINGLE-SOURCED from the ECB/Frankfurter
+    seed (silver_extfx_currency); silver_currency UNIONs the two, no overlap.
+
+    The series_code filter matters because Bronze is APPEND-ONLY: a series from a
+    past config (e.g. 20542, which config.py documents as "not BRL-per-unit FX at
+    all") can still sit in Bronze long after being dropped from the series list.
+    Without the filter those stale rows would leak into silver_currency and, if
+    once labelled CNY, would double-source against the seed. Keep in sync with
+    config.py's bcb_currency_series.
 -#}
+
+{#- Valid BCB FX series codes from config, e.g. "1:USD,21619:EUR" -> '1', '21619'. -#}
+{%- set _currency_codes = [] -%}
+{%- for _pair in var('currency_series', '1:USD,21619:EUR').split(',') if _pair.strip() -%}
+    {%- do _currency_codes.append("'" ~ _pair.split(':')[0].strip() ~ "'") -%}
+{%- endfor -%}
 
 with deduplicated as (
 
     select *
     from {{ source('bronze_bcb', 'currency_raw') }}
+    where series_code in ({{ _currency_codes | join(', ') }})
     qualify row_number() over (
         partition by series_code, reference_date_str
         order by ingestion_timestamp desc

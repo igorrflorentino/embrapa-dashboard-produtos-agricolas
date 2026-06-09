@@ -188,6 +188,15 @@ class Settings(BaseSettings):
     # unset in production — IAP always supplies the header, and an unset fallback
     # makes an un-attributed write fail loudly instead of writing 'unknown'.
     curation_dev_author: str | None = Field(default=None)
+    # IAP backend audience for verifying the signed X-Goog-IAP-JWT-Assertion.
+    # When SET (production behind IAP), the curation author is taken from the
+    # cryptographically verified JWT, not the spoofable plaintext email header —
+    # a direct request to the backend can no longer forge the audit author. Format
+    # for Cloud Run behind a load balancer:
+    # /projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>.
+    # Leave UNSET for local dev (no IAP): the plaintext header + curation_dev_author
+    # path is used. See src/embrapa_commodities/serving/iap.py.
+    iap_audience: str | None = Field(default=None)
 
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:

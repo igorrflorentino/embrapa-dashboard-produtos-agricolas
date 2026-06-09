@@ -1,15 +1,30 @@
-"""Shared observability lifecycle for single-shot ingest pipelines.
+"""Shared observability lifecycle for ingest pipelines.
 
 The CLI layer (not the pipeline modules) owns the event lifecycle so the
-pipelines stay pure and testable. This context manager encapsulates the
-exact event sequence a single-chunk ingest emits, so every source-with-one-
-sweep command (IBGE, BCB inflation, BCB currency, and future single-shot
-sources) shares one code path and shows up identically in ``embrapa monitor``.
+pipelines stay pure and testable. Two helpers live here:
 
-Multi-chunk flows (e.g. ``ingest ibge-batch``) emit a richer per-chunk
-sequence by hand and intentionally do NOT use this helper.
+* :func:`pipeline_run` — wraps a *single-chunk* ingest (IBGE, BCB inflation, BCB
+  currency, and future single-shot sources) in the exact event sequence one
+  sweep emits, so every such command shares one code path and shows up
+  identically in ``embrapa monitor``.
 
-Event sequence emitted (mirrors the original hand-written ``ingest ibge``):
+* :func:`chunked_run` — the per-chunk observability scaffold (``chunks_ok`` /
+  ``chunks_failed`` bookkeeping, the ``chunk_start`` / ``chunk_end`` /
+  ``chunk_error`` emit pair, per-chunk timing, and the ``pipeline_end``
+  summary) factored out of the three multi-chunk commands (``ingest comex``,
+  ``ingest comtrade``, ``ingest ibge-batch``). The command body stays thin: it
+  drives a loop (or delegates the loop to ``pipeline.run(on_chunk=...)``) and
+  reports each chunk through the yielded :class:`ChunkTracker`.
+
+Two small value types are shared between the pipeline modules and the CLI so a
+pipeline can describe a chunk's fate without importing typer/console:
+
+* :class:`ChunkOutcome` — what happened to one chunk (loaded / skipped / failed).
+* :class:`IngestPartialFailure` — raised by ``pipeline.run`` when it owns the
+  loop (no live ``on_chunk`` consumer, e.g. ``ingest all``) and at least one
+  chunk failed, so a source-level handler can collect it.
+
+Single-chunk event sequence emitted by :func:`pipeline_run`:
 
     pipeline_start ─► chunk_start ─► [ your work runs here ]
                                         │
@@ -22,9 +37,50 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from embrapa_commodities import observability
+
+ChunkStatus = Literal["loaded", "skipped", "failed"]
+
+
+@dataclass(frozen=True)
+class ChunkOutcome:
+    """The fate of a single chunk, reported by a pipeline to its driver.
+
+    ``status``:
+        * ``"loaded"``  — Phase 2 ran and appended to Bronze (``destination`` set).
+        * ``"skipped"`` — nothing to do (source unchanged, no products, empty
+          fetch, or a legitimate current-year 404). ``detail`` says which.
+        * ``"failed"``  — the chunk raised; ``detail`` carries the error text.
+
+    Kept free of timing/console so a pipeline can build it without importing the
+    CLI; the :class:`ChunkTracker` measures duration and renders it.
+    """
+
+    chunk_id: str
+    status: ChunkStatus
+    destination: str = ""
+    detail: str = ""
+
+
+class IngestPartialFailure(Exception):
+    """At least one chunk failed while ``pipeline.run`` owned the loop.
+
+    Raised only when ``run`` has no live ``on_chunk`` consumer to forward
+    failures to (e.g. ``ingest all`` calls ``run`` bare). The CLI's multi-chunk
+    commands pass an ``on_chunk`` callback and decide their own exit code, so
+    they never see this — they read the tracker's collected failures instead.
+
+    ``failures`` is the list of ``(chunk_id, error_text)`` that failed.
+    """
+
+    def __init__(self, failures: list[tuple[str, str]]) -> None:
+        self.failures = failures
+        joined = "; ".join(f"{cid}: {err}" for cid, err in failures)
+        super().__init__(f"{len(failures)} chunk(s) failed: {joined}")
 
 
 @contextmanager
@@ -71,4 +127,107 @@ def pipeline_run(name: str, *, params: dict | None = None) -> Iterator[tuple[str
             duration_s=duration,
             chunks_ok=1,
             chunks_failed=0,
+        )
+
+
+@dataclass
+class ChunkTracker:
+    """Per-chunk observability bookkeeping shared by every multi-chunk command.
+
+    Holds ``chunks_ok`` / ``chunks_failed``, emits the ``chunk_start`` /
+    ``chunk_end`` / ``chunk_error`` events with per-chunk timing, and is read
+    back by the command after the loop to print its source-specific summary and
+    pick an exit code. Created and finalized by :func:`chunked_run`.
+
+    Two usage shapes:
+        * Manual loop (``ingest ibge-batch``): call :meth:`start_chunk` before the
+          work and :meth:`finish` with a :class:`ChunkOutcome` after.
+        * Delegated loop (``ingest comex`` / ``ingest comtrade`` via
+          ``pipeline.run``): pass :meth:`start_chunk` as ``on_chunk_start`` and
+          :meth:`finish` as ``on_chunk`` — ``run`` drives them.
+    """
+
+    total: int
+    log_path: Path | None = None
+    chunks_ok: list[str] = field(default_factory=list)
+    chunks_failed: list[tuple[str, str]] = field(default_factory=list)
+    _n: int = 0
+    _chunk_started: float = 0.0
+
+    def start_chunk(self, chunk_id: str) -> int:
+        """Emit ``chunk_start`` for the next chunk and start its timer.
+
+        Returns the 1-based chunk index, handy for ``[i/total]`` console lines.
+        """
+        self._n += 1
+        self._chunk_started = time.monotonic()
+        observability.emit(
+            "chunk_start", chunk_id=chunk_id, chunk_n=self._n, chunk_total=self.total
+        )
+        return self._n
+
+    def finish(self, outcome: ChunkOutcome) -> None:
+        """Emit ``chunk_end`` / ``chunk_error`` for a just-finished chunk and tally it."""
+        duration = round(time.monotonic() - self._chunk_started, 2)
+        if outcome.status == "failed":
+            observability.emit(
+                "chunk_error",
+                chunk_id=outcome.chunk_id,
+                chunk_n=self._n,
+                chunk_total=self.total,
+                duration_s=duration,
+                error=outcome.detail[:300],
+            )
+            self.chunks_failed.append((outcome.chunk_id, outcome.detail[:200]))
+        else:
+            observability.emit(
+                "chunk_end",
+                chunk_id=outcome.chunk_id,
+                chunk_n=self._n,
+                chunk_total=self.total,
+                duration_s=duration,
+                destination=outcome.destination,
+            )
+            self.chunks_ok.append(outcome.chunk_id)
+
+    @property
+    def last_duration_s(self) -> float:
+        """Seconds the most recently finished chunk took (for console echo)."""
+        return round(time.monotonic() - self._chunk_started, 2)
+
+
+@contextmanager
+def chunked_run(name: str, *, total: int, params: dict | None = None) -> Iterator[ChunkTracker]:
+    """Wrap a multi-chunk ingest command in the standard event lifecycle.
+
+    Inits the run, emits ``pipeline_start`` (with ``chunks_total``), yields a
+    :class:`ChunkTracker` the command reports each chunk through, then emits
+    ``pipeline_end`` with the final ok/failed counts on exit.
+
+    The command keeps ownership of its source-specific console summary and exit
+    code: after the ``with`` block it inspects ``tracker.chunks_failed`` and
+    raises ``typer.Exit`` itself. This helper never prints and never exits — it
+    only owns the event scaffold (the part that was copy-pasted three times).
+
+    ``tracker.log_path`` carries the JSONL path so the command can print the
+    ``event log:`` line without re-querying ``observability``.
+    """
+    run_id, log_path = observability.init_run(name)
+    tracker = ChunkTracker(total=total, log_path=log_path)
+    observability.emit(
+        "pipeline_start",
+        pipeline=name,
+        run_id=run_id,
+        chunks_total=total,
+        params=params or {},
+    )
+    started = time.monotonic()
+    try:
+        yield tracker
+    finally:
+        observability.emit(
+            "pipeline_end",
+            duration_s=round(time.monotonic() - started, 2),
+            chunks_ok=len(tracker.chunks_ok),
+            chunks_failed=len(tracker.chunks_failed),
         )

@@ -12,6 +12,16 @@
     the `extfx_cny_brl` seed (regenerate with scripts/refresh_cny_seed.py).
     Shaped to match silver_bcb_currency exactly so silver_currency can UNION
     them and the Gold fx CTEs treat every currency uniformly.
+
+    LIMITATION — granularity mismatch: this seed is MONTHLY, whereas USD/EUR
+    come from daily PTAX. The Gold `fx_latest` CTE picks each currency's
+    most-recent reference_date row, so the "current" CNY rate is the last
+    seeded month-end and can lag up to ~a month inside the running month
+    (USD/EUR are ~yesterday). The `fx_year`/`fx_month` averages are unaffected
+    in practice (a month of dailies vs one monthly point average out closely).
+    This is accepted: the dashboard is for historical/scientific time-series
+    analysis, not intra-month spot FX. Do NOT re-architect the seed pipeline to
+    daily just for CNY recency.
 -#}
 
 select

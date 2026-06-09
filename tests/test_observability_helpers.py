@@ -1,4 +1,4 @@
-"""Tests for the shared pipeline_run observability context manager."""
+"""Tests for the shared observability helpers (pipeline_run + chunked_run)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from embrapa_commodities.core import observability_helpers
-from embrapa_commodities.core.observability_helpers import pipeline_run
+from embrapa_commodities.core.observability_helpers import (
+    ChunkOutcome,
+    chunked_run,
+    pipeline_run,
+)
 
 
 @pytest.fixture
@@ -82,3 +86,59 @@ def test_pipeline_run_defaults_params_to_empty_dict(
 
     start_fields = captured_events[0][1]
     assert start_fields["params"] == {}
+
+
+# ─── chunked_run / ChunkTracker ──────────────────────────────────────────────
+def test_chunked_run_emits_lifecycle_and_per_chunk_events(
+    captured_events: list[tuple[str, dict]],
+) -> None:
+    """A 2-chunk run (1 ok, 1 failed) emits pipeline_start, the start/end pair per
+    chunk, and a pipeline_end carrying the final ok/failed counts."""
+    with chunked_run("comex", total=2, params={"full": False}) as tracker:
+        assert tracker.log_path == Path("/tmp/comex.jsonl")
+        tracker.start_chunk("EXP_2022")
+        tracker.finish(ChunkOutcome("EXP_2022", "loaded", destination="p.d.t"))
+        tracker.start_chunk("EXP_2023")
+        tracker.finish(ChunkOutcome("EXP_2023", "failed", detail="boom"))
+
+    names = [name for name, _ in captured_events]
+    assert names == [
+        "pipeline_start",
+        "chunk_start",
+        "chunk_end",
+        "chunk_start",
+        "chunk_error",
+        "pipeline_end",
+    ]
+    assert captured_events[0][1]["chunks_total"] == 2
+    end_fields = captured_events[-1][1]
+    assert end_fields["chunks_ok"] == 1
+    assert end_fields["chunks_failed"] == 1
+    # The tracker exposes the collected outcomes for the caller's summary.
+    assert tracker.chunks_ok == ["EXP_2022"]
+    assert tracker.chunks_failed == [("EXP_2023", "boom")]
+
+
+def test_chunked_run_emits_pipeline_end_even_when_body_raises(
+    captured_events: list[tuple[str, dict]],
+) -> None:
+    """If the command body raises (e.g. a quota error bubbling out of run), the
+    pipeline_end event still fires (finally), so the monitor never hangs open."""
+    with pytest.raises(RuntimeError, match="quota"):  # noqa: SIM117
+        with chunked_run("comtrade", total=3) as tracker:
+            tracker.start_chunk("2022_rabc")
+            tracker.finish(ChunkOutcome("2022_rabc", "loaded", destination="p.d.t"))
+            raise RuntimeError("quota exhausted")
+
+    names = [name for name, _ in captured_events]
+    assert names[-1] == "pipeline_end"
+    # One chunk finished ok before the raise.
+    assert captured_events[-1][1]["chunks_ok"] == 1
+
+
+def test_chunk_tracker_start_chunk_returns_incrementing_index() -> None:
+    """start_chunk returns the 1-based index for the [i/total] console heading."""
+    tracker = observability_helpers.ChunkTracker(total=3)
+    assert tracker.start_chunk("a") == 1
+    tracker.finish(ChunkOutcome("a", "skipped"))
+    assert tracker.start_chunk("b") == 2

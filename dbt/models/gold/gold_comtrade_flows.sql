@@ -238,7 +238,12 @@ select
     -- ── Quality + provenance ─────────────────────────────────────────────────
     -- "Has a quantity" = any of native qty / net weight present (chapter 44
     -- frequently reports neither → MISSING_QUANTITY, which is expected).
-    {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'val_nominal_brl') }} as data_quality_flag,
+    -- Value presence is tested on primary_value_usd — the PRE-FX source value —
+    -- not val_nominal_brl (post-FX). A year with no PTAX rate yields NULL
+    -- val_nominal_brl while the source value is fully present; flagging that as
+    -- MISSING_VALUE would be misleading. This mirrors gold_comex_flows (which
+    -- tests val_fob_usd) and gold_pevs_production (val_raw, already BRL).
+    {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'primary_value_usd') }} as data_quality_flag,
     source_rows,
     last_refresh
 

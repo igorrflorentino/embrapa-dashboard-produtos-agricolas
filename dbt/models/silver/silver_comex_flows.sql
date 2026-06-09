@@ -96,6 +96,10 @@ left join {{ ref('comex_unit') }} u
     on p.stat_unit_code = u.co_unid
 left join {{ ref('unit_family_conversions') }} ufc
     on lower(trim(u.unit_name)) = ufc.unit_raw
+-- Per-product unit override. Staged/inert today: the seed ships only
+-- source='_reference' sentinel rows (which this 'comex' filter excludes by
+-- design), so no NCM unit is overridden yet — see seeds/_seeds.yml. The join
+-- is wired and correct; it activates the moment a real 'comex' row is added.
 left join {{ ref('product_unit_factors') }} ufp
     on ufp.source = 'comex'
     and ufp.product_code = p.ncm_code

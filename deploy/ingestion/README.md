@@ -57,22 +57,31 @@ the CLI uses):
 
 ```bash
 make ingest-job-deploy        # build image + create/update the job
-# then run it once to validate:
-gcloud run jobs execute embrapa-ingest-all --region <BQ_LOCATION> --project <GCP_PROJECT_ID>
+# then run it once to validate (use the job's region — INGEST_JOB_REGION, default
+# us-central1; NOT BQ_LOCATION, which may be a multi-region Cloud Run can't use):
+gcloud run jobs execute embrapa-ingest-all --region <INGEST_JOB_REGION> --project <GCP_PROJECT_ID>
 ```
 
-`deploy.sh` forwards the non-secret `.env` config to the job as env vars and
-**drops** `COMTRADE_API_KEY`, `GCP_IMPERSONATION_SA`, and the dashboard-only
-`CACHE_REDIS_URL` / `CURATION_DEV_AUTHOR`. The job runs **as** the ingestion SA,
-so it authenticates via the runtime identity — no keyfile, no impersonation.
+`deploy.sh` forwards config to the job via an **explicit allowlist** — only the
+keys `embrapa ingest all` actually reads: `GCP_PROJECT_ID`, `GCS_*`,
+`BQ_LOCATION`, the `BQ_BRONZE_*` dataset/table names, and the per-source scope
+vars `IBGE_*` / `BCB_*` / `COMEX_*`. Everything else in `.env` is **not** shipped
+to the Job: the secret `COMTRADE_API_KEY` and `GCP_IMPERSONATION_SA`, all other
+`COMTRADE_*` (COMTRADE is key-gated and excluded from `all`), the serving/cache
+vars (`BQ_SERVING_DATASET`, `BQ_RESEARCH_INPUTS_DATASET`, `BQ_CURATION_LOG_TABLE`,
+`CACHE_*`), the dbt-only `BQ_SILVER_DATASET` / `BQ_GOLD_DATASET`, the `BACKUP_*`
+knobs, and the deploy-time `INGEST_*` / `INGEST_SCHEDULE_*` vars (read by these
+scripts, never by the app). The job runs **as** the ingestion SA, so it
+authenticates via the runtime identity — no keyfile, no impersonation.
 
 ## Schedule
 
 ```bash
 make ingest-job-schedule      # 05:00 America/Sao_Paulo daily by default
-# grant the scheduler SA permission to run the job (one-time):
+# grant the scheduler SA permission to run the job (one-time; --region is the
+# job's region = INGEST_JOB_REGION, default us-central1):
 gcloud run jobs add-iam-policy-binding embrapa-ingest-all \
-  --region <BQ_LOCATION> --project <GCP_PROJECT_ID> \
+  --region <INGEST_JOB_REGION> --project <GCP_PROJECT_ID> \
   --member "serviceAccount:sa-data-pipeline-prod@<GCP_PROJECT_ID>.iam.gserviceaccount.com" \
   --role roles/run.invoker
 ```
@@ -83,7 +92,7 @@ All have sensible defaults; set them in `.env` only to override:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `INGEST_JOB_REGION` | `BQ_LOCATION` | Cloud Run region |
+| `INGEST_JOB_REGION` | `us-central1` | Cloud Run region (a **single** region). **Decoupled from `BQ_LOCATION`** — Cloud Run rejects a BigQuery multi-region locator like `US`/`EU`, so this is its own input. If you do set it to `US` or `EU` it's mapped (→ `us-central1` / `europe-west1`); any other bare multi-region is rejected with a clear error. |
 | `INGEST_JOB_NAME` | `embrapa-ingest-all` | Job name |
 | `INGEST_JOB_AR_REPO` | `embrapa-jobs` | Artifact Registry repo |
 | `INGEST_JOB_SA` | `sa-data-pipeline-prod@<project>…` | Runtime service account |

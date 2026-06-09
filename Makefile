@@ -2,7 +2,7 @@
         ingest-ibge-historical ingest-job-deploy ingest-job-schedule \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
-        dbt-test dbt-clean lint test clean \
+        dbt-test dbt-clean lint sqlfluff test clean \
         precommit-install precommit-run
 
 PY := uv run
@@ -65,6 +65,9 @@ dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation d
 
 dbt-test:
 	cd $(DBT_DIR) && $(PY) dbt test
+
+sqlfluff:    ## Lint dbt SQL models with SQLFluff (BigQuery dialect; needs a dbt profile)
+	cd $(DBT_DIR) && $(PY) sqlfluff lint models
 
 dbt-clean:
 	cd $(DBT_DIR) && $(PY) dbt clean
