@@ -152,6 +152,48 @@ def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings
     assert "missing" in result.detail
 
 
+def test_check_serving_marts_all_present_and_populated(settings: Settings) -> None:
+    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+        bq_cls.return_value.get_table.return_value = MagicMock(num_rows=100)
+        result = doctor._check_serving_marts(settings)
+    assert result.ok is True
+    assert "all present" in result.detail
+
+
+def test_check_serving_marts_reports_missing(settings: Settings) -> None:
+    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+        # First five marts present; gold_source_metadata (the 6th target) missing.
+        bq_cls.return_value.get_table.side_effect = [
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            NotFound("nope"),
+        ]
+        result = doctor._check_serving_marts(settings)
+    assert result.ok is True  # informational, never fails doctor on a fresh project
+    assert "missing" in result.detail
+    assert "dbt-build-prod" in result.detail
+
+
+def test_check_serving_marts_flags_empty_mart(settings: Settings) -> None:
+    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+        # serving_pevs_annual is empty (0 rows); the view (last) has num_rows=None.
+        bq_cls.return_value.get_table.side_effect = [
+            MagicMock(num_rows=0),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=10),
+            MagicMock(num_rows=None),
+        ]
+        result = doctor._check_serving_marts(settings)
+    assert result.ok is True
+    assert "empty" in result.detail
+    assert "serving_pevs_annual" in result.detail
+
+
 def _list_blobs_mock(prefixes: list[str]) -> MagicMock:
     """Build a list_blobs() return-value that exposes ``prefixes`` after iteration.
 
@@ -271,5 +313,6 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "COMEX reachable",
         "COMTRADE reachable",
         "Bronze tables",
+        "Serving marts",
         "Gold backup freshness",
     ]
