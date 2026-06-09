@@ -9,6 +9,22 @@ from ..components.cards import card, maturity_tag, section_header
 from ..components.icons import icon
 from ..registries import Banco, banco_availability, banco_by_id, view_by_id, visible_bancos
 
+# Perspectives the handoff designed against data sources this repo does not have.
+# Their note names WHAT is missing (and why) instead of a generic "coming soon",
+# so the blocker is visible in-product — not just buried in the backlog.
+_BLOCKED_NOTES = {
+    "cross_chain": (
+        "O balanço de oferta divide a produção entre comércio interno (entre UFs), exportação e consumo. "
+        "A fatia interna depende da nota fiscal eletrônica (SEFAZ) — um banco ainda em planejamento, sem tabela Gold neste repositório. "
+        "O balanço de massa também só fecha para commodities de base mássica (t); produtos medidos em volume (m³, ex.: madeira em tora) exigiriam um fator de densidade."
+    ),
+    "cross_lag": (
+        "A defasagem safra → embarque exige produção MENSAL. O IBGE/PEVS publica a produção apenas ANUAL — "
+        "não existe perfil mensal de safra real para correlacionar com os embarques mensais do MDIC. "
+        "A perspectiva fica suspensa até uma fonte de safra mensal existir."
+    ),
+}
+
 
 def coming_soon(banco: Banco, view_id: str) -> html.Div:
     """Whole-banco placeholder (banco has no Gold table yet) — PAM / SEFAZ."""
@@ -88,11 +104,24 @@ def coming_soon(banco: Banco, view_id: str) -> html.Div:
 
 
 def perspective_soon(view_id: str) -> html.Div:
-    """View-level placeholder: banco is live, but this perspective isn't built yet."""
+    """View-level placeholder: banco is live, but this perspective isn't built yet.
+
+    For perspectives blocked on a data source that does not exist here (SEFAZ
+    inter-UF flows, monthly PEVS production), the note names the specific blocker
+    rather than a generic "coming soon" — surfacing the escalation in-product.
+    """
     v = view_by_id(view_id)
     label = v.label if v else view_id
     desc = v.desc if v else ""
     group = f"{v.group_label}" if v else ""
+    blocked = _BLOCKED_NOTES.get(view_id)
+    badge = "Requer fonte indisponível" if blocked else "Em breve"
+    note_title = "Bloqueada por dado ausente" if blocked else "Já prevista na arquitetura"
+    note = blocked or (
+        "Esta perspectiva chega numa próxima entrega (M2/M3 do handoff). "
+        "Os filtros e convenções métricas selecionados serão aplicados "
+        "automaticamente assim que ela for publicada — sem reconfigurar a análise."
+    )
     return html.Div(
         [
             card(
@@ -101,7 +130,7 @@ def perspective_soon(view_id: str) -> html.Div:
                         [
                             html.Div(
                                 [
-                                    html.Span("Em breve", className="cs-badge"),
+                                    html.Span(badge, className="cs-badge"),
                                     html.Span(group, className="caption"),
                                 ],
                                 className="cs-eyebrow",
@@ -116,16 +145,9 @@ def perspective_soon(view_id: str) -> html.Div:
             ),
             card(
                 [
-                    section_header("Sobre esta perspectiva", "Já prevista na arquitetura"),
+                    section_header("Sobre esta perspectiva", note_title),
                     html.Div(
-                        [
-                            icon("info", size=14, color="#06617c"),
-                            html.Span(
-                                "Esta perspectiva chega numa próxima entrega (M2/M3 do handoff). "
-                                "Os filtros e convenções métricas selecionados serão aplicados "
-                                "automaticamente assim que ela for publicada — sem reconfigurar a análise."
-                            ),
-                        ],
+                        [icon("info", size=14, color="#06617c"), html.Span(note)],
                         className="cs-note",
                     ),
                 ]

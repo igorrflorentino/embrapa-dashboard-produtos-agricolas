@@ -54,14 +54,56 @@ def _empty(msg: str) -> list:
     return [card(html.P(msg, className="caption", style={"padding": "24px 4px"}), subtle=True)]
 
 
+def _unit_mismatch(prod: str | None, metric: str) -> list:
+    """Honest 'não se aplica' card when the PEVS side isn't a pure mass basis
+    (volume commodity or mixed basket) — a mass↔weight ratio would be invalid."""
+    cat = seam.commodity_catalog()
+    if prod and prod in cat:
+        why = html.P(
+            [
+                html.Strong(cat[prod]["name"]),
+                " é medido em volume físico (m³), não em massa. ",
+                f"{metric} exige base de massa (t) para cruzar com o peso embarcado "
+                "(MDIC, em kg) — comparar massa com volume exigiria um fator de "
+                "densidade por produto, ainda não disponível.",
+            ],
+            className="cs-sub",
+            style={"padding": "4px 2px 0"},
+        )
+    else:
+        why = html.P(
+            [
+                "A ",
+                html.Strong("cesta completa"),
+                " mistura famílias de unidade física (massa e volume), e somar "
+                "produção entre famílias não é válido. ",
+                f"{metric} requer uma commodity de base mássica — selecione, por exemplo, ",
+                html.Strong("Castanha-do-pará"),
+                ".",
+            ],
+            className="cs-sub",
+            style={"padding": "4px 2px 0"},
+        )
+    return [
+        card(
+            [
+                section_header("Não se aplica a esta seleção", "Unidades físicas incompatíveis"),
+                why,
+            ]
+        )
+    ]
+
+
 # ── (1) Coeficiente de exportação — PEVS × COMEX, by UF ──────────────────────
 def export_coef(ui: dict) -> list:
     prod = ui.get("cross_product")
     data = seam.export_coefficient(prod)
+    picker = commodity_picker(prod)
+    if data.get("incompatible"):
+        return [picker, *_unit_mismatch(prod, "O coeficiente de exportação")]
     ranked = sorted(
         (u for u in data["by_uf"] if u["production"] > 0), key=lambda u: u["coefPct"], reverse=True
     )
-    picker = commodity_picker(prod)
     if not ranked:
         return [picker, *_empty("Sem produção/exportação cruzável para esta commodity.")]
     top_vol = max(ranked, key=lambda u: u["exportV"])  # who ships most, by volume
@@ -236,6 +278,8 @@ def price_spread(ui: dict) -> list:
     prod = ui.get("cross_product")
     data = seam.price_spread(prod)
     picker = commodity_picker(prod)
+    if data.get("incompatible"):
+        return [picker, *_unit_mismatch(prod, "A comparação porteira × FOB")]
     series = data["series"]
     if not series:
         return [picker, *_empty("Sem preços cruzáveis (porteira × FOB) para esta commodity.")]

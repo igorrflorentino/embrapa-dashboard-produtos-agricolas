@@ -424,6 +424,41 @@ def _pevs_mass_by_year(pevs_codes: tuple) -> dict:
     return {int(y): float(v) / 1e3 for y, v in g.items()}  # t -> mil t
 
 
+@functools.lru_cache(maxsize=1)
+def _pevs_family_by_commodity() -> dict:
+    """commodity_id -> set of PEVS physical-unit families (massa/volume/...).
+
+    Sourced from ``gold_pevs_production.family``. The ``'*'`` key holds every
+    family present in PEVS — the basis of the "Cesta completa" / no-filter
+    selection, which sums across ALL products. A mass↔weight ratio is only
+    meaningful when the PEVS side is purely ``massa``; volume (m³) or mixed
+    selections are not — Gold itself warns "NEVER sum qty_base across families".
+    """
+    s = get_settings()
+    pevs = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_pevs_production")
+    xwalk = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
+    q = f"""
+        select x.commodity_id as cid, p.family as family
+        from `{xwalk}` x
+        join `{pevs}` p on x.source = 'pevs' and p.product_code = x.code
+        group by cid, family
+        union all
+        select '*' as cid, family from (select distinct family from `{pevs}`)
+    """
+    idx: dict = {}
+    for r in gateway.run_query(q, []).itertuples():
+        idx.setdefault(r.cid, set()).add(r.family)
+    return idx
+
+
+def _is_mass_basis(commodity_id: str | None) -> bool:
+    """True iff the PEVS side of this selection is purely mass (t) — the
+    precondition for comparing PEVS production against COMEX shipment weight (kg).
+    Volume commodities (madeira, m³) and the mixed "Cesta completa" return False."""
+    fams = _pevs_family_by_commodity().get(commodity_id or "*", set())
+    return fams == {"massa"}
+
+
 def market_share(commodity_id: str | None) -> dict:
     """BR exports (COMEX) / world exports (COMTRADE), per year + per commodity."""
     br = _xyear("mdic_comex:exp_value", _codes(commodity_id, "comex"))
@@ -454,6 +489,16 @@ def market_share(commodity_id: str | None) -> dict:
 
 def export_coefficient(commodity_id: str | None) -> dict:
     """Share of each UF's production (PEVS, mass) that is exported (COMEX weight)."""
+    if not _is_mass_basis(commodity_id):
+        # Volume commodity (m³) or mixed basket: exported-kg ÷ produced-m³ is not a
+        # share. Refuse rather than print a dimensionless-nonsense percentage.
+        return {
+            "unit": "mil t",
+            "incompatible": True,
+            "by_uf": [],
+            "national": {},
+            "timeseries": [],
+        }
     pevs_codes = _codes(commodity_id, "pevs")
     ncms = _codes(commodity_id, "comex")
     prod = gateway.fetch_production_by_uf(value_column="qty_base", product_codes=pevs_codes)
@@ -487,6 +532,10 @@ def export_coefficient(commodity_id: str | None) -> dict:
 
 def price_spread(commodity_id: str | None) -> dict:
     """Farm-gate implied price (PEVS, US$/kg) vs FOB export price (COMEX, US$/kg)."""
+    if not _is_mass_basis(commodity_id):
+        # Gate price = PEVS value ÷ PEVS quantity; for a volume commodity that is
+        # US$/m³, not the US$/kg the FOB price uses — markup/spread would be invalid.
+        return {"unit": "US$/kg", "incompatible": True, "series": []}
     ncms = _codes(commodity_id, "comex")
     val = _xyear("mdic_comex:exp_value", ncms)
     wt = _xyear("mdic_comex:exp_weight", ncms)
