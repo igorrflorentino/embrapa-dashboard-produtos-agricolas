@@ -21,10 +21,13 @@
 -- is served separately by serving_comex_seasonality.
 --
 -- Backs: overviewTS / productTS (annual rollup), ufData (by state_acronym),
--- partnerData & flowData (by country_code, flow). Raw US$ / kg magnitudes — the
--- BFF scales to display units (÷1e9, ÷1e6) per the data contract.
+-- partnerData & flowData (by country_code, flow), products (distinct ncm_code +
+-- unit/family). Carries the same family/unit/qty set as serving_pevs_annual so
+-- the BFF reads products/productTS uniformly across sources. Raw US$ / kg /
+-- native-unit magnitudes — the BFF scales to display units per the data contract.
 --
--- Grain: one row per (reference_year, flow, ncm_code, state_acronym, country_code).
+-- Grain: one row per
+-- (reference_year, flow, ncm_code, state_acronym, country_code, family).
 -- ────────────────────────────────────────────────────────────────────────────
 
 with comex as (
@@ -35,10 +38,18 @@ with comex as (
         ncm_code,
         state_acronym,
         country_code,
+        -- family in the grain (like serving_pevs_annual) keeps qty_base summable
+        -- WITHIN a family; an NCM maps to one family in the common case, so this
+        -- adds no rows there and correctly splits the rare mixed-unit NCM.
+        family,
         any_value(hs_chapter)       as hs_chapter,
         any_value(ncm_description)  as ncm_description,
         any_value(country_name)     as country_name,
         any_value(country_iso_a3)   as country_iso_a3,
+        any_value(unit_native)      as unit_native,
+        any_value(base_unit)        as base_unit,
+        sum(qty_native)             as qty_native,
+        sum(qty_base)               as qty_base,
         sum(val_yearfx_usd)         as val_yearfx_usd,
         sum(val_real_ipca_usd)      as val_real_ipca_usd,
         sum(net_weight_kg)          as net_weight_kg,
@@ -47,7 +58,7 @@ with comex as (
         count(*)                    as source_rows,
         max(last_refresh)           as last_refresh
     from {{ ref('gold_comex_flows') }}
-    group by reference_year, flow, ncm_code, state_acronym, country_code
+    group by reference_year, flow, ncm_code, state_acronym, country_code, family
 
 )
 
@@ -67,6 +78,11 @@ select
     c.country_iso_a3,
     x.commodity_id,
     x.commodity_name,
+    c.family,
+    c.unit_native,
+    c.base_unit,
+    c.qty_native,
+    c.qty_base,
     c.val_yearfx_usd,
     c.val_real_ipca_usd,
     c.net_weight_kg,
