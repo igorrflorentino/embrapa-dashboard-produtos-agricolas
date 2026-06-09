@@ -23,6 +23,7 @@ from .components.cards import maturity_banner, meta_group, page_hero
 from .registries import banco_by_id, bancos_supporting, view_applies_to, view_by_id
 from .views import (
     concentration,
+    cross_analytics,
     cross_source,
     flows,
     geography,
@@ -51,6 +52,15 @@ VIEW_LAYOUTS = {
     "seasonality": seasonality.layout,
 }
 
+# Cross-source (Multi-fonte) analytical views — take the whole ui (they read
+# ui['cross_product'] / ui['cross']), not the per-banco (banco, conv, summary).
+CROSS_ANALYTICS = {
+    "cross_export_coef": cross_analytics.export_coef,
+    "cross_market_share": cross_analytics.market_share,
+    "cross_price_spread": cross_analytics.price_spread,
+    "cross_mirror": cross_analytics.mirror,
+}
+
 INITIAL_UI = {
     "mode": "single",
     "banco": "ibge_pevs",
@@ -62,6 +72,7 @@ INITIAL_UI = {
         "series": [{"b": "ibge_pevs", "m": "prod_value"}, {"b": "mdic_comex", "m": "exp_value"}],
         "mode": "base100",
     },
+    "cross_product": None,
 }
 
 app = Dash(
@@ -192,6 +203,9 @@ def update_state(*args):
             cross["mode"] = tid["value"]
             ui["cross"] = cross
             ui_d = ui
+        elif kind == "xproduct":  # commodity selection for the cross-analytics views
+            ui["cross_product"] = None if tid["code"] == "__all__" else tid["code"]
+            ui_d = ui
     elif tid == "mode-single":
         ui.update(mode="single", view="overview", info=None)
         nav, ui_d, nav_d = {"open": False}, ui, {"open": False}
@@ -291,6 +305,8 @@ def render_screen(ui):
         hero = page_hero("Análise cruzada · multi-fonte", v.label, v.desc, _cross_hero_meta(ui, v))
         if view == "cross_source" and v.status == "live":
             return _screen(hero, cross_source.layout(ui))
+        if v.status == "live" and view in CROSS_ANALYTICS:
+            return _screen(hero, CROSS_ANALYTICS[view](ui))
         return _screen(hero, [placeholders.perspective_soon(view)])
 
     applies, missing = view_applies_to(view, banco.id)

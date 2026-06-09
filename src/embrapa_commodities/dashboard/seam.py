@@ -16,8 +16,11 @@ overviewTS, ufData, quality) for the three live bancos. Trade-only adapters
 
 from __future__ import annotations
 
+import functools
+
 import pandas as pd
 
+from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
 
@@ -366,3 +369,167 @@ def _cross_points(banco_id: str, metric_id: str, y0: int, y1: int, unit: str) ->
     df = gateway.fetch_cross_series(f"{banco_id}:{metric_id}", year_start=y0, year_end=y1)
     scale = 1e9 if unit.endswith("bi") else (1e6 if unit == "mil t" else 1.0)
     return [{"y": int(r.reference_year), "v": float(r.value or 0) / scale} for r in df.itertuples()]
+
+
+# ── Cross-source analytics (crosswalk-joined) — M3b ──────────────────────────
+# The four analytical perspectives map the SAME commodity across PEVS / NCM / HS6
+# via gold_commodity_crosswalk, then compose existing readers filtered to that
+# commodity's codes. Pure composition — no new BFF SQL beyond the crosswalk read.
+
+
+@functools.lru_cache(maxsize=1)
+def _crosswalk_df() -> pd.DataFrame:
+    s = get_settings()
+    fqn = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
+    return gateway.run_query(f"select commodity_id, commodity_name, source, code from `{fqn}`", [])
+
+
+@functools.lru_cache(maxsize=1)
+def commodity_catalog() -> dict:
+    """commodity_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk."""
+    cat: dict = {}
+    for r in _crosswalk_df().itertuples():
+        c = cat.setdefault(
+            r.commodity_id,
+            {
+                "id": r.commodity_id,
+                "name": r.commodity_name,
+                "pevs": [],
+                "comex": [],
+                "comtrade": [],
+            },
+        )
+        c[r.source].append(str(r.code))
+    return cat
+
+
+def _codes(commodity_id: str | None, source: str) -> tuple:
+    c = commodity_catalog().get(commodity_id) if commodity_id else None
+    return tuple(c[source]) if c else ()
+
+
+def _xyear(metric: str, codes: tuple) -> dict:
+    """{year: raw value} from the gateway cross reader for a metric, scoped to codes."""
+    df = gateway.fetch_cross_series(metric, codes=codes)
+    return {int(r.reference_year): float(r.value or 0) for r in df.itertuples()}
+
+
+def _pevs_mass_by_year(pevs_codes: tuple) -> dict:
+    pts = gateway.fetch_product_timeseries(
+        "ibge_pevs", codes=pevs_codes, value_column="val_real_ipca_brl"
+    )
+    if pts is None or pts.empty:
+        return {}
+    g = pts.groupby("reference_year")["total_qty_native"].sum()
+    return {int(y): float(v) / 1e3 for y, v in g.items()}  # t -> mil t
+
+
+def market_share(commodity_id: str | None) -> dict:
+    """BR exports (COMEX) / world exports (COMTRADE), per year + per commodity."""
+    br = _xyear("mdic_comex:exp_value", _codes(commodity_id, "comex"))
+    world = _xyear("un_comtrade:world_exp", _codes(commodity_id, "comtrade"))
+    years = sorted(set(br) & set(world))
+    series = [
+        {
+            "y": y,
+            "br": br[y] / 1e9,
+            "world": world[y] / 1e9,
+            "share": (br[y] / world[y] * 100) if world[y] else 0,
+        }
+        for y in years
+    ]
+    by_product = []
+    for cid, c in commodity_catalog().items():
+        b = _xyear("mdic_comex:exp_value", tuple(c["comex"]))
+        w = _xyear("un_comtrade:world_exp", tuple(c["comtrade"]))
+        common = sorted(set(b) & set(w))
+        if common:
+            ly = common[-1]
+            by_product.append(
+                {"code": cid, "name": c["name"], "share": (b[ly] / w[ly] * 100) if w[ly] else 0}
+            )
+    by_product.sort(key=lambda x: x["share"], reverse=True)
+    return {"unit": "US$ bi", "series": series, "by_product": by_product}
+
+
+def export_coefficient(commodity_id: str | None) -> dict:
+    """Share of each UF's production (PEVS, mass) that is exported (COMEX weight)."""
+    pevs_codes = _codes(commodity_id, "pevs")
+    ncms = _codes(commodity_id, "comex")
+    prod = gateway.fetch_production_by_uf(value_column="qty_base", product_codes=pevs_codes)
+    exp = gateway.fetch_comex_by_uf(ncm_codes=ncms, flow="export")
+    exp_by_uf = {r.state_acronym: float(r.total_weight_kg or 0) / 1e6 for r in exp.itertuples()}
+    by_uf = []
+    for r in prod.itertuples():
+        p = float(r.total_value or 0) / 1e3  # qty_base (t) -> mil t
+        e = exp_by_uf.get(r.state_acronym, 0.0)
+        by_uf.append(
+            {
+                "uf": r.state_acronym,
+                "name": r.state_name,
+                "region": r.region_abbrev,
+                "production": p,
+                "exportV": e,
+                "coefPct": (e / p * 100) if p else 0,
+            }
+        )
+    tp = sum(d["production"] for d in by_uf)
+    te = sum(d["exportV"] for d in by_uf)
+    national = {"production": tp, "exportV": te, "coefPct": (te / tp * 100) if tp else 0}
+    pevs_mass = _pevs_mass_by_year(pevs_codes)
+    exp_mass = {y: v / 1e6 for y, v in _xyear("mdic_comex:exp_weight", ncms).items()}
+    ts = sorted(set(pevs_mass) & set(exp_mass))
+    timeseries = [
+        {"y": y, "v": (exp_mass[y] / pevs_mass[y] * 100) if pevs_mass[y] else 0} for y in ts
+    ]
+    return {"unit": "mil t", "by_uf": by_uf, "national": national, "timeseries": timeseries}
+
+
+def price_spread(commodity_id: str | None) -> dict:
+    """Farm-gate implied price (PEVS, US$/kg) vs FOB export price (COMEX, US$/kg)."""
+    ncms = _codes(commodity_id, "comex")
+    val = _xyear("mdic_comex:exp_value", ncms)
+    wt = _xyear("mdic_comex:exp_weight", ncms)
+    fob = {y: (val[y] / wt[y]) for y in (set(val) & set(wt)) if wt[y]}  # US$/kg
+    pts = gateway.fetch_product_timeseries(
+        "ibge_pevs", codes=_codes(commodity_id, "pevs"), value_column="val_yearfx_usd"
+    )
+    gate = {}
+    if pts is not None and not pts.empty:
+        g = pts.groupby("reference_year").agg(
+            v=("total_value", "sum"), q=("total_qty_native", "sum")
+        )
+        gate = {int(y): (row.v / (row.q * 1000)) if row.q else 0 for y, row in g.iterrows()}
+    years = sorted(set(fob) & set(gate))
+    series = [
+        {
+            "y": y,
+            "fob": fob[y],
+            "gate": gate[y],
+            "spread": fob[y] - gate[y],
+            "markup": (fob[y] / gate[y]) if gate[y] else 0,
+        }
+        for y in years
+    ]
+    return {"unit": "US$/kg", "series": series}
+
+
+def trade_mirror(commodity_id: str | None) -> dict:
+    """The same BR exports seen by MDIC (COMEX) vs UN Comtrade (reporter = Brazil)."""
+    mdic = {
+        y: v / 1e9 for y, v in _xyear("mdic_comex:exp_value", _codes(commodity_id, "comex")).items()
+    }
+    comtrade = {
+        y: v / 1e9
+        for y, v in _xyear("un_comtrade:exp_value", _codes(commodity_id, "comtrade")).items()
+    }
+    years = sorted(set(mdic) & set(comtrade))
+    series = [{"y": y, "mdic": mdic[y], "comtrade": comtrade[y]} for y in years]
+    discrepancy = [
+        {
+            "y": d["y"],
+            "v": abs(d["mdic"] - d["comtrade"]) / (((d["mdic"] + d["comtrade"]) / 2) or 1) * 100,
+        }
+        for d in series
+    ]
+    return {"unit": "US$ bi", "series": series, "discrepancy": discrepancy}

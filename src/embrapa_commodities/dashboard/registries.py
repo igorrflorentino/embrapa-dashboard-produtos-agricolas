@@ -543,7 +543,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "cross_export_coef",
                 "Coeficiente de exportação",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="UF × ano",
                 sources=("ibge_pevs", "mdic_comex"),
@@ -552,7 +552,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "cross_market_share",
                 "Brasil no mercado mundial",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="eixo temporal (ano)",
                 sources=("mdic_comex", "un_comtrade"),
@@ -561,7 +561,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "cross_price_spread",
                 "Preço: porteira vs. FOB",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="eixo temporal (ano)",
                 sources=("ibge_pevs", "mdic_comex"),
@@ -570,7 +570,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "cross_mirror",
                 "Espelho comercial",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="eixo temporal (ano)",
                 sources=("mdic_comex", "un_comtrade"),
