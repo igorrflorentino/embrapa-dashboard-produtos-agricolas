@@ -34,7 +34,10 @@ Built for **Embrapa researchers** — the purpose is historical/scientific explo
 
 - **Formatter/Linter**: Ruff (line-length=100, target=py312)
 - **Rules**: E, F, I, B, UP, SIM, RUF (ignoring RUF001-003 for the pt-BR Unicode that remains in UI/i18n data values)
-- **Language**: English everywhere developer-facing — identifiers, docstrings, comments, log/error messages, and technical docs (README, ARCHITECTURE, docs/, PLANS/, …). Portuguese is reserved for end-user/UI-facing text only: i18n data values (e.g. `month_name_pt` → `'Janeiro'`, Brazilian region and state names) and dashboard display strings. Rule of thumb: read by a developer → English; read by the end user → Portuguese.
+- **Language** (project rule — the **end user is the deciding reader**):
+    - Read **exclusively by the development team** → **English**: identifiers, docstrings, comments, log/error and operator/CLI messages, dbt comments + YAML descriptions, and all technical docs (README, ARCHITECTURE, docs/, PLANS/, …).
+    - Read by **anyone *including* the end user**, or **any string the end user could read — no matter where it lives** → **Portuguese**: dashboard display strings, chart/axis labels, and i18n data values (e.g. `month_name_pt` → `'Janeiro'`, Brazilian region/state names).
+    - When unsure whether the end user could ever see a string, **default to Portuguese**. (External-API literals the code must match — e.g. SIDRA's Portuguese error text — stay verbatim as data.)
 - **SQL**: SQLFluff for dbt models
 - **Pre-commit**: gitleaks + ruff + file-hygiene hooks (install with `make precommit-install`)
 
