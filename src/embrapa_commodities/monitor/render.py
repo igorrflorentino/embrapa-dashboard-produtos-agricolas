@@ -219,7 +219,7 @@ def _build_errors_panel(state: MonitorState) -> Panel | None:
         cause = _diagnose(err["error"])
         message = (
             f"[red]{str(err['error'])[:120]}[/red]\n"
-            f"[dim]→ causa provável:[/dim] [yellow]{cause}[/yellow]"
+            f"[dim]→ probable cause:[/dim] [yellow]{cause}[/yellow]"
         )
         table.add_row(stamp, err["kind"], err["target"], Text.from_markup(message))
     return Panel(

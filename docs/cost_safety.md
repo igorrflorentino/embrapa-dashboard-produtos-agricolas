@@ -1,74 +1,74 @@
-# Cost Safety — Budget Alerts e Quotas no GCP
+# Cost Safety — Budget Alerts and Quotas on GCP
 
-Mesmo rodando manual, **uma query mal-comportada** (loop num dashboard, full-scan
-sem partition, full-refresh acidental em prod) pode gerar uma fatura inesperada
-em horas. Este documento lista os 2 guard-rails de custo que precisam ser
-configurados **uma vez** no Cloud Console — não são código.
+Even running manually, **one misbehaving query** (a loop in a dashboard, a full-scan
+without partition, an accidental full-refresh in prod) can generate an unexpected bill
+within hours. This document lists the 2 cost guardrails that need to be
+configured **once** in the Cloud Console — they are not code.
 
 ---
 
-## 1. Budget mensal com alertas (3 minutos)
+## 1. Monthly budget with alerts (3 minutes)
 
 1. **Cloud Console → Billing → Budgets & alerts**
 2. **Create budget**:
    - Name: `embrapa-commodities-monthly`
-   - Projects: selecione `embrapa-dashboard-commodities`
-   - Services: deixe em branco (cobre tudo do projeto)
+   - Projects: select `embrapa-dashboard-commodities`
+   - Services: leave blank (covers everything in the project)
 3. **Budget amount**:
    - Type: **Specified amount**
-   - Target amount: **R$ 100/mês** (sugerido para uso acadêmico — o pipeline
-     real custa centavos por execução; folga é proteção contra bug)
-4. **Threshold rules** (e-mails automáticos):
-   - **50%** of budget — alerta inicial
-   - **90%** — preocupação séria
-   - **100%** — apaga o terminal e investiga
+   - Target amount: **R$ 100/month** (suggested for academic use — the real
+     pipeline costs cents per run; the headroom is protection against a bug)
+4. **Threshold rules** (automatic emails):
+   - **50%** of budget — initial alert
+   - **90%** — serious concern
+   - **100%** — turn off the terminal and investigate
 5. **Notifications**:
-   - Marque **Email alerts to billing admins and users**
-   - (Opcional) Conecte um Pub/Sub topic + Cloud Function se quiser
-     **kill-switch automático** que desabilita o billing quando ultrapassa
-     100% — exagero para o caso acadêmico.
+   - Check **Email alerts to billing admins and users**
+   - (Optional) Connect a Pub/Sub topic + Cloud Function if you want an
+     **automatic kill-switch** that disables billing when it exceeds
+     100% — overkill for the academic case.
 
-> Budget alerts são **avisos**, não bloqueios. Para hard limit, ver §2.
+> Budget alerts are **warnings**, not blocks. For a hard limit, see §2.
 
 ---
 
-## 2. Custom quota: limite duro de bytes BigQuery (5 minutos)
+## 2. Custom quota: hard cap on BigQuery bytes (5 minutes)
 
-Mesmo com BI Engine ativo, queries que escapam do cache (custom queries no
-Looker, joins novos) podem escanear vários GB. Estabeleça um teto diário.
+Even with BI Engine active, queries that escape the cache (custom queries in
+Looker, new joins) can scan several GB. Set a daily ceiling.
 
 1. **Cloud Console → IAM & Admin → Quotas & System Limits**
-2. Filtrar por: `bigquery.googleapis.com` + `Query usage per day per user`
+2. Filter by: `bigquery.googleapis.com` + `Query usage per day per user`
 3. **Edit quota**:
-   - Set to: **100 GB / day** (sugerido — o build completo de Silver+Gold
-     scan ~400 MB no estado atual, então 100 GB cobre ~250 builds/dia)
+   - Set to: **100 GB / day** (suggested — a full Silver+Gold build
+     scans ~400 MB in the current state, so 100 GB covers ~250 builds/day)
 4. **Submit**
 
-Ao atingir o limite, BigQuery passa a rejeitar novas queries até a meia-noite
-UTC com `quotaExceeded`. **Nenhuma surpresa de fatura.**
+When the limit is reached, BigQuery starts rejecting new queries until midnight
+UTC with `quotaExceeded`. **No billing surprise.**
 
 ---
 
-## 3. (Opcional) Authorized View para readers externos
+## 3. (Optional) Authorized View for external readers
 
-Se o dashboard for compartilhado com terceiros que **não** deveriam consumir
-custos do projeto:
+If the dashboard is shared with third parties who should **not** incur
+project costs:
 
-1. Crie um dataset `gold_readonly` num projeto separado (`embrapa-readers`).
-2. **Create authorized view** apontando para `gold.gold_pevs_production`.
-3. Compartilhe esse projeto separado com os readers.
+1. Create a `gold_readonly` dataset in a separate project (`embrapa-readers`).
+2. **Create authorized view** pointing to `gold.gold_pevs_production`.
+3. Share that separate project with the readers.
 
-Os readers consomem do projeto deles; o seu fica isolado.
+The readers consume from their own project; yours stays isolated.
 
 ---
 
-## 4. Checagem rápida do gasto atual
+## 4. Quick check of current spend
 
 ```bash
 gcloud billing accounts list
 gcloud billing projects describe embrapa-dashboard-commodities
 ```
 
-Ou pelo Console: **Billing → Reports** — gráfico de custo por SKU dos últimos
-30 dias. Em condições normais o projeto deve ficar < R$ 5/mês (BigQuery
+Or via the Console: **Billing → Reports** — cost-by-SKU chart for the last
+30 days. Under normal conditions the project should stay < R$ 5/month (BigQuery
 storage + BI Engine + GCS Standard ⇒ Coldline).

@@ -247,11 +247,11 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
         return CheckResult("Bronze tables", False, str(exc)[:120])
 
 
-# ★ Ponto de extensão: cada (dataset_attr, table) é um objeto que o BFF do
-# dashboard lê. _check_serving_marts itera sobre esta lista. dim_commodity_scd2
-# (a view SCD2 de curadoria) é DELIBERADAMENTE excluída: ela é gated por
-# `enable_curation` (make dbt-build-curation), então sua ausência é esperada num
-# build padrão e geraria falso-alarme aqui.
+# ★ Extension point: each (dataset_attr, table) is an object the dashboard BFF
+# reads. _check_serving_marts iterates over this list. dim_commodity_scd2
+# (the SCD2 curation view) is DELIBERATELY excluded: it is gated by
+# `enable_curation` (make dbt-build-curation), so its absence is expected in a
+# standard build and would raise a false alarm here.
 SERVING_TARGETS: list[tuple[str, str]] = [
     ("bq_serving_dataset", "serving_pevs_annual"),
     ("bq_serving_dataset", "serving_comex_annual"),
@@ -382,10 +382,10 @@ _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("gcs", _check_gcs),
 ]
 
-# ★ Ponto de extensão: para registrar uma nova fonte, acrescente aqui +
-# em BRONZE_TARGETS acima. Para fontes sem API pública (ex. SEFAZ NFe via
-# download em lote), o "check" pode ser um stub que retorna
-# CheckResult(name, ok=True, detail="sem probe público"). Veja
+# ★ Extension point: to register a new source, add it here +
+# in BRONZE_TARGETS above. For sources without a public API (e.g. SEFAZ NFe via
+# bulk download), the "check" can be a stub that returns
+# CheckResult(name, ok=True, detail="no public probe"). See
 # docs/adding_a_data_source.md.
 SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
@@ -394,8 +394,8 @@ SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("comtrade", _check_comtrade),
 ]
 
-# ★ Ponto de extensão: cada (dataset_attr, table_attr) referencia um campo
-# em Settings. _check_bronze_tables itera sobre esta lista.
+# ★ Extension point: each (dataset_attr, table_attr) references a field
+# in Settings. _check_bronze_tables iterates over this list.
 BRONZE_TARGETS: list[tuple[str, str]] = [
     ("bq_bronze_ibge_dataset", "bq_bronze_ibge_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
@@ -410,7 +410,7 @@ _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("backup", _check_backup_freshness),
 ]
 
-# Ordem total dos checks. Cada bloco pode ser estendido sem mudar este alias.
+# Total ordering of the checks. Each block can be extended without changing this alias.
 CHECKS = _INFRA_CHECKS + SOURCE_CHECKS + _POSTCHECKS
 
 

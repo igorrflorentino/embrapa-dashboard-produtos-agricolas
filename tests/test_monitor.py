@@ -160,26 +160,26 @@ def test_chunk_end_without_duration_does_not_record_duration() -> None:
     [
         ("Read timed out", "slow-byte"),
         ("Read timeout on server", "slow-byte"),
-        ("Connection refused", "manutenção"),
-        ("Connection reset by peer", "resetada"),
-        ("RemoteDisconnected", "resetada"),
+        ("Connection refused", "maintenance"),
+        ("Connection reset by peer", "reset"),
+        ("RemoteDisconnected", "reset"),
         ("Name or service not known", "DNS"),
         ("nodename nor servname provided", "DNS"),
-        ("Limite de valores excedido", "células"),
-        ("Limite excedido para SIDRA", "células"),
+        ("Limite de valores excedido", "cell limit"),
+        ("Limite excedido para SIDRA", "cell limit"),
         ("RetryError raised after 5 attempts", "retries"),
         ("stop_after_delay(180)", "retries"),
         ("stop_after_attempt(5)", "retries"),
-        ("Unauthorized 401", "autenticado"),
-        ("403 Forbidden", "permissão"),
-        ("HTTP 404 not found", "produto"),
+        ("Unauthorized 401", "authenticated"),
+        ("403 Forbidden", "permission"),
+        ("HTTP 404 not found", "product"),
         ("HTTP 500 server error", "5xx"),
         ("Bad gateway 502", "5xx"),
         ("Service unavailable 503", "5xx"),
         ("Gateway timeout 504", "5xx"),
         ("SSL certificate verify failed", "SSL"),
-        ("MemoryError", "Memória"),
-        ("Out of memory allocating", "Memória"),
+        ("MemoryError", "memory"),
+        ("Out of memory allocating", "memory"),
         ("returned no rows for the requested slice", "PEVS"),
         ("SIDRA returned no rows at all", "PEVS"),
     ],
@@ -191,11 +191,11 @@ def test_diagnose_recognizes_common_errors(msg: str, expected_keyword: str) -> N
 
 def test_diagnose_falls_back_for_unknown_errors() -> None:
     diagnosis = _diagnose("some totally unique error")
-    assert "automático" in diagnosis.lower()
+    assert "automatic" in diagnosis.lower()
 
 
 def test_diagnose_empty_error() -> None:
-    assert "registrada" in _diagnose("").lower()
+    assert "recorded" in _diagnose("").lower()
 
 
 def test_diagnose_gcs_permission_denied() -> None:

@@ -67,74 +67,74 @@ def _fmt_eta(seconds: float | None) -> str:
 _DIAGNOSIS_PATTERNS: list[tuple[tuple[str, ...], str]] = [
     (
         ("read timed out", "read timeout"),
-        "SIDRA parou de enviar bytes (slow-byte) — pode ser sobrecarga ou conexão instável.",
+        "SIDRA stopped sending bytes (slow-byte) — could be overload or an unstable connection.",
     ),
     (
         ("connection refused",),
-        "Conexão recusada — IBGE pode estar em manutenção ou bloqueando seu IP.",
+        "Connection refused — IBGE may be under maintenance or blocking your IP.",
     ),
     (
         ("connection reset", "remotedisconnected"),
-        "Conexão resetada pelo servidor durante a resposta — SIDRA instável agora.",
+        "Connection reset by the server mid-response — SIDRA is unstable right now.",
     ),
     (
         ("name or service not known", "nodename nor servname"),
-        "Falha de DNS — verifique sua conexão com a internet.",
+        "DNS failure — check your internet connection.",
     ),
     (
         ("limite de valores", "limite excedido"),
-        "Limite de células do SIDRA estourado — reduza --chunk-years ou número de produtos.",
+        "SIDRA cell limit exceeded — reduce --chunk-years or the number of products.",
     ),
     (
         ("retryerror", "stop_after_delay", "stop_after_attempt"),
-        "Deadline de 180s por estado esgotado após múltiplos retries — SIDRA muito lento.",
+        "180s per-state deadline exhausted after multiple retries — SIDRA is too slow.",
     ),
     (
         ("401", "unauthorized"),
-        "Não autenticado — rode `gcloud auth application-default login`.",
+        "Not authenticated — run `gcloud auth application-default login`.",
     ),
     (
         ("403", "forbidden"),
-        "Sem permissão — verifique IAM no GCP_PROJECT_ID.",
+        "No permission — check IAM on GCP_PROJECT_ID.",
     ),
     (
         ("404", "not found"),
-        "Recurso não encontrado — confira IBGE_TABLE_ID e códigos de produto.",
+        "Resource not found — verify IBGE_TABLE_ID and the product codes.",
     ),
     (
         ("500", "502", "503", "504"),
-        "Servidor SIDRA retornou erro 5xx — fora do ar temporariamente, retente em alguns minutos.",
+        "SIDRA server returned a 5xx error — temporarily down, retry in a few minutes.",
     ),
     (
         ("ssl", "certificate"),
-        "Erro de SSL — verifique data/hora do sistema e certificados raiz.",
+        "SSL error — check the system date/time and root certificates.",
     ),
     (
         ("memoryerror", "out of memory"),
-        "Memória insuficiente — reduza --chunk-years.",
+        "Out of memory — reduce --chunk-years.",
     ),
     # Two-condition pattern: both "permission denied" AND "gs://" must appear.
     # Handled specially in the loop below.
     (
         ("returned no rows", "no rows for the requested"),
-        "SIDRA retornou vazio — provavelmente o ano ainda não foi publicado "
-        "(PEVS tem ~1 ano de defasagem). Ajuste IBGE_END_YEAR.",
+        "SIDRA returned empty — the year has probably not been published yet "
+        "(PEVS has ~1 year of staleness). Adjust IBGE_END_YEAR.",
     ),
 ]
 
-_GCS_PERMISSION_DIAGNOSIS = "Sem permissão no bucket GCS — verifique IAM."
-_FALLBACK_DIAGNOSIS = "Sem diagnóstico automático — veja a mensagem completa."
+_GCS_PERMISSION_DIAGNOSIS = "No permission on the GCS bucket — check IAM."
+_FALLBACK_DIAGNOSIS = "No automatic diagnosis — see the full message."
 
 
 def _diagnose(error_text: str) -> str:
-    """Map a raw error message to a probable-cause line in Portuguese.
+    """Map a raw error message to a probable-cause line in English.
 
     Heuristic-only; runs on every error event so keep the cost low (lowercased
     substring matches against :data:`_DIAGNOSIS_PATTERNS`). Returns a short
     sentence ending in a period.
     """
     if not error_text:
-        return "Sem mensagem de erro registrada."
+        return "No error message recorded."
     e = error_text.lower()
 
     # Two-condition special case (both substrings must match).

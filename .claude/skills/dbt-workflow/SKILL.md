@@ -62,7 +62,7 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 - **Monetary conventions:**
   - `val_yearfx_*` — raw value ÷ year's average FX. NULL pre-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — value projected to today via chain-linked IPCA/IGP-M/IGP-DI index. **Use this for cross-year comparison.**
-- **Naming:** `gold_<fonte>_<forma>` where `<forma>` is `production` (output measurement, e.g. `gold_pevs_production`) or `flows` (origin→destination trade, e.g. `gold_comex_flows`).
+- **Naming:** `gold_<source>_<form>` where `<form>` is `production` (output measurement, e.g. `gold_pevs_production`) or `flows` (origin→destination trade, e.g. `gold_comex_flows`).
 
 ### Seeds — `dbt/seeds/`
 

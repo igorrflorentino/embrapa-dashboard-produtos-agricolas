@@ -14,7 +14,7 @@
 -- HS/NCM 4403). This model expands those prefixes against the codes that actually
 -- appear in each Gold fact table, emitting exact (source, code) → commodity rows
 -- so a consumer joins on equality. A code that matches no prefix is simply absent
--- here → "não vinculado" (graceful degradation), never an error.
+-- here → "unlinked" (graceful degradation), never an error.
 --
 -- Grain: one row per (source, code). source ∈ {pevs, comex, comtrade}.
 -- ────────────────────────────────────────────────────────────────────────────

@@ -57,32 +57,32 @@ app.add_typer(discover_app, name="discover")
 
 
 # ─── ingest registry ──────────────────────────────────────────────────────────
-# ★ Único ponto de extensão para `ingest all`. Cada @ingest_app.command()
-# permanece manuscrito (observabilidade e mensagens heterogêneas entre fontes).
-# Quando adicionar uma fonte: insira IngestSpec aqui + entry em
-# doctor.SOURCE_CHECKS / doctor.BRONZE_TARGETS. Veja
+# ★ The single extension point for `ingest all`. Each @ingest_app.command()
+# stays hand-maintained (observability and heterogeneous messages across sources).
+# When adding a source: insert an IngestSpec here + an entry in
+# doctor.SOURCE_CHECKS / doctor.BRONZE_TARGETS. See
 # docs/adding_a_data_source.md.
 
 
 @dataclass(frozen=True)
 class IngestSpec:
-    name: str  # subcomando ('ibge', 'bcb-inflation', ...)
-    module: ModuleType  # módulo com .run(settings, **kwargs) -> str
-    accepts_full: bool  # True quando .run aceita full=bool (pipelines delta-aware)
-    label: str  # rótulo exibido em `ingest all`
-    in_all: bool = True  # False = só rodável via `ingest <name>` (fora do batch padrão)
+    name: str  # subcommand ('ibge', 'bcb-inflation', ...)
+    module: ModuleType  # module with .run(settings, **kwargs) -> str
+    accepts_full: bool  # True when .run accepts full=bool (delta-aware pipelines)
+    label: str  # label shown in `ingest all`
+    in_all: bool = True  # False = only runnable via `ingest <name>` (outside the default batch)
 
 
-# Atributo `module`, não função: spec.module.run(...) faz lookup em tempo de
-# chamada, mantendo monkeypatch.setattr(cli.bcb_inflation, "run", ...)
-# funcional (ver tests/test_cli.py).
+# `module` attribute, not a function: spec.module.run(...) does the lookup at
+# call time, keeping monkeypatch.setattr(cli.bcb_inflation, "run", ...)
+# working (see tests/test_cli.py).
 INGESTS: list[IngestSpec] = [
     IngestSpec("ibge", ibge_pipeline, accepts_full=True, label="IBGE PEVS"),
-    IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflação"),
-    IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB câmbio"),
+    IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflation"),
+    IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB FX"),
     IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
-    # COMTRADE fica fora do `ingest all`: é key-gated (RuntimeError sem chave) e
-    # quota-gated/massivo (252 reporters × anos) — roda só via `ingest comtrade`.
+    # COMTRADE stays out of `ingest all`: it is key-gated (RuntimeError without a key) and
+    # quota-gated/massive (252 reporters × years) — runs only via `ingest comtrade`.
     IngestSpec("comtrade", comtrade_pipeline, accepts_full=True, label="UN COMTRADE", in_all=False),
 ]
 

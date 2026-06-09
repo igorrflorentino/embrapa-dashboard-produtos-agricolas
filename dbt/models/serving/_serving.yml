@@ -26,7 +26,7 @@ models:
         description: "Physical-unit family. qty_base is summed WITHIN a family — never across."
         tests: [not_null]
       - name: commodity_id
-        description: "Cross-source commodity slug (NULL when the product is não vinculado)."
+        description: "Cross-source commodity slug (NULL when the product is unlinked)."
 
   - name: serving_comex_annual
     description: |

@@ -86,8 +86,8 @@ seeds:
   - name: product_unit_factors
     description: |
       Per-product override for commodity units whose conversion factor depends
-      on the product (saca, @, arroba, bushel, barril — e.g. 1 saca de café =
-      60 kg but a bushel of soja ≠ a bushel of milho). Overrides
+      on the product (saca, @, arroba, bushel, barril — e.g. 1 saca of coffee =
+      60 kg but a bushel of soybeans ≠ a bushel of corn). Overrides
       unit_family_conversions when (source, product_code, unit_raw) matches;
       otherwise the generic seed applies.
 
@@ -105,7 +105,7 @@ seeds:
       factor, copy its row and set source/product_code to the real identifiers.
 
       NOT the same thing as the cross-source COMMODITY crosswalk
-      (commodity_crosswalk seed → gold_commodity_crosswalk model, the "Fase 3"
+      (commodity_crosswalk seed → gold_commodity_crosswalk model, the "Phase 3"
       product bridge, which IS fully wired). This seed is the per-product UNIT
       crosswalk — a different concern.
     config:
@@ -274,7 +274,7 @@ seeds:
       code-by-code. source ∈ {pevs (extractive code), comex (NCM), comtrade (HS6)};
       code_prefix matches a Gold product code by prefix. Resolved to exact codes by
       gold_commodity_crosswalk. Add a commodity / prefix when the product scope grows;
-      codes matching no prefix degrade gracefully to "não vinculado".
+      codes matching no prefix degrade gracefully to "unlinked".
     config:
       column_types:
         commodity_id: string

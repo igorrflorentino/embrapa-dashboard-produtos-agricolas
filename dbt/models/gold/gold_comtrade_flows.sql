@@ -12,7 +12,7 @@
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- gold_comtrade_flows — the single comprehensive `flows` table for UN Comtrade
--- (naming: gold_<fonte>_<forma>; `flows` = origin→destination trade). The global
+-- (naming: gold_<source>_<form>; `flows` = origin→destination trade). The global
 -- complement to gold_comex_flows (Brazil-only).
 --
 -- Grain: one row per (flow, reference_year, reporter_code, partner_code,

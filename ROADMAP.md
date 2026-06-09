@@ -1,112 +1,112 @@
 # Roadmap — Embrapa Commodities Dashboard
 
-> Visão de futuro do projeto. Metas organizadas por horizonte temporal.
-> Este documento é atualizado conforme o projeto evolui.
+> The project's future vision. Goals organized by time horizon.
+> This document is updated as the project evolves.
 
 ---
 
-## 🟢 Curto Prazo (1–3 meses)
+## 🟢 Short Term (1–3 months)
 
-Foco: **estabilização, observabilidade e automação básica**.
+Focus: **stabilization, observability and basic automation**.
 
-### Pipeline & Dados
-- [~] **Orquestração da ingestão**: `embrapa ingest all` empacotado como **Cloud Run Job** (batch, não Service) + trigger **Cloud Scheduler** nas madrugadas — artefatos em [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); falta o operador rodar o deploy no GCP. Aproveita a resiliência com `tenacity` (retry/slow-byte) + delta do BCB/COMEX. Ver [ARCHITECTURE § Orquestração da ingestão](ARCHITECTURE.md#orquestração-da-ingestão-cloud-run-job--cloud-scheduler).
-- [ ] Notificações de falha de ingestão (email ou Slack webhook)
-- [ ] Integrar SQLFluff no CI (atualmente rodado manualmente)
-- [ ] Testes de integridade end-to-end (row counts Bronze → Silver → Gold)
+### Pipeline & Data
+- [~] **Ingestion orchestration**: `embrapa ingest all` packaged as a **Cloud Run Job** (batch, not Service) + a **Cloud Scheduler** trigger overnight (off-peak) — artifacts in [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); the operator still needs to run the deploy on GCP. Leverages the resilience from `tenacity` (retry/slow-byte) + the BCB/COMEX delta. See [ARCHITECTURE § Ingestion orchestration](ARCHITECTURE.md#ingestion-orchestration-cloud-run-job--cloud-scheduler).
+- [ ] Ingestion failure notifications (email or Slack webhook)
+- [ ] Integrate SQLFluff into CI (currently run manually)
+- [ ] End-to-end integrity tests (row counts Bronze → Silver → Gold)
 
-### Visualização (dois caminhos paralelos)
+### Visualization (two parallel paths)
 
-> O Gold é consumido por **Looker Studio** (no-code, direto na Gold) **e** por um
-> **dashboard dedicado Dash + HTML/CSS no Cloud Run** (em reconstrução no Claude
-> Design System). Os itens abaixo aplicam-se ao dashboard dedicado; o Looker cobre
-> o caminho no-code em paralelo. Ver [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumo.
+> Gold is consumed by **Looker Studio** (no-code, direct on Gold) **and** by a
+> **dedicated Dash + HTML/CSS dashboard on Cloud Run** (under reconstruction in the
+> Claude Design System). The items below apply to the dedicated dashboard; Looker
+> covers the no-code path in parallel. See [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumption.
 
-- [x] **Pushdown Computing** — dashboard **stateless**: filtros da UI → SQL `@param` na camada `serving`, com `flask-caching` (TTL) nos resultados. Substitui o desenho in-memory/Pandas (risco de OOM/concorrência). Backend (BFF) já em [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/).
-- [x] **Curadoria dinâmica (SCD Tipo 2)** — log append-only `commodity_processing_stage_log` + view `dim_commodity_scd2` (`lead()`); LEFT JOIN ao vivo na UI; autor via header IAP. Sem sobrescrever o Gold.
-- [ ] Componentes de UI da curadoria + export CSV/Excel (chegam com o handoff do Design System)
-- [ ] Melhorias de UX baseadas em feedback de pesquisadores
+- [x] **Pushdown Computing** — **stateless** dashboard: UI filters → SQL `@param` on the `serving` layer, with `flask-caching` (TTL) on the results. Replaces the in-memory/Pandas design (OOM/concurrency risk). Backend (BFF) already in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/).
+- [x] **Dynamic curation (SCD Type 2)** — append-only log `commodity_processing_stage_log` + view `dim_commodity_scd2` (`lead()`); live LEFT JOIN in the UI; author via IAP header. Without overwriting Gold.
+- [ ] Curation UI components + CSV/Excel export (arriving with the Design System handoff)
+- [ ] UX improvements based on researcher feedback
 
-### Qualidade
-- [ ] Aumentar cobertura de testes para ≥ 80%
-- [ ] Testes de contrato para APIs externas (IBGE SIDRA, BCB SGS)
-- [ ] Runbook de operações / troubleshooting
+### Quality
+- [ ] Increase test coverage to ≥ 80%
+- [ ] Contract tests for external APIs (IBGE SIDRA, BCB SGS)
+- [ ] Operations / troubleshooting runbook
 
-### Documentação
-- [ ] Documentar API do CLI (geração automática via `embrapa --help`)
-- [ ] Diagrama ER do modelo de dados Gold
-- [ ] Guia de onboarding para novos contribuidores
+### Documentation
+- [ ] Document the CLI API (auto-generated via `embrapa --help`)
+- [ ] ER diagram of the Gold data model
+- [ ] Onboarding guide for new contributors
 
 ---
 
-## 🟡 Médio Prazo (3–6 meses)
+## 🟡 Medium Term (3–6 months)
 
-Foco: **novas fontes de dados, IaC e melhorias de dashboard**.
+Focus: **new data sources, IaC and dashboard improvements**.
 
-### Novas Fontes de Dados
-- [ ] CONAB — preços e custos de produção
-- [ ] CEPEA — indicadores de preços agrícolas
-- [ ] FAO — dados internacionais de produção para benchmarking
-- [ ] Expandir cobertura de produtos IBGE (além de extrativismo vegetal)
+### New Data Sources
+- [ ] CONAB — production prices and costs
+- [ ] CEPEA — agricultural price indicators
+- [ ] FAO — international production data for benchmarking
+- [ ] Expand IBGE product coverage (beyond extractive vegetable production)
 
-### Infraestrutura
-- [ ] Terraform / Pulumi para provisionamento do projeto GCP (IaC)
-- [ ] Workload Identity Federation para CI/CD (eliminar secrets)
-- [ ] Ambiente de staging separado (entre dev local e prod)
-- [ ] Pipeline de deploy automatizado (CI/CD → Cloud Run)
+### Infrastructure
+- [ ] Terraform / Pulumi for provisioning the GCP project (IaC)
+- [ ] Workload Identity Federation for CI/CD (eliminate secrets)
+- [ ] Separate staging environment (between local dev and prod)
+- [ ] Automated deploy pipeline (CI/CD → Cloud Run)
 
 ### Dashboard
-- [ ] Página de comparação entre produtos
-- [ ] Mapas geográficos interativos (choropleth por estado/município)
-- [ ] Tema claro/escuro configurável
-- [ ] Internacionalização (i18n) — suporte a inglês
+- [ ] Product comparison page
+- [ ] Interactive geographic maps (choropleth by state/municipality)
+- [ ] Configurable light/dark theme
+- [ ] Internationalization (i18n) — English support
 
-### Dados
-- [ ] Particionamento otimizado das tabelas Gold (clustering por product_code + state_acronym)
-- [x] **Camada `serving/` (Pushdown Computing)** — marts pré-agregados nos grãos exatos dos gráficos + dimensões conformadas (`dim_date`, `dim_geo_br`), reduzindo o scan de **GB → MB** para o dashboard. Substitui a postura anterior de "deliberadamente nunca pré-agregar"; o Gold permanece a fonte comprehensiva por fonte e o `serving` deriva dele (ver [`ARCHITECTURE.md`](ARCHITECTURE.md#camada-serving--pushdown-computing-dashboard-dash) § Camada Serving)
-- [ ] Materializações incrementais nos marts de serving **se** o volume crescer (hoje `table` full-refresh no rebuild noturno)
+### Data
+- [ ] Optimized partitioning of the Gold tables (clustering by product_code + state_acronym)
+- [x] **`serving/` layer (Pushdown Computing)** — marts pre-aggregated at the exact chart grains + conformed dimensions (`dim_date`, `dim_geo_br`), reducing the scan from **GB → MB** for the dashboard. Replaces the previous "deliberately never pre-aggregate" stance; Gold remains the comprehensive per-source table and `serving` derives from it (see [`ARCHITECTURE.md`](ARCHITECTURE.md#serving-layer--pushdown-computing-dash-dashboard) § Serving Layer)
+- [ ] Incremental materializations in the serving marts **if** the volume grows (today `table` full-refresh in the overnight rebuild)
 - [ ] Data freshness monitoring (dbt source freshness)
 
 ---
 
-## 🔴 Longo Prazo (6–12 meses)
+## 🔴 Long Term (6–12 months)
 
-Foco: **escala, inteligência e abertura**.
+Focus: **scale, intelligence and openness**.
 
-### Inteligência & Análise
-- [ ] Modelos preditivos de produção (séries temporais, sazonalidade)
-- [ ] Alertas automáticos de anomalias nos dados (queda/pico inesperado)
-- [ ] Integração com Vertex AI para análises avançadas
-- [ ] Natural Language Query — perguntas em linguagem natural sobre os dados
+### Intelligence & Analysis
+- [ ] Predictive production models (time series, seasonality)
+- [ ] Automatic anomaly alerts in the data (unexpected drop/spike)
+- [ ] Integration with Vertex AI for advanced analyses
+- [ ] Natural Language Query — natural-language questions over the data
 
-### Escala
-- [ ] Suporte a múltiplos projetos GCP (multi-tenant)
-- [ ] API REST pública para consulta programática dos dados Gold
+### Scale
+- [ ] Support for multiple GCP projects (multi-tenant)
+- [ ] Public REST API for programmatic querying of the Gold data
 - [ ] Data sharing via BigQuery Analytics Hub
-- [ ] Orquestração com Apache Airflow / Cloud Composer
+- [ ] Orchestration with Apache Airflow / Cloud Composer
 
-### Comunidade & Abertura
-- [ ] Publicação de dataset público (BigQuery public dataset ou dados.gov.br)
-- [ ] Documentação técnica em inglês (internacionalização da docs)
-- [ ] Contribuição para pacotes open-source utilizados
-- [ ] Apresentação em conferências (PyCon, dbt Coalesce, Google Cloud Next)
+### Community & Openness
+- [ ] Publication of a public dataset (BigQuery public dataset or dados.gov.br)
+- [ ] Technical documentation in English (documentation internationalization)
+- [ ] Contributions to the open-source packages used
+- [ ] Presentations at conferences (PyCon, dbt Coalesce, Google Cloud Next)
 
-### Governança
-- [ ] Data catalog (Google Data Catalog ou DataHub)
-- [ ] Data lineage visual (integração com dbt docs)
-- [ ] SLA formal para atualização dos dados
-- [ ] Política de retenção de dados (lifecycle rules no GCS)
-
----
-
-## 📌 Princípios Guia
-
-1. **Zero hardcode** — tudo configurável via `.env`
-2. **Reprodutibilidade** — qualquer pessoa deve conseguir recriar o pipeline do zero
-3. **Segurança primeiro** — sem keyfiles, impersonation everywhere
-4. **Dados confiáveis** — testes, flags de qualidade, chain index auditável
-5. **Simplicidade operacional** — um `make` ou `embrapa` comando para cada tarefa
+### Governance
+- [ ] Data catalog (Google Data Catalog or DataHub)
+- [ ] Visual data lineage (integration with dbt docs)
+- [ ] Formal SLA for data updates
+- [ ] Data retention policy (lifecycle rules in GCS)
 
 ---
 
-> 💡 Sugestões de features? Abra uma [issue](https://github.com/igorrflorentino/embrapa-dashboard-commodities/issues) ou veja [CONTRIBUTING.md](CONTRIBUTING.md).
+## 📌 Guiding Principles
+
+1. **Zero hardcoding** — everything configurable via `.env`
+2. **Reproducibility** — anyone should be able to recreate the pipeline from scratch
+3. **Security first** — no keyfiles, impersonation everywhere
+4. **Trustworthy data** — tests, quality flags, an auditable chain index
+5. **Operational simplicity** — one `make` or `embrapa` command for each task
+
+---
+
+> 💡 Feature suggestions? Open an [issue](https://github.com/igorrflorentino/embrapa-dashboard-commodities/issues) or see [CONTRIBUTING.md](CONTRIBUTING.md).

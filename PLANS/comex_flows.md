@@ -1,191 +1,191 @@
-# Fonte COMEX — `gold_comex_flows`
+# COMEX source — `gold_comex_flows`
 
-> **Status:** **FEATURE COMPLETA E VALIDADA EM DEV** (2026-05-30, Claude Code
-> local). PR-1/2/3 implementados, 274 testes Python verdes. Caminho real
-> Bronze→Silver→Gold→testes validado contra o BQ do usuário com uma fatia
-> 2024-2026 (`embrapa ingest comex` → `dbt build --select +gold_comex_flows`,
-> **PASS=37/0 erros**; Gold = 44.3k linhas; só cap. 08+44, castanha só no 08).
-> Achados registrados: IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host
-> omite a intermediária TLS (cadeia em `comex/_ca.py`); delta por `(fluxo,ano)`
-> + continue-on-failure absorveram um BrokenPipe transitório no re-run.
-> **Notas operacionais pendentes:** (1) backfill histórico completo 1997-2026
-> (multi-GB, ~1h — opcional, rodar quando quiser); (2) `val_real_*`/FX dos meses
-> > jan/2025 saem NULL até o Bronze de câmbio do BCB ser re-ingerido (SGS hoje
-> em 502); (3) `dbt build-prod` quando quiser materializar em `gold`.
+> **Status:** **FEATURE COMPLETE AND VALIDATED IN DEV** (2026-05-30, Claude Code
+> local). PR-1/2/3 implemented, 274 Python tests green. Real
+> Bronze→Silver→Gold→tests path validated against the user's BQ with a
+> 2024-2026 slice (`embrapa ingest comex` → `dbt build --select +gold_comex_flows`,
+> **PASS=37/0 errors**; Gold = 44.3k rows; only ch. 08+44, castanha only in 08).
+> Recorded findings: IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host
+> omits the TLS intermediate (chain in `comex/_ca.py`); delta by `(flow,year)`
+> + continue-on-failure absorbed a transient BrokenPipe on the re-run.
+> **Pending operational notes:** (1) full historical backfill 1997-2026
+> (multi-GB, ~1h — optional, run whenever you like); (2) `val_real_*`/FX for the
+> months after Jan/2025 come out NULL until the BCB FX Bronze is re-ingested (SGS
+> currently 502); (3) `dbt build-prod` whenever you want to materialize into `gold`.
 
-## Contexto
+## Context
 
-O backend está preparado para multi-fonte (registries `cli.INGESTS`,
-`doctor.SOURCE_CHECKS`/`BRONZE_TARGETS`, primitivos `core/http.py` +
-`core/raw.py`, guia `docs/adding_a_data_source.md`). Hoje só há uma fonte de
-*produção* (IBGE PEVS → `gold_pevs_production`) enriquecida por câmbio/inflação
-do BCB.
+The backend is prepared for multi-source (registries `cli.INGESTS`,
+`doctor.SOURCE_CHECKS`/`BRONZE_TARGETS`, primitives `core/http.py` +
+`core/raw.py`, guide `docs/adding_a_data_source.md`). Today there is only one
+*production* source (IBGE PEVS → `gold_pevs_production`) enriched with BCB
+FX/inflation.
 
-Adicionar **COMEX (comércio exterior, MDIC)** é o maior multiplicador de valor
-para a audiência científica da Embrapa: cruza **produção × comércio × câmbio ×
-inflação** do mesmo produto, e valida o design `gold_<fonte>_<forma>` (a forma
-`flows` — fluxo origem→destino — ainda não existia).
+Adding **COMEX (foreign trade, MDIC)** is the biggest value multiplier
+for Embrapa's scientific audience: it crosses **production × trade × FX ×
+inflation** for the same product, and validates the `gold_<source>_<form>`
+design (the `flows` form — origin→destination flow — did not exist yet).
 
-## Escopo
+## Scope
 
-**Incluído (decidido com o usuário):**
+**Included (decided with the user):**
 
-- **Fonte de dados:** bulk CSV do Comex Stat — `EXP_<ano>.csv` / `IMP_<ano>.csv`
-  em `https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm/`
-  (`;`-separado, latin-1, um arquivo por ano por fluxo, histórico desde 1997).
-  **NÃO usar a API JSON** (ver Riscos).
-- **Fluxo:** export **e** import (coluna `flow`).
-- **Produtos:** castanha-do-pará/brasil (NCM `08012100` com casca, `08012200`
-  sem casca) + **capítulo 44 inteiro** (madeira e carvão vegetal — qualquer NCM
-  cujos 2 primeiros dígitos sejam `44`).
-- **Grão Gold:** mês × NCM × país × UF → `gold_comex_flows` (forma `flows`).
-- Deflação monetária reaproveitando as Silver compartilhadas
-  (`silver_bcb_inflation`, `silver_bcb_currency`) via `ref()`, aplicando as 4
-  convenções do projeto (`val_yearfx_*`, `val_real_{ipca,igpm,igpdi}_*`) sobre
+- **Data source:** Comex Stat bulk CSV — `EXP_<ano>.csv` / `IMP_<ano>.csv`
+  at `https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm/`
+  (`;`-separated, latin-1, one file per year per flow, history since 1997).
+  **Do NOT use the JSON API** (see Risks).
+- **Flow:** export **and** import (`flow` column).
+- **Products:** castanha-do-pará/brasil (NCM `08012100` with shell, `08012200`
+  shelled) + **the entire chapter 44** (wood and charcoal — any NCM
+  whose first 2 digits are `44`).
+- **Gold grain:** month × NCM × country × UF → `gold_comex_flows` (`flows` form).
+- Monetary deflation reusing the shared Silver tables
+  (`silver_bcb_inflation`, `silver_bcb_currency`) via `ref()`, applying the 4
+  project conventions (`val_yearfx_*`, `val_real_{ipca,igpm,igpdi}_*`) over
   `VL_FOB` (US$).
 
-**Excluído:**
+**Excluded:**
 
-- Pré-agregações (estado-ano, nacional): agregar em tempo de query via
-  `GROUP BY` — UMA tabela comprehensiva por fonte.
-- Forçar COMEX dentro de `gold_pevs_production` (grãos incompatíveis).
-- Frontend / Looker (consome a Gold depois, fora deste escopo).
+- Pre-aggregations (state-year, national): aggregate at query time via
+  `GROUP BY` — ONE comprehensive table per source.
+- Forcing COMEX into `gold_pevs_production` (incompatible grains).
+- Frontend / Looker (consumes Gold afterward, out of this scope).
 
-## Design Técnico
+## Technical Design
 
-Seguindo os 11 passos de `docs/adding_a_data_source.md`. Pacote
+Following the 11 steps in `docs/adding_a_data_source.md`. Package
 `src/embrapa_commodities/comex/`.
 
-**1. Client (`comex/client.py`) — downloader de CSV, não API JSON.**
-- Download via **GET** dos arquivos anuais (dezenas/centenas de MB) — **stream
-  para disco temporário**, não drain-em-memória (arquivo grande leva minutos
-  legitimamente; reavaliar/relaxar o deadline slow-byte do `core/http.py`, que
-  foi desenhado para respostas pequenas).
-- Erros `ComexRequestError` / `ComexTransientError(SourceTransientError)` para
-  herdar o retry compartilhado.
-- Parsing com pandas (`sep=";"`, `encoding="latin-1"`, `dtype=str`), filtrando
-  localmente: `CO_NCM in ncm_codes OR CO_NCM[:2] in chapter_codes`.
-- Colunas-fonte **CONFIRMADAS ao vivo** (2026-05-30):
-  - **EXP (11 col):**
+**1. Client (`comex/client.py`) — CSV downloader, not JSON API.**
+- Download via **GET** of the yearly files (tens/hundreds of MB) — **stream
+  to a temporary disk file**, not drain-in-memory (a large file legitimately
+  takes minutes; re-evaluate/relax the slow-byte deadline in `core/http.py`,
+  which was designed for small responses).
+- `ComexRequestError` / `ComexTransientError(SourceTransientError)` errors to
+  inherit the shared retry.
+- Parsing with pandas (`sep=";"`, `encoding="latin-1"`, `dtype=str`), filtering
+  locally: `CO_NCM in ncm_codes OR CO_NCM[:2] in chapter_codes`.
+- Source columns **CONFIRMED live** (2026-05-30):
+  - **EXP (11 cols):**
     `CO_ANO;CO_MES;CO_NCM;CO_UNID;CO_PAIS;SG_UF_NCM;CO_VIA;CO_URF;QT_ESTAT;KG_LIQUIDO;VL_FOB`
-  - **IMP (13 col):** as 11 do EXP **+ `VL_FRETE;VL_SEGURO`**.
-  - Aspas mistas: colunas de texto entre `"`, numéricas (`QT_ESTAT` em diante)
-    sem aspas — `pandas(sep=";", quotechar='"', dtype=str)` lê ambos os casos.
-  - `CO_NCM` 8 dígitos zero-padded e entre aspas; `CO_MES` 2 dígitos
-    zero-padded; `CO_PAIS` é **código numérico** (ex. `160`, `764` — precisa de
-    seed `country_iso` p/ nome); `SG_UF_NCM` é a sigla de 2 letras da UF.
-  - **Filtro tem de ser coluna-preciso em `CO_NCM`/`CO_NCM[:2]`** — um grep de
-    substring `"44` na linha crua casa falsamente com `CO_PAIS=445` etc.
+  - **IMP (13 cols):** the 11 from EXP **+ `VL_FRETE;VL_SEGURO`**.
+  - Mixed quoting: text columns wrapped in `"`, numeric ones (`QT_ESTAT` onward)
+    unquoted — `pandas(sep=";", quotechar='"', dtype=str)` reads both cases.
+  - `CO_NCM` 8 digits zero-padded and quoted; `CO_MES` 2 digits
+    zero-padded; `CO_PAIS` is a **numeric code** (e.g. `160`, `764` — needs the
+    `country_iso` seed for a name); `SG_UF_NCM` is the 2-letter UF acronym.
+  - **The filter must be column-precise on `CO_NCM`/`CO_NCM[:2]`** — a substring
+    grep `"44` on the raw line falsely matches `CO_PAIS=445`, etc.
 
-**2. Pipeline (`comex/pipeline.py`) — `run()` próprio** (shape ≠ SGS, então não
-usa `bcb.series`):
-- **Delta por `(fluxo, ano)`** (forma implementada — diverge do rascunho
-  original "lookup de anos em Bronze"): enumera a janela inteira a cada run e
-  re-extrai um `(fluxo, ano)` só quando o **ETag/Last-Modified/Content-Length**
-  da fonte muda (`_raw_is_current`) — pega revisões de **qualquer** ano, não só
-  o corrente. A carga do Bronze (Fase 2) é gateada por um marcador
-  `bronze_loaded_at` na metadata do raw (`mark_raw_bronze_loaded`/
-  `raw_bronze_loaded`), não por consulta de anos em Bronze.
-- Cauda extract→raw→load via a zona raw two-phase (`core/raw.py`:
-  `land_raw_file`/`download_raw`/`raw_provenance`) — não reescrever.
-- Bronze: todas as colunas STRING + `ingestion_timestamp`; chave natural
+**2. Pipeline (`comex/pipeline.py`) — its own `run()`** (shape ≠ SGS, so it does
+not use `bcb.series`):
+- **Delta by `(flow, year)`** (the implemented form — diverges from the original
+  draft "year lookup in Bronze"): it enumerates the entire window on each run and
+  re-extracts a `(flow, year)` only when the source's **ETag/Last-Modified/Content-Length**
+  changes (`_raw_is_current`) — catching revisions of **any** year, not just
+  the current one. The Bronze load (Phase 2) is gated by a `bronze_loaded_at`
+  marker in the raw metadata (`mark_raw_bronze_loaded`/
+  `raw_bronze_loaded`), not by a year lookup in Bronze.
+- The extract→raw→load tail goes through the two-phase raw zone (`core/raw.py`:
+  `land_raw_file`/`download_raw`/`raw_provenance`) — do not rewrite.
+- Bronze: all columns STRING + `ingestion_timestamp`; natural key
   `(flow, CO_ANO, CO_MES, CO_NCM, CO_PAIS, SG_UF_NCM)`.
-- **Schema-union EXP+IMP:** o Bronze é UMA tabela com as 13 colunas do IMP;
-  linhas de export gravam `VL_FRETE`/`VL_SEGURO` como NULL. O client deve
-  reindexar o DataFrame para o superset de colunas antes do load (não confiar
-  na ordem/contagem por fluxo). Coluna `flow` (`export`/`import`) adicionada
-  pelo pipeline, não vem do CSV.
+- **EXP+IMP schema-union:** Bronze is ONE table with the 13 IMP columns;
+  export rows write `VL_FRETE`/`VL_SEGURO` as NULL. The client must
+  reindex the DataFrame to the column superset before the load (do not rely
+  on per-flow order/count). The `flow` column (`export`/`import`) is added
+  by the pipeline; it does not come from the CSV.
 
 **3. Config (`config.py` + `.env.example`):** `BQ_BRONZE_COMEX_DATASET`,
 `BQ_BRONZE_COMEX_FLOWS_TABLE`, `COMEX_CSV_BASE_URL`, `COMEX_FLOWS`
 (`export,import`), `COMEX_NCM_CODES` (CODE:LABEL), `COMEX_CHAPTER_CODES`
-(CODE:LABEL), `COMEX_START_YEAR=1997`, `COMEX_END_YEAR`. Properties espelhando
-`*_map` / `*_list` com validação (reusar `_parse_code_label`).
+(CODE:LABEL), `COMEX_START_YEAR=1997`, `COMEX_END_YEAR`. Properties mirroring
+`*_map` / `*_list` with validation (reuse `_parse_code_label`).
 
-**4. Registries:** `cli.INGESTS` += spec; comando `ingest comex` manuscrito
-(multi-chunk por ano → copiar a estrutura de `ingest_ibge_batch`, que emite
-`chunk_*` por ano, em vez do `pipeline_run` single-shot); `doctor.SOURCE_CHECKS`
-+= `_check_comex`; `doctor.BRONZE_TARGETS` += entry COMEX.
+**4. Registries:** `cli.INGESTS` += spec; hand-maintained `ingest comex` command
+(multi-chunk per year → copy the structure of `ingest_ibge_batch`, which emits
+`chunk_*` per year, instead of the single-shot `pipeline_run`); `doctor.SOURCE_CHECKS`
++= `_check_comex`; `doctor.BRONZE_TARGETS` += COMEX entry.
 
-**5–7. dbt:** `_sources.yml` (bloco `bronze_comex`); `silver_comex_flows.sql`
-(dedup por `qualify row_number()` na chave natural; `safe_numeric()` em
-`VL_FOB`/`KG_LIQUIDO`); `gold_comex_flows.sql` (grão mês×NCM×país×UF + CTEs de
-deflação por `ref(silver_bcb_*)`). Testes em `_silver.yml` / `_gold.yml`.
+**5–7. dbt:** `_sources.yml` (`bronze_comex` block); `silver_comex_flows.sql`
+(dedup via `qualify row_number()` on the natural key; `safe_numeric()` on
+`VL_FOB`/`KG_LIQUIDO`); `gold_comex_flows.sql` (grain month×NCM×country×UF + deflation
+CTEs via `ref(silver_bcb_*)`). Tests in `_silver.yml` / `_gold.yml`.
 
-**8. Seeds (opcional):** `hs_ncm.csv` (NCM→label legível) se quisermos nomes em
-vez de códigos; `country_iso.csv` para resolver `CO_PAIS`.
+**8. Seeds (optional):** `hs_ncm.csv` (NCM→readable label) if we want names
+instead of codes; `country_iso.csv` to resolve `CO_PAIS`.
 
-**9. Testes Python:** `test_comex_client.py` (CSV fixture local, sem rede —
-parsing + filtro cap.44/NCM); `test_comex_pipeline.py` (delta por ano + mocks
-GCP, copiar padrão de `test_bcb_series.py`).
+**9. Python tests:** `test_comex_client.py` (local CSV fixture, no network —
+parsing + ch.44/NCM filter); `test_comex_pipeline.py` (delta by year + GCP
+mocks, copy the pattern of `test_bcb_series.py`).
 
-**10. Segredo:** nada — fonte pública sem auth. **Mas:** o host
-`balanca.economia.gov.br` serve só o cert folha e **omite a intermediária
-TLS** (Sectigo R36) — `requests`/certifi falha com `CERTIFICATE_VERIFY_FAILED`
-(o `curl` passa por buscar a intermediária via AIA / trust store do SO). Sem
-isso a ingestão real não funciona em lugar nenhum (incl. CI Linux/Cloud Run).
-Mitigação **sem desabilitar verificação**: a intermediária pública está
-vendorizada em `comex/_ca.py` e o client a anexa ao bundle do `certifi` em
-runtime (`verify=`). Re-vendorizar se o host rotacionar a CA (válida até 2036).
+**10. Secret:** none — public source, no auth. **But:** the host
+`balanca.economia.gov.br` serves only the leaf cert and **omits the TLS
+intermediate** (Sectigo R36) — `requests`/certifi fails with `CERTIFICATE_VERIFY_FAILED`
+(`curl` gets by because it fetches the intermediate via AIA / the OS trust store).
+Without it the real ingestion does not work anywhere (incl. CI Linux/Cloud Run).
+Mitigation **without disabling verification**: the public intermediate is
+vendored in `comex/_ca.py` and the client appends it to the `certifi` bundle at
+runtime (`verify=`). Re-vendor it if the host rotates the CA (valid until 2036).
 
-**11. Docs:** README/ARCHITECTURE (caixas Bronze+Consumo), CONTRIBUTING (escopo
-`comex`), CHANGELOG (`[Unreleased]/Added`).
+**11. Docs:** README/ARCHITECTURE (Bronze+Consumption boxes), CONTRIBUTING (`comex`
+scope), CHANGELOG (`[Unreleased]/Added`).
 
-## Tarefas
+## Tasks
 
-- [x] **Validar CSV ao vivo** (local, 2026-05-30): headers de
-      `EXP_{1997,2023,2026}` / `IMP_{1997,2023,2026}` confirmados via range
-      requests; separador `;` + latin-1 + aspas mistas; linhas de castanha
-      (`08012100`/`08012200`) e cap.44 (`44072920`/`44091000`) presentes em
-      EXP_2023. **Gate liberado.** Achado: IMP = EXP + `VL_FRETE`/`VL_SEGURO`.
-- [x] Revisar/aprovar este plano à luz do shape confirmado.
-- [x] **PR-1 (Bronze ponta-a-ponta):** pacote `comex/` (`client.py` stream-para-
-      disco + filtro coluna-preciso, `pipeline.py` delta por `(fluxo, ano)`,
-      `_ca.py` cadeia TLS), config + properties, 3 registries, comando `ingest
-      comex` multi-chunk, `_check_comex` no doctor. `test_comex_client.py` +
-      `test_comex_pipeline.py` (274 testes verdes). `embrapa ingest comex`
-      funcional — validado ao vivo: EXP_2026 baixado e filtrado (6157 linhas,
-      só cap. 08+44, 126 de castanha). **Pendente:** rodar `ingest comex` real
-      contra o BQ do usuário (precisa ADC + projeto).
-- [x] **PR-2 (dbt):** `_sources.yml` (bloco `bronze_comex`);
-      `silver_comex_flows.sql` (dedup no grão-fonte completo via `qualify`,
-      `safe_numeric` em VL_FOB/KG/QT/frete/seguro); `gold_comex_flows.sql`
-      (grão flow×mês×NCM×país×UF; deflação mensal: VL_FOB US$ → BRL no FX do mês
-      → índice IPCA/IGPM/IGPDI → hoje, reconvertido no FX atual; `state_name`/
-      `region` via macro, nulos p/ UF especial). Testes em `_silver.yml`/
-      `_gold.yml`. `dbt parse` + `dbt compile` verdes. **Pendente:** `dbt build`
-      em dev (depende do Bronze COMEX real — mesmo gate do ingest).
-      Seeds de dimensão **CONCLUÍDOS** (PR separado): `comex_unit` /
-      `comex_country` / `comex_ncm` das tabelas auxiliares do MDIC
-      (`bd/tabelas/`), com `ncm_description`/`country_name`/`stat_unit` na Gold.
-- [x] **PR-3 (docs):** README (diagrama de pipeline + fontes + CLI),
-      ARCHITECTURE (caixas de fluxo, estrutura `comex/`, Silver/Gold/Consumo),
-      CONTRIBUTING (escopo `comex`), CHANGELOG (`[Unreleased]/Added`).
+- [x] **Validate CSV live** (local, 2026-05-30): headers of
+      `EXP_{1997,2023,2026}` / `IMP_{1997,2023,2026}` confirmed via range
+      requests; `;` separator + latin-1 + mixed quoting; castanha
+      (`08012100`/`08012200`) and ch.44 (`44072920`/`44091000`) rows present in
+      EXP_2023. **Gate cleared.** Finding: IMP = EXP + `VL_FRETE`/`VL_SEGURO`.
+- [x] Review/approve this plan in light of the confirmed shape.
+- [x] **PR-1 (end-to-end Bronze):** `comex/` package (`client.py` stream-to-
+      disk + column-precise filter, `pipeline.py` delta by `(flow, year)`,
+      `_ca.py` TLS chain), config + properties, 3 registries, multi-chunk `ingest
+      comex` command, `_check_comex` in doctor. `test_comex_client.py` +
+      `test_comex_pipeline.py` (274 tests green). `embrapa ingest comex`
+      functional — validated live: EXP_2026 downloaded and filtered (6157 rows,
+      only ch. 08+44, 126 castanha). **Pending:** run the real `ingest comex`
+      against the user's BQ (needs ADC + project).
+- [x] **PR-2 (dbt):** `_sources.yml` (`bronze_comex` block);
+      `silver_comex_flows.sql` (dedup on the full source grain via `qualify`,
+      `safe_numeric` on VL_FOB/KG/QT/freight/insurance); `gold_comex_flows.sql`
+      (grain flow×month×NCM×country×UF; monthly deflation: VL_FOB US$ → BRL at the
+      month's FX → IPCA/IGPM/IGPDI index → today, reconverted at the current FX;
+      `state_name`/`region` via macro, nulls for the special UF). Tests in
+      `_silver.yml`/`_gold.yml`. `dbt parse` + `dbt compile` green. **Pending:**
+      `dbt build` in dev (depends on the real COMEX Bronze — same gate as ingest).
+      Dimension seeds **DONE** (separate PR): `comex_unit` /
+      `comex_country` / `comex_ncm` from the MDIC auxiliary tables
+      (`bd/tabelas/`), with `ncm_description`/`country_name`/`stat_unit` in Gold.
+- [x] **PR-3 (docs):** README (pipeline diagram + sources + CLI),
+      ARCHITECTURE (flow boxes, `comex/` structure, Silver/Gold/Consumption),
+      CONTRIBUTING (`comex` scope), CHANGELOG (`[Unreleased]/Added`).
 
-## Riscos & Mitigações
+## Risks & Mitigations
 
-- **API JSON descartada por integridade.** A API POST `/general` retornava
-  **silenciosamente o total Brasil agregado quando o filtro vinha malformado,
-  com HTTP 200** — risco de ingerir dado errado sem erro. Por isso usamos o bulk
-  CSV (base bruta autoritativa, filtrada e inspecionada localmente).
-- **Host bloqueado no ambiente web.** `balanca.economia.gov.br` falha no proxy
-  do Claude Code on the web (`upstream connect error ... CERTIFICATE_VERIFY_FAILED`,
-  host fora da allowlist). **Mitigação:** desenvolver no Claude Code local (rede
-  liberada). Alternativa: ajustar a network policy do ambiente
-  (code.claude.com/docs) + recriar a sessão.
-- **Arquivos grandes.** Stream-para-disco + filtro early; reavaliar o deadline
-  slow-byte do `core/http.py` (desenhado para payloads pequenos).
-- **Volume do capítulo 44 inteiro.** Muitos NCMs × países × UFs × meses ×
-  décadas. Mitigação: clustering Bronze por chave natural; particionar por
-  `ingestion_timestamp`; considerar incremental no Silver (como
+- **JSON API dropped for integrity.** The POST `/general` API
+  **silently returned the aggregated Brazil total when the filter came in
+  malformed, with HTTP 200** — a risk of ingesting wrong data with no error. So
+  we use the bulk CSV (authoritative raw base, filtered and inspected locally).
+- **Host blocked in the web environment.** `balanca.economia.gov.br` fails on
+  the Claude Code on the web proxy (`upstream connect error ... CERTIFICATE_VERIFY_FAILED`,
+  host outside the allowlist). **Mitigation:** develop on local Claude Code
+  (network open). Alternative: adjust the environment's network policy
+  (code.claude.com/docs) + recreate the session.
+- **Large files.** Stream-to-disk + early filter; re-evaluate the slow-byte
+  deadline in `core/http.py` (designed for small payloads).
+- **Volume of the entire chapter 44.** Many NCMs × countries × UFs × months ×
+  decades. Mitigation: cluster Bronze by natural key; partition by
+  `ingestion_timestamp`; consider incremental in Silver (like
   `silver_ibge_pevs`).
 
-## Critérios de Aceite
+## Acceptance Criteria
 
-- `uv run pytest` verde (inclui `test_comex_*`); `ruff check`/`format` limpos.
-- `embrapa ingest comex` aterrissa Bronze; `embrapa doctor` inclui check
-  `comex`; `ingest --help` lista o subcomando.
-- `dbt build --select silver_comex_flows+ gold_comex_flows+` verde em dev.
-- `embrapa backup-gold` cita `gold_comex_flows` automaticamente (introspecção).
-- Sanidade de dados: linhas batem mês×NCM×país×UF; `VL_FOB` deflacionado nas 4
-  convenções; castanha + cap.44 presentes, demais NCMs ausentes.
+- `uv run pytest` green (includes `test_comex_*`); `ruff check`/`format` clean.
+- `embrapa ingest comex` lands Bronze; `embrapa doctor` includes the `comex`
+  check; `ingest --help` lists the subcommand.
+- `dbt build --select silver_comex_flows+ gold_comex_flows+` green in dev.
+- `embrapa backup-gold` cites `gold_comex_flows` automatically (introspection).
+- Data sanity: rows match month×NCM×country×UF; `VL_FOB` deflated in the 4
+  conventions; castanha + ch.44 present, other NCMs absent.

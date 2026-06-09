@@ -19,7 +19,7 @@ uv run embrapa ingest all               # COMTRADE is key-gated → excluded fro
 # Individual pipelines
 uv run embrapa ingest ibge              # IBGE PEVS
 uv run embrapa ingest bcb-inflation     # BCB inflation (IPCA, IGP-M, IGP-DI)
-uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR; CNY via fonte externa)
+uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR; CNY via external source)
 uv run embrapa ingest comex             # MDIC Comex Stat flows (export + import)
 uv run embrapa ingest comtrade          # UN Comtrade global flows (needs COMTRADE_API_KEY)
 
@@ -132,10 +132,10 @@ src/embrapa_commodities/
 │   └── currency.py     # BCB SGS currency spec
 ├── comex/
 │   ├── client.py       # MDIC Comex Stat CSV downloader (stream + filter)
-│   └── pipeline.py     # two-phase Bronze, delta por (flow, year)
+│   └── pipeline.py     # two-phase Bronze, delta by (flow, year)
 ├── comtrade/
 │   ├── client.py       # UN Comtrade keyed JSON API client
-│   └── pipeline.py     # chunked/resumable Bronze por (year, reporter-batch)
+│   └── pipeline.py     # chunked/resumable Bronze by (year, reporter-batch)
 ├── gcp/
 │   ├── bigquery.py     # BigQuery load + dataset auto-create
 │   └── storage.py      # GCS upload + bucket auto-create

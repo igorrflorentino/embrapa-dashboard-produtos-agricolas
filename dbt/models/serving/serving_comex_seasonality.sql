@@ -17,7 +17,7 @@
 -- (brief §4.3: matrix[year][1..12], monthlyAvg[12]). Collapses NCM/country/UF/via
 -- to (year × month × flow × NCM) and joins dim_date for the localized month label
 -- so the chart axis needs no client-side month mapping. COMTRADE is annual and
--- never reaches this mart (Sazonalidade = "Não se aplica").
+-- never reaches this mart (Seasonality = "Not applicable").
 --
 -- Grain: one row per (reference_year, reference_month, flow, ncm_code).
 -- ────────────────────────────────────────────────────────────────────────────

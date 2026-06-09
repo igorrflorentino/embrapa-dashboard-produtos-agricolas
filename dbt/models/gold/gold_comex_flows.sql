@@ -8,7 +8,7 @@
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- gold_comex_flows — the single comprehensive `flows` table for MDIC Comex Stat
--- (naming: gold_<fonte>_<forma>; `flows` = origin→destination trade).
+-- (naming: gold_<source>_<form>; `flows` = origin→destination trade).
 --
 -- Grain: one row per (flow, reference_year, reference_month, ncm_code,
 -- country_code, state_acronym). The Silver source grain (which also splits by
@@ -188,7 +188,7 @@ select
 
     -- ── Quantities (physical-unit family) ───────────────────────────────────
     -- The NCM statistical quantity is reported in a unit that varies by product
-    -- (kg, m³, litro, número, …). It is normalised to a per-family base unit:
+    -- (kg, m³, liter, count, …). It is normalised to a per-family base unit:
     --   family       — massa | volume | energia | contagem | area | desconhecida
     --   unit_native  — the source statistical-unit label (for display/audit)
     --   qty_native   — the value in unit_native
