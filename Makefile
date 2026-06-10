@@ -1,5 +1,6 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         ingest-ibge-historical ingest-job-deploy ingest-job-schedule iam-grant \
+        dashboard-run dashboard-deploy \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
         dbt-test dbt-clean lint sqlfluff test clean \
@@ -41,6 +42,12 @@ ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for
 
 iam-grant:    ## Apply dataset-scoped least-privilege IAM grants (DRY_RUN=1 to preview)
 	bash deploy/iam/grant_least_privilege.sh
+
+dashboard-run:    ## Run the Dash dashboard locally on :8050 (needs .env + ADC)
+	uv run --extra dashboard embrapa-dashboard
+
+dashboard-deploy:    ## Build + deploy the dashboard Cloud Run Service (reads .env)
+	bash deploy/dashboard/deploy.sh
 
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps

@@ -32,9 +32,25 @@ serving = [
     "flask>=3.0",
     "flask-caching>=2.3",
 ]
+# Dash dashboard UI (src/embrapa_commodities/dashboard) — the Claude Design
+# System reimplementation. Reuses the `serving` BFF as its data seam, so it
+# pulls those deps too. `uv sync --extra dashboard` (or the Cloud Run image).
+dashboard = [
+    "flask>=3.0",
+    "flask-caching>=2.3",
+    "dash>=2.17,<3.0",
+    "plotly>=5.22",
+    # Production WSGI server for the Cloud Run Service (deploy/dashboard). Local
+    # dev uses Dash's built-in server via `embrapa-dashboard`; gunicorn binds the
+    # Flask `server` on $PORT in the container. Pure-Python wheel — installs on
+    # every platform but only *runs* under Linux (it uses fcntl), which is fine:
+    # it is only invoked inside the Linux image.
+    "gunicorn>=22",
+]
 
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
+embrapa-dashboard = "embrapa_commodities.dashboard.app:main"
 
 [build-system]
 requires = ["hatchling"]

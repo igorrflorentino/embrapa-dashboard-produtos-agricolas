@@ -1,0 +1,75 @@
+{{
+    config(
+        materialized='view',
+        schema=env_var('BQ_SERVING_DATASET', 'serving'),
+        enabled=var('enable_curation', false)
+    )
+}}
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only
+-- per-CODE industrialization log. The companion to dim_commodity_scd2, one grain
+-- finer: that view classifies a whole commodity's processing_stage; this one
+-- classifies each raw Gold CODE (NCM / PEVS product / HS6) as bruta | processada
+-- | misturado — the level the value-added analysis needs to split COMEX exports.
+--
+-- Each "Aplicar" in the Curadoria panel appends ONE immutable row to
+-- research_inputs.code_industrialization_log (written by the Python data-access
+-- layer, never by dbt) — the Gold tables are NEVER overwritten. This view derives
+-- the timeline per (source, code):
+--   valid_from = edited_at of this version
+--   valid_to   = LEAD(edited_at) — when the next edit superseded it (NULL = open)
+--   is_current = valid_to IS NULL
+--
+-- Materialized as a VIEW on purpose: the log is small, and a view means a fresh
+-- INSERT from the curation panel is visible to the UI immediately, with no dbt
+-- rebuild. The dashboard LEFT JOINs the Gold code universe (DISTINCT codes) to
+-- this live dim on (source, code) filtered to is_current — an unclassified code
+-- surfaces as "a classificar" (the dynamic worklist).
+--
+-- Grain: one row per (source, code, version).
+-- ────────────────────────────────────────────────────────────────────────────
+
+with log as (
+
+    select
+        source,
+        code,
+        industrialization_level,
+        note,
+        edited_by,
+        edited_at,
+        change_id
+    from {{ source('research_inputs', 'code_industrialization_log') }}
+
+),
+
+versioned as (
+
+    select
+        source,
+        code,
+        industrialization_level,
+        note,
+        edited_by,
+        edited_at,
+        -- Order by edit time, breaking ties on the surrogate change_id so two
+        -- edits in the same instant still get a deterministic version sequence.
+        row_number() over w     as version,
+        lead(edited_at) over w  as valid_to
+    from log
+    window w as (partition by source, code order by edited_at, change_id)
+
+)
+
+select
+    source,
+    code,
+    version,
+    industrialization_level,
+    note,
+    edited_by,
+    edited_at        as valid_from,
+    valid_to,
+    valid_to is null as is_current
+from versioned

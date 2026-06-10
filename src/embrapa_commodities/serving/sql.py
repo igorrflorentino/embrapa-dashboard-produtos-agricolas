@@ -239,6 +239,29 @@ def current_classifications(table: str) -> tuple[str, list]:
     return sql, []
 
 
+def current_code_industrialization(table: str) -> tuple[str, list]:
+    """Live current industrialization level per (source, code) from
+    ``dim_code_industrialization_scd2``.
+
+    The finer-grained companion to :func:`current_classifications`. The UI LEFT
+    JOINs the Gold code universe (DISTINCT source/code) to this set on
+    (source, code); an unmatched code is "a classificar". Invalidated on a
+    per-code curation write, same as the commodity-level classification cache.
+    """
+    sql = f"""
+        select
+            source,
+            code,
+            industrialization_level,
+            edited_by,
+            valid_from
+        from `{table}`
+        where is_current
+        order by source, code
+    """
+    return sql, []
+
+
 # ── Trade marts (serving_comex_annual / serving_comtrade_annual) ──────────────
 # Raw US$/kg sums; the snapshot layer scales to display magnitudes (÷1e9, ÷1e6)
 # per frontend_data_contract.md §2. ``code_column`` is ncm_code (COMEX) or

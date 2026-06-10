@@ -443,3 +443,17 @@ def fetch_current_classifications():
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_commodity_scd2")
     sql, params = sqlbuild.current_classifications(table)
     return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_current_code_industrialization():
+    """Live current industrialization level per (source, code) from the SCD2 view.
+
+    The per-code companion to :func:`fetch_current_classifications`; same short
+    TTL + explicit invalidation on save, so it scales across Cloud Run instances
+    on per-process SimpleCache without shared Redis.
+    """
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_code_industrialization_scd2")
+    sql, params = sqlbuild.current_code_industrialization(table)
+    return run_query(sql, params)

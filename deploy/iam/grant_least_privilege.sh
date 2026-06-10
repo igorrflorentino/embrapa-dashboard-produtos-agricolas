@@ -29,8 +29,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE not found (copy .env.example → .env)"; exit 1; }
 
-# Read a single value from .env without sourcing it; strips a trailing CR.
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# Read a single value from .env without sourcing it; strips a trailing CR. The
+# `|| true` contains grep's no-match exit (1) so a key absent from .env yields an
+# empty string, not a pipefail abort under `set -euo pipefail`.
+get_env() { { grep -E "^$1=" "$ENV_FILE" || true; } | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -44,6 +46,7 @@ PROJECT="${GCP_PROJECT_ID:-$(get_env GCP_PROJECT_ID)}"
 # Dataset names (mirror config.py defaults). BigQuery datasets use the BQ LOCATION
 # (which legitimately may be a multi-region like US/EU) — NOT a Cloud Run region.
 SERVING_DATASET="${BQ_SERVING_DATASET:-$(get_env BQ_SERVING_DATASET)}";          SERVING_DATASET="${SERVING_DATASET:-serving}"
+GOLD_DATASET="${BQ_GOLD_DATASET:-$(get_env BQ_GOLD_DATASET)}";                   GOLD_DATASET="${GOLD_DATASET:-gold}"
 RESEARCH_DATASET="${BQ_RESEARCH_INPUTS_DATASET:-$(get_env BQ_RESEARCH_INPUTS_DATASET)}"; RESEARCH_DATASET="${RESEARCH_DATASET:-research_inputs}"
 BQ_LOCATION="${BQ_LOCATION:-$(get_env BQ_LOCATION)}";                            BQ_LOCATION="${BQ_LOCATION:-US}"
 
@@ -113,10 +116,15 @@ ensure_dataset() {
 
 say "Project ${PROJECT} · BQ location ${BQ_LOCATION} · DRY_RUN=${DRY_RUN}"
 
-say "Web Dashboard SA — read '${SERVING_DATASET}', append '${RESEARCH_DATASET}', project jobUser"
+say "Web Dashboard SA — read '${SERVING_DATASET}' + '${GOLD_DATASET}', append '${RESEARCH_DATASET}', project jobUser"
 ensure_sa "$DASHBOARD_SA" "Web Dashboard (Prod)" \
-  "Stateless Cloud Run dashboard: read '${SERVING_DATASET}', append to '${RESEARCH_DATASET}'."
+  "Stateless Cloud Run dashboard: read '${SERVING_DATASET}' + '${GOLD_DATASET}', append to '${RESEARCH_DATASET}'."
 grant_dataset_role "$SERVING_DATASET"  READER "$DASHBOARD_SA"
+# The dashboard also reads small reference/dimension tables straight from gold —
+# gold_source_metadata (page-hero provenance), gold_commodity_crosswalk and
+# gold_pevs_production (Multi-fonte cross-analytics). Marts cover the chart grains;
+# these reads do not, so the runtime SA needs gold READER too.
+grant_dataset_role "$GOLD_DATASET"     READER "$DASHBOARD_SA"
 grant_dataset_role "$RESEARCH_DATASET" WRITER "$DASHBOARD_SA"
 grant_project_role "$DASHBOARD_SA" roles/bigquery.jobUser
 
