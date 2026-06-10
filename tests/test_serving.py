@@ -200,6 +200,14 @@ def test_current_classifications_filters_is_current():
     assert params == []
 
 
+def test_current_code_industrialization_filters_is_current():
+    query, params = sql.current_code_industrialization("p.serving.dim_code_industrialization_scd2")
+    assert "where is_current" in query.lower()
+    assert "industrialization_level" in query.lower()
+    assert "source" in query.lower()
+    assert params == []
+
+
 def test_table_ref_builds_fqn():
     settings = Settings(gcp_project_id="my-proj", bq_serving_dataset="serving")
     assert (
@@ -512,6 +520,74 @@ def test_ensure_curation_log_table_creates_with_explicit_schema(monkeypatch):
     assert {f.name for f in table_arg.schema} == {
         "commodity_id",
         "processing_stage",
+        "note",
+        "edited_by",
+        "edited_at",
+        "change_id",
+    }
+    assert client.create_table.call_args.kwargs["exists_ok"] is True
+
+
+def test_record_code_industrialization_inserts_parameterized_row_with_author():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    settings = _settings()
+    client = mock.Mock()
+    client.query.return_value.result.return_value = None
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_code_industrialization(
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        note="shelled",
+        settings=settings,
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["edited_by"] == "alice@embrapa.br"
+    assert record["source"] == "mdic_comex"
+    assert record["code"] == "08013200"
+    assert record["industrialization_level"] == "processada"
+    sql_text = client.query.call_args.args[0].lower()
+    assert "insert into" in sql_text
+    assert "current_timestamp()" in sql_text  # server-side stamp, not client clock
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["source"] == "mdic_comex"
+    assert params["code"] == "08013200"
+    assert params["level"] == "processada"
+    assert params["edited_by"] == "alice@embrapa.br"
+    assert params["note"] == "shelled"
+
+
+def test_record_code_industrialization_rejects_empty_inputs():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):
+        curation.record_code_industrialization(
+            "mdic_comex", "", "processada", headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_ensure_code_industrialization_log_table_creates_with_explicit_schema(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = curation.ensure_code_industrialization_log_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".code_industrialization_log")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} == {
+        "source",
+        "code",
+        "industrialization_level",
         "note",
         "edited_by",
         "edited_at",

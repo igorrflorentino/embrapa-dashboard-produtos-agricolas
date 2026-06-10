@@ -48,6 +48,17 @@ CURATION_LOG_SCHEMA = [
     bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
 ]
 
+# The per-CODE industrialization log — one grain finer than the commodity log.
+CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
+    bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("code", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("industrialization_level", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("note", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
+]
+
 
 def _bq_client(settings: Settings) -> bigquery.Client:
     return bigquery.Client(
@@ -183,3 +194,117 @@ def invalidate_classification_cache() -> None:
         cache.delete_memoized(gateway.fetch_current_classifications)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
         logger.warning("Could not invalidate classification cache: %s", exc)
+
+
+# ── Per-CODE industrialization log (the finer-grained companion) ──────────────
+def ensure_code_industrialization_log_table(
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Create the per-code industrialization log dataset + table if missing.
+
+    Same house auto-create pattern as :func:`ensure_curation_log_table`, clustered
+    by (source, code) so the SCD2 window scans one code's edits cheaply. Idempotent.
+    """
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(
+        cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
+    )
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    table = bigquery.Table(table_fqn, schema=CODE_INDUSTRIALIZATION_LOG_SCHEMA)
+    table.clustering_fields = ["source", "code"]
+    bq.create_table(table, exists_ok=True)
+    logger.info("Code-industrialization log ready at %s", table_fqn)
+    return table_fqn
+
+
+def _validate_code_edit(source: str, code: str, level: str, note: str | None) -> None:
+    """Validate a per-code edit: required keys present and free text within caps.
+
+    ``industrialization_level`` is open-vocabulary like ``processing_stage`` (the
+    UI offers bruta/processada/misturado, but an allowlist would break a future
+    finer scheme); the cap is only a sanity bound on the immutable audit row.
+    """
+    if not source or not code or not level:
+        raise ValueError("source, code and industrialization_level are required.")
+    if len(level) > MAX_STAGE_LEN:
+        raise ValueError(f"industrialization_level exceeds {MAX_STAGE_LEN} chars.")
+    if note is not None and len(note) > MAX_NOTE_LEN:
+        raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
+
+
+def record_code_industrialization(
+    source: str,
+    code: str,
+    industrialization_level: str,
+    headers: Mapping[str, str],
+    *,
+    note: str | None = None,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+    invalidate_cache: bool = True,
+) -> dict:
+    """Append one per-code industrialization edit and invalidate its cache.
+
+    The per-code companion to :func:`record_processing_stage`: same IAP author
+    capture, parameterized DML, and read-after-write consistency, keyed by
+    (source, code) → industrialization_level. Returns the row as written.
+    """
+    cfg = settings or get_settings()
+    source = (source or "").strip()
+    code = (code or "").strip()
+    industrialization_level = (industrialization_level or "").strip()
+    note = note.strip() if note else note
+    _validate_code_edit(source, code, industrialization_level, note)
+
+    edited_by = author_email_from_headers(
+        headers,
+        dev_fallback=cfg.curation_dev_author,
+        audience=cfg.iap_audience,
+    )
+    change_id = uuid.uuid4().hex
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(
+        cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
+    )
+
+    sql = f"""
+        insert into `{table_fqn}`
+            (source, code, industrialization_level, note, edited_by, edited_at, change_id)
+        values
+            (@source, @code, @level, @note, @edited_by, current_timestamp(), @change_id)
+    """
+    params = [
+        bigquery.ScalarQueryParameter("source", "STRING", source),
+        bigquery.ScalarQueryParameter("code", "STRING", code),
+        bigquery.ScalarQueryParameter("level", "STRING", industrialization_level),
+        bigquery.ScalarQueryParameter("note", "STRING", note),
+        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
+        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
+    ]
+    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    logger.info(
+        "Curation(code): %s:%s -> %s by %s", source, code, industrialization_level, edited_by
+    )
+
+    if invalidate_cache:
+        invalidate_code_industrialization_cache()
+
+    return {
+        "source": source,
+        "code": code,
+        "industrialization_level": industrialization_level,
+        "note": note,
+        "edited_by": edited_by,
+        "change_id": change_id,
+    }
+
+
+def invalidate_code_industrialization_cache() -> None:
+    """Drop the cached per-code classification read (best-effort), same contract
+    as :func:`invalidate_classification_cache`."""
+    try:
+        cache.delete_memoized(gateway.fetch_current_code_industrialization)
+    except Exception as exc:  # pragma: no cover - cache unbound / backend down
+        logger.warning("Could not invalidate code-industrialization cache: %s", exc)

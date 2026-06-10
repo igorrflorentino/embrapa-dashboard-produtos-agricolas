@@ -175,6 +175,10 @@ class Settings(BaseSettings):
     # Append-only researcher curation inputs (written by the dashboard, not dbt).
     bq_research_inputs_dataset: str = Field(default="research_inputs")
     bq_curation_log_table: str = Field(default="commodity_processing_stage_log")
+    # Per-CODE industrialization log — the finer-grained companion to the commodity
+    # processing-stage log. Backs dim_code_industrialization_scd2 + the value-added
+    # analysis (COMEX exports split by the curated bruta/processada level).
+    bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
 
     # ─── Cache (flask-caching) ────────────────────────────────────────────────
     # SimpleCache (per-instance) scales to N Cloud Run instances for free: marts

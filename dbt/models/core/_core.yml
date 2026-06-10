@@ -88,3 +88,33 @@ models:
       - name: is_current
         description: "True when valid_to IS NULL (the live classification)."
         tests: [not_null]
+
+  - name: dim_code_industrialization_scd2
+    description: |
+      Type-2 SCD derived from research_inputs.code_industrialization_log — the
+      per-CODE companion to dim_commodity_scd2, one grain finer. Classifies each
+      Gold code (NCM/PEVS/HS6) as bruta|processada|misturado; the value-added
+      analysis splits COMEX exports by this level. valid_from / valid_to /
+      is_current via LEAD() over edits per (source, code). VIEW in the SERVING
+      dataset so a fresh curation INSERT is live immediately. Disabled by default —
+      `dbt build --vars 'enable_curation: true'`. The SCD2 window guarantees at
+      most one is_current row per (source, code).
+    columns:
+      - name: source
+        description: "Banco id the code belongs to (mdic_comex, ibge_pevs, un_comtrade)."
+        tests: [not_null]
+      - name: code
+        description: "The raw Gold code (NCM / PEVS product / HS6)."
+        tests: [not_null]
+      - name: industrialization_level
+        description: "Researcher-assigned level (bruta | processada | misturado)."
+        tests: [not_null]
+      - name: version
+        description: "1-based edit sequence within a (source, code)."
+        tests: [not_null]
+      - name: valid_from
+        description: "Timestamp this classification took effect (= edited_at)."
+        tests: [not_null]
+      - name: is_current
+        description: "True when valid_to IS NULL (the live classification)."
+        tests: [not_null]
