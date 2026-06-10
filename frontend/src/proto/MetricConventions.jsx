@@ -160,9 +160,16 @@ window.CORRECTION_FACTOR = {
 // Every manual value-scaling site (views building chart series by hand) MUST
 // use this so they agree with applyConv / formatValue.
 window.convFactor = (conv) => {
-  const fx = (window.CURRENCY_FX[conv.currency] || { rate: 1 }).rate;
-  const cf = window.CORRECTION_FACTOR[conv.correction] ?? 1;
-  return cf * fx;
+  // REACT MIGRATION: currency × correction now select the REAL deflated value
+  // column SERVER-side (val_real_{ipca,igpm,igpdi}_brl, val_yearfx_* for Nominal,
+  // *_usd for USD) — the scientific core — instead of this flat client multiplier.
+  // So: correction is fully server-applied (factor 1); BRL/USD are server-native
+  // columns (factor 1). Only EUR/CNY lack a real column (the BFF falls back to the
+  // BRL-with-correction column), so they keep an approximate display FX on top.
+  // (Edge: USD + IGP-M/IGP-DI has no _usd column → BFF falls back to BRL; the
+  // value_label flags "moeda indisponível → R$".)
+  const serverNative = conv.currency === 'BRL' || conv.currency === 'USD';
+  return serverNative ? 1 : (window.CURRENCY_FX[conv.currency] || { rate: 1 }).rate;
 };
 
 // Convert a BRL-canonical value through the active currency + correction.

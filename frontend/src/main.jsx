@@ -28,9 +28,23 @@ import './data/enrichment.js';
 
 // ── charts (NEW — Plotly for analytical charts; SVG ports for tile-map/donut) ─
 import './charts/LineChart.jsx';
-import './charts/Donut.jsx';
-import './charts/BrazilTileMap.jsx';
-import './charts/_stubs.jsx'; // placeholders for not-yet-ported charts (guarded)
+import './charts/MultiLineChart.jsx';
+import './charts/StackedArea.jsx';
+import './charts/BarChart.jsx';
+import './charts/YoYBars.jsx';
+import './charts/Heatmap.jsx';
+import './charts/FlagBars.jsx';
+import './charts/RegionBars.jsx';
+import './charts/LorenzCurve.jsx';
+import './charts/SankeyChart.jsx';
+import './charts/MonthYearHeatmap.jsx';
+import './charts/DualAxisLineChart.jsx';
+import './charts/StackedPanels.jsx';
+import './charts/MonthlyOverlay.jsx';
+import './charts/LagBars.jsx';
+import './charts/Donut.jsx'; // SVG port (categorical share)
+import './charts/BrazilTileMap.jsx'; // SVG port (geographic tile grid)
+import './charts/_stubs.jsx'; // safety net for any unported chart (PENDING now empty)
 
 // ── atoms + shell (reused) ────────────────────────────────────────────────────
 import './proto/Icon.jsx';
@@ -221,7 +235,11 @@ function Dashboard() {
   );
 }
 
-window.ReactDOM.createRoot(document.getElementById('root')).render(
+// Reuse the root across HMR re-evaluations of this module (calling createRoot
+// twice on the same container warns). In prod this simply runs once.
+const _container = document.getElementById('root');
+window.__embrapaRoot = window.__embrapaRoot || window.ReactDOM.createRoot(_container);
+window.__embrapaRoot.render(
   <React.StrictMode>
     <Dashboard />
   </React.StrictMode>

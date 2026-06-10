@@ -4,22 +4,9 @@
 // adds its own file + removes the name from PENDING here. When PENDING is empty,
 // delete this file.
 
-const PENDING = [
-  'BarChart',
-  'MultiLineChart',
-  'StackedArea',
-  'YoYBars',
-  'Heatmap',
-  'FlagBars',
-  'RegionBars',
-  'LorenzCurve',
-  'SankeyChart',
-  'MonthYearHeatmap',
-  'DualAxisLineChart',
-  'StackedPanels',
-  'MonthlyOverlay',
-  'LagBars',
-];
+// All charts are ported (see ./*.jsx). This list is now empty — kept as a
+// safety net + documentation. Delete this file in the final cleanup.
+const PENDING = [];
 
 function makeStub(name) {
   return function ChartStub() {
