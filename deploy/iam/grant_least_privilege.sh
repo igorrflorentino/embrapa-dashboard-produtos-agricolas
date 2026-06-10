@@ -29,8 +29,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE not found (copy .env.example → .env)"; exit 1; }
 
-# Read a single value from .env without sourcing it; strips a trailing CR.
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# Read a single value from .env without sourcing it; strips a trailing CR. The
+# `|| true` contains grep's no-match exit (1) so a key absent from .env yields an
+# empty string, not a pipefail abort under `set -euo pipefail`.
+get_env() { { grep -E "^$1=" "$ENV_FILE" || true; } | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
 DRY_RUN="${DRY_RUN:-0}"
 

@@ -28,8 +28,10 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE not found (copy .env.example → .env)"; exit 1; }
 
 # Read a single value from .env without sourcing it (avoids bash interpreting odd
-# values); strips a trailing CR so Windows CRLF files work too.
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# values); strips a trailing CR so Windows CRLF files work too. The `|| true`
+# contains grep's no-match exit so a key absent from .env yields an empty string
+# (→ the built-in default), not a pipefail abort under `set -euo pipefail`.
+get_env() { { grep -E "^$1=" "$ENV_FILE" || true; } | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
 # Resolve the Cloud Run region. Cloud Run requires a SINGLE region (e.g.
 # us-central1) and rejects a BigQuery multi-region locator (US/EU). So
