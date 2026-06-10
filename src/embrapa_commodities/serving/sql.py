@@ -436,6 +436,25 @@ def quality_timeseries(table: str) -> tuple[str, list]:
     return sql, []
 
 
+def quality_by_product(table: str, *, code_column: str, name_column: str) -> tuple[str, list]:
+    """data_quality_flag counts per product, from a Gold table (backs the
+    per-product quality FlagBars). Same cheap-aggregate rationale as
+    :func:`quality_timeseries`. ``code_column``/``name_column`` are validated
+    identifiers (one pair per source)."""
+    code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    name_column = _validate_column(name_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    sql = f"""
+        select
+            {code_column}            as code,
+            any_value({name_column}) as name,
+            data_quality_flag,
+            count(*)                 as n
+        from `{table}`
+        group by {code_column}, data_quality_flag
+    """
+    return sql, []
+
+
 def quality_by_source(
     table: str,
     *,

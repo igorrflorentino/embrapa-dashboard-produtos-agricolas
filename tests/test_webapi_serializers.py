@@ -175,3 +175,29 @@ def test_quality_ts_pivots_to_per_year_shares():
     assert [r["y"] for r in out] == [2020, 2021]  # sorted by year
     assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1 and out[0]["outlier"] == 0.0
     assert out[1]["ok"] == 0.5 and out[1]["boundary"] == 0.5  # BOUNDARY_HISTORIC → boundary
+
+
+def test_quality_by_product_per_product_shares_top_n():
+    df = pd.DataFrame(
+        [
+            # product A: 800 rows (top by volume) — 600 OK + 200 MISSING_VALUE
+            {"code": "A", "name": "Prod A", "data_quality_flag": "OK", "n": 600},
+            {"code": "A", "name": "Prod A", "data_quality_flag": "MISSING_VALUE", "n": 200},
+            # product B: 100 rows — all OK
+            {"code": "B", "name": "Prod B", "data_quality_flag": "OK", "n": 100},
+        ]
+    )
+    out = s.serialize_snapshot(
+        {
+            "products": None,
+            "product_ts": None,
+            "overview_ts": None,
+            "uf_data": None,
+            "quality": None,
+            "quality_by_product": df,
+            "value_label": "",
+        }
+    )["qualityByProduct"]
+    assert [r["code"] for r in out] == ["A", "B"]  # ranked by row volume
+    assert out[0]["OK"] == 0.75 and out[0]["MISSING_VALUE"] == 0.25  # flag-id keys, shares
+    assert out[1]["OK"] == 1.0 and out[1]["OUTLIER"] == 0.0  # absent flags read 0

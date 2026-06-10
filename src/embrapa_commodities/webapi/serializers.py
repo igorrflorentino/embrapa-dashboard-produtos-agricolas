@@ -64,10 +64,36 @@ def serialize_snapshot(snap: dict) -> dict:
         "ufData": _uf_data(snap.get("uf_data")),
         "quality": _quality(snap.get("quality")),
         "qualityTs": _quality_ts(snap.get("quality_ts")),
+        "qualityByProduct": _quality_by_product(snap.get("quality_by_product")),
         "valueLabel": snap.get("value_label", ""),
         "preview": False,
         "_synthetic": False,
     }
+
+
+def _quality_by_product(df: pd.DataFrame | None, top: int = 20) -> list[dict]:
+    """product×flag counts → [{code, name, OK, MISSING_VALUE, …}] per-product flag
+    shares (fractions 0-1; FlagBars keys on the flag *ids*). Top-N by row volume so
+    a 200-NCM banco stays a readable chart."""
+    if _empty(df):
+        return []
+    by_code: dict[str, dict] = {}
+    for r in df.itertuples():
+        code = str(r.code)
+        slot = by_code.setdefault(code, {"name": None, "counts": {}})
+        slot["name"] = r.name if (isinstance(r.name, str) and r.name) else code
+        slot["counts"][r.data_quality_flag] = slot["counts"].get(r.data_quality_flag, 0.0) + _num(
+            r.n
+        )
+    ranked = sorted(by_code.items(), key=lambda kv: sum(kv[1]["counts"].values()), reverse=True)
+    out = []
+    for code, slot in ranked[:top]:
+        total = sum(slot["counts"].values()) or 1.0
+        row = {"code": code, "name": slot["name"]}
+        for flag in _FLAG_KEY:  # the 6 flag ids — absent flags read 0
+            row[flag] = slot["counts"].get(flag, 0.0) / total
+        out.append(row)
+    return out
 
 
 def _quality_ts(df: pd.DataFrame | None) -> list[dict]:

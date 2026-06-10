@@ -144,6 +144,7 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         "uf_data": uf_data,
         "quality": quality,
         "quality_ts": gateway.fetch_quality_timeseries(banco_id),
+        "quality_by_product": gateway.fetch_quality_by_product(banco_id),
         "value_column": value_col,
         "value_label": value_label,
     }
