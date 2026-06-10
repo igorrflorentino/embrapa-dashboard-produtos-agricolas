@@ -242,6 +242,38 @@ function Dashboard() {
   // when any resource resolves so the view's next sync read sees real data.
   useEffect(() => subscribeResource(() => forceTick((t) => t + 1)), []);
 
+  // URL write-back: mirror the app state into the query string (replaceState, no
+  // history clutter) so reload + copy-paste preserve view/banco/filters/
+  // conventions/cross. Uses the SAME codec (urlState.js) the share button +
+  // readStateFromURL use, so the encoder/decoder can't drift on the wire format.
+  useEffect(() => {
+    if (!window.urlEncodeState) return;
+    const arr = window.urlEncodeArr || (() => '');
+    const isCross = !!(window.viewById && window.viewById(view)?.crossBanco);
+    const qs = window.urlEncodeState({
+      v: view,
+      b: database,
+      ip: infoPage,
+      cur: conventions?.currency,
+      corr: conventions?.correction,
+      mu: conventions?.units?.mass,
+      vu: conventions?.units?.volume,
+      as: conventions?.autoScale ? 1 : 0,
+      pb: arr(summary?.basket),
+      fl: arr(summary?.flags),
+      st: arr(summary?.states),
+      vmn: summary?.valueMin ?? '',
+      vmx: summary?.valueMax ?? '',
+      sd: summary?.startDate || '',
+      ed: summary?.endDate || '',
+      xs: isCross && crossState?.series ? crossState.series.map((r) => `${r.b}:${r.m}`).join('|') : '',
+      xm: isCross ? crossState?.mode || '' : '',
+      xy0: isCross && crossState?.y0 ? crossState.y0 : '',
+      xy1: isCross && crossState?.y1 ? crossState.y1 : '',
+    });
+    window.history.replaceState(null, '', qs ? `${location.pathname}?${qs}` : location.pathname);
+  }, [view, database, infoPage, summary, conventions, crossState]);
+
   // The filter bar/menu apply only to per-banco DATA views (not info pages or
   // the cross-banco perspectives, which have no single-banco filter surface).
   const vm = window.viewById ? window.viewById(view) : null;

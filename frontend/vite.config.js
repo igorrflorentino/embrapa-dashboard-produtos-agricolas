@@ -12,5 +12,21 @@ export default defineConfig({
     // from the same origin (one Cloud Run service), so no CORS anywhere.
     proxy: { '/api': 'http://127.0.0.1:8000' },
   },
-  build: { outDir: 'dist', sourcemap: false },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    // Split the heavy vendor code into separate, long-lived cacheable chunks so
+    // the app shell isn't a single 1.6MB file: Plotly (~1MB) and React load in
+    // parallel and stay cached across app-code deploys.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/plotly.js')) return 'plotly';
+          if (id.match(/node_modules\/(react|react-dom|scheduler)\//)) return 'react';
+          return undefined;
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1200, // Plotly is legitimately ~1MB; don't warn on it
+  },
 })
