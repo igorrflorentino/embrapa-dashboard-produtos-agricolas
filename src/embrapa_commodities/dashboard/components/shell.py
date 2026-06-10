@@ -168,6 +168,7 @@ def sidebar(ui: dict) -> list:
     items.append(html.Div("Informações", className="side-section"))
     for info_id, ic, label in [
         ("about", "info", "Sobre o dashboard"),
+        ("curation", "fact_check", "Curadoria"),
         ("glossary", "menu_book", "Glossário global"),
         ("health", "pulse", "Saúde do sistema"),
     ]:

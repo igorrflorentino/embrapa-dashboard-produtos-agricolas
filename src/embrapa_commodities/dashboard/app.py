@@ -25,6 +25,7 @@ from .views import (
     concentration,
     cross_analytics,
     cross_source,
+    curation,
     flows,
     geography,
     glossary,
@@ -59,6 +60,8 @@ CROSS_ANALYTICS = {
     "cross_market_share": cross_analytics.market_share,
     "cross_price_spread": cross_analytics.price_spread,
     "cross_mirror": cross_analytics.mirror,
+    "curated_value_added": curation.value_added,
+    "curated_market_nature": curation.market_nature,
 }
 
 INITIAL_UI = {
@@ -206,6 +209,12 @@ def update_state(*args):
         elif kind == "xproduct":  # commodity selection for the cross-analytics views
             ui["cross_product"] = None if tid["code"] == "__all__" else tid["code"]
             ui_d = ui
+        elif kind == "cur-set":  # stage a per-code industrialization level (Curadoria)
+            draft = dict(ui.get("cur_draft") or {})
+            draft[f"{tid['source']}|{tid['code']}"] = tid["level"]
+            ui["cur_draft"] = draft
+            ui["cur_status"] = None
+            ui_d = ui
     elif tid == "mode-single":
         ui.update(mode="single", view="overview", info=None)
         nav, ui_d, nav_d = {"open": False}, ui, {"open": False}
@@ -236,6 +245,27 @@ def update_state(*args):
             summary["endDate"] = f"{int(f_years[1])}-12-31"
         ui["summary"] = summary
         ui_d, ov_d = ui, {"kind": None}
+    elif tid == "cur-apply":  # commit staged curation edits to the append-only log
+        draft = dict(ui.get("cur_draft") or {})
+        ok = fail = 0
+        for key, level in draft.items():
+            source, _, code = key.partition("|")
+            try:
+                seam.record_code_level(source, code, level)
+                ok += 1
+            except Exception:
+                fail += 1
+        ui["cur_draft"] = {}
+        ui["cur_status"] = (
+            f"Aplicado — {ok} classificação(ões) registrada(s) no log."
+            if not fail
+            else f"{ok} registrada(s); {fail} falhou(aram). Confira a ativação (autor "
+            "IAP/curation_dev_author + dim_code_industrialization_scd2 em prod)."
+        )
+        ui_d = ui
+    elif tid == "cur-discard":
+        ui["cur_draft"], ui["cur_status"] = {}, None
+        ui_d = ui
 
     return ui_d, nav_d, ov_d
 
@@ -294,7 +324,7 @@ def render_screen(ui):
     summary = ui.get("summary", {})
 
     if info:
-        return _info_screen(info, banco, conv, summary)
+        return _info_screen(info, banco, conv, summary, ui)
 
     view = ui.get("view")
     v = view_by_id(view)
@@ -336,7 +366,7 @@ def render_screen(ui):
     return _screen(hero, blocks, banner=banner)
 
 
-def _info_screen(info: str, banco, conv, summary):
+def _info_screen(info: str, banco, conv, summary, ui=None):
     if info == "about":
         return _screen(
             page_hero(
@@ -369,10 +399,10 @@ def _info_screen(info: str, banco, conv, summary):
             page_hero(
                 "Curadoria · conhecimento do pesquisador",
                 "Enriquecimento dos dados",
-                "O editor de curadoria (classificação de códigos e finalidade "
-                "econômica) chega numa próxima entrega.",
+                "Classifique cada código pelo nível de industrialização; a análise de "
+                "valor agregado lê essa classificação curada ao vivo.",
             ),
-            [placeholders.perspective_soon("curated_value_added")],
+            [curation.editor(ui or {})],
         )
     return _screen(page_hero("Informações", info, ""), [])
 

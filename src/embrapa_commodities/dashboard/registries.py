@@ -604,7 +604,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "curated_value_added",
                 "Valor agregado",
-                "soon",
+                "live",
                 cross_banco=True,
                 curated=True,
                 align="nível de industrialização",
@@ -614,7 +614,7 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "curated_market_nature",
                 "Finalidade econômica",
-                "soon",
+                "live",
                 cross_banco=True,
                 curated=True,
                 align="finalidade (consumo/processamento)",

@@ -582,3 +582,141 @@ def trade_mirror(commodity_id: str | None) -> dict:
         for d in series
     ]
     return {"unit": "US$ bi", "series": series, "discrepancy": discrepancy}
+
+
+# ── Curadoria — per-code industrialization curation + value-added analysis ─────
+# The editor classifies each Gold CODE (per source) as bruta/processada; the
+# value-added analysis splits COMEX exports by that curated level. The READ side
+# degrades gracefully when dim_code_industrialization_scd2 is not built yet (gate
+# off / fresh project): every code surfaces as "a classificar" instead of erroring.
+# Writes go through the verified BFF writer (IAP author capture).
+
+CUR_LEVELS = ("bruta", "processada", "misturado")
+
+
+@functools.lru_cache(maxsize=1)
+def _code_to_commodity() -> dict:
+    """{(source, code) -> commodity_id} reverse index of the crosswalk, for
+    grouping the worklist by commodity."""
+    idx: dict = {}
+    for cid, c in commodity_catalog().items():
+        for src_key, source in (
+            ("pevs", "ibge_pevs"),
+            ("comex", "mdic_comex"),
+            ("comtrade", "un_comtrade"),
+        ):
+            for code in c.get(src_key, ()):
+                idx[(source, str(code))] = cid
+    return idx
+
+
+def _current_code_levels() -> dict:
+    """{(source, code): level} from the SCD2 view; {} when the view is absent
+    (curation not enabled in this dataset yet) — so the worklist still renders."""
+    try:
+        df = gateway.fetch_current_code_industrialization()
+    except Exception:
+        return {}
+    if df is None or df.empty:
+        return {}
+    return {(r.source, str(r.code)): r.industrialization_level for r in df.itertuples()}
+
+
+def curation_worklist() -> dict:
+    """The LEFT JOIN: Gold DISTINCT codes (per live source) ⟕ current levels.
+
+    Each code carries its curated level or None ("a classificar"), plus the
+    commodity it maps to (via the crosswalk) for grouping. Pure reads; safe before
+    the SCD2 view exists (all codes then read as unclassified).
+    """
+    levels = _current_code_levels()
+    cmap = _code_to_commodity()
+    catalog = commodity_catalog()
+    rows = []
+    for src in ("ibge_pevs", "mdic_comex", "un_comtrade"):
+        if src not in _LIVE_SOURCES:
+            continue
+        products = gateway.fetch_products(src)
+        if products is None or products.empty:
+            continue
+        for p in products.itertuples():
+            code = str(p.code)
+            cid = cmap.get((src, code))
+            rows.append(
+                {
+                    "source": src,
+                    "code": code,
+                    "name": str(getattr(p, "name", code) or code),
+                    "commodity": cid,
+                    "commodity_name": catalog.get(cid, {}).get("name") if cid else None,
+                    "level": levels.get((src, code)),
+                }
+            )
+    classified = sum(1 for r in rows if r["level"])
+    by_level = {lvl: sum(1 for r in rows if r["level"] == lvl) for lvl in CUR_LEVELS}
+    return {
+        "rows": rows,
+        "total": len(rows),
+        "classified": classified,
+        "pending": len(rows) - classified,
+        "by_level": by_level,
+    }
+
+
+def record_code_level(source: str, code: str, level: str) -> dict:
+    """Append one per-code classification edit. The author comes from the request's
+    IAP header (dev fallback per config). Wraps the verified BFF writer."""
+    from flask import has_request_context, request
+
+    from embrapa_commodities.serving import curation
+
+    headers = dict(request.headers) if has_request_context() else {}
+    return curation.record_code_industrialization(source, code, level, headers)
+
+
+def value_added(commodity_id: str | None = None) -> dict:
+    """COMEX exports split by the curated industrialization level over the years.
+
+    For each mdic_comex code currently classified bruta/processada, sum its annual
+    export value (US$ bi) + weight (mil t) into that level. Real data, but empty
+    until codes are classified in Curadoria. ``commodity_id`` optionally scopes to
+    one crosswalk commodity. Composes existing readers — no new BFF SQL.
+    """
+    coded = {
+        code: lvl
+        for (src, code), lvl in _current_code_levels().items()
+        if src == "mdic_comex" and lvl in ("bruta", "processada")
+    }
+    scope = set(_codes(commodity_id, "comex")) if commodity_id else None
+    acc: dict = {}
+    n = 0
+    for code, lvl in coded.items():
+        if scope is not None and code not in scope:
+            continue
+        val = _xyear("mdic_comex:exp_value", (code,))
+        if not val:
+            continue
+        wt = _xyear("mdic_comex:exp_weight", (code,))
+        n += 1
+        for y, v in val.items():
+            slot = acc.setdefault(
+                y, {"bruta": {"v": 0.0, "w": 0.0}, "processada": {"v": 0.0, "w": 0.0}}
+            )
+            slot[lvl]["v"] += v / 1e9  # US$ bi
+            slot[lvl]["w"] += wt.get(y, 0.0) / 1e6  # mil t
+    series = []
+    for y in sorted(acc):
+        b, p = acc[y]["bruta"], acc[y]["processada"]
+        total = (b["v"] + p["v"]) or 1
+        price_b = (b["v"] / b["w"]) if b["w"] else 0
+        price_p = (p["v"] / p["w"]) if p["w"] else 0
+        series.append(
+            {
+                "y": y,
+                "brutaV": b["v"],
+                "procV": p["v"],
+                "procShare": p["v"] / total * 100,
+                "premium": (price_p / price_b) if price_b else 0,
+            }
+        )
+    return {"series": series, "n_codes": n}
