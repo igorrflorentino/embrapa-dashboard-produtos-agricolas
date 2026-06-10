@@ -1,0 +1,19 @@
+# Build + push the React+Flask Service image from the repo-root context.
+#   gcloud builds submit . --config deploy/webapi/cloudbuild.yaml \
+#     --substitutions _IMAGE=<region>-docker.pkg.dev/<project>/<repo>/embrapa-dashboard:<tag>
+#
+# Explicit Dockerfile path (it lives under deploy/webapi/, not the context root).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=deploy/webapi/Dockerfile
+      - --tag=${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  # Avoids the "build needs a logs bucket" failure when a custom build SA is used.
+  logging: CLOUD_LOGGING_ONLY
+  # The node build stage benefits from a bit more memory than the default pool.
+  machineType: E2_HIGHCPU_8

@@ -418,6 +418,24 @@ def trade_flows(
     return sql, params
 
 
+def quality_timeseries(table: str) -> tuple[str, list]:
+    """data_quality_flag counts per year, straight from a Gold table (backs the
+    quality-over-time charts). A small year×flag aggregate — cheap columnar scan,
+    memoized by flask-caching. The serving layer has no year-grained quality mart,
+    so this reads Gold directly (the same source ``serving_quality_by_source``
+    aggregates); promote to a mart if it ever gets hot."""
+    sql = f"""
+        select
+            reference_year,
+            data_quality_flag,
+            count(*) as n
+        from `{table}`
+        group by reference_year, data_quality_flag
+        order by reference_year
+    """
+    return sql, []
+
+
 def quality_by_source(
     table: str,
     *,

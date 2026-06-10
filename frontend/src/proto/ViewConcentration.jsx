@@ -1,0 +1,217 @@
+// ViewConcentration — how concentrated production is, geographically
+// and by product. Lorenz curve + Gini + HHI. Applies to any banco
+// (requires no special capability). Honours active filters.
+//
+// Gini: 0 = perfectly even, 1 = all in one unit.
+// HHI:  sum of squared percentage shares (0–10000). >2500 = highly
+//       concentrated (US DoJ convention).
+
+function ViewConcentration({ summary, conventions, database }) {
+  const conv  = conventions || window.DEFAULT_CONVENTIONS;
+
+  const filtered = window.applyFilters(summary || {}, database);
+  const hasGeo = filtered.ufDataFull.length > 0;
+
+  // ── Geographic distribution (by UF) ─────────────────────────────────
+  const ufValues = filtered.ufData.map(u => u.value).filter(v => v > 0);
+  const ufSorted = filtered.ufData.slice().filter(u => u.value > 0).sort((a, b) => b.value - a.value);
+
+  // ── Product distribution (latest year, by product) ──────────────────
+  const prodValues = Object.entries(filtered.productTS).map(([code, s]) => {
+    const last = s[s.length - 1];
+    return { code, name: (filtered.products.find(p => p.code === code) || {}).name || code, value: last ? last.v : 0 };
+  }).filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+
+  // ── Metrics ──────────────────────────────────────────────────────────
+  const gini = (vals) => {
+    const s = vals.slice().filter(v => v > 0).sort((a, b) => a - b);
+    const n = s.length;
+    if (n < 2) return 0;
+    const total = s.reduce((a, b) => a + b, 0);
+    if (!total) return 0;
+    let cum = 0;
+    s.forEach((v, i) => { cum += (i + 1) * v; });
+    return (2 * cum) / (n * total) - (n + 1) / n;
+  };
+  const hhi = (vals) => {
+    const total = vals.reduce((a, b) => a + b, 0);
+    if (!total) return 0;
+    return vals.reduce((s, v) => s + Math.pow((v / total) * 100, 2), 0);
+  };
+  const topNShare = (sorted, n) => {
+    const total = sorted.reduce((s, x) => s + x.value, 0) || 1;
+    return sorted.slice(0, n).reduce((s, x) => s + x.value, 0) / total;
+  };
+
+  const ufGini = gini(ufValues);
+  const ufHHI  = hhi(ufValues);
+  const prodGini = gini(prodValues.map(p => p.value));
+  const prodHHI  = hhi(prodValues.map(p => p.value));
+  const top5UF = topNShare(ufSorted, 5);
+  const top3Prod = topNShare(prodValues, 3);
+
+  const hhiBand = (h) =>
+    h > 2500 ? { label: 'alta concentração', color: 'var(--err)' }
+    : h > 1500 ? { label: 'concentração moderada', color: 'var(--warn)' }
+    : { label: 'baixa concentração', color: 'var(--ok)' };
+  const giniBand = (g) =>
+    g > 0.6 ? { label: 'muito desigual', color: 'var(--err)' }
+    : g > 0.4 ? { label: 'desigual', color: 'var(--warn)' }
+    : { label: 'relativamente uniforme', color: 'var(--ok)' };
+
+  // Gini/Lorenz need ≥2 units to mean anything. With a single product/UF the
+  // formula degenerates to 0 ("relativamente uniforme"), which contradicts the
+  // HHI reading (max concentration). Surface "n/d" instead of a false reading.
+  const giniInfo = (count, g) => count < 2
+    ? { value: 'n/d', label: count === 1 ? 'unidade única' : 'sem dados', color: 'var(--fg-4)' }
+    : { value: g.toFixed(2).replace('.', ','), ...giniBand(g) };
+  const ufG   = giniInfo(ufValues.length, ufGini);
+  const prodG = giniInfo(prodValues.length, prodGini);
+
+  return (
+    <>
+      {/* KPI strip */}
+      <div className="kpi-row">
+        {hasGeo ? (
+        <>
+        <window.KpiCardSpark
+          label="Gini · geográfico (UF)"
+          value={ufG.value}
+          sub={ufG.label}
+        />
+        <window.KpiCardSpark
+          label="HHI · geográfico (UF)"
+          value={Math.round(ufHHI).toLocaleString('pt-BR')}
+          sub={hhiBand(ufHHI).label}
+        />
+        <window.KpiCardSpark
+          label="Concentração top-5 UFs"
+          value={window.fmtPct(top5UF)}
+          sub={`de ${ufSorted.length} ${ufSorted.length === 1 ? 'UF' : 'UFs'} com produção`}
+        />
+        <window.KpiCardSpark
+          label="Concentração top-3 produtos"
+          value={window.fmtPct(top3Prod)}
+          sub={`de ${prodValues.length} ${prodValues.length === 1 ? 'produto' : 'produtos'} na cesta`}
+        />
+        </>
+        ) : (
+        <>
+        <window.KpiCardSpark
+          label="Gini · por produto"
+          value={prodG.value}
+          sub={prodG.label}
+        />
+        <window.KpiCardSpark
+          label="HHI · por produto"
+          value={Math.round(prodHHI).toLocaleString('pt-BR')}
+          sub={hhiBand(prodHHI).label}
+        />
+        <window.KpiCardSpark
+          label="Concentração top-3 produtos"
+          value={window.fmtPct(top3Prod)}
+          sub={`de ${prodValues.length} ${prodValues.length === 1 ? 'produto' : 'produtos'} na cesta`}
+        />
+        </>
+        )}
+      </div>
+
+      {/* Lorenz curves */}
+      <div className="grid-2">
+        {hasGeo && (
+        <div className="card">
+          <window.SectionHeader
+            overline={`Curva de Lorenz · geográfica · ${filtered.yearEnd}`}
+            title={`Desigualdade entre UFs · Gini ${ufG.value}`}
+            action={<span className="caption" style={{ color: ufG.color }}>{ufG.label}</span>}
+          />
+          <window.LorenzCurve values={ufValues} color="var(--viz-2)" xLabel="UFs" yLabel="valor" height={300} />
+        </div>
+        )}
+        <div className="card">
+          <window.SectionHeader
+            overline={`Curva de Lorenz · por produto · ${filtered.yearEnd}`}
+            title={`Desigualdade entre produtos · Gini ${prodG.value}`}
+            action={<span className="caption" style={{ color: prodG.color }}>{prodG.label}</span>}
+          />
+          <window.LorenzCurve values={prodValues.map(p => p.value)} color="var(--viz-5)" xLabel="produtos" yLabel="valor" height={300} />
+        </div>
+      </div>
+
+      {/* Top-5 UF concentration bars + HHI gauges */}
+      <div className="grid-2">
+        {hasGeo && (
+        <div className="card">
+          <window.SectionHeader
+            overline={`Participação acumulada · UFs · ${filtered.yearEnd}`}
+            title="Quem concentra a produção"
+          />
+          <div className="conc-list">
+            {(() => {
+              const total = ufSorted.reduce((s, u) => s + u.value, 0) || 1;
+              let acc = 0;
+              return ufSorted.slice(0, 10).map((u, i) => {
+                const share = u.value / total;
+                acc += share;
+                return (
+                  <div key={u.uf} className="conc-row">
+                    <span className="conc-rank tnum">#{i + 1}</span>
+                    <span className="conc-name">{u.uf} · {u.name}</span>
+                    <div className="conc-bar"><div style={{ width: (share * 100).toFixed(1) + '%', background: 'var(--viz-2)' }}></div></div>
+                    <span className="conc-share tnum">{window.fmtPct(share)}</span>
+                    <span className="conc-acc tnum">{window.fmtPct(acc)}</span>
+                  </div>
+                );
+              });
+            })()}
+            <div className="conc-head-note">
+              <span></span><span></span><span></span>
+              <span className="caption">indiv.</span>
+              <span className="caption">acum.</span>
+            </div>
+          </div>
+        </div>
+        )}
+
+        <div className="card">
+          <window.SectionHeader
+            overline="Índice Herfindahl-Hirschman (HHI)"
+            title="Leitura da concentração"
+          />
+          <div className="conc-hhi">
+            {hasGeo && (
+            <div className="conc-hhi-row">
+              <span className="conc-hhi-label">Geográfico (UF)</span>
+              <div className="conc-hhi-track">
+                <div className="conc-hhi-fill" style={{ width: Math.min(100, (ufHHI / 10000) * 100) + '%', background: hhiBand(ufHHI).color }}></div>
+                <span className="conc-hhi-mark" style={{ left: '15%' }} title="1500"></span>
+                <span className="conc-hhi-mark" style={{ left: '25%' }} title="2500"></span>
+              </div>
+              <span className="conc-hhi-val tnum">{Math.round(ufHHI).toLocaleString('pt-BR')}</span>
+            </div>
+            )}
+            <div className="conc-hhi-row">
+              <span className="conc-hhi-label">Por produto</span>
+              <div className="conc-hhi-track">
+                <div className="conc-hhi-fill" style={{ width: Math.min(100, (prodHHI / 10000) * 100) + '%', background: hhiBand(prodHHI).color }}></div>
+                <span className="conc-hhi-mark" style={{ left: '15%' }}></span>
+                <span className="conc-hhi-mark" style={{ left: '25%' }}></span>
+              </div>
+              <span className="conc-hhi-val tnum">{Math.round(prodHHI).toLocaleString('pt-BR')}</span>
+            </div>
+            <dl className="conc-scale">
+              <dt><span className="conc-dot" style={{ background: 'var(--ok)' }}></span>&lt; 1500</dt><dd>baixa concentração</dd>
+              <dt><span className="conc-dot" style={{ background: 'var(--warn)' }}></span>1500–2500</dt><dd>concentração moderada</dd>
+              <dt><span className="conc-dot" style={{ background: 'var(--err)' }}></span>&gt; 2500</dt><dd>alta concentração</dd>
+            </dl>
+            <p className="caption conc-note">
+              HHI = soma dos quadrados das participações percentuais. As marcas no trilho indicam os limiares 1500 e 2500 (convenção US DoJ).
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+window.ViewConcentration = ViewConcentration;

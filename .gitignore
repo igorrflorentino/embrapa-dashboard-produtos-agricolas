@@ -229,6 +229,9 @@ dbt/profiles.yml
 
 # Local data dumps written outside GCS during dev
 data/
+# ...but the React SPA's data-access layer is SOURCE, not a data dump.
+!frontend/src/data/
+!frontend/src/data/**
 *.parquet
 .gcp-credentials.json
 
@@ -245,3 +248,7 @@ sa-*.b64
 # Dashboard validation output (smoke server logs, Playwright screenshots)
 artifacts/
 
+
+# Frontend (React/Vite)
+frontend/node_modules/
+frontend/dist/
