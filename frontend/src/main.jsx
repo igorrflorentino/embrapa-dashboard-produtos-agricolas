@@ -7,6 +7,7 @@
 
 import './bootstrap-globals'; // window.React/ReactDOM — must be first
 import React, { useState, useEffect } from 'react';
+import { subscribe as subscribeResource } from './data/resource';
 
 // ── registries + utils (reused verbatim) ──────────────────────────────────────
 import './proto/data.js'; // static registries (UF tiles, REGIONS, QUALITY_FLAGS, UNIT_FAMILIES) + formatters (+ unused synthetic globals — harmless)
@@ -44,6 +45,7 @@ import './charts/MonthlyOverlay.jsx';
 import './charts/LagBars.jsx';
 import './charts/Donut.jsx'; // SVG port (categorical share)
 import './charts/BrazilTileMap.jsx'; // SVG port (geographic tile grid)
+import './charts/PreviewBanner.jsx'; // non-chart banner the preview/cross views use
 import './charts/_stubs.jsx'; // safety net for any unported chart (PENDING now empty)
 
 // ── atoms + shell (reused) ────────────────────────────────────────────────────
@@ -195,12 +197,18 @@ function Dashboard() {
   const [conventions, setConventions] = useState(initial.conventions || window.DEFAULT_CONVENTIONS);
   const [crossState, setCrossState] = useState(initial.crossState || window.DEFAULT_CROSS_STATE);
   const [mode, setMode] = useState(initial.mode || 'single');
+  const [, forceTick] = useState(0);
 
   // Conventions → data layer bridge: currency/correction pick the deflated value
   // column server-side, so a change re-fetches the snapshot (contract map §0.2).
   useEffect(() => {
     if (window.dataStore?.setConventions) window.dataStore.setConventions(conventions);
   }, [conventions]);
+
+  // Sync-over-async gate (contract map §3.1): the cross/curation producers are
+  // synchronous cache reads that kick off a fetch on a miss. Re-render the tree
+  // when any resource resolves so the view's next sync read sees real data.
+  useEffect(() => subscribeResource(() => forceTick((t) => t + 1)), []);
 
   return (
     <window.AppShell

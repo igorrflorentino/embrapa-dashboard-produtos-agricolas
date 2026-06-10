@@ -1,0 +1,129 @@
+// producers.js — API-backed replacements for the prototype's synthetic data
+// producers, keeping identical window.* names/signatures. The per-banco snapshot
+// path lives in dataStore.js (gated by DataBoundary); this file covers the
+// cross-source / analytics / curation producers + the data-blocked placeholders.
+//
+// Sync-over-async (contract map §3.1): the cross producers are SYNC for the
+// reused views — they read the resource cache (get) and, if cold, kick off the
+// fetch (ensure) + return a safe pending placeholder. A CrossBoundary (main.jsx)
+// subscribes to resource changes and re-renders, so the view's next sync call
+// gets real data. Trade adapters (flow/partner/monthly) have no endpoint yet;
+// chain/lag/market-nature are data-blocked — all return honest preview shells.
+
+import { ensure, get } from './resource';
+
+const API = '/api';
+const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
+
+// ── per-banco snapshot fallback (dataStore is the primary path) ───────────────
+window.snapshotFor = function snapshotFor() {
+  // Every live banco loads through dataStore.load → /api/snapshot. This fallback
+  // (used by applyFilters only if the store isn't populated) returns null so the
+  // caller degrades gracefully rather than fabricating data.
+  return null;
+};
+
+// ── cross-source comparable series ────────────────────────────────────────────
+window.crossSeries = function crossSeries(bancoId, metricId, opts = {}) {
+  const { y0, y1 } = opts;
+  const key = `cross:series:${bancoId}:${metricId}:${y0 ?? ''}:${y1 ?? ''}`;
+  ensure(key, () => `${API}/cross/series?${qs({ banco: bancoId, metric: metricId, y0, y1 })}`);
+  // bancoMeta/metricMeta are registry objects (bancos.js) joined client-side —
+  // the contract (SeriesResult) carries them, and the view reads bancoMeta.short.
+  const bancoMeta = window.bancoById ? window.bancoById(bancoId) : null;
+  const metricMeta = window.metricById ? window.metricById(bancoId, metricId) : null;
+  const data = get(key);
+  if (data) return { ...data, bancoMeta, metricMeta };
+  return {
+    banco: bancoId,
+    metric: metricId,
+    key: `${bancoId}:${metricId}`,
+    bancoMeta,
+    metricMeta,
+    label: (metricMeta && metricMeta.label) || '',
+    unit: '',
+    family: (metricMeta && metricMeta.family) || '',
+    preview: false, // real data, just loading — not a demo (no PreviewBanner)
+    coverage: (metricMeta && metricMeta.years) || [0, 0],
+    points: [],
+  };
+};
+
+// Comparable window = intersection of the selected metrics' native coverage
+// (read client-side from the banco registry — no fetch needed).
+window.crossCommonWindow = function crossCommonWindow(refs = []) {
+  const covs = refs
+    .map((r) => {
+      const b = window.bancoById && window.bancoById(r.b || r.banco);
+      const m = b && (b.metrics || []).find((x) => x.id === (r.m || r.metric));
+      return m && m.years;
+    })
+    .filter(Boolean);
+  if (!covs.length) return { y0: 1997, y1: 2024, union: [1997, 2024] };
+  const y0 = Math.max(...covs.map((c) => c[0]));
+  const y1 = Math.min(...covs.map((c) => c[1]));
+  const union = [Math.min(...covs.map((c) => c[0])), Math.max(...covs.map((c) => c[1]))];
+  return y0 <= y1 ? { y0, y1, union } : { y0: union[0], y1: union[1], union };
+};
+
+// ── cross-source analytics (crosswalk-joined) ─────────────────────────────────
+const crossAnalytic = (name, path, shell) =>
+  function (commodityId) {
+    const key = `cross:${name}:${commodityId || '*'}`;
+    ensure(key, () => `${API}/cross/${path}?${qs({ commodity: commodityId })}`);
+    return get(key) || shell;
+  };
+
+// Loading shells use preview:false — the data IS real, just not arrived yet (so
+// no "demonstração" banner flashes). Empty arrays render empty charts until the
+// resource resolves and the gate re-renders with real data.
+window.exportCoefficient = crossAnalytic('export-coef', 'export-coef', {
+  preview: false, unit: 'mil t', byUf: [], national: {}, timeseries: [],
+});
+window.marketShare = crossAnalytic('market-share', 'market-share', {
+  preview: false, unit: 'US$ bi', series: [], byProduct: [],
+});
+window.priceSpread = crossAnalytic('price-spread', 'price-spread', {
+  preview: false, unit: 'US$/kg', series: [],
+});
+window.tradeMirror = crossAnalytic('mirror', 'mirror', {
+  preview: false, unit: 'US$ bi', series: [], discrepancy: [],
+});
+window.valueAddedAnalysis = crossAnalytic('value-added', 'value-added', {
+  preview: false, years: [], byLevel: { bruta: [], processada: [] }, series: [], nCodes: 0,
+});
+
+// ── data-blocked producers (no upstream source — honest preview shells) ───────
+// chainBalance needs SEFAZ inter-UF flows; harvestShipmentLag needs MONTHLY PEVS
+// (annual-only); marketNatureAnalysis needs the customs-procedure dimension
+// (summed away in Silver). The views render their blocked-source banner.
+window.chainBalance = function chainBalance(_code, year) {
+  return {
+    preview: true, unit: 'mil t', year: year || 2024, produced: 0, exported: 0, internal: 0,
+    domestic: 0, expFrac: 0, intFrac: 0, domFrac: 0, worldShare: 0, worldTotal: 0, exportUsd: 0,
+    sankey: { nodes: [], links: [] },
+  };
+};
+window.harvestShipmentLag = function harvestShipmentLag() {
+  return {
+    preview: true, months: [], production: [], shipments: [], peakHarvest: 0, peakShip: 0,
+    lagMonths: 0, corrAtLag: 0, lagProfile: [],
+  };
+};
+window.marketNatureAnalysis = function marketNatureAnalysis() {
+  return { preview: true, years: [], series: [], latest: {} };
+};
+
+// ── trade adapters — endpoints land when ViewFlows/Partners/Seasonality wire ──
+window.flowData = function flowData() {
+  return { preview: true, unit: 'US$', originLabel: 'Origem', destLabel: 'Destino', nodes: [], links: [] };
+};
+window.partnerData = function partnerData() {
+  return { preview: true, flowLabel: 'Parceiro', unit: 'US$', partners: [] };
+};
+window.monthlyData = function monthlyData() {
+  return { preview: true, unit: 'US$', years: [], months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], matrix: {}, monthlyAvg: [], series: [] };
+};
+window.productivityData = function productivityData() {
+  return null; // PAM not connected in this repo
+};
