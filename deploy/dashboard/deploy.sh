@@ -94,16 +94,24 @@ gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
 # Allowlist (anchored, prefix-based):
 #   GCP_PROJECT_ID                          — project + BigQuery billing
 #   BQ_LOCATION                             — query location
-#   BQ_GOLD_DATASET / BQ_SERVING_DATASET    — gold reference tables + serving marts
 #   CACHE_*                                 — flask-caching backend + TTLs
 #   IAP_AUDIENCE                            — verify the signed IAP JWT (when behind IAP)
 #   COMTRADE_BRAZIL_ISO                     — reporter filter for the cross-source reads
-DASH_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|BQ_GOLD_DATASET|BQ_SERVING_DATASET|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO)='
+# NB: BQ_GOLD_DATASET / BQ_SERVING_DATASET are deliberately NOT forwarded from
+# .env — a developer's local .env often points them at the auto-expiring dev
+# datasets (e.g. BQ_GOLD_DATASET=dbt_dev_gold, 7-day TTL). A PROD service must
+# read PROD data, so they are forced below to gold/serving (override via
+# DASHBOARD_{GOLD,SERVING}_DATASET only if you intentionally deploy a dev-pointed
+# service).
+DASH_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
 grep -E "$DASH_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
       printf "%s: '%s'\n" "$key" "$(printf '%s' "$val" | tr -d '\r')"
     done > "$ENV_YAML"
+# Force the datasets to prod (immune to the local dev .env drift noted above).
+printf "BQ_GOLD_DATASET: '%s'\n" "${DASHBOARD_GOLD_DATASET:-gold}" >> "$ENV_YAML"
+printf "BQ_SERVING_DATASET: '%s'\n" "${DASHBOARD_SERVING_DATASET:-serving}" >> "$ENV_YAML"
 # GCP_PROJECT_ID is mandatory; everything else falls back to config.py defaults.
 grep -q '^GCP_PROJECT_ID:' "$ENV_YAML" || { echo "ERROR: GCP_PROJECT_ID missing in $ENV_FILE"; exit 1; }
 

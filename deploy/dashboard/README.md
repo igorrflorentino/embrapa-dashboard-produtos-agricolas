@@ -62,10 +62,16 @@ make dashboard-deploy        # build image + create/update the service (private)
 ```
 
 `deploy.sh` forwards config via an **explicit allowlist** — only the keys the
-dashboard reads at runtime: `GCP_PROJECT_ID`, `BQ_LOCATION`, `BQ_GOLD_DATASET`,
-`BQ_SERVING_DATASET`, `CACHE_*`, `IAP_AUDIENCE`, `COMTRADE_BRAZIL_ISO`. The secret
-`COMTRADE_API_KEY`, `GCP_IMPERSONATION_SA`, the dev-only `CURATION_DEV_AUTHOR`,
-ingestion/dbt vars, and everything else in `.env` are **not** shipped.
+dashboard reads at runtime: `GCP_PROJECT_ID`, `BQ_LOCATION`, `CACHE_*`,
+`IAP_AUDIENCE`, `COMTRADE_BRAZIL_ISO`. The dataset names `BQ_GOLD_DATASET` /
+`BQ_SERVING_DATASET` are **forced to prod** (`gold` / `serving`), *not* read from
+`.env` — a developer's local `.env` often points them at the **auto-expiring dev
+datasets** (e.g. `BQ_GOLD_DATASET=dbt_dev_gold`, 7-day TTL), which would silently
+break the prod service. Override with `DASHBOARD_GOLD_DATASET` /
+`DASHBOARD_SERVING_DATASET` only to deploy a deliberately dev-pointed service. The
+secret `COMTRADE_API_KEY`, `GCP_IMPERSONATION_SA`, the dev-only
+`CURATION_DEV_AUTHOR`, ingestion/dbt vars, and everything else in `.env` are
+**not** shipped.
 
 ## Auth — the service is deployed PRIVATE
 
