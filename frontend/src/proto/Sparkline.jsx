@@ -24,7 +24,7 @@ function KpiCardSpark({ label, value, sub, delta, deltaPositive, spark, sparkCol
     <div className="kpi-card spark">
       <div className="kpi-top">
         <div className="kpi-ov">{label}</div>
-        {spark && <Sparkline data={spark} color={sparkColor} valueKey={sparkKey} />}
+        {spark && spark.length > 1 && <Sparkline data={spark} color={sparkColor} valueKey={sparkKey} />}
       </div>
       <div className="kpi-val tnum">{value}</div>
       <div className="kpi-sub">
