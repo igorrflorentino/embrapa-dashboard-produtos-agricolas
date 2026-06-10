@@ -105,6 +105,22 @@ with contextlib.suppress(Exception):  # pragma: no cover - depends on environmen
     _ensure_cache()
 
 
+def _overlay_children(ui: dict, kind: str | None = None) -> list:
+    """The filter + cite modals, ALWAYS mounted (hidden when closed) so update_state
+    can resolve the f-products / filter-close / cite-close components it references —
+    a Dash callback never fires if a referenced component is missing. The filter
+    modal loads its (BQ-backed) product options only when actually open, so seeding
+    these into the static layout below stays BQ-free."""
+    hide = {"display": "none"}
+    return [
+        html.Div(
+            shell.filter_modal(ui, load_options=kind == "filter"),
+            style=({} if kind == "filter" else hide),
+        ),
+        html.Div(shell.cite_modal(ui), style=({} if kind == "cite" else hide)),
+    ]
+
+
 app.layout = html.Div(
     [
         dcc.Store(id="ui", data=INITIAL_UI),
@@ -115,14 +131,25 @@ app.layout = html.Div(
             [
                 html.Aside(id="sidebar", className="sidebar"),
                 html.Main(
-                    [html.Div(id="conventions"), html.Div(id="filterbar"), html.Div(id="screen")],
+                    [
+                        html.Div(id="conventions"),
+                        # filter-open seeded hidden so the update_state Input always
+                        # resolves, even before render_chrome runs (off data views).
+                        html.Div(
+                            html.Button(id="filter-open", n_clicks=0, style={"display": "none"}),
+                            id="filterbar",
+                        ),
+                        html.Div(id="screen"),
+                    ],
                     className="content",
                 ),
             ],
             className="body",
         ),
         shell.footer(),
-        html.Div(id="overlay-root"),
+        # Modals mounted from the very first render (no boot-time gap → no console
+        # "nonexistent object" warnings, no first-click race).
+        html.Div(_overlay_children(INITIAL_UI), id="overlay-root"),
     ],
     className="shell",
 )
@@ -294,7 +321,13 @@ def render_chrome(ui, nav):
         and view != "glossary"
     )
     conv = shell.conventions_strip(ui) if is_data_view else []
-    fbar = shell.filter_trigger_bar(ui) if is_data_view else []
+    # filter-open is an update_state Input — keep it mounted (hidden) off data
+    # views so the callback can always resolve it (see render_overlay).
+    fbar = (
+        shell.filter_trigger_bar(ui)
+        if is_data_view
+        else html.Button(id="filter-open", n_clicks=0, style={"display": "none"})
+    )
     return (
         shell.sidebar(ui),
         shell.navmenu(ui, nav.get("open", False)),
@@ -307,12 +340,11 @@ def render_chrome(ui, nav):
 # ── Overlay renderer (filter / citation modals) ──────────────────────────────
 @app.callback(Output("overlay-root", "children"), Input("overlay", "data"), State("ui", "data"))
 def render_overlay(overlay, ui):
-    kind = (overlay or {}).get("kind")
-    if kind == "filter":
-        return shell.filter_modal(ui)
-    if kind == "cite":
-        return shell.cite_modal(ui)
-    return []
+    # Re-render BOTH modals (refreshing content + toggling visibility) on every
+    # overlay change. They are never conditionally removed — a Dash callback does
+    # not fire if any component it references is absent, and update_state reads
+    # f-products / filter-close / cite-close which live inside these modals.
+    return _overlay_children(ui, (overlay or {}).get("kind"))
 
 
 # ── Screen router ────────────────────────────────────────────────────────────

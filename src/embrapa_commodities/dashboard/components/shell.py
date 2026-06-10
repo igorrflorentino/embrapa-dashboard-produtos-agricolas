@@ -76,7 +76,12 @@ def topbar() -> html.Header:
                         n_clicks=0,
                         className="topnav-trigger has-active",
                     ),
-                    html.Div(id="navmenu"),
+                    # Seed nav-scrim (hidden) so the update_state Input resolves from
+                    # the first render; navmenu() replaces this when the menu opens.
+                    html.Div(
+                        html.Div(id="nav-scrim", n_clicks=0, style={"display": "none"}),
+                        id="navmenu",
+                    ),
                 ],
                 className="topnav",
             ),
@@ -197,7 +202,10 @@ def nav_trigger_label(ui: dict) -> list:
 
 def navmenu(ui: dict, nav_open: bool) -> list:
     if not nav_open:
-        return []
+        # nav-scrim is an update_state Input — keep it mounted (hidden) while the
+        # perspective menu is closed so the callback can always resolve it. A Dash
+        # callback never fires if any referenced component is missing from the tree.
+        return [html.Div(id="nav-scrim", n_clicks=0, style={"display": "none"})]
     banco_id = ui.get("banco")
     is_multi = ui.get("mode") == "multi"
     groups = []
@@ -393,11 +401,14 @@ def filter_trigger_bar(ui: dict) -> html.Div:
     )
 
 
-def filter_modal(ui: dict) -> html.Div:
+def filter_modal(ui: dict, load_options: bool = True) -> html.Div:
     banco_id = ui.get("banco")
     banco = banco_by_id(banco_id)
     schema = filter_schema_for(banco_id)
-    snap_products = _product_options(banco_id)
+    # Product options need a BQ snapshot — fetch only when the modal is actually
+    # open. While it sits mounted-but-hidden (so update_state can resolve f-products),
+    # it renders option-free, keeping info-page / cold-start loads BQ-free.
+    snap_products = _product_options(banco_id) if load_options else []
     s = ui.get("summary", {})
     y0 = int(str(s.get("startDate"))[:4]) if s.get("startDate") else None
     y1 = int(str(s.get("endDate"))[:4]) if s.get("endDate") else None
