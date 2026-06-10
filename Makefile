@@ -43,13 +43,10 @@ ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for
 iam-grant:    ## Apply dataset-scoped least-privilege IAM grants (DRY_RUN=1 to preview)
 	bash deploy/iam/grant_least_privilege.sh
 
-dashboard-run:    ## Run the Dash dashboard locally on :8050 (needs .env + ADC)
-	uv run --extra dashboard embrapa-dashboard
+webapi-run:    ## Run the REST API locally on :8000 (needs .env + ADC; serve the SPA via `cd frontend && npm run dev`)
+	uv run --extra webapi python -c "from embrapa_commodities.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"
 
-dashboard-deploy:    ## Build + deploy the dashboard Cloud Run Service (reads .env)
-	bash deploy/dashboard/deploy.sh
-
-webapi-deploy:    ## Build + deploy the React SPA + Flask REST Service (Dash->React cutover)
+webapi-deploy:    ## Build + deploy the React SPA + Flask REST Cloud Run Service (reads .env)
 	bash deploy/webapi/deploy.sh
 
 dbt-deps:

@@ -1,13 +1,13 @@
 """webapi — the REST layer between the React SPA and the serving BFF.
 
-Replaces the Dash UI's in-process seam calls with HTTP: the SPA (frontend/,
-the design-system prototype reused verbatim) fetches JSON from ``/api/*``;
-every endpoint wraps an existing seam/gateway function and serializes to the
-exact shapes the prototype's ``contracts.js`` defines. Same Pushdown model —
-parameterized BigQuery via ``serving.gateway``, memoized by flask-caching —
-only the transport changes (in-process → JSON over HTTP, IAP in front).
+The SPA (``frontend/``, the design-system prototype reused verbatim) fetches JSON
+from ``/api/*``; every endpoint wraps a ``seam``/``gateway`` function and
+serializes to the exact shapes the prototype's ``contracts.js`` defines. Same
+Pushdown model — parameterized BigQuery via ``serving.gateway``, memoized by
+flask-caching — only the transport is JSON over HTTP, with IAP in front.
 
-NOTE: until the Dash package is removed (migration task 8), the data seam is
-imported from ``embrapa_commodities.dashboard`` (seam/format/registries are
-UI-framework-free modules there); they relocate here when Dash is deleted.
+This package owns the UI-framework-free data composition layer that used to live
+under the (now-removed) Dash package: ``seam`` (composes the gateway readers into
+the contract shapes), ``format`` (pt-BR formatting + convention→column mapping),
+and ``registries`` (banco/metric/view registries).
 """

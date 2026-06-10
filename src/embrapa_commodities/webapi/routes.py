@@ -5,13 +5,9 @@ Each endpoint wraps an existing ``seam`` function and serializes (via
 the reused React views fetch these instead of computing synthetically. Same
 Pushdown model underneath — parameterized BigQuery, memoized by flask-caching.
 
-See ``PLANS/react_migration_contract_map.md`` §1 for the endpoint table. Trade
-adapters (flow/partner/monthly) are deferred to when their views are wired
-(§3); the data-blocked producers (chain/lag/market-nature) have no endpoint —
-the views ship honest placeholders.
-
-NOTE: ``seam`` lives in the (UI-framework-free) ``dashboard`` package until the
-Dash UI is deleted (task 8); it relocates under ``webapi`` then.
+See ``PLANS/react_migration_contract_map.md`` §1 for the endpoint table. The
+data-blocked producers (chain/lag/market-nature) have no endpoint — the views
+ship honest placeholders.
 """
 
 from __future__ import annotations
@@ -20,9 +16,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from embrapa_commodities.dashboard import seam
-
-from . import serializers
+from . import seam, serializers
 from .auth import current_author
 
 logger = logging.getLogger(__name__)
