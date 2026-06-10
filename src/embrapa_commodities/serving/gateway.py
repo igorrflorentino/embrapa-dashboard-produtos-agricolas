@@ -316,6 +316,27 @@ def fetch_quality_by_source(source: str | None = None):
     return run_query(sql, params)
 
 
+# Source → its comprehensive Gold table (the year-grained quality scan reads here,
+# since the serving marts aren't year×flag). Matches gold_source_metadata.gold_table.
+_GOLD_TABLE = {
+    "ibge_pevs": "gold_pevs_production",
+    "mdic_comex": "gold_comex_flows",
+    "un_comtrade": "gold_comtrade_flows",
+}
+
+
+@cache.memoize()
+def fetch_quality_timeseries(source: str):
+    """data_quality_flag counts per year for a source (backs quality-over-time)."""
+    table_name = _GOLD_TABLE.get(source)
+    if table_name is None:
+        return None
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
+    sql, params = sqlbuild.quality_timeseries(table)
+    return run_query(sql, params)
+
+
 @cache.memoize()
 def fetch_products(source: str):
     """Distinct product list for a source (backs `products`)."""

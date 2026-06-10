@@ -149,3 +149,22 @@ def test_serialize_value_added_derives_bylevel():
 def test_cross_series_none_passthrough():
     assert s.serialize_cross_series(None) is None
     assert s.serialize_cross_series({"banco": "ibge_pevs", "points": []})["preview"] is False
+
+
+def test_quality_ts_pivots_to_per_year_shares():
+    # 2020: 90 OK + 10 MISSING_VALUE → ok 0.9, missing_value 0.1; flag id → contract key
+    df = pd.DataFrame(
+        [
+            {"reference_year": 2020, "data_quality_flag": "OK", "n": 90},
+            {"reference_year": 2020, "data_quality_flag": "MISSING_VALUE", "n": 10},
+            {"reference_year": 2021, "data_quality_flag": "OK", "n": 50},
+            {"reference_year": 2021, "data_quality_flag": "BOUNDARY_HISTORIC", "n": 50},
+        ]
+    )
+    out = s.serialize_snapshot(
+        {"products": None, "product_ts": None, "overview_ts": None, "uf_data": None,
+         "quality": None, "quality_ts": df, "value_label": ""}
+    )["qualityTs"]
+    assert [r["y"] for r in out] == [2020, 2021]  # sorted by year
+    assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1 and out[0]["outlier"] == 0.0
+    assert out[1]["ok"] == 0.5 and out[1]["boundary"] == 0.5  # BOUNDARY_HISTORIC → boundary

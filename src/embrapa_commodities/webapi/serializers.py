@@ -24,6 +24,16 @@ import pandas as pd
 # English 'mass' (dataFilters.js: `pt.family === 'mass'`). Map at the boundary.
 _FAMILY_JS = {"massa": "mass", "volume": "volume"}
 
+# data_quality_flag id → the qualityTs contract key (contracts.js qualityTs).
+_FLAG_KEY = {
+    "OK": "ok",
+    "MISSING_VALUE": "missing_value",
+    "MISSING_QUANTITY": "missing_quantity",
+    "ESTIMATED": "estimated",
+    "OUTLIER": "outlier",
+    "BOUNDARY_HISTORIC": "boundary",
+}
+
 
 def _fam(value: Any) -> str:
     return _FAMILY_JS.get(value, value if isinstance(value, str) else "")
@@ -53,10 +63,34 @@ def serialize_snapshot(snap: dict) -> dict:
         "overviewTS": _overview_ts(snap.get("overview_ts")),
         "ufData": _uf_data(snap.get("uf_data")),
         "quality": _quality(snap.get("quality")),
+        "qualityTs": _quality_ts(snap.get("quality_ts")),
         "valueLabel": snap.get("value_label", ""),
         "preview": False,
         "_synthetic": False,
     }
+
+
+def _quality_ts(df: pd.DataFrame | None) -> list[dict]:
+    """year×flag counts → [{y, ok, missing_value, …, boundary}] as per-year shares
+    (fractions 0-1; the views ×100 for %). Flags absent in a year read 0."""
+    if _empty(df):
+        return []
+    by_year: dict[int, dict[str, float]] = {}
+    for r in df.itertuples():
+        slot = by_year.setdefault(int(r.reference_year), {})
+        slot[r.data_quality_flag] = slot.get(r.data_quality_flag, 0.0) + _num(r.n)
+    out = []
+    for y in sorted(by_year):
+        flags = by_year[y]
+        total = sum(flags.values()) or 1.0
+        row = {"y": y, "ok": 0.0, "missing_value": 0.0, "missing_quantity": 0.0,
+               "estimated": 0.0, "outlier": 0.0, "boundary": 0.0}
+        for flag, n in flags.items():
+            key = _FLAG_KEY.get(flag)
+            if key:
+                row[key] = n / total
+        out.append(row)
+    return out
 
 
 def _products(df: pd.DataFrame | None) -> list[dict]:
