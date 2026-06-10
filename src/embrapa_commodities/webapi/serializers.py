@@ -83,8 +83,15 @@ def _quality_ts(df: pd.DataFrame | None) -> list[dict]:
     for y in sorted(by_year):
         flags = by_year[y]
         total = sum(flags.values()) or 1.0
-        row = {"y": y, "ok": 0.0, "missing_value": 0.0, "missing_quantity": 0.0,
-               "estimated": 0.0, "outlier": 0.0, "boundary": 0.0}
+        row = {
+            "y": y,
+            "ok": 0.0,
+            "missing_value": 0.0,
+            "missing_quantity": 0.0,
+            "estimated": 0.0,
+            "outlier": 0.0,
+            "boundary": 0.0,
+        }
         for flag, n in flags.items():
             key = _FLAG_KEY.get(flag)
             if key:

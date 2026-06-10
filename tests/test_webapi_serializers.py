@@ -162,8 +162,15 @@ def test_quality_ts_pivots_to_per_year_shares():
         ]
     )
     out = s.serialize_snapshot(
-        {"products": None, "product_ts": None, "overview_ts": None, "uf_data": None,
-         "quality": None, "quality_ts": df, "value_label": ""}
+        {
+            "products": None,
+            "product_ts": None,
+            "overview_ts": None,
+            "uf_data": None,
+            "quality": None,
+            "quality_ts": df,
+            "value_label": "",
+        }
     )["qualityTs"]
     assert [r["y"] for r in out] == [2020, 2021]  # sorted by year
     assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1 and out[0]["outlier"] == 0.0
