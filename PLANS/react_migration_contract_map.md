@@ -110,9 +110,29 @@ keeping identical names/signatures (the `window.*` surface the views call):
 - `enrichment.*` (curation) → `codes()` from `/curation/worklist`; `setCode/apply` POST
   `/curation/code-level`. Keep the optimistic draft/commit UX.
 
-Async: producers become promise-returning OR the views gate on `dataStore` status (they already
-use `DataBoundary.useBancoData` → `dataStore.load` + subscribe). Prefer the dataStore path so
-views stay synchronous against the cached snapshot; cross/curation views get a small load gate.
+### 3.1 Sync-over-async gating (the critical frontend design)
+
+The reused views call producers **synchronously** during render and use the result immediately
+(`const r = window.crossSeries(b,m,{})`). API calls are async. Bridge WITHOUT refactoring the
+reused views:
+
+- **Per-banco path (overview/value/geo/concentration/quality/profile)** — already solved. The
+  reused `DataBoundary.useBancoData(banco)` calls `dataStore.load(banco, conv)` (async) and gates
+  rendering on status; the view then reads `dataStore.get(banco)` (sync) via `applyFilters`.
+  Migration: make `dataStore.load` fetch `/api/snapshot` and cache the decorated snapshot.
+  Re-load when conventions' currency/correction change (key the cache by `banco|currency|correction`).
+- **Cross-source / analytics / curation views** — have **no gate** (they get `{view}` props and call
+  producers directly). Add a thin **preload gate** (new glue, NOT a change to the reused views):
+  a `CrossBoundary({view, commodity})` wrapper that, on mount/commodity-change, fires the needed
+  fetches into a module cache and shows the loading state until resolved; then renders the reused
+  view. The producers (`crossSeries`, `exportCoefficient`, …) become **sync cache reads**: return the
+  cached value if present, else a `{preview, …, _pending:true}` placeholder + kick off the fetch +
+  `notify()` subscribers (the boundary re-renders → cache now hot → view reads real data). One
+  generic helper backs this: `resource(key, urlFactory)` → `{get(key), ensure(key), subscribe}`.
+- **Mount the boundary at the router seam** (in the new `main.jsx`/a small `MainScreen` wrapper),
+  not inside the reused views. The cross views stay byte-for-byte reused.
+- **Curation** is read+write: `enrichment.codes()` reads the worklist resource; `setCode`/`apply`
+  POST and then invalidate the worklist resource + `notify()` (optimistic draft UX preserved).
 
 ## 4. Chart → Plotly.js components (`frontend/src/charts/`) — same names + props as Charts*.jsx
 
