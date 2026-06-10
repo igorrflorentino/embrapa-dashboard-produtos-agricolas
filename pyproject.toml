@@ -47,6 +47,15 @@ dashboard = [
     # it is only invoked inside the Linux image.
     "gunicorn>=22",
 ]
+# REST layer (src/embrapa_commodities/webapi) for the React SPA — replaces the
+# Dash UI. Serves /api (over the `serving` BFF) + the built SPA, via gunicorn. No
+# dash/plotly: the analytical charts are client-side Plotly.js in the frontend.
+# `uv sync --extra webapi` (or the Cloud Run image).
+webapi = [
+    "flask>=3.0",
+    "flask-caching>=2.3",
+    "gunicorn>=22",
+]
 
 [project.scripts]
 embrapa = "embrapa_commodities.cli:app"
