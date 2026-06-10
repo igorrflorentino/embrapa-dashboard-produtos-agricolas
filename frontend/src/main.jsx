@@ -127,6 +127,37 @@ function readStateFromURL() {
   };
 }
 
+// ── filter chips: the FilterTriggerBar reads display strings (summary.products,
+// .period, …). FilterMenu.onApply emits them, but the initial/URL-restored
+// summary only has raw arrays — compute the chips from applyFilters + the
+// registries (chipFmt is the shared formatter the FilterMenu also uses). ───────
+function withChips(summary, database, conventions) {
+  const s = summary || {};
+  if (s.products && s.period) return s; // already carries chips (from FilterMenu)
+  const f = window.applyFilters ? window.applyFilters(s, database) : null;
+  if (!f || !window.chipFmt) return s;
+  const conv = conventions || window.DEFAULT_CONVENTIONS || {};
+  const sym = ((window.CURRENCY_FX || {})[conv.currency] || { symbol: 'R$' }).symbol;
+  const flagsAll = window.QUALITY_FLAGS || [];
+  const labelOf = (id) => (flagsAll.find((q) => q.id === id) || {}).label || id;
+  const total = f.productsTotal || (f.products || []).length;
+  const basket = s.basket || null;
+  const firstName =
+    basket && basket.length === 1
+      ? ((f.products || []).find((p) => p.code === basket[0]) || {}).name
+      : null;
+  const ufTotal = (f.ufDataFull || []).length || 27;
+  const hasGeo = (f.ufDataFull || []).length > 0;
+  return {
+    ...s,
+    products: window.chipFmt.products(basket ? basket.length : null, total, firstName),
+    period: window.chipFmt.period(f.yearStart, f.yearEnd),
+    valueRange: window.chipFmt.valueRange(s.valueMin, s.valueMax, sym),
+    geo: window.chipFmt.geoStates(s.states ? s.states.length : null, ufTotal, hasGeo),
+    quality: window.chipFmt.quality(s.flags || null, flagsAll.length, labelOf),
+  };
+}
+
 // ── error boundary: a single view/component throwing must not blank the whole
 // app (the prototype had none — real, sparser data exposes edge cases). Shows a
 // recoverable message inside the content area; the shell stays usable. ─────────
@@ -197,6 +228,7 @@ function Dashboard() {
   const [conventions, setConventions] = useState(initial.conventions || window.DEFAULT_CONVENTIONS);
   const [crossState, setCrossState] = useState(initial.crossState || window.DEFAULT_CROSS_STATE);
   const [mode, setMode] = useState(initial.mode || 'single');
+  const [filterOpen, setFilterOpen] = useState(false);
   const [, forceTick] = useState(0);
 
   // Conventions → data layer bridge: currency/correction pick the deflated value
@@ -210,6 +242,13 @@ function Dashboard() {
   // when any resource resolves so the view's next sync read sees real data.
   useEffect(() => subscribeResource(() => forceTick((t) => t + 1)), []);
 
+  // The filter bar/menu apply only to per-banco DATA views (not info pages or
+  // the cross-banco perspectives, which have no single-banco filter surface).
+  const vm = window.viewById ? window.viewById(view) : null;
+  const banco = window.bancoById ? window.bancoById(database) : null;
+  const isDataView = !infoPage && !(vm && vm.crossBanco) && !!banco;
+  const displaySummary = isDataView ? withChips(summary, database, conventions) : summary;
+
   return (
     <window.AppShell
       view={view}
@@ -218,13 +257,26 @@ function Dashboard() {
       setDatabase={setDatabase}
       infoPage={infoPage}
       setInfoPage={setInfoPage}
-      summary={summary}
+      summary={displaySummary}
       conventions={conventions}
       crossState={crossState}
       mode={mode}
       setMode={setMode}
     >
       <DataGate database={database} infoPage={infoPage} view={view}>
+        {isDataView && window.FilterTriggerBar && (
+          <window.FilterTriggerBar
+            summary={displaySummary}
+            onOpen={() => setFilterOpen(true)}
+            onExport={() =>
+              window.exportActiveTableCSV &&
+              window.exportActiveTableCSV({ view, database, summary, conventions })
+            }
+            live={banco.status === 'live'}
+            banco={banco}
+            view={view}
+          />
+        )}
         <ViewErrorBoundary resetKey={`${view}|${database}|${infoPage}`}>
           <window.MainScreen
             filters={summary}
@@ -239,6 +291,23 @@ function Dashboard() {
           />
         </ViewErrorBoundary>
       </DataGate>
+
+      {/* Mount only WHEN OPEN: the menu initializes its product set from
+          dataStore.get(banco) at mount, so it must mount after the snapshot has
+          loaded (else it captures the synthetic fallback codes → applies an empty
+          basket). Opening after the view rendered guarantees real data. */}
+      {filterOpen && window.FilterMenu && (
+        <window.FilterMenu
+          open
+          banco={database}
+          value={summary}
+          onClose={() => setFilterOpen(false)}
+          onApply={(s) => {
+            setSummary(s);
+            setFilterOpen(false);
+          }}
+        />
+      )}
     </window.AppShell>
   );
 }
