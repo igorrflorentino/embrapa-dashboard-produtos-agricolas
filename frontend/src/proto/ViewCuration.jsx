@@ -147,8 +147,8 @@ function ViewCuration() {
       {tab === 'flows' && (
         <div className="card">
           <window.SectionHeader
-            overline="Par regime × fluxo · finalidade econômica"
-            title="A finalidade depende do par regime + fluxo"
+            overline="Procedimento aduaneiro × fluxo · finalidade econômica"
+            title="A finalidade depende do par procedimento + fluxo"
             action={
               <span className="cur-legend">
                 {window.ENRICH_MARKETS.map(m => (
@@ -156,6 +156,11 @@ function ViewCuration() {
                 ))}
               </span>
             } />
+          <p className="caption" style={{ padding: '0 4px 8px' }}>
+            Linhas = códigos <strong>reais</strong> de procedimento aduaneiro do COMTRADE (<code>customsCode</code>),
+            ordenados por valor transacionado; colunas = fluxos (<code>flowCode</code>). O valor sob cada par é o
+            US$ efetivamente movimentado — classifique primeiro os pares materiais.
+          </p>
           <div className="pc-table-wrap">
             <table className="pc-table cur-table cur-matrix">
               <thead>
@@ -175,6 +180,10 @@ function ViewCuration() {
                     </td>
                     {window.enrichment.flowTypes().map(f => {
                       const v = window.enrichment.pairMarket(r.id, f.id);
+                      // Real COMTRADE value for this pair — shown so the researcher
+                      // curates by materiality (opaque codes + their magnitude).
+                      const val = window.enrichment.pairValueLabel
+                        ? window.enrichment.pairValueLabel(r.id, f.id) : '';
                       return (
                         <td key={f.id} className="cur-c">
                           <select className={'cur-cell ' + (v ? 'mk-' + v : 'cur-cell-empty')} value={v || ''}
@@ -182,6 +191,7 @@ function ViewCuration() {
                             <option value="">—</option>
                             {window.ENRICH_MARKETS.map(m => <option key={m.id} value={m.id}>{m.short}</option>)}
                           </select>
+                          <span className="cur-cell-val" style={{ display: 'block', fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', marginTop: 2 }}>{val || '·'}</span>
                         </td>
                       );
                     })}

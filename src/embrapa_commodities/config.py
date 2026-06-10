@@ -179,6 +179,9 @@ class Settings(BaseSettings):
     # processing-stage log. Backs dim_code_industrialization_scd2 + the value-added
     # analysis (COMEX exports split by the curated bruta/processada level).
     bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
+    # Append-only log of the (customs procedure × flow) → economic-purpose market
+    # curation (consumo/processamento). Backs the market-nature analysis.
+    bq_flow_market_log_table: str = Field(default="flow_market_log")
 
     # ─── Cache (flask-caching) ────────────────────────────────────────────────
     # SimpleCache (per-instance) scales to N Cloud Run instances for free: marts

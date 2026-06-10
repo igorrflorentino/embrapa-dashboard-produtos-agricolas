@@ -1178,3 +1178,113 @@ def test_record_processing_stage_accepts_free_text_stage():
         invalidate_cache=False,
     )
     assert record["processing_stage"] == "estágio-experimental-inédito"
+
+
+# ── market-nature: customsCode × flowCode value + curated-purpose log ──────────
+
+
+def test_comtrade_cpc_value_excludes_c00_aggregate_and_casts():
+    query, params = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw")
+    low = query.lower()
+    assert "customscode != 'c00'" in low  # the aggregate is excluded (no double-count)
+    assert "safe_cast(primaryvalue as float64)" in low  # Bronze is all-STRING
+    assert "safe_cast(refyear as int64)" in low
+    assert "group by customs_code, flow_code, reference_year" in low
+    assert params == []  # no commodity filter → no params
+
+
+def test_comtrade_cpc_value_filters_cmd_codes_when_scoped():
+    query, params = sql.comtrade_cpc_value("t", codes=("0801", "44"))
+    assert "cmdcode in unnest(@cmd_codes)" in query.lower()
+    assert params[0].name == "cmd_codes" and list(params[0].values) == ["0801", "44"]
+
+
+def test_current_flow_market_latest_wins_and_drops_cleared():
+    query, params = sql.current_flow_market("p.research_inputs.flow_market_log")
+    low = query.lower()
+    assert "row_number() over" in low
+    assert "partition by customs_code, flow_code order by edited_at desc" in low
+    assert "where rn = 1 and market != ''" in low  # a cleared (empty) market is dropped
+    assert params == []
+
+
+def test_record_flow_market_inserts_parameterized_row_with_author(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    # Isolate the INSERT — the first-write auto-create is covered by its own test.
+    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = None
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_flow_market(
+        "C04",
+        "M",
+        "processamento",
+        headers,
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["edited_by"] == "alice@embrapa.br"
+    assert record["customs_code"] == "C04"
+    assert record["flow_code"] == "M"
+    assert record["market"] == "processamento"
+    sql_text = client.query.call_args.args[0].lower()
+    assert "insert into" in sql_text
+    assert "current_timestamp()" in sql_text  # server-side stamp, not client clock
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["customs_code"] == "C04"
+    assert params["flow_code"] == "M"
+    assert params["market"] == "processamento"
+    assert params["edited_by"] == "alice@embrapa.br"
+
+
+def test_record_flow_market_rejects_empty_pair():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):
+        curation.record_flow_market(
+            "", "M", "consumo", headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_record_flow_market_allows_empty_market_to_clear(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = None
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    # market='' is the explicit "a classificar" clear — recorded, not rejected.
+    record = curation.record_flow_market(
+        "C04", "M", "", headers, settings=_settings(), client=client, invalidate_cache=False
+    )
+    assert record["market"] == ""
+
+
+def test_ensure_flow_market_log_table_creates_with_explicit_schema(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = curation.ensure_flow_market_log_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".flow_market_log")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} == {
+        "customs_code",
+        "flow_code",
+        "market",
+        "edited_by",
+        "edited_at",
+        "change_id",
+    }
+    assert table_arg.clustering_fields == ["customs_code", "flow_code"]
+    assert client.create_table.call_args.kwargs["exists_ok"] is True

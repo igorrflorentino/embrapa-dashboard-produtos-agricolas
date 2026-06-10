@@ -337,6 +337,53 @@ def fetch_quality_timeseries(source: str):
     return run_query(sql, params)
 
 
+# Source → its Gold product (code, name) columns.
+_GOLD_PRODUCT = {
+    "ibge_pevs": ("product_code", "product_description"),
+    "mdic_comex": ("ncm_code", "ncm_description"),
+    "un_comtrade": ("cmd_code", "cmd_description"),
+}
+
+
+@cache.memoize()
+def fetch_comtrade_cpc_value(codes: tuple = ()):
+    """COMTRADE trade value by (customs procedure × flow × year), from Bronze
+    (the only place the customs dimension survives). Backs the market-nature
+    analysis. ``codes`` optionally narrows to one commodity's HS codes."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_bronze_comtrade_dataset", settings.bq_bronze_comtrade_flows_table
+    )
+    sql, params = sqlbuild.comtrade_cpc_value(table, codes=codes)
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_current_flow_market():
+    """Current (customs_code, flow_code) → market from the flow-market log.
+    Raises if the log table doesn't exist yet (no pair classified) — the seam
+    catches it and treats it as an empty mapping."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_flow_market_log_table
+    )
+    sql, params = sqlbuild.current_flow_market(table)
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_quality_by_product(source: str):
+    """data_quality_flag counts per product for a source (backs per-product FlagBars)."""
+    table_name = _GOLD_TABLE.get(source)
+    cols = _GOLD_PRODUCT.get(source)
+    if table_name is None or cols is None:
+        return None
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
+    sql, params = sqlbuild.quality_by_product(table, code_column=cols[0], name_column=cols[1])
+    return run_query(sql, params)
+
+
 @cache.memoize()
 def fetch_products(source: str):
     """Distinct product list for a source (backs `products`)."""

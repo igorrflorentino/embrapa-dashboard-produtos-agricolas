@@ -59,6 +59,17 @@ CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
     bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
 ]
 
+# The (customs procedure × flow) → economic-purpose market log. A `market` of ''
+# clears the pair (latest-wins on read). Backs the market-nature analysis.
+FLOW_MARKET_LOG_SCHEMA = [
+    bigquery.SchemaField("customs_code", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("flow_code", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("market", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
+]
+
 
 def _bq_client(settings: Settings) -> bigquery.Client:
     return bigquery.Client(
@@ -308,3 +319,86 @@ def invalidate_code_industrialization_cache() -> None:
         cache.delete_memoized(gateway.fetch_current_code_industrialization)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
         logger.warning("Could not invalidate code-industrialization cache: %s", exc)
+
+
+# ── Flow-market log (customs procedure × flow → economic-purpose market) ──────
+def ensure_flow_market_log_table(
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Create the flow-market log dataset + table if missing (clustered by the
+    pair). Idempotent — called on first write."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    table = bigquery.Table(table_fqn, schema=FLOW_MARKET_LOG_SCHEMA)
+    table.clustering_fields = ["customs_code", "flow_code"]
+    bq.create_table(table, exists_ok=True)
+    logger.info("Flow-market log ready at %s", table_fqn)
+    return table_fqn
+
+
+def record_flow_market(
+    customs_code: str,
+    flow_code: str,
+    market: str,
+    headers: Mapping[str, str],
+    *,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+    invalidate_cache: bool = True,
+) -> dict:
+    """Append one (customs_code, flow_code) → market edit (market='' clears it).
+    Auto-creates the log on first write. IAP author capture + read-after-write,
+    mirroring :func:`record_code_industrialization`."""
+    cfg = settings or get_settings()
+    customs_code = (customs_code or "").strip()
+    flow_code = (flow_code or "").strip()
+    market = (market or "").strip()
+    if not customs_code or not flow_code:
+        raise ValueError("customs_code and flow_code are required.")
+    if len(market) > MAX_STAGE_LEN:
+        raise ValueError(f"market exceeds {MAX_STAGE_LEN} chars.")
+
+    edited_by = author_email_from_headers(
+        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+    )
+    change_id = uuid.uuid4().hex
+    bq = client or _bq_client(cfg)
+    ensure_flow_market_log_table(cfg, bq)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+    sql = f"""
+        insert into `{table_fqn}`
+            (customs_code, flow_code, market, edited_by, edited_at, change_id)
+        values
+            (@customs_code, @flow_code, @market, @edited_by, current_timestamp(), @change_id)
+    """
+    params = [
+        bigquery.ScalarQueryParameter("customs_code", "STRING", customs_code),
+        bigquery.ScalarQueryParameter("flow_code", "STRING", flow_code),
+        bigquery.ScalarQueryParameter("market", "STRING", market),
+        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
+        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
+    ]
+    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    logger.info("Curation(flow): %s×%s -> %s by %s", customs_code, flow_code, market, edited_by)
+
+    if invalidate_cache:
+        invalidate_flow_market_cache()
+
+    return {
+        "customs_code": customs_code,
+        "flow_code": flow_code,
+        "market": market,
+        "edited_by": edited_by,
+        "change_id": change_id,
+    }
+
+
+def invalidate_flow_market_cache() -> None:
+    """Drop the cached current flow-market mapping (best-effort)."""
+    try:
+        cache.delete_memoized(gateway.fetch_current_flow_market)
+    except Exception as exc:  # pragma: no cover - cache unbound / backend down
+        logger.warning("Could not invalidate flow-market cache: %s", exc)

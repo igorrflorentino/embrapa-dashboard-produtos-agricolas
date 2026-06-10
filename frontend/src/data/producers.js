@@ -101,8 +101,7 @@ window.valueAddedAnalysis = crossAnalytic('value-added', 'value-added', {
 
 // ── data-blocked producers (no upstream source — honest preview shells) ───────
 // chainBalance needs SEFAZ inter-UF flows; harvestShipmentLag needs MONTHLY PEVS
-// (annual-only); marketNatureAnalysis needs the customs-procedure dimension
-// (summed away in Silver). The views render their blocked-source banner.
+// (annual-only). The views render their blocked-source banner.
 window.chainBalance = function chainBalance(_code, year) {
   return {
     preview: true, unit: 'mil t', year: year || 2024, produced: 0, exported: 0, internal: 0,
@@ -116,9 +115,13 @@ window.harvestShipmentLag = function harvestShipmentLag() {
     lagMonths: 0, corrAtLag: 0, lagProfile: [],
   };
 };
-window.marketNatureAnalysis = function marketNatureAnalysis() {
-  return { preview: true, years: [], series: [], latest: {} };
-};
+// market-nature is now CURATED-REAL: COMTRADE value summed by the economic
+// purpose (consumo/processamento) the researcher assigns to each customsCode×
+// flowCode pair in Curadoria. Empty series until pairs are classified — the view
+// guards that with an honest "classify first" state (no synthetic fallback).
+window.marketNatureAnalysis = crossAnalytic('market-nature', 'market-nature', {
+  preview: false, years: [], series: [], latest: {},
+});
 
 // ── trade adapters (flow / partner / monthly) — resource-backed, COMEX/COMTRADE ─
 // The banco's dimension labels (originLabel/destLabel/flowLabel) come from the

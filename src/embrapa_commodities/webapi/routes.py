@@ -131,6 +131,12 @@ def cross_value_added():
     return jsonify(serializers.serialize_value_added(seam.value_added(_commodity())))
 
 
+@api.get("/cross/market-nature")
+def cross_market_nature():
+    """COMTRADE value by curated economic purpose (consumo/processamento)."""
+    return jsonify(serializers.serialize_market_nature(seam.market_nature(_commodity())))
+
+
 # ── curation (read + write) ────────────────────────────────────────────────────
 
 
@@ -154,3 +160,26 @@ def curation_code_level():
         return jsonify(error="source, code and level are required"), 400
     logger.info("curation write by %s: %s/%s → %s", author, source, code, level)
     return jsonify(seam.record_code_level(source, code, level))
+
+
+@api.get("/curation/flow-worklist")
+def curation_flow_worklist():
+    """The (customs procedure × flow) matrix ⟕ current market (regime×flow editor)."""
+    return jsonify(seam.flow_market_worklist())
+
+
+@api.post("/curation/flow-market")
+def curation_flow_market():
+    """Append one (customs_code, flow_code) → market edit (market='' clears).
+    Author from the IAP header; 401 when no trustworthy identity."""
+    try:
+        author = current_author()
+    except PermissionError as exc:
+        return jsonify(error=str(exc)), 401
+    body = request.get_json(silent=True) or {}
+    customs, flow = body.get("customs_code"), body.get("flow_code")
+    market = body.get("market", "")
+    if not (customs and flow):
+        return jsonify(error="customs_code and flow_code are required"), 400
+    logger.info("flow-market write by %s: %s×%s → %s", author, customs, flow, market)
+    return jsonify(seam.record_flow_market(customs, flow, market))

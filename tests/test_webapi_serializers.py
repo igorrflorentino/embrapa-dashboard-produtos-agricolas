@@ -175,3 +175,57 @@ def test_quality_ts_pivots_to_per_year_shares():
     assert [r["y"] for r in out] == [2020, 2021]  # sorted by year
     assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1 and out[0]["outlier"] == 0.0
     assert out[1]["ok"] == 0.5 and out[1]["boundary"] == 0.5  # BOUNDARY_HISTORIC → boundary
+
+
+def test_quality_by_product_per_product_shares_top_n():
+    df = pd.DataFrame(
+        [
+            # product A: 800 rows (top by volume) — 600 OK + 200 MISSING_VALUE
+            {"code": "A", "name": "Prod A", "data_quality_flag": "OK", "n": 600},
+            {"code": "A", "name": "Prod A", "data_quality_flag": "MISSING_VALUE", "n": 200},
+            # product B: 100 rows — all OK
+            {"code": "B", "name": "Prod B", "data_quality_flag": "OK", "n": 100},
+        ]
+    )
+    out = s.serialize_snapshot(
+        {
+            "products": None,
+            "product_ts": None,
+            "overview_ts": None,
+            "uf_data": None,
+            "quality": None,
+            "quality_by_product": df,
+            "value_label": "",
+        }
+    )["qualityByProduct"]
+    assert [r["code"] for r in out] == ["A", "B"]  # ranked by row volume
+    assert out[0]["OK"] == 0.75 and out[0]["MISSING_VALUE"] == 0.25  # flag-id keys, shares
+    assert out[1]["OK"] == 1.0 and out[1]["OUTLIER"] == 0.0  # absent flags read 0
+
+
+def test_serialize_market_nature_passthrough():
+    out = s.serialize_market_nature(
+        {
+            "years": [2022, 2023],
+            "series": [
+                {"y": 2022, "consumo": 1.0, "processamento": 2.0},
+                {"y": 2023, "consumo": 1.5, "processamento": 2.5},
+            ],
+            "latest": {"y": 2023, "consumo": 1.5, "processamento": 2.5},
+            "n_classified": 3,
+        }
+    )
+    assert out["preview"] is False  # real data, never a synthetic demo banner
+    assert out["years"] == [2022, 2023]
+    assert out["latest"]["processamento"] == 2.5
+    assert len(out["series"]) == 2
+
+
+def test_serialize_market_nature_empty_is_safe():
+    # Pre-classification (no pair curated) → empty shells; the view guards series[0].
+    assert s.serialize_market_nature({}) == {
+        "preview": False,
+        "years": [],
+        "series": [],
+        "latest": {},
+    }
