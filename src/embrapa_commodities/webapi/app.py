@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import os
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving.cache import init_cache
@@ -23,6 +25,29 @@ from embrapa_commodities.serving.cache import init_cache
 from .routes import api
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj):
+    """Replace NaN/Inf floats with None, recursively. Python's json emits a bare
+    `NaN` literal (invalid JSON that JSON.parse rejects); a single NaN anywhere
+    (e.g. a product with a missing name) would break the entire response. This
+    guarantees every endpoint emits spec-valid JSON."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    """App JSON provider that sanitizes NaN/Inf → null before serializing."""
+
+    ensure_ascii = False  # keep pt-BR accents readable on the wire
+
+    def dumps(self, obj, **kwargs):
+        return super().dumps(_json_safe(obj), **kwargs)
 
 
 def _spa_dir() -> Path | None:
@@ -39,6 +64,7 @@ def _spa_dir() -> Path | None:
 
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=None)
+    app.json = SafeJSONProvider(app)
 
     # flask-caching needs GCP settings (project/dataset/TTLs). Best-effort so the
     # module still imports for lint/tests without a configured .env; at runtime

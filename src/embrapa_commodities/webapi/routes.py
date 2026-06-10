@@ -62,6 +62,30 @@ def snapshot():
     return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, None)))
 
 
+# ── trade adapters (flow / partner / monthly) — COMEX/COMTRADE ─────────────────
+
+
+@api.get("/flow")
+def flow():
+    """Origin→destination links for the Sankey (None when the banco lacks `flow`)."""
+    banco = request.args.get("banco", "")
+    return jsonify(serializers.serialize_flow(seam.flow_data(banco, None)))
+
+
+@api.get("/partners")
+def partners():
+    """Partner ranking with export/import split."""
+    banco = request.args.get("banco", "")
+    return jsonify(serializers.serialize_partner(seam.partner_data(banco, None)))
+
+
+@api.get("/monthly")
+def monthly():
+    """Monthly seasonality (COMEX only)."""
+    banco = request.args.get("banco", "")
+    return jsonify(serializers.serialize_monthly(seam.monthly_data(banco, None)))
+
+
 # ── cross-source comparable series ─────────────────────────────────────────────
 
 

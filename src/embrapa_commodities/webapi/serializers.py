@@ -63,7 +63,13 @@ def _products(df: pd.DataFrame | None) -> list[dict]:
     if _empty(df):
         return []
     return [
-        {"code": str(r.code), "name": r.name, "unit": r.unit, "family": _fam(r.family)}
+        {
+            "code": str(r.code),
+            # a few COMEX codes have no description → fall back to the code
+            "name": r.name if (isinstance(r.name, str) and r.name) else str(r.code),
+            "unit": r.unit,
+            "family": _fam(r.family),
+        }
         for r in df.itertuples()
     ]
 
@@ -182,6 +188,92 @@ def serialize_trade_mirror(d: dict) -> dict:
         "unit": d.get("unit", ""),
         "series": d.get("series", []),
         "discrepancy": d.get("discrepancy", []),
+    }
+
+
+# ── trade adapters (flow / partner / monthly) — USD-valued, values → millions ──
+
+
+def serialize_flow(d: dict | None, max_links: int = 40) -> dict:
+    """seam.flow_data() → FlowData. Builds the Sankey nodes/links from the
+    origin→dest link frame (top ``max_links`` by value for a readable diagram)."""
+    shell = {"preview": False, "unit": "US$", "originLabel": "Origem", "destLabel": "Destino"}
+    if d is None:
+        return {**shell, "nodes": [], "links": []}
+    links_df = d.get("links")
+    origin_label = d.get("origin_label", "Origem")
+    dest_label = d.get("dest_label", "Destino")
+    labels = {"originLabel": origin_label, "destLabel": dest_label}
+    if _empty(links_df):
+        return {**shell, **labels, "nodes": [], "links": []}
+    df = links_df.head(max_links)
+    origins: dict[str, str] = {}
+    dests: dict[str, str] = {}
+    nodes: list[dict] = []
+    links: list[dict] = []
+    for r in df.itertuples():
+        oc, dc = str(r.origin_code), str(r.dest_code)
+        if oc not in origins:
+            origins[oc] = f"o{len(origins)}"
+            nodes.append({"id": origins[oc], "label": r.origin_name, "side": "origin", "value": 0})
+        if dc not in dests:
+            dests[dc] = f"d{len(dests)}"
+            nodes.append({"id": dests[dc], "label": r.dest_name, "side": "dest", "value": 0.0})
+        v = _num(r.value_usd) / 1e6  # → US$ mi
+        links.append({"source": origins[oc], "target": dests[dc], "value": v})
+    by_id = {n["id"]: n for n in nodes}
+    for link in links:
+        by_id[link["source"]]["value"] += link["value"]
+        by_id[link["target"]]["value"] += link["value"]
+    return {
+        "preview": False,
+        "unit": "US$",
+        "originLabel": origin_label,
+        "destLabel": dest_label,
+        "nodes": nodes,
+        "links": links,
+    }
+
+
+def serialize_partner(df: pd.DataFrame | None, max_rows: int = 30) -> dict:
+    """seam.partner_data() → PartnerData. Partner ranking with exp/imp split (mi)."""
+    if _empty(df):
+        return {"preview": False, "flowLabel": "Parceiro", "unit": "US$", "partners": []}
+    partners = [
+        {
+            "name": r.partner_name,
+            "exp": _num(r.exp_value_usd) / 1e6,
+            "imp": _num(r.imp_value_usd) / 1e6,
+            "value": _num(r.value_usd) / 1e6,
+        }
+        for r in df.head(max_rows).itertuples()
+    ]
+    return {"preview": False, "flowLabel": "Parceiro", "unit": "US$", "partners": partners}
+
+
+def serialize_monthly(df: pd.DataFrame | None) -> dict:
+    """seam.monthly_data() → MonthlyData. year→12 monthly values + the 12-month avg."""
+    base = {"preview": False, "unit": "US$", "months": list(range(1, 13))}
+    if _empty(df):
+        return {**base, "years": [], "matrix": {}, "monthlyAvg": [], "series": []}
+    matrix: dict[int, list[float]] = {}
+    series: list[dict] = []
+    for r in df.itertuples():
+        y, m = int(r.reference_year), int(r.reference_month)
+        v = _num(r.total_value_usd) / 1e6
+        matrix.setdefault(y, [0.0] * 12)[m - 1] = v
+        series.append({"ym": f"{y}-{m:02d}", "y": y, "m": m, "v": v})
+    years = sorted(matrix)
+    monthly_avg = []
+    for mi in range(12):
+        vals = [matrix[y][mi] for y in years if matrix[y][mi]]
+        monthly_avg.append(sum(vals) / len(vals) if vals else 0.0)
+    return {
+        **base,
+        "years": years,
+        "matrix": {str(y): matrix[y] for y in years},
+        "monthlyAvg": monthly_avg,
+        "series": series,
     }
 
 

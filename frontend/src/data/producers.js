@@ -15,6 +15,12 @@ import { ensure, get } from './resource';
 const API = '/api';
 const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
 
+// pt-BR month labels — was defined in the synthetic previewData.js (not imported);
+// the seasonality view + MonthYearHeatmap read window.MONTH_LABELS.
+window.MONTH_LABELS = window.MONTH_LABELS || [
+  'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+];
+
 // ── per-banco snapshot fallback (dataStore is the primary path) ───────────────
 window.snapshotFor = function snapshotFor() {
   // Every live banco loads through dataStore.load → /api/snapshot. This fallback
@@ -114,15 +120,45 @@ window.marketNatureAnalysis = function marketNatureAnalysis() {
   return { preview: true, years: [], series: [], latest: {} };
 };
 
-// ── trade adapters — endpoints land when ViewFlows/Partners/Seasonality wire ──
-window.flowData = function flowData() {
-  return { preview: true, unit: 'US$', originLabel: 'Origem', destLabel: 'Destino', nodes: [], links: [] };
+// ── trade adapters (flow / partner / monthly) — resource-backed, COMEX/COMTRADE ─
+// The banco's dimension labels (originLabel/destLabel/flowLabel) come from the
+// registry (bancoDim) client-side; the API supplies the data.
+window.flowData = function flowData(bancoId) {
+  const key = `trade:flow:${bancoId}`;
+  ensure(key, () => `${API}/flow?${qs({ banco: bancoId })}`);
+  const data = get(key);
+  const dim = (d) => (window.bancoDim ? window.bancoDim(bancoId, d) : {});
+  const labels = {
+    originLabel: dim('origin').label || 'Origem',
+    destLabel: dim('dest').label || 'Destino',
+  };
+  return data
+    ? { ...data, ...labels }
+    : { preview: false, unit: 'US$', ...labels, nodes: [], links: [] };
 };
-window.partnerData = function partnerData() {
-  return { preview: true, flowLabel: 'Parceiro', unit: 'US$', partners: [] };
+window.partnerData = function partnerData(bancoId) {
+  const key = `trade:partners:${bancoId}`;
+  ensure(key, () => `${API}/partners?${qs({ banco: bancoId })}`);
+  const data = get(key);
+  const flowLabel = (window.bancoDim && window.bancoDim(bancoId, 'partner').label) || 'Parceiro';
+  return data ? { ...data, flowLabel } : { preview: false, flowLabel, unit: 'US$', partners: [] };
 };
-window.monthlyData = function monthlyData() {
-  return { preview: true, unit: 'US$', years: [], months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], matrix: {}, monthlyAvg: [], series: [] };
+window.monthlyData = function monthlyData(bancoId) {
+  const key = `trade:monthly:${bancoId}`;
+  ensure(key, () => `${API}/monthly?${qs({ banco: bancoId })}`);
+  return (
+    get(key) || {
+      preview: false,
+      unit: 'US$',
+      years: [],
+      months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      matrix: {},
+      // 12 zeros (not []) so the view's peak/low/amplitude math survives the
+      // loading render; real values replace it when the fetch resolves.
+      monthlyAvg: new Array(12).fill(0),
+      series: [],
+    }
+  );
 };
 window.productivityData = function productivityData() {
   return null; // PAM not connected in this repo
