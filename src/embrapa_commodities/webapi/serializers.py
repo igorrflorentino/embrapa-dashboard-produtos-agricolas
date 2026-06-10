@@ -360,3 +360,14 @@ def serialize_value_added(d: dict) -> dict:
         "series": series,
         "nCodes": d.get("n_codes", 0),
     }
+
+
+def serialize_market_nature(d: dict) -> dict:
+    """seam.market_nature() → MarketNatureAnalysis. Already in shape (series rows
+    are {y, <marketId>…}); just stamp preview:false."""
+    return {
+        "preview": False,
+        "years": d.get("years", []),
+        "series": d.get("series", []),
+        "latest": d.get("latest", {}),
+    }

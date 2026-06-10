@@ -92,6 +92,30 @@ function ViewMarketNature() {
   useEnrichmentTick();
   const data = window.marketNatureAnalysis();
   const banco = window.bancoById('mdic_comex');
+
+  // Curated-real: the series is EMPTY until the researcher classifies customs×flow
+  // pairs in Curadoria (or while the fetch is in flight). Guard before reading
+  // series[0]/latest — show an honest "classify first" state, never a crash or
+  // synthetic chart. (preview only flips true if a trade banco isn't live.)
+  if (!data.series || !data.series.length) {
+    return (
+      <>
+        {data.preview && <window.PreviewBanner banco={banco}
+          capabilityNote="A finalidade (consumo/processamento) de cada par procedimento aduaneiro × fluxo vem da Curadoria." />}
+        <div className="card subtle">
+          <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
+            title="Classifique os pares aduana × fluxo para ativar esta análise" />
+          <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
+            Nenhum par <strong>procedimento aduaneiro × fluxo</strong> classificado ainda. Defina a
+            finalidade (consumo ou processamento) de cada par na aba{' '}
+            <strong>Curadoria → Aduana &amp; finalidade econômica</strong> — esta análise passa a somar o
+            valor do COMTRADE por finalidade, ao vivo.
+          </p>
+        </div>
+      </>
+    );
+  }
+
   const L = data.latest;
   const total = window.ENRICH_MARKETS.reduce((s, m) => s + (L[m.id] || 0), 0) || 1;
   const areaSeries = window.ENRICH_MARKETS.map(m => ({

@@ -722,3 +722,97 @@ def value_added(commodity_id: str | None = None) -> dict:
             }
         )
     return {"series": series, "n_codes": n}
+
+
+# ── Market-nature — COMTRADE value by curated economic purpose (regime×flow) ────
+# The customs procedure (customsCode) × flow (flowCode) pairs are CURATED to a
+# market (consumo/processamento) by the researcher; the analysis sums COMTRADE
+# value by that mapping. Real data — empty until pairs are classified.
+_FLOW_LABELS = {
+    "M": "Importação",
+    "X": "Exportação",
+    "RM": "Reimportação",
+    "RX": "Reexportação",
+    "DX": "Exportação nacional",
+    "FM": "Importação estrangeira",
+}
+
+
+def _flow_market_map() -> dict:
+    """{(customs_code, flow_code): market} from the log; {} when the log is absent
+    (nobody classified yet) — so the matrix + analysis render before activation."""
+    try:
+        df = gateway.fetch_current_flow_market()
+    except Exception:
+        return {}
+    if df is None or df.empty:
+        return {}
+    return {(r.customs_code, r.flow_code): r.market for r in df.itertuples()}
+
+
+def flow_market_worklist() -> dict:
+    """The (customs procedure × flow) matrix from COMTRADE ⟕ the current market
+    mapping — backs the Curadoria regime×flow editor. Cells carry the real value
+    so the researcher classifies what actually matters."""
+    df = gateway.fetch_comtrade_cpc_value(())
+    mapping = _flow_market_map()
+    customs: set = set()
+    flows: set = set()
+    agg: dict = {}
+    if df is not None and not df.empty:
+        for r in df.itertuples():
+            customs.add(r.customs_code)
+            flows.add(r.flow_code)
+            key = (r.customs_code, r.flow_code)
+            agg[key] = agg.get(key, 0.0) + float(r.value_usd or 0)
+    cells = [
+        {"customs_code": c, "flow_code": f, "value_usd": v, "market": mapping.get((c, f))}
+        for (c, f), v in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    return {
+        "customs": sorted(customs),
+        "flows": [{"code": f, "label": _FLOW_LABELS.get(f, f)} for f in sorted(flows)],
+        "cells": cells,
+        "classified": sum(1 for c in cells if c["market"]),
+        "total": len(cells),
+    }
+
+
+def record_flow_market(customs_code: str, flow_code: str, market: str) -> dict:
+    """Append one (customs_code, flow_code) → market edit. Author from the IAP
+    header (dev fallback per config). Wraps the verified BFF writer."""
+    from flask import has_request_context, request
+
+    from embrapa_commodities.serving import curation
+
+    headers = dict(request.headers) if has_request_context() else {}
+    return curation.record_flow_market(customs_code, flow_code, market, headers)
+
+
+def market_nature(commodity_id: str | None = None) -> dict:
+    """COMTRADE trade value (US$ bi) by curated economic purpose
+    (consumo/processamento) over the years. Empty until pairs are classified."""
+    codes = tuple(_codes(commodity_id, "comtrade")) if commodity_id else ()
+    df = gateway.fetch_comtrade_cpc_value(codes)
+    mapping = _flow_market_map()
+    markets = [m["id"] for m in ENRICH_MARKETS]
+    acc: dict = {}
+    if df is not None and not df.empty:
+        for r in df.itertuples():
+            market = mapping.get((r.customs_code, r.flow_code))
+            if not market:
+                continue
+            slot = acc.setdefault(int(r.reference_year), {})
+            slot[market] = slot.get(market, 0.0) + float(r.value_usd or 0) / 1e9
+    years = sorted(acc)
+    series = [{"y": y, **{m: acc[y].get(m, 0.0) for m in markets}} for y in years]
+    return {
+        "years": years,
+        "series": series,
+        "latest": series[-1] if series else {},
+        "n_classified": len(mapping),
+    }
+
+
+# Economic-purpose markets the curation maps to (mirrors the frontend ENRICH_MARKETS).
+ENRICH_MARKETS = [{"id": "consumo"}, {"id": "processamento"}]

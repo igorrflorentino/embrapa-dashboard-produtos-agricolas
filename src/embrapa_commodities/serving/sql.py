@@ -436,6 +436,49 @@ def quality_timeseries(table: str) -> tuple[str, list]:
     return sql, []
 
 
+def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, list]:
+    """Trade value by (customs procedure × flow × year) from the COMTRADE **Bronze**
+    (the Gold sums the customs dimension away, so the procedure detail only exists
+    here). Excludes the ``C00`` aggregate (it is the total of the specific
+    procedures — summing it would double-count). Optional ``codes`` filters to one
+    commodity's HS codes (cmdCode). Bronze is all-STRING → ``safe_cast`` the
+    measure + year. A bigger scan than a serving mart but cached + secondary;
+    promote to a serving mart (preserving customsCode) when this gets hot."""
+    conditions = ["customsCode != 'C00'", "customsCode is not null"]
+    params: list = []
+    if codes:
+        conditions.append("cmdCode IN UNNEST(@cmd_codes)")
+        params.append(bigquery.ArrayQueryParameter("cmd_codes", "STRING", list(codes)))
+    sql = f"""
+        select
+            customsCode                         as customs_code,
+            flowCode                            as flow_code,
+            safe_cast(refYear as int64)         as reference_year,
+            sum(safe_cast(primaryValue as float64)) as value_usd
+        from `{table}`
+        {_where(conditions)}
+        group by customs_code, flow_code, reference_year
+        order by reference_year
+    """
+    return sql, params
+
+
+def current_flow_market(table: str) -> tuple[str, list]:
+    """Current (customs_code, flow_code) → market from the append-only flow-market
+    log: the latest edit per pair (a cleared market = empty string is dropped)."""
+    sql = f"""
+        select customs_code, flow_code, market, edited_by, edited_at
+        from (
+            select *, row_number() over (
+                partition by customs_code, flow_code order by edited_at desc
+            ) as rn
+            from `{table}`
+        )
+        where rn = 1 and market != ''
+    """
+    return sql, []
+
+
 def quality_by_product(table: str, *, code_column: str, name_column: str) -> tuple[str, list]:
     """data_quality_flag counts per product, from a Gold table (backs the
     per-product quality FlagBars). Same cheap-aggregate rationale as

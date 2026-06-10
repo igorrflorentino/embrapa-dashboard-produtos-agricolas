@@ -1,25 +1,28 @@
-// enrichment.js — curation layer (per-code industrialization), API-backed.
+// enrichment.js — curation layer, API-backed. Two institutional axes, both
+// append-only SCD2 logs joined to the Gold/Bronze universe at read time:
 //
-// The editor classifies each Gold CODE (per source) as bruta/processada/
-// misturado. The worklist is the LEFT JOIN of the Gold code universe ⟕ the
-// current classification log, served by /api/curation/worklist; edits stage in a
-// local draft and commit via POST /api/curation/code-level (the append-only SCD2
-// writer, author captured from IAP). Persistence needs the prod SCD2 view
-// (`enable_curation`) — the worklist + editor work regardless (all codes read
-// "a classificar" before activation). The CODE-level curation drives the REAL
-// value-added analysis (window.valueAddedAnalysis → /api/cross/value-added).
+//   1. CODE-level industrialization (bruta/processada/misturado) — the worklist
+//      is /api/curation/worklist (Gold DISTINCT codes ⟕ classification log); it
+//      drives window.valueAddedAnalysis (→ /api/cross/value-added).
 //
-// The regime×flow → market-nature axis is DATA-BLOCKED (the customs-procedure
-// dimension is summed away in Silver), so its matrix renders the real customs
-// regimes/flows for reference but the pairings are inert (pairMarket/setPair are
-// no-ops; window.marketNatureAnalysis is an honest placeholder).
+//   2. FLOW-MARKET economic purpose (consumo/processamento) — the matrix is the
+//      REAL COMTRADE customs procedure (customsCode) × flow (flowCode) grid from
+//      /api/curation/flow-worklist, carrying each pair's USD value so the
+//      researcher classifies what is materially relevant. It drives
+//      window.marketNatureAnalysis (→ /api/cross/market-nature).
+//
+// Both edit a local draft and commit via POST on "Aplicar à base" (the
+// append-only writers, author captured from IAP). The flow-market codes are the
+// raw UN Comtrade procedure codes (opaque on purpose — their meaning is NOT
+// hardcoded; the researcher curates from the code + its value, not a guess).
 
 import { ensure, get, invalidate, subscribe as subscribeResource } from './resource';
 
 const API = '/api';
-const WL_KEY = 'curation:worklist';
+const WL_KEY = 'curation:worklist'; // code-level industrialization worklist
+const FW_KEY = 'curation:flow-worklist'; // customsCode × flowCode market matrix
 
-// ── static registries (ported from the prototype) ─────────────────────────────
+// ── static registries (the two market purposes + industrialization levels) ────
 window.ENRICH_LEVELS = [
   { id: 'bruta', label: 'Bruta', color: 'var(--viz-3)' },
   { id: 'processada', label: 'Processada', color: 'var(--viz-2)' },
@@ -29,45 +32,19 @@ window.ENRICH_MARKETS = [
   { id: 'consumo', label: 'Consumo', short: 'Consumo', color: 'var(--viz-1)' },
   { id: 'processamento', label: 'Processamento', short: 'Processamento', color: 'var(--viz-9)' },
 ];
-// Derived from the live worklist rows (commodity → name) at read time.
+// Derived from the live code worklist rows (commodity → name) at read time.
 window.ENRICH_GROUPS = [];
-// Customs regimes (rows) × flow types (columns) — reference data for the
-// (data-blocked) market-nature matrix.
-window.ENRICH_REGIMES = [
-  { id: 'desp-consumo', label: 'Despacho para consumo', term: 'Clearance for home use', hint: 'Importação nacionalizada: a mercadoria estrangeira é liberada para circular e ser consumida livremente no país após o recolhimento de todos os tributos.' },
-  { id: 'reimport-same', label: 'Reimportação no mesmo estado', term: 'Reimportation in the same state', hint: 'Retorno ao país de um bem que havia sido exportado, sem ter sofrido transformação no exterior. Não representa nova produção nem agregação de valor.' },
-  { id: 'exp-definitiva', label: 'Exportação definitiva', term: 'Outright exportation', hint: 'Saída definitiva da mercadoria nacional para o exterior, sem previsão de retorno. É a exportação comum.' },
-  { id: 'entreposto', label: 'Entreposto aduaneiro', term: 'Customs warehouses', hint: 'Mercadoria armazenada sob controle aduaneiro com tributos suspensos, antes de definir seu destino. Ponto de espera logístico, não destino final.' },
-  { id: 'zona-franca', label: 'Zona Franca', term: 'Free zone', hint: 'Área com incentivos fiscais e aduaneiros para atrair indústria e comércio (ex.: Zona Franca de Manaus), em geral para transformação industrial.' },
-  { id: 'aperf-ativo', label: 'Aperfeiçoamento ativo', term: 'Inward processing', hint: 'Importação temporária de insumos com suspensão de tributos para serem industrializados no país e depois reexportados. Uso industrial, não consumo final.' },
-  { id: 'aperf-passivo', label: 'Aperfeiçoamento passivo', term: 'Outward processing', hint: 'Exportação temporária de um bem para ser beneficiado no exterior, com retorno ao país. O valor é agregado fora do território nacional.' },
-  { id: 'drawback', label: 'Drawback', term: 'Drawback', hint: 'Regime de incentivo à exportação que suspende/restitui tributos dos insumos importados usados na fabricação de um produto exportado.' },
-  { id: 'transformacao', label: 'Transformação sob controle aduaneiro', term: 'Processing of goods for home use', hint: 'Transformação industrial sob controle aduaneiro, com o produto destinado ao mercado interno.' },
-  { id: 'cabotagem', label: 'Cabotagem', term: 'Carriage of goods coastwise', hint: 'Transporte de mercadorias por via aquaviária entre portos do próprio país. Movimentação interna, não comércio exterior.' },
-  { id: 'infracoes', label: 'Infrações aduaneiras', term: 'Customs offences', hint: 'Operações vinculadas a infrações, apreensões ou penalidades. Não representam fluxo comercial regular.' },
-  { id: 'viajantes', label: 'Viajantes', term: 'Travellers', hint: 'Bens na bagagem de viajantes. Em geral de uso pessoal, com volume e valor pequenos.' },
-  { id: 'postal', label: 'Tráfego postal', term: 'Postal traffic', hint: 'Mercadorias movimentadas pela via postal e remessas internacionais (correios). E-commerce transfronteiriço de pequeno porte.' },
-  { id: 'provisoes', label: 'Provisões de bordo', term: 'Stores', hint: 'Combustíveis, alimentos e suprimentos embarcados em navios e aeronaves para consumo durante a viagem.' },
-  { id: 'socorro', label: 'Remessas de socorro', term: 'Relief consignments', hint: 'Remessas de ajuda humanitária e socorro, normalmente isentas e fora da lógica comercial.' },
-  { id: 'cpc-nes', label: 'CPC não especificado', term: 'CPC N.E.S.', hint: 'Procedimento aduaneiro não especificado nas demais categorias. Interprete com cautela.' },
-  { id: 'total-cpc', label: 'Total CPC', term: 'TOTAL CPC', hint: 'Linha de agregação que soma todos os procedimentos. Evita-se somá-la às categorias específicas para não duplicar valores.' },
-];
-window.ENRICH_FLOWS = [
-  { id: 'imports', label: 'Importações', term: 'Imports', hint: 'Entrada de mercadorias estrangeiras no território nacional, qualquer que seja o destino.' },
-  { id: 'exports', label: 'Exportações', term: 'Exports', hint: 'Saída de mercadorias do país para o exterior. Pode englobar produção nacional e reexportações.' },
-  { id: 'dom-export', label: 'Exportação nacional', term: 'Domestic Export', hint: 'Exportação de mercadoria efetivamente produzida no país (origem nacional). Mede a competitividade da produção interna.' },
-  { id: 'for-import', label: 'Importação estrangeira', term: 'Foreign Import', hint: 'Importação de mercadoria de origem estrangeira — a contrapartida da exportação nacional do país parceiro.' },
-  { id: 'imp-inward', label: 'Import. p/ aperfeiç. ativo', term: 'Import for inward processing', hint: 'Importação de insumos para industrialização interna e posterior reexportação. Demanda industrial, não consumo.' },
-  { id: 'imp-after-outward', label: 'Import. após aperfeiç. passivo', term: 'Import after outward processing', hint: 'Reentrada da mercadoria enviada ao exterior para beneficiamento. O ganho de valor ocorreu fora do país.' },
-  { id: 'reimport', label: 'Reimportação', term: 'Re-import', hint: 'Reentrada de mercadoria exportada, sem transformação no exterior (devoluções).' },
-  { id: 'reexport', label: 'Reexportação', term: 'Re-export', hint: 'Reexportação de mercadoria importada, sem transformação no país. Papel de entreposto/intermediação.' },
-  { id: 'exp-after-inward', label: 'Export. após aperfeiç. ativo', term: 'Export after inward processing', hint: 'Exportação do produto de insumos importados e beneficiados internamente. Exportação com valor agregado pela indústria nacional.' },
-  { id: 'exp-for-outward', label: 'Export. p/ aperfeiç. passivo', term: 'Export for outward processing', hint: 'Exportação temporária de um bem para beneficiamento no exterior, com retorno.' },
-];
 
-// ── worklist (API ⟕ draft) ─────────────────────────────────────────────────────
-const draft = new Map(); // id -> level (a staged change vs the API level)
-let committing = false;
+// ── USD formatters (compact, for the matrix cell + row hints) ─────────────────
+const fmtUsdShort = (v) => {
+  const n = Number(v || 0);
+  if (n >= 1e9) return 'US$ ' + (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + ' bi';
+  if (n >= 1e6) return 'US$ ' + (n / 1e6).toFixed(0) + ' mi';
+  if (n >= 1e3) return 'US$ ' + (n / 1e3).toFixed(0) + ' mil';
+  return 'US$ ' + n.toFixed(0);
+};
+
+// ── subscriber fan-out (editor re-renders on draft + resource changes) ─────────
 const subs = new Set();
 const notify = () => {
   for (const fn of subs) {
@@ -78,7 +55,11 @@ const notify = () => {
     }
   }
 };
-subscribeResource(notify); // re-notify when the worklist resource resolves
+subscribeResource(notify); // re-notify when either worklist resource resolves
+
+// ── (1) code-level worklist (API ⟕ draft) ─────────────────────────────────────
+const draft = new Map(); // id -> level (a staged change vs the API level)
+let committing = false;
 
 const apiRows = () => {
   const wl = get(WL_KEY);
@@ -108,12 +89,68 @@ function worklist() {
   return rows;
 }
 
+// ── (2) flow-market matrix (real COMTRADE customsCode × flowCode ⟕ draft) ──────
+const flowDraft = new Map(); // `${customs}:${flow}` -> market ('' clears)
+
+function flowWorklist() {
+  ensure(FW_KEY, () => `${API}/curation/flow-worklist`);
+  return get(FW_KEY) || { customs: [], flows: [], cells: [], classified: 0, total: 0 };
+}
+// `${customs}:${flow}` -> cell {customs_code, flow_code, value_usd, market}.
+function cellMap() {
+  const m = new Map();
+  flowWorklist().cells.forEach((c) => m.set(`${c.customs_code}:${c.flow_code}`, c));
+  return m;
+}
+// Effective market for a pair = staged draft if any, else the persisted value.
+function effMarket(customs, flow) {
+  const k = `${customs}:${flow}`;
+  if (flowDraft.has(k)) return flowDraft.get(k) || null;
+  const cell = cellMap().get(k);
+  return (cell && cell.market) || null;
+}
+
 window.enrichment = {
   codes: () => worklist(),
   worklist: () => worklist(),
-  regimes: () => window.ENRICH_REGIMES,
-  flowTypes: () => window.ENRICH_FLOWS,
-  pairMarket: () => null, // data-blocked
+
+  // Matrix ROWS = real customs procedure codes, sorted by total traded value so
+  // the material procedures sit at the top. Codes are opaque (UN Comtrade CPC) —
+  // we surface the code + its value, never a guessed meaning.
+  regimes() {
+    const wl = flowWorklist();
+    const totals = {};
+    wl.cells.forEach((c) => {
+      totals[c.customs_code] = (totals[c.customs_code] || 0) + (c.value_usd || 0);
+    });
+    return wl.customs
+      .slice()
+      .sort((a, b) => (totals[b] || 0) - (totals[a] || 0))
+      .map((code) => ({
+        id: code,
+        term: code,
+        label: `Procedimento aduaneiro ${code}`,
+        hint: `Código de procedimento aduaneiro (UN Comtrade customsCode) ${code} — total transacionado ${fmtUsdShort(totals[code] || 0)}. Classifique a finalidade econômica de cada fluxo deste procedimento.`,
+      }));
+  },
+  // Matrix COLUMNS = real flow codes (M, X, RM, RX, …) with pt-BR labels.
+  flowTypes() {
+    return flowWorklist().flows.map((f) => ({
+      id: f.code,
+      term: f.label,
+      label: f.label,
+      hint: `Fluxo comercial ${f.code} — ${f.label}.`,
+    }));
+  },
+  pairMarket: (customs, flow) => effMarket(customs, flow),
+  // The per-cell traded value (formatted) — empty when the pair has no COMTRADE
+  // rows. Shown in the matrix so the researcher classifies what actually matters.
+  pairValueLabel(customs, flow) {
+    const cell = cellMap().get(`${customs}:${flow}`);
+    if (!cell || !cell.value_usd) return '';
+    return fmtUsdShort(cell.value_usd);
+  },
+
   levelLabel: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).label || id,
   levelColor: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).color || 'var(--fg-3)',
   groupLabel: (id) => (window.ENRICH_GROUPS.find((g) => g.id === id) || {}).label || id,
@@ -140,39 +177,53 @@ window.enrichment = {
     else draft.set(id, patch.level);
     notify();
   },
-  setPair() {
-    /* data-blocked: the regime×flow market-nature axis has no real source */
+  // Stage a (customs, flow) → market edit. Matching the persisted value unstages;
+  // an empty market stages a CLEAR (the writer records market='' = "a classificar").
+  setPair(customs, flow, market) {
+    const k = `${customs}:${flow}`;
+    const cell = cellMap().get(k);
+    const apiMarket = (cell && cell.market) || null;
+    const next = market || null;
+    if (next === apiMarket) flowDraft.delete(k);
+    else flowDraft.set(k, market || '');
+    notify();
   },
 
-  pendingCount: () => draft.size,
+  pendingCount: () => draft.size + flowDraft.size,
   isDirty() {
-    return draft.size > 0;
+    return draft.size > 0 || flowDraft.size > 0;
   },
   isCommitting: () => committing,
 
-  // Commit the draft → POST each staged edit to the append-only writer, then
-  // re-fetch the worklist (now reflecting the writes). Locks while committing so
+  // Commit BOTH drafts → POST each staged edit to its append-only writer, then
+  // re-fetch the worklists (now reflecting the writes). Locks while committing so
   // a double-click can't write duplicate revisions.
   apply(onDone) {
-    if (committing || draft.size === 0) return;
+    if (committing || (draft.size === 0 && flowDraft.size === 0)) return;
     committing = true;
     notify();
-    const edits = [...draft.entries()];
-    Promise.all(
-      edits.map(([id, level]) => {
-        const [source, code] = id.split(':');
-        return fetch(`${API}/curation/code-level`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source, code, level }),
-        }).then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        });
-      }),
-    )
+    const post = (path, body) =>
+      fetch(`${API}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      });
+    const codeEdits = [...draft.entries()].map(([id, level]) => {
+      const [source, code] = id.split(':');
+      return post('/curation/code-level', { source, code, level });
+    });
+    const flowEdits = [...flowDraft.entries()].map(([k, market]) => {
+      const [customs_code, flow_code] = k.split(':');
+      return post('/curation/flow-market', { customs_code, flow_code, market });
+    });
+    Promise.all([...codeEdits, ...flowEdits])
       .then(() => {
         draft.clear();
+        flowDraft.clear();
         invalidate(WL_KEY); // next worklist() re-fetches
+        invalidate(FW_KEY); // next flowWorklist() re-fetches
         committing = false;
         notify();
         if (typeof onDone === 'function') {
@@ -185,12 +236,13 @@ window.enrichment = {
       })
       .catch(() => {
         committing = false;
-        notify(); // keep the draft so the user can retry
+        notify(); // keep the drafts so the user can retry
       });
   },
   discard() {
     if (committing) return;
     draft.clear();
+    flowDraft.clear();
     notify();
   },
   subscribe(fn) {
@@ -204,12 +256,15 @@ window.enrichment = {
     window.ENRICH_LEVELS.forEach((l) => {
       byLevel[l.id] = wl.filter((c) => c.level === l.id).length;
     });
+    const fw = flowWorklist();
+    let flowsClassified = 0;
+    fw.customs.forEach((c) => fw.flows.forEach((f) => effMarket(c, f.code) && flowsClassified++));
     return {
       codesTotal: wl.length,
       byLevel,
       unclassified: wl.filter((c) => !c.level).length,
-      flowsTotal: window.ENRICH_REGIMES.length * window.ENRICH_FLOWS.length,
-      flowsClassified: 0, // data-blocked
+      flowsTotal: fw.customs.length * fw.flows.length,
+      flowsClassified,
     };
   },
 };

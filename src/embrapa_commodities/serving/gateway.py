@@ -346,6 +346,32 @@ _GOLD_PRODUCT = {
 
 
 @cache.memoize()
+def fetch_comtrade_cpc_value(codes: tuple = ()):
+    """COMTRADE trade value by (customs procedure × flow × year), from Bronze
+    (the only place the customs dimension survives). Backs the market-nature
+    analysis. ``codes`` optionally narrows to one commodity's HS codes."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_bronze_comtrade_dataset", settings.bq_bronze_comtrade_flows_table
+    )
+    sql, params = sqlbuild.comtrade_cpc_value(table, codes=codes)
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_current_flow_market():
+    """Current (customs_code, flow_code) → market from the flow-market log.
+    Raises if the log table doesn't exist yet (no pair classified) — the seam
+    catches it and treats it as an empty mapping."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_flow_market_log_table
+    )
+    sql, params = sqlbuild.current_flow_market(table)
+    return run_query(sql, params)
+
+
+@cache.memoize()
 def fetch_quality_by_product(source: str):
     """data_quality_flag counts per product for a source (backs per-product FlagBars)."""
     table_name = _GOLD_TABLE.get(source)

@@ -201,3 +201,31 @@ def test_quality_by_product_per_product_shares_top_n():
     assert [r["code"] for r in out] == ["A", "B"]  # ranked by row volume
     assert out[0]["OK"] == 0.75 and out[0]["MISSING_VALUE"] == 0.25  # flag-id keys, shares
     assert out[1]["OK"] == 1.0 and out[1]["OUTLIER"] == 0.0  # absent flags read 0
+
+
+def test_serialize_market_nature_passthrough():
+    out = s.serialize_market_nature(
+        {
+            "years": [2022, 2023],
+            "series": [
+                {"y": 2022, "consumo": 1.0, "processamento": 2.0},
+                {"y": 2023, "consumo": 1.5, "processamento": 2.5},
+            ],
+            "latest": {"y": 2023, "consumo": 1.5, "processamento": 2.5},
+            "n_classified": 3,
+        }
+    )
+    assert out["preview"] is False  # real data, never a synthetic demo banner
+    assert out["years"] == [2022, 2023]
+    assert out["latest"]["processamento"] == 2.5
+    assert len(out["series"]) == 2
+
+
+def test_serialize_market_nature_empty_is_safe():
+    # Pre-classification (no pair curated) → empty shells; the view guards series[0].
+    assert s.serialize_market_nature({}) == {
+        "preview": False,
+        "years": [],
+        "series": [],
+        "latest": {},
+    }
