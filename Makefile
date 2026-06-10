@@ -49,6 +49,9 @@ dashboard-run:    ## Run the Dash dashboard locally on :8050 (needs .env + ADC)
 dashboard-deploy:    ## Build + deploy the dashboard Cloud Run Service (reads .env)
 	bash deploy/dashboard/deploy.sh
 
+webapi-deploy:    ## Build + deploy the React SPA + Flask REST Service (Dash->React cutover)
+	bash deploy/webapi/deploy.sh
+
 dbt-deps:
 	cd $(DBT_DIR) && $(PY) dbt deps
 

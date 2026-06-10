@@ -570,6 +570,11 @@ serving = [
     { name = "flask" },
     { name = "flask-caching" },
 ]
+webapi = [
+    { name = "flask" },
+    { name = "flask-caching" },
+    { name = "gunicorn" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -593,12 +598,15 @@ requires-dist = [
     { name = "dbt-core", specifier = ">=1.8" },
     { name = "flask", marker = "extra == 'dashboard'", specifier = ">=3.0" },
     { name = "flask", marker = "extra == 'serving'", specifier = ">=3.0" },
+    { name = "flask", marker = "extra == 'webapi'", specifier = ">=3.0" },
     { name = "flask-caching", marker = "extra == 'dashboard'", specifier = ">=2.3" },
     { name = "flask-caching", marker = "extra == 'serving'", specifier = ">=2.3" },
+    { name = "flask-caching", marker = "extra == 'webapi'", specifier = ">=2.3" },
     { name = "google-auth", specifier = ">=2.34" },
     { name = "google-cloud-bigquery", specifier = ">=3.25" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "gunicorn", marker = "extra == 'dashboard'", specifier = ">=22" },
+    { name = "gunicorn", marker = "extra == 'webapi'", specifier = ">=22" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "plotly", marker = "extra == 'dashboard'", specifier = ">=5.22" },
     { name = "pyarrow", specifier = ">=17" },
@@ -610,7 +618,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=9" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["serving", "dashboard"]
+provides-extras = ["serving", "dashboard", "webapi"]
 
 [package.metadata.requires-dev]
 dev = [
