@@ -60,6 +60,7 @@ subscribeResource(notify); // re-notify when either worklist resource resolves
 // ── (1) code-level worklist (API ⟕ draft) ─────────────────────────────────────
 const draft = new Map(); // id -> level (a staged change vs the API level)
 let committing = false;
+let lastError = null; // last write failure (HTTP status / message), surfaced in the editor
 
 const apiRows = () => {
   const wl = get(WL_KEY);
@@ -175,6 +176,7 @@ window.enrichment = {
     const apiLevel = (r && r.level) || null;
     if (patch.level === apiLevel) draft.delete(id);
     else draft.set(id, patch.level);
+    lastError = null; // a fresh edit clears the stale write error
     notify();
   },
   // Stage a (customs, flow) → market edit. Matching the persisted value unstages;
@@ -186,6 +188,7 @@ window.enrichment = {
     const next = market || null;
     if (next === apiMarket) flowDraft.delete(k);
     else flowDraft.set(k, market || '');
+    lastError = null; // a fresh edit clears the stale write error
     notify();
   },
 
@@ -194,13 +197,21 @@ window.enrichment = {
     return draft.size > 0 || flowDraft.size > 0;
   },
   isCommitting: () => committing,
+  // The last write failure (e.g. "HTTP 401" when no IAP author), or null. The
+  // editor renders this so a failed commit is visible — not silently swallowed.
+  lastError: () => lastError,
 
   // Commit BOTH drafts → POST each staged edit to its append-only writer, then
   // re-fetch the worklists (now reflecting the writes). Locks while committing so
-  // a double-click can't write duplicate revisions.
+  // a double-click can't write duplicate revisions. Uses allSettled so a partial
+  // failure DROPS only the edits that actually landed (the SCD2 log is append-only
+  // — re-POSTing a succeeded edit would write a redundant revision); the failures
+  // stay staged, lastError is surfaced, and the worklists are invalidated so the
+  // UI reflects whatever did land.
   apply(onDone) {
     if (committing || (draft.size === 0 && flowDraft.size === 0)) return;
     committing = true;
+    lastError = null; // clear any prior failure before a new attempt
     notify();
     const post = (path, body) =>
       fetch(`${API}${path}`, {
@@ -210,39 +221,46 @@ window.enrichment = {
       }).then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
       });
-    const codeEdits = [...draft.entries()].map(([id, level]) => {
-      const [source, code] = id.split(':');
-      return post('/curation/code-level', { source, code, level });
-    });
-    const flowEdits = [...flowDraft.entries()].map(([k, market]) => {
-      const [customs_code, flow_code] = k.split(':');
-      return post('/curation/flow-market', { customs_code, flow_code, market });
-    });
-    Promise.all([...codeEdits, ...flowEdits])
-      .then(() => {
-        draft.clear();
-        flowDraft.clear();
-        invalidate(WL_KEY); // next worklist() re-fetches
-        invalidate(FW_KEY); // next flowWorklist() re-fetches
-        committing = false;
-        notify();
-        if (typeof onDone === 'function') {
-          try {
-            onDone();
-          } catch {
-            /* ignore callback error */
-          }
+    // One task per staged edit, tagged with the draft it came from so a landed
+    // edit can be dropped individually (and a retry re-POSTs only the failures).
+    const tasks = [
+      ...[...draft.entries()].map(([id, level]) => {
+        const [source, code] = id.split(':');
+        return { store: draft, key: id, run: () => post('/curation/code-level', { source, code, level }) };
+      }),
+      ...[...flowDraft.entries()].map(([k, market]) => {
+        const [customs_code, flow_code] = k.split(':');
+        return { store: flowDraft, key: k, run: () => post('/curation/flow-market', { customs_code, flow_code, market }) };
+      }),
+    ];
+    Promise.allSettled(tasks.map((t) => t.run())).then((results) => {
+      let failed = 0;
+      results.forEach((res, i) => {
+        if (res.status === 'fulfilled') {
+          tasks[i].store.delete(tasks[i].key); // landed → drop so a retry won't re-POST it
+        } else {
+          failed += 1;
+          lastError = (res.reason && res.reason.message) || 'Falha ao gravar a curadoria';
         }
-      })
-      .catch(() => {
-        committing = false;
-        notify(); // keep the drafts so the user can retry
       });
+      invalidate(WL_KEY); // reflect whatever landed (full OR partial)
+      invalidate(FW_KEY);
+      committing = false;
+      notify();
+      if (failed === 0 && typeof onDone === 'function') {
+        try {
+          onDone();
+        } catch {
+          /* ignore callback error */
+        }
+      }
+    });
   },
   discard() {
     if (committing) return;
     draft.clear();
     flowDraft.clear();
+    lastError = null;
     notify();
   },
   subscribe(fn) {

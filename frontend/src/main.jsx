@@ -46,7 +46,6 @@ import './charts/LagBars.jsx';
 import './charts/Donut.jsx'; // SVG port (categorical share)
 import './charts/BrazilTileMap.jsx'; // SVG port (geographic tile grid)
 import './charts/PreviewBanner.jsx'; // non-chart banner the preview/cross views use
-import './charts/_stubs.jsx'; // safety net for any unported chart (PENDING now empty)
 
 // ── atoms + shell (reused) ────────────────────────────────────────────────────
 import './proto/Icon.jsx';

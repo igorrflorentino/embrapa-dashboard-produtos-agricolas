@@ -51,8 +51,8 @@ export function decorateSnapshot(snap) {
   }
 
   // applyFilters reads snap.regions (falls back to window.REGIONS anyway, but be
-  // explicit). qualityTs / qualityByProduct / qualityByUf / topMunis are optional
-  // and default to [] in applyFilters — not served yet (need extra endpoints).
+  // explicit). qualityTs + qualityByProduct now ARRIVE in the snapshot; qualityByUf
+  // / topMunis stay optional and default to [] in applyFilters (no endpoint yet).
   snap.regions = snap.regions || window.REGIONS || [];
   return snap;
 }

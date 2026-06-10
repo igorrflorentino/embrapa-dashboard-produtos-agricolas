@@ -29,4 +29,15 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 1200, // Plotly is legitimately ~1MB; don't warn on it
   },
+  // Vitest reads this `test` block from the Vite config. jsdom gives the data-layer
+  // modules a real `window` (they assign window.dataStore/enrichment and read the
+  // proto registries). Each suite reassigns globalThis.fetch in its load() helper
+  // (not via restoreMocks, which doesn't track a direct assignment). Only the data
+  // layer is covered here — chart/view rendering needs the full proto boot.
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{js,jsx}'],
+    globals: false,
+    restoreMocks: true,
+  },
 })

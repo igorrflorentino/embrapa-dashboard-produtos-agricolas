@@ -22,6 +22,7 @@ function ViewCuration() {
 
   const stats = window.enrichment.stats();
   const pending = window.enrichment.pendingCount();
+  const writeError = window.enrichment.lastError ? window.enrichment.lastError() : null;
   const bancoShort = (id) => (window.bancoById ? window.bancoById(id)?.short : id) || id;
   const CodeRow = (c, nested) => {
     const todo = !c.level;
@@ -71,6 +72,20 @@ function ViewCuration() {
           </button>
         </div>
       </div>
+
+      {writeError && !committing && (
+        <div className="cur-write-error" role="alert"
+             style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0',
+                      padding: '10px 14px', borderRadius: 8, fontSize: 13,
+                      background: 'var(--pres-red-50, #fdecea)', color: 'var(--pres-red-700, #b3261e)',
+                      border: '1px solid var(--pres-red-200, #f4c7c3)' }}>
+          <window.Icon name="warning" size={16} />
+          <span>
+            Falha ao gravar a curadoria (<strong>{writeError}</strong>). As alterações foram
+            <strong> mantidas</strong> — verifique o acesso (autor IAP) e clique em <strong>Aplicar</strong> novamente.
+          </span>
+        </div>
+      )}
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Códigos na worklist" value={stats.codesTotal} sub="Gold DISTINCT ⟕ log" />
