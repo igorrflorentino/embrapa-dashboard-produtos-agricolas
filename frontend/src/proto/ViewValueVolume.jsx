@@ -1,0 +1,179 @@
+// ViewValueVolume — historic evolution of value and quantity,
+// with quantity strictly segregated by unit family.
+// All currency / correction / mass / volume formatting goes through
+// the global metric conventions (props.conventions).
+
+function ViewValueVolume({ families, conventions, summary, database }) {
+  const conv      = conventions || window.DEFAULT_CONVENTIONS;
+  const ccyLabel  = window.conventionMonetaryLabel(conv);
+  const fx        = window.CURRENCY_FX[conv.currency];
+  const ccyColor  = { BRL: 'var(--viz-1)', USD: 'var(--viz-2)', EUR: 'var(--viz-3)', CNY: 'var(--viz-4)' }[conv.currency];
+  const massMul   = window.massQtyMul(conv);
+  const volMul    = window.volumeQtyMul(conv);
+  const massAx    = window.massAxisLabel(conv);
+  const volAx     = window.volumeAxisLabel(conv);
+
+  // Scale internal units to absolute (no auto-rescale on display).
+  //   ts.v       : R$ bi  → R$
+  //   d.q_mass   : mil t  → t   (× massQtyMul handles t→kg too)
+  //   d.q_vol    : mi m³  → m³  (× volumeQtyMul handles m³→L too)
+  const filtered = window.applyFilters(summary || {}, database);
+  const ts = filtered.ts.map(d => ({ ...d, v: d.v * 1e9 }));
+  const valueSeries = window.convertSeries(ts, conv);
+  // massMul / volMul map (mil t, mi m³) → (t/kg, m³/L)
+  const massSeries  = ts.map(d => ({ y: d.y, q_mass: d.q_mass * massMul }));
+  const volSeries   = ts.map(d => ({ y: d.y, q_vol:  d.q_vol  * volMul  }));
+
+  // Per-product stacked series — split by family, scaled by current units
+  const PRODS = filtered.products;
+  const COLORS = [...window.VIZ_SCALE, 'var(--pres-gray-200)', 'var(--pres-gray-300)'];
+  const productSeries = (family) => Object.entries(filtered.productTS)
+    .map(([code, data], i) => ({
+      code,
+      name: PRODS.find(p => p.code === code)?.name || code,
+      family: data[0]?.family,
+      // PRODUCT_TS.q is in mil units (mil t / mi m³); scale to display unit.
+      data: data.map(d => ({
+        ...d,
+        q: d.q * (family === 'mass' ? massMul : volMul),
+      })),
+      color: COLORS[i % COLORS.length],
+    }))
+    .filter(s => s.family === family);
+
+  // Value-stacked applies currency + correction (base-aware).
+  const cvf = window.convFactor(conv);
+  // PRODUCT_TS.v is in base-currency mi internally; multiply 1e6 to absolute.
+  const valueStacked = Object.entries(filtered.productTS)
+    .map(([code, data], i) => ({
+      code,
+      name: PRODS.find(p => p.code === code)?.name || code,
+      data: data.map(d => ({ ...d, v: d.v * 1e6 * cvf })),
+      color: COLORS[i % COLORS.length],
+    }));
+
+  // ---- Scale series for charts when auto-scale is enabled ----------
+  const valueMax = Math.max(...valueSeries.map(d => d.v), 0);
+  const valueScaled = window.scaleSeries(valueSeries, valueMax, conv, 'v', fx.symbol);
+
+  const massMax = Math.max(...massSeries.map(d => d.q_mass), 0);
+  const massScaled = window.scaleSeries(massSeries, massMax, conv, 'q_mass', massAx);
+
+  const volMax = Math.max(...volSeries.map(d => d.q_vol), 0);
+  const volScaled = window.scaleSeries(volSeries, volMax, conv, 'q_vol', volAx);
+
+  // Stacked: scale each layer using the same factor (sum-based ref)
+  const _scaleStack = (layers, key, unit) => {
+    if (!layers.length || !layers[0].data.length) return { layers, label: unit };
+    if (!conv.autoScale) return { layers, label: unit };
+    const yearTotals = layers[0].data.map((_, i) =>
+      layers.reduce((s, l) => s + (l.data[i][key] || 0), 0));
+    const max = Math.max(...yearTotals);
+    const { factor, suffix } = window.autoScaleNum(max);
+    if (!suffix) return { layers, label: unit };
+    const CURRENCY_SYMS = ['R$', 'US$', '€', '¥'];
+    const out = layers.map(l => ({
+      ...l,
+      data: l.data.map(d => ({ ...d, [key]: d[key] / factor })),
+    }));
+    const label = CURRENCY_SYMS.includes(unit)
+      ? `${unit} ${suffix}`
+      : `${suffix} ${unit}`.trim();
+    return { layers: out, label };
+  };
+
+  const valueStackScaled = _scaleStack(valueStacked, 'v', fx.symbol);
+  const massStackScaled  = _scaleStack(productSeries('mass'),   'q', massAx);
+  const volStackScaled   = _scaleStack(productSeries('volume'), 'q', volAx);
+
+  const last       = valueSeries[valueSeries.length - 1] || { v: 0 };
+  const first      = valueSeries[0] || { v: 0 };
+  const totalDelta = first.v ? ((last.v - first.v) / first.v) * 100 : 0;
+  const yearStart  = filtered.yearStart;
+  const yearEnd    = filtered.yearEnd;
+
+  const massFamily = families.includes('mass');
+  const volFamily  = families.includes('volume');
+
+  return (
+    <>
+      <window.UnitFamilyBanner families={families} />
+
+      {/* Value historic series */}
+      <div className="card">
+        <window.SectionHeader
+          overline={`Série histórica · ${ccyLabel}`}
+          title={`Valor total · ${valueScaled.label} · ${yearStart}–${yearEnd}`}
+          action={
+            <span className="caption">Variação acumulada: <strong>{window.fmtSigned(totalDelta, 0)}</strong></span>
+          }
+        />
+        <window.LineChart data={valueScaled.data} label={valueScaled.label} valueKey="v" color={ccyColor} height={260} />
+      </div>
+
+      {/* Quantity historic series — one per family */}
+      <div className={'grid-' + (families.length === 2 ? '2' : '1')}>
+        {massFamily && (
+          <div className="card">
+            <window.SectionHeader
+              overline={<>Série histórica · <window.UnitFamilyTag family="mass" conv={conv}/></>}
+              title={`Quantidade · ${massScaled.label}`}
+            />
+            <window.LineChart data={massScaled.data} label={massScaled.label} valueKey="q_mass" color="var(--viz-2)" height={220} />
+          </div>
+        )}
+        {volFamily && (
+          <div className="card">
+            <window.SectionHeader
+              overline={<>Série histórica · <window.UnitFamilyTag family="volume" conv={conv}/></>}
+              title={`Quantidade · ${volScaled.label}`}
+            />
+            <window.LineChart data={volScaled.data} label={volScaled.label} valueKey="q_vol" color="var(--viz-4)" height={220} />
+          </div>
+        )}
+      </div>
+
+      {/* YoY variation — derived from converted series */}
+      <div className="card">
+        <window.SectionHeader
+          overline={`Variação interanual · valor (${ccyLabel})`}
+          title={`Crescimento ano a ano · ${yearStart + 1}–${yearEnd}`}
+        />
+        <window.YoYBars data={valueSeries} valueKey="v" height={200} />
+      </div>
+
+      {/* Composition by product · value */}
+      <div className="card">
+        <window.SectionHeader
+          overline={`Composição histórica · valor (${valueStackScaled.label})`}
+          title={`Empilhamento por produto · ${yearStart}–${yearEnd}`}
+        />
+        <window.StackedArea series={valueStackScaled.layers} valueKey="v" label={valueStackScaled.label} height={280} />
+      </div>
+
+      {/* Composition by quantity — per family */}
+      <div className={'grid-' + (families.length === 2 ? '2' : '1')}>
+        {massFamily && (
+          <div className="card">
+            <window.SectionHeader
+              overline={<>Composição histórica · quantidade <window.UnitFamilyTag family="mass" conv={conv}/></>}
+              title={`Produtos em massa · ${massStackScaled.label}`}
+            />
+            <window.StackedArea series={massStackScaled.layers} valueKey="q" label={massStackScaled.label} height={240} />
+          </div>
+        )}
+        {volFamily && (
+          <div className="card">
+            <window.SectionHeader
+              overline={<>Composição histórica · quantidade <window.UnitFamilyTag family="volume" conv={conv}/></>}
+              title={`Produtos em volume · ${volStackScaled.label}`}
+            />
+            <window.StackedArea series={volStackScaled.layers} valueKey="q" label={volStackScaled.label} height={240} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+window.ViewValueVolume = ViewValueVolume;

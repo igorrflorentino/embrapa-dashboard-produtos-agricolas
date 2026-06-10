@@ -1,0 +1,322 @@
+// ViewCrossSource — the "Cruzamento entre fontes" perspective.
+// Compares 2–4 annual series drawn from DIFFERENT bancos on a shared time
+// axis. All data flows through window.crossSeries (crossSource.js); this
+// component only orchestrates selection, the visualization toggle and the
+// derived analytics. Controlled via { value, onChange } so the selection
+// travels in the shared URL / citation (see Dashboard.html + AppShell).
+
+const { useMemo: useCSMemo } = React;
+
+// Default landing selection — the flagship cross-source question:
+// IBGE annual production value × MDIC annual export value.
+window.DEFAULT_CROSS_STATE = {
+  series: [
+    { b: 'ibge_pevs', m: 'prod_value' },
+    { b: 'mdic_comex', m: 'exp_value' },
+  ],
+  mode: 'base100',   // 'base100' | 'dual' | 'panels'
+  y0: null,          // null → use the common comparable window
+  y1: null,
+};
+
+const CS_COLORS = ['var(--viz-1)', 'var(--viz-3)', 'var(--viz-9)', 'var(--viz-10)'];
+const CS_MAX = 4;
+
+function ViewCrossSource({ value, onChange }) {
+  const cs = value || window.DEFAULT_CROSS_STATE;
+  const set = (patch) => onChange && onChange({ ...cs, ...patch });
+
+  const refs = cs.series || [];
+  const refKey = (r) => r.b + ':' + r.m;
+  const selectedKeys = refs.map(refKey);
+
+  // Common comparable window (intersection of coverages) + union bounds.
+  const common = window.crossCommonWindow(refs.map(r => ({ banco: r.b, metric: r.m })));
+  const clamp = (y) => Math.min(common.y1, Math.max(common.y0, y));
+  const effY0 = clamp(cs.y0 || common.y0);
+  const effY1 = clamp(cs.y1 || common.y1);
+  const yearOpts = [];
+  for (let y = common.y0; y <= common.y1; y++) yearOpts.push(y);
+
+  // Resolve each selected ref to an aligned series within the window.
+  const seriesResults = refs
+    .map((r, i) => {
+      const s = window.crossSeries(r.b, r.m, { y0: effY0, y1: effY1 });
+      if (!s) return null;
+      return { ...s, color: CS_COLORS[i % CS_COLORS.length], bancoShort: s.bancoMeta.short };
+    })
+    .filter(Boolean);
+
+  const anyPreview = seriesResults.some(s => s.preview);
+  const firstPreviewBanco = (seriesResults.find(s => s.preview) || {}).bancoMeta || null;
+  const units = [...new Set(seriesResults.map(s => s.unit))];
+  const families = [...new Set(seriesResults.map(s => s.family))];
+
+  // ── Toggle a (banco, metric) ref in/out of the selection ──────────────
+  const toggleRef = (b, m) => {
+    const k = b + ':' + m;
+    const exists = selectedKeys.includes(k);
+    let next;
+    if (exists) {
+      if (refs.length <= 1) return;       // keep at least one series
+      next = refs.filter(r => refKey(r) !== k);
+    } else {
+      if (refs.length >= CS_MAX) return;  // cap at 4
+      next = [...refs, { b, m }];
+    }
+    // New selection ⇒ let the window recompute from the new overlap.
+    set({ series: next, y0: null, y1: null });
+  };
+
+  // ── Per-series metrics (variação acumulada, CAGR) ─────────────────────
+  const items = seriesResults.map(s => {
+    const pts = s.points;
+    const v0 = pts[0]?.v || 0, vT = pts[pts.length - 1]?.v || 0;
+    return { ...s, v0, vT, cagr: window.cagrPct(v0, vT, pts.length - 1), accum: window.accumPct(v0, vT) };
+  });
+
+  // ── Pairwise correlation on YoY growth (shared helpers · seriesUtils.js) ─
+  const growths = items.map(it => window.seriesGrowth(it.points));
+  const corr = items.map((_, i) => items.map((_, j) => window.pearson(growths[i], growths[j])));
+  const corrColor = window.corrColor;
+
+  // ── Ratio panel: only when exactly 2 series share an identical unit ───
+  const ratioEligible = items.length === 2 && items[0].unit === items[1].unit;
+  const ratioSeries = ratioEligible
+    ? items[0].points.map((d, i) => ({ y: d.y, v: (items[1].points[i]?.v || 0) / (d.v || 1) * 100 }))
+    : null;
+  const ratioMean = ratioSeries && ratioSeries.length
+    ? ratioSeries.reduce((s, d) => s + d.v, 0) / ratioSeries.length : 0;
+
+  // ── Chart series in the shape each chart expects ──────────────────────
+  const base100 = items.map(it => ({
+    name: `${it.label} · ${it.bancoShort}`,
+    color: it.color,
+    data: it.points.map(d => ({ y: d.y, v: it.v0 ? (d.v / it.v0) * 100 : 0 })),
+  }));
+  const axisSeries = items.map(it => ({
+    label: it.label, color: it.color, unit: it.unit, bancoShort: it.bancoShort, data: it.points,
+  }));
+
+  const MODES = [
+    { id: 'base100', label: 'Base 100' },
+    { id: 'dual', label: 'Eixo duplo' },
+    { id: 'panels', label: 'Painéis' },
+  ];
+  const mode = cs.mode || 'base100';
+  const dualTooManyUnits = mode === 'dual' && units.length > 2;
+
+  const fmtV = (v, unit) => (v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: v < 10 ? 2 : v < 1000 ? 1 : 0 }) + ' ' + unit);
+
+  return (
+    <>
+      {anyPreview && (
+        <window.PreviewBanner
+          banco={firstPreviewBanco}
+          capabilityNote="Séries de bancos ainda não liberados entram como demonstração." />
+      )}
+
+      {/* KPI strip */}
+      <div className="kpi-row">
+        <window.KpiCardSpark label="Séries comparadas" value={`${items.length} / ${CS_MAX}`}
+          sub={`de ${new Set(items.map(i => i.banco)).size} ${new Set(items.map(i => i.banco)).size === 1 ? 'banco' : 'bancos'}`} />
+        <window.KpiCardSpark label="Janela comparável" value={`${effY0}–${effY1}`}
+          sub={`fontes cobrem ${common.union[0]}–${common.union[1]}`} />
+        <window.KpiCardSpark label="Famílias de unidade" value={families.length}
+          sub={families.map(f => window.METRIC_FAMILIES[f]?.label || f).join(' · ')} />
+        <window.KpiCardSpark label={ratioEligible ? 'Razão média (par)' : 'Correlação (par principal)'}
+          value={ratioEligible ? ratioMean.toFixed(1).replace('.', ',') + '%' : (items.length >= 2 ? corr[0][1].toFixed(2).replace('.', ',') : '—')}
+          sub={ratioEligible ? `${items[1].label} ÷ ${items[0].label}` : 'variação interanual'} />
+      </div>
+
+      {/* Series picker */}
+      <div className="card">
+        <window.SectionHeader
+          overline="Montagem do cruzamento"
+          title="Selecione as séries a comparar"
+          action={<span className="caption">{items.length} de {CS_MAX} · mín. 1</span>}
+        />
+        <div className="xs-picker">
+          {(window.visibleBancos ? window.visibleBancos() : (window.BANCOS || [])).map(b => (
+            <div key={b.id} className="xs-bank">
+              <div className="xs-bank-head">
+                <window.Icon name="database" size={14} />
+                <span className="xs-bank-short">{b.short}</span>
+                {b.status === 'soon' && <span className="xs-bank-tag">{window.bancoAvailability(b)}</span>}
+              </div>
+              <div className="xs-bank-metrics">
+                {(b.metrics || []).map(m => {
+                  const k = b.id + ':' + m.id;
+                  const on = selectedKeys.includes(k);
+                  const idx = selectedKeys.indexOf(k);
+                  const atCap = !on && refs.length >= CS_MAX;
+                  return (
+                    <button key={k}
+                      className={'xs-chip' + (on ? ' on' : '') + (atCap ? ' disabled' : '')}
+                      onClick={() => !atCap && toggleRef(b.id, m.id)}
+                      style={on ? { background: CS_COLORS[idx % CS_COLORS.length], borderColor: CS_COLORS[idx % CS_COLORS.length], color: '#fff' } : null}
+                      title={`${m.agg} · ${window.METRIC_FAMILIES[m.family]?.label || m.family}`}>
+                      <span className="xs-chip-label">{m.label}</span>
+                      <span className="xs-chip-unit tnum">{window.crossSeries(b.id, m.id, {})?.unit || m.unit}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Overlay chart + controls */}
+      <div className="card">
+        <window.SectionHeader
+          overline="Sobreposição no tempo"
+          title="Evolução histórica comparada"
+          action={
+            <div className="xs-controls">
+              <div className="xs-years">
+                <select className="xs-select" value={effY0}
+                  onChange={(e) => set({ y0: Math.min(Number(e.target.value), effY1) })}>
+                  {yearOpts.filter(y => y <= effY1).map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <span className="xs-years-sep">→</span>
+                <select className="xs-select" value={effY1}
+                  onChange={(e) => set({ y1: Math.max(Number(e.target.value), effY0) })}>
+                  {yearOpts.filter(y => y >= effY0).map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+              <div className="seg xs-seg">
+                {MODES.map(o => (
+                  <button key={o.id} className={'seg-opt ' + (mode === o.id ? 'on' : '')}
+                    onClick={() => set({ mode: o.id })}>{o.label}</button>
+                ))}
+              </div>
+            </div>
+          }
+        />
+
+        <div className="xs-mode-note">
+          {mode === 'base100' && <>Cada série reindexada a <strong>100 em {effY0}</strong> — compara trajetórias independentemente da unidade ({units.join(' · ')}).</>}
+          {mode === 'dual' && !dualTooManyUnits && <>Cada unidade no seu próprio eixo: <strong>{units[0]}</strong> à esquerda{units[1] ? <> · <strong>{units[1]}</strong> à direita</> : ''}. Escalas independentes — compare formato, não nível.</>}
+          {mode === 'dual' && dualTooManyUnits && <>Eixo duplo comporta 2 unidades; a seleção tem {units.length} ({units.join(' · ')}). Use <strong>Base 100</strong> ou <strong>Painéis</strong> para ver todas com fidelidade.</>}
+          {mode === 'panels' && <>Um painel por série, alinhados no eixo de tempo — leitura fiel das unidades nativas, sem forçar escala comum.</>}
+        </div>
+
+        {mode === 'base100' && <window.MultiLineChart series={base100} label={`índice (${effY0}=100)`} valueKey="v" height={320} />}
+        {mode === 'dual' && <window.DualAxisLineChart series={axisSeries} height={320} />}
+        {mode === 'panels' && <window.StackedPanels series={axisSeries} />}
+
+        <div className="xs-legend">
+          {items.map(it => (
+            <span key={it.key} className="xs-legend-item">
+              <span className="xs-legend-dot" style={{ background: it.color }}></span>
+              <strong>{it.label}</strong>
+              <span className="xs-legend-src">{it.bancoShort} · {it.unit}{it.preview ? ' · prévia' : ''}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Comparative metrics */}
+      <div className="card">
+        <window.SectionHeader
+          overline={`Métricas comparativas · ${effY0}–${effY1}`}
+          title="Crescimento de cada série na janela"
+        />
+        <div className="pc-table-wrap">
+          <table className="pc-table">
+            <thead>
+              <tr>
+                <th>Série</th>
+                <th>Fonte</th>
+                <th className="num">{effY0}</th>
+                <th className="num">{effY1}</th>
+                <th className="num">Variação acumulada</th>
+                <th className="num">CAGR (a.a.)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(it => (
+                <tr key={it.key}>
+                  <td><span className="pc-row-dot" style={{ background: it.color }}></span>{it.label}</td>
+                  <td>{it.bancoShort}{it.preview ? <span className="xs-tbl-preview">prévia</span> : ''}</td>
+                  <td className="num tnum">{fmtV(it.v0, it.unit)}</td>
+                  <td className="num tnum">{fmtV(it.vT, it.unit)}</td>
+                  <td className="num tnum" style={{ color: it.accum >= 0 ? 'var(--ok)' : 'var(--err)' }}>{window.fmtSigned(it.accum, 0)}</td>
+                  <td className="num tnum" style={{ color: it.cagr >= 0 ? 'var(--ok)' : 'var(--err)' }}>{window.fmtSigned(it.cagr, 1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Ratio / coefficient panel — same unit, exactly 2 series */}
+      {ratioEligible && (
+        <div className="card">
+          <window.SectionHeader
+            overline="Razão entre séries"
+            title={`${items[1].label} como % de ${items[0].label}`}
+            action={<span className="caption">média {ratioMean.toFixed(1).replace('.', ',')}%</span>}
+          />
+          <window.MultiLineChart
+            series={[{ name: 'razão (%)', color: 'var(--embrapa-blue)', data: ratioSeries }]}
+            label="%" valueKey="v" height={240} />
+          <p className="caption xs-ratio-note">
+            Ambas as séries estão em <strong>{items[0].unit}</strong>, então a razão é direta.
+            Quando uma fonte é produção e a outra exportação, esta curva é o
+            <strong> coeficiente de exportação</strong> — quanto do produzido seguiu para fora.
+          </p>
+        </div>
+      )}
+
+      {/* Correlation matrix — 2+ series */}
+      {items.length >= 2 && (
+        <div className="card">
+          <window.SectionHeader
+            overline="Correlação cruzada · variação interanual"
+            title="Quão sincronizadas são as fontes"
+            action={<span className="caption">Pearson · −1 a +1</span>}
+          />
+          <div className="pc-corr-wrap">
+            <table className="pc-corr">
+              <thead>
+                <tr>
+                  <th></th>
+                  {items.map(it => (
+                    <th key={it.key} title={`${it.label} · ${it.bancoShort}`}>
+                      <span className="pc-corr-dot" style={{ background: it.color }}></span>{it.bancoShort}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((rowIt, i) => (
+                  <tr key={rowIt.key}>
+                    <th title={`${rowIt.label} · ${rowIt.bancoShort}`}>
+                      <span className="pc-corr-dot" style={{ background: rowIt.color }}></span>{rowIt.label}
+                    </th>
+                    {items.map((colIt, j) => {
+                      const r = corr[i][j];
+                      return (
+                        <td key={colIt.key} className="tnum"
+                          style={{ background: i === j ? 'var(--bg-surface-2)' : corrColor(r), color: Math.abs(r) > 0.6 ? '#fff' : 'var(--fg-1)' }}>
+                          {i === j ? '—' : r.toFixed(2).replace('.', ',')}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="caption pc-corr-note">
+              Verde: fontes que sobem e descem juntas no mesmo ano. Vermelho: movimentos opostos.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+window.ViewCrossSource = ViewCrossSource;
