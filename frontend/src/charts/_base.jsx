@@ -91,6 +91,10 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
   const ref = useRef(null);
   const [failed, setFailed] = useState(false);
 
+  // No dep array ON PURPOSE: this effect redraws on every render so Plotly.react
+  // diffs against the latest traces/layout/config (see the doc comment above).
+  // Listing deps would be redundant with the every-render contract, not a fix.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
