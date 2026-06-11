@@ -693,9 +693,7 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
     from embrapa_commodities.serving import curation
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_code_industrialization(
-        source, code, level, headers, change_id=change_id
-    )
+    return curation.record_code_industrialization(source, code, level, headers, change_id=change_id)
 
 
 def value_added(commodity_id: str | None = None) -> dict:

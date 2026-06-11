@@ -115,9 +115,7 @@ def test_curation_post_authorized_via_bq_curators_table(monkeypatch):
         curation_allowed_emails="someone.else@embrapa.br",
     )
     monkeypatch.setattr(seam, "curator_emails", lambda: {"researcher@embrapa.br"})
-    monkeypatch.setattr(
-        seam, "record_code_level", lambda *a, **k: {"ok": True, "deduped": False}
-    )
+    monkeypatch.setattr(seam, "record_code_level", lambda *a, **k: {"ok": True, "deduped": False})
     resp = client.post(
         "/api/curation/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},

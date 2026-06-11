@@ -635,8 +635,13 @@ def test_record_code_industrialization_generates_change_id_when_absent(monkeypat
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     record = curation.record_code_industrialization(
-        "mdic_comex", "08013200", "processada", headers,
-        settings=_settings(), client=client, invalidate_cache=False,
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
     )
 
     assert record["deduped"] is False
@@ -656,8 +661,13 @@ def test_record_code_industrialization_dedupes_on_repeated_change_id(monkeypatch
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     record = curation.record_code_industrialization(
-        "mdic_comex", "08013200", "processada", headers,
-        change_id="dup-key-123", settings=_settings(), client=client,
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        change_id="dup-key-123",
+        settings=_settings(),
+        client=client,
         invalidate_cache=False,
     )
 
@@ -679,8 +689,13 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     record = curation.record_code_industrialization(
-        "mdic_comex", "08013200", "processada", headers,
-        change_id="fresh-key-9", settings=_settings(), client=client,
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        change_id="fresh-key-9",
+        settings=_settings(),
+        client=client,
         invalidate_cache=False,
     )
 
@@ -702,8 +717,13 @@ def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     record = curation.record_flow_market(
-        "4000", "X", "consumo", headers,
-        change_id="dup-flow-1", settings=_settings(), client=client,
+        "4000",
+        "X",
+        "consumo",
+        headers,
+        change_id="dup-flow-1",
+        settings=_settings(),
+        client=client,
         invalidate_cache=False,
     )
 
