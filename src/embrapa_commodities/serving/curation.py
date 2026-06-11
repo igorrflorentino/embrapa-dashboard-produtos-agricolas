@@ -71,12 +71,41 @@ FLOW_MARKET_LOG_SCHEMA = [
 ]
 
 
+# The curator ALLOWLIST — who may POST a curation edit (authorization, distinct
+# from IAP authentication). Console-managed: add/remove a curator by INSERT/DELETE
+# here, no redeploy. Empty/absent table → no allowlist (any IAP-authenticated
+# caller may curate).
+CURATORS_SCHEMA = [
+    bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("added_by", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("added_at", "TIMESTAMP", mode="NULLABLE"),
+]
+
+
 def _bq_client(settings: Settings) -> bigquery.Client:
     return bigquery.Client(
         project=settings.gcp_project_id,
         location=settings.bq_location,
         credentials=get_credentials(settings),
     )
+
+
+def ensure_curators_table(
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Create the curator allowlist table if missing; return its FQN. Idempotent.
+
+    Tiny (one row per curator), so no clustering. Manage rows in the BigQuery
+    Console (or via SQL) to control who may curate — no redeploy needed.
+    """
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curators_table)
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    bq.create_table(bigquery.Table(table_fqn, schema=CURATORS_SCHEMA), exists_ok=True)
+    logger.info("Curators allowlist table ready at %s", table_fqn)
+    return table_fqn
 
 
 def ensure_curation_log_table(
@@ -116,12 +145,35 @@ def _validate_edit_text(commodity_id: str, processing_stage: str, note: str | No
         raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
 
 
+def _resolve_change_id(change_id: str | None) -> tuple[str, bool]:
+    """Return ``(change_id, client_supplied)``. A non-empty client value is the
+    IDEMPOTENCY KEY (a retried/double-clicked save reuses it); when absent we mint
+    a fresh uuid (which can never pre-exist, so it needs no dedupe check)."""
+    cleaned = (change_id or "").strip()
+    return (cleaned, True) if cleaned else (uuid.uuid4().hex, False)
+
+
+def _change_id_seen(bq: bigquery.Client, table_fqn: str, change_id: str) -> bool:
+    """True when a row with this client-supplied ``change_id`` already exists in
+    the log — the dedupe guard that makes a retried write a no-op. The lookup is a
+    single-key scan on a clustered table (cheap). NOTE: this is a best-effort
+    SELECT-then-INSERT, not a transaction — two near-simultaneous retries on
+    DIFFERENT instances could still both insert. That's acceptable: both rows are
+    byte-identical and the SCD2 view collapses them by latest edit, so the worst
+    case is one redundant audit row, never a wrong current value."""
+    sql = f"select 1 from `{table_fqn}` where change_id = @change_id limit 1"
+    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    return any(True for _ in job.result())
+
+
 def record_processing_stage(
     commodity_id: str,
     processing_stage: str,
     headers: Mapping[str, str],
     *,
     note: str | None = None,
+    change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
     invalidate_cache: bool = True,
@@ -129,9 +181,11 @@ def record_processing_stage(
     """Append one classification edit and invalidate the classification cache.
 
     ``headers`` is the inbound request's headers (``flask.request.headers`` in a
-    Dash callback); the author email is read from the IAP header. Returns the row
-    as written (for the UI to confirm). Raises on empty inputs, an over-length
-    stage/note, or a missing author with no dev fallback.
+    Dash callback); the author email is read from the IAP header. ``change_id`` is
+    an optional client-supplied idempotency key — a retried/double-clicked save
+    reusing it is a no-op. Returns the row as written (for the UI to confirm).
+    Raises on empty inputs, an over-length stage/note, or a missing author with no
+    dev fallback.
     """
     cfg = settings or get_settings()
     commodity_id = (commodity_id or "").strip()
@@ -147,12 +201,23 @@ def record_processing_stage(
         dev_fallback=cfg.curation_dev_author,
         audience=cfg.iap_audience,
     )
-    change_id = uuid.uuid4().hex
+    change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curation_log_table)
     # Self-heal the log table on a fresh project (mirrors record_flow_market) — the
     # writer must not assume the app factory created it, or the first edit 500s.
     ensure_curation_log_table(cfg, bq)
+
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        logger.info("Curation: duplicate change_id %s ignored (%s)", change_id, commodity_id)
+        return {
+            "commodity_id": commodity_id,
+            "processing_stage": processing_stage,
+            "note": note,
+            "edited_by": edited_by,
+            "change_id": change_id,
+            "deduped": True,
+        }
 
     # Parameterized DML INSERT: immediately consistent (read-after-write for the
     # SCD2 view) and injection-safe. edited_at is stamped server-side.
@@ -185,6 +250,7 @@ def record_processing_stage(
         "note": note,
         "edited_by": edited_by,
         "change_id": change_id,
+        "deduped": False,
     }
 
 
@@ -255,6 +321,7 @@ def record_code_industrialization(
     headers: Mapping[str, str],
     *,
     note: str | None = None,
+    change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
     invalidate_cache: bool = True,
@@ -262,8 +329,9 @@ def record_code_industrialization(
     """Append one per-code industrialization edit and invalidate its cache.
 
     The per-code companion to :func:`record_processing_stage`: same IAP author
-    capture, parameterized DML, and read-after-write consistency, keyed by
-    (source, code) → industrialization_level. Returns the row as written.
+    capture, parameterized DML, read-after-write consistency, and optional
+    ``change_id`` idempotency key, keyed by (source, code) →
+    industrialization_level. Returns the row as written.
     """
     cfg = settings or get_settings()
     source = (source or "").strip()
@@ -277,13 +345,27 @@ def record_code_industrialization(
         dev_fallback=cfg.curation_dev_author,
         audience=cfg.iap_audience,
     )
-    change_id = uuid.uuid4().hex
+    change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
     table_fqn = sqlbuild.table_ref(
         cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
     )
     # Self-heal the log table on a fresh project (mirrors record_flow_market).
     ensure_code_industrialization_log_table(cfg, bq)
+
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        logger.info(
+            "Curation(code): duplicate change_id %s ignored (%s:%s)", change_id, source, code
+        )
+        return {
+            "source": source,
+            "code": code,
+            "industrialization_level": industrialization_level,
+            "note": note,
+            "edited_by": edited_by,
+            "change_id": change_id,
+            "deduped": True,
+        }
 
     sql = f"""
         insert into `{table_fqn}`
@@ -314,6 +396,7 @@ def record_code_industrialization(
         "note": note,
         "edited_by": edited_by,
         "change_id": change_id,
+        "deduped": False,
     }
 
 
@@ -350,13 +433,15 @@ def record_flow_market(
     market: str,
     headers: Mapping[str, str],
     *,
+    change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
     invalidate_cache: bool = True,
 ) -> dict:
     """Append one (customs_code, flow_code) → market edit (market='' clears it).
-    Auto-creates the log on first write. IAP author capture + read-after-write,
-    mirroring :func:`record_code_industrialization`."""
+    Auto-creates the log on first write. IAP author capture + read-after-write +
+    optional ``change_id`` idempotency key, mirroring
+    :func:`record_code_industrialization`."""
     cfg = settings or get_settings()
     customs_code = (customs_code or "").strip()
     flow_code = (flow_code or "").strip()
@@ -369,10 +454,26 @@ def record_flow_market(
     edited_by = author_email_from_headers(
         headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
     )
-    change_id = uuid.uuid4().hex
+    change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
     ensure_flow_market_log_table(cfg, bq)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        logger.info(
+            "Curation(flow): duplicate change_id %s ignored (%s×%s)",
+            change_id,
+            customs_code,
+            flow_code,
+        )
+        return {
+            "customs_code": customs_code,
+            "flow_code": flow_code,
+            "market": market,
+            "edited_by": edited_by,
+            "change_id": change_id,
+            "deduped": True,
+        }
     sql = f"""
         insert into `{table_fqn}`
             (customs_code, flow_code, market, edited_by, edited_at, change_id)
@@ -398,6 +499,7 @@ def record_flow_market(
         "market": market,
         "edited_by": edited_by,
         "change_id": change_id,
+        "deduped": False,
     }
 
 

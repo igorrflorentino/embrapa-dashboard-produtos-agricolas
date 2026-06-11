@@ -135,12 +135,13 @@ describe('enrichment — apply() commit lifecycle', () => {
 
     expect(done).toBe(true);
     expect(e.lastError()).toBe(null);
-    expect(posts.find((p) => p.url.includes('/curation/code-level')).body).toEqual({
-      source: 'ibge_pevs', code: '1.1', level: 'bruta',
-    });
-    expect(posts.find((p) => p.url.includes('/curation/flow-market')).body).toEqual({
-      customs_code: 'C03', flow_code: 'X', market: 'processamento',
-    });
+    const codePost = posts.find((p) => p.url.includes('/curation/code-level')).body;
+    const flowPost = posts.find((p) => p.url.includes('/curation/flow-market')).body;
+    expect(codePost).toMatchObject({ source: 'ibge_pevs', code: '1.1', level: 'bruta' });
+    expect(flowPost).toMatchObject({ customs_code: 'C03', flow_code: 'X', market: 'processamento' });
+    // each staged edit carries an idempotency key (a string), distinct per edit
+    expect(typeof codePost.change_id).toBe('string');
+    expect(codePost.change_id).not.toBe(flowPost.change_id);
 
     // invalidate → the next worklist() re-fetches and reflects the new server state
     await vi.waitFor(() => {
@@ -200,5 +201,43 @@ describe('enrichment — apply() commit lifecycle', () => {
 
     e.setPair('C03', 'X', 'consumo'); // a fresh edit clears the surfaced error
     expect(e.lastError()).toBe(null);
+  });
+
+  it('reuses the change_id across a retry but mints a fresh one per staging', async () => {
+    const posts = [];
+    let postCalls = 0;
+    const fetchImpl = vi.fn((url, opts) => {
+      if (url.includes('/curation/flow-worklist')) return jsonRes(FLOW_WL);
+      if (url.includes('/curation/worklist')) return jsonRes(WORKLIST);
+      if (opts && opts.method === 'POST') {
+        postCalls += 1;
+        posts.push(JSON.parse(opts.body));
+        // first attempt fails (a timeout that may have landed); the retry succeeds
+        return postCalls === 1 ? jsonRes({}, { ok: false, status: 503 }) : jsonRes({});
+      }
+      return jsonRes({}, { ok: false, status: 404 });
+    });
+    const e = await load(fetchImpl);
+    await vi.waitFor(() => expect(e.worklist().length).toBe(2));
+
+    e.setCode('ibge_pevs:1.1', { level: 'bruta' });
+    e.apply();
+    await vi.waitFor(() => expect(e.isCommitting()).toBe(false));
+    expect(e.pendingCount()).toBe(1); // failed → draft kept for retry
+
+    e.apply(); // retry the SAME staged edit
+    await vi.waitFor(() => expect(e.pendingCount()).toBe(0)); // now lands
+
+    expect(posts).toHaveLength(2);
+    expect(posts[0].change_id).toBeTruthy();
+    expect(posts[1].change_id).toBe(posts[0].change_id); // retry reuses the key → backend can dedupe
+    const priorKey = posts[0].change_id;
+
+    // a fresh staging of the same row is a NEW logical edit → a new key (always lands)
+    e.setCode('ibge_pevs:1.1', { level: 'bruta' });
+    e.apply();
+    await vi.waitFor(() => expect(e.pendingCount()).toBe(0));
+    expect(posts).toHaveLength(3);
+    expect(posts[2].change_id).not.toBe(priorKey);
   });
 });

@@ -44,6 +44,16 @@ const fmtUsdShort = (v) => {
   return 'US$ ' + n.toFixed(0);
 };
 
+// A fresh idempotency key (change_id) per staged edit. The backend dedupes a
+// retried POST carrying the SAME change_id (e.g. a network timeout that actually
+// landed server-side → re-POST is a no-op instead of a duplicate revision). We
+// mint one when the edit is STAGED, not per-POST, so retries reuse it but a fresh
+// user action (re-staging) always gets a new key (and thus always lands).
+const newChangeId = () =>
+  globalThis.crypto && globalThis.crypto.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : 'cid-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+
 // ── subscriber fan-out (editor re-renders on draft + resource changes) ─────────
 const subs = new Set();
 const notify = () => {
@@ -59,6 +69,7 @@ subscribeResource(notify); // re-notify when either worklist resource resolves
 
 // ── (1) code-level worklist (API ⟕ draft) ─────────────────────────────────────
 const draft = new Map(); // id -> level (a staged change vs the API level)
+const draftCid = new Map(); // id -> change_id (idempotency key, stable across retries)
 let committing = false;
 let lastError = null; // last write failure (HTTP status / message), surfaced in the editor
 
@@ -92,6 +103,7 @@ function worklist() {
 
 // ── (2) flow-market matrix (real COMTRADE customsCode × flowCode ⟕ draft) ──────
 const flowDraft = new Map(); // `${customs}:${flow}` -> market ('' clears)
+const flowDraftCid = new Map(); // `${customs}:${flow}` -> change_id (idempotency key)
 
 function flowWorklist() {
   ensure(FW_KEY, () => `${API}/curation/flow-worklist`);
@@ -174,8 +186,13 @@ window.enrichment = {
     if (!patch || !('level' in patch) || !patch.level) return;
     const r = apiRows().find((x) => rowId(x) === id);
     const apiLevel = (r && r.level) || null;
-    if (patch.level === apiLevel) draft.delete(id);
-    else draft.set(id, patch.level);
+    if (patch.level === apiLevel) {
+      draft.delete(id);
+      draftCid.delete(id);
+    } else {
+      draft.set(id, patch.level);
+      draftCid.set(id, newChangeId()); // fresh idempotency key for this staging
+    }
     lastError = null; // a fresh edit clears the stale write error
     notify();
   },
@@ -186,8 +203,13 @@ window.enrichment = {
     const cell = cellMap().get(k);
     const apiMarket = (cell && cell.market) || null;
     const next = market || null;
-    if (next === apiMarket) flowDraft.delete(k);
-    else flowDraft.set(k, market || '');
+    if (next === apiMarket) {
+      flowDraft.delete(k);
+      flowDraftCid.delete(k);
+    } else {
+      flowDraft.set(k, market || '');
+      flowDraftCid.set(k, newChangeId()); // fresh idempotency key for this staging
+    }
     lastError = null; // a fresh edit clears the stale write error
     notify();
   },
@@ -226,11 +248,23 @@ window.enrichment = {
     const tasks = [
       ...[...draft.entries()].map(([id, level]) => {
         const [source, code] = id.split(':');
-        return { store: draft, key: id, run: () => post('/curation/code-level', { source, code, level }) };
+        const change_id = draftCid.get(id);
+        return {
+          store: draft,
+          cidStore: draftCid,
+          key: id,
+          run: () => post('/curation/code-level', { source, code, level, change_id }),
+        };
       }),
       ...[...flowDraft.entries()].map(([k, market]) => {
         const [customs_code, flow_code] = k.split(':');
-        return { store: flowDraft, key: k, run: () => post('/curation/flow-market', { customs_code, flow_code, market }) };
+        const change_id = flowDraftCid.get(k);
+        return {
+          store: flowDraft,
+          cidStore: flowDraftCid,
+          key: k,
+          run: () => post('/curation/flow-market', { customs_code, flow_code, market, change_id }),
+        };
       }),
     ];
     Promise.allSettled(tasks.map((t) => t.run())).then((results) => {
@@ -238,6 +272,7 @@ window.enrichment = {
       results.forEach((res, i) => {
         if (res.status === 'fulfilled') {
           tasks[i].store.delete(tasks[i].key); // landed → drop so a retry won't re-POST it
+          tasks[i].cidStore.delete(tasks[i].key); // and drop its idempotency key
         } else {
           failed += 1;
           lastError = (res.reason && res.reason.message) || 'Falha ao gravar a curadoria';
@@ -259,7 +294,9 @@ window.enrichment = {
   discard() {
     if (committing) return;
     draft.clear();
+    draftCid.clear();
     flowDraft.clear();
+    flowDraftCid.clear();
     lastError = null;
     notify();
   },

@@ -613,6 +613,20 @@ def _code_to_commodity() -> dict:
     return idx
 
 
+def curator_emails() -> set[str]:
+    """Lowercased curator emails from the allowlist table; empty set when the
+    table is absent (allowlist not configured) — so routes fall back to "any
+    IAP-authenticated caller may curate". Any OTHER error propagates (a transient
+    BQ/permission fault must NOT silently widen the gate to everyone)."""
+    try:
+        df = gateway.fetch_curators()
+    except NotFound:
+        return set()
+    if df is None or df.empty:
+        return set()
+    return {str(e).strip().lower() for e in df["email"] if e}
+
+
 def _current_code_levels() -> dict:
     """{(source, code): level} from the SCD2 view; {} when the view is absent
     (curation not enabled in this dataset yet) — so the worklist still renders."""
@@ -669,15 +683,17 @@ def curation_worklist() -> dict:
     }
 
 
-def record_code_level(source: str, code: str, level: str) -> dict:
+def record_code_level(source: str, code: str, level: str, change_id: str | None = None) -> dict:
     """Append one per-code classification edit. The author comes from the request's
-    IAP header (dev fallback per config). Wraps the verified BFF writer."""
+    IAP header (dev fallback per config). ``change_id`` is the optional client
+    idempotency key (a retried save reusing it is a no-op). Wraps the verified
+    BFF writer."""
     from flask import has_request_context, request
 
     from embrapa_commodities.serving import curation
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_code_industrialization(source, code, level, headers)
+    return curation.record_code_industrialization(source, code, level, headers, change_id=change_id)
 
 
 def value_added(commodity_id: str | None = None) -> dict:
@@ -784,15 +800,21 @@ def flow_market_worklist() -> dict:
     }
 
 
-def record_flow_market(customs_code: str, flow_code: str, market: str) -> dict:
+def record_flow_market(
+    customs_code: str, flow_code: str, market: str, change_id: str | None = None
+) -> dict:
     """Append one (customs_code, flow_code) → market edit. Author from the IAP
-    header (dev fallback per config). Wraps the verified BFF writer."""
+    header (dev fallback per config). ``change_id`` is the optional client
+    idempotency key (a retried save reusing it is a no-op). Wraps the verified
+    BFF writer."""
     from flask import has_request_context, request
 
     from embrapa_commodities.serving import curation
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_flow_market(customs_code, flow_code, market, headers)
+    return curation.record_flow_market(
+        customs_code, flow_code, market, headers, change_id=change_id
+    )
 
 
 def market_nature(commodity_id: str | None = None) -> dict:
