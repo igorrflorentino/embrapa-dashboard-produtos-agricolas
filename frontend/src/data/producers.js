@@ -72,6 +72,22 @@ window.crossCommonWindow = function crossCommonWindow(refs = []) {
   return y0 <= y1 ? { y0, y1, union } : { y0: union[0], y1: union[1], union };
 };
 
+// ── crosswalk commodity catalog (the multi-source pickers' option universe) ───
+// The cross/* analytics are keyed by the crosswalk commodity_id SLUG (not a PEVS
+// product code), so their commodity picker must offer slugs. /api/catalog returns
+// { commodity_id -> {id, name, pevs[], comex[], comtrade[]} }; we flatten it to a
+// sorted [{ code: <slug>, name }] list (sync-over-async like the analytics below —
+// reads the cache, kicks the fetch on a miss, returns [] until it lands).
+window.crossCatalog = function crossCatalog() {
+  const key = 'cross:catalog';
+  ensure(key, () => `${API}/catalog`);
+  const data = get(key);
+  if (!data) return [];
+  return Object.values(data)
+    .map((c) => ({ code: c.id, name: c.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+};
+
 // ── cross-source analytics (crosswalk-joined) ─────────────────────────────────
 const crossAnalytic = (name, path, shell) =>
   function (commodityId) {

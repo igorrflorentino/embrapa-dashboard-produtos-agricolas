@@ -6,8 +6,12 @@
 const { useState: useMSState } = React;
 
 // Shared commodity selector (single-select; null = whole basket).
+// Options come from the CROSSWALK catalog (/api/catalog) — each chip's `code` is
+// the commodity_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
+// (Sourcing from window.PRODUCTS shipped PEVS codes, which the backend can't
+// crosswalk, so every specific-commodity analysis came back empty.)
 function CrossProductPicker({ value, onChange }) {
-  const prods = window.PRODUCTS || [];
+  const prods = window.crossCatalog();
   return (
     <div className="pp-selector">
       <span className="pp-selector-label">Commodity</span>
@@ -25,7 +29,7 @@ function CrossProductPicker({ value, onChange }) {
               onClick={() => onChange(p.code)}
               style={on ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}
               title={p.name}>
-              <span className={'pp-chip-fam ' + p.family}></span>{p.name}
+              {p.name}
             </button>
           );
         })}

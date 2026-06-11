@@ -172,6 +172,29 @@ window.convFactor = (conv) => {
   return serverNative ? 1 : (window.CURRENCY_FX[conv.currency] || { rate: 1 }).rate;
 };
 
+// Base-aware value multiplier — for a value stored in a banco's OWN base
+// currency (bancos.js `baseCurrency`), returns the multiplier that converts it
+// to the active display currency. The plain convFactor above assumes every value
+// is BRL-canonical; that holds for PEVS/SEFAZ (base=BRL) and for the synthetic
+// snapshots (previewData.js stores BRL-equivalent on purpose). It does NOT hold
+// for the live API path of a USD-native trade banco (COMEX/Comtrade), whose
+// ufData arrives in US$: there convFactor('USD')=1 is correct only at the default
+// USD display — switching to R$ (convFactor('BRL')=1) would leave a US$ magnitude
+// under R$. This helper closes that gap WITHOUT changing the BRL-base path:
+//   • base=BRL → delegates to convFactor verbatim (PEVS/SEFAZ unchanged, every
+//     currency, default and not — server-native BRL/USD stay factor 1).
+//   • base=foreign (USD) → identity when display==base (default view unchanged),
+//     else the base→display cross-rate via the BRL-pivot CURRENCY_FX rates.
+window.convFactorFor = (base, conv) => {
+  base = base || 'BRL';
+  if (base === 'BRL') return window.convFactor(conv);     // BRL-canonical path, untouched
+  if (conv.currency === base) return 1;                   // default display → identity
+  const fx = window.CURRENCY_FX;
+  const rDisp = (fx[conv.currency] || { rate: 1 }).rate;
+  const rBase = (fx[base] || { rate: 1 }).rate || 1;
+  return rDisp / rBase;                                   // base → display via BRL pivot
+};
+
 // Convert a BRL-canonical value through the active currency + correction.
 window.applyConv = (val, conv) => {
   if (val == null) return null;

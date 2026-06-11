@@ -26,9 +26,16 @@
 {% if is_incremental() %}
 with affected_years as (
 
+    -- `>=` (not `>`) on purpose: a Bronze row appended with an
+    -- ingestion_timestamp EQUAL to the current Silver max (a same-second /
+    -- clock-identical double load) is `> max` = false and would be skipped
+    -- forever. Re-scanning the boundary year is safe — insert_overwrite is
+    -- idempotent, so reprocessing a year replaces its whole partition (no
+    -- double-counting) — and bounded: only the year(s) tied at the max
+    -- timestamp re-run, not the full history.
     select distinct ano
     from {{ source('bronze_ibge', 'sidra_raw') }}
-    where ingestion_timestamp > (select coalesce(max(ingestion_timestamp), timestamp '1970-01-01') from {{ this }})
+    where ingestion_timestamp >= (select coalesce(max(ingestion_timestamp), timestamp '1970-01-01') from {{ this }})
 
 ),
 

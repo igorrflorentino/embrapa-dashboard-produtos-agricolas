@@ -150,7 +150,25 @@ def test_sync_raw_force_ignores_archive(settings) -> None:
     prov.assert_not_called()
 
 
-def test_sync_raw_empty_response_lands_nothing(settings) -> None:
+def test_sync_raw_latest_year_empty_lands_nothing(settings) -> None:
+    """The latest year is re-fetched every run regardless, so an empty latest-year
+    chunk needs no sentinel — it lands nothing and returns False."""
+    with (
+        patch.object(pipeline, "raw_provenance", return_value=None),
+        patch.object(
+            client, "fetch_chunk_adaptive", return_value=pd.DataFrame(columns=client.BRONZE_COLUMNS)
+        ),
+        patch.object(pipeline, "land_raw") as land,
+    ):
+        changed = pipeline.sync_raw(settings, 2023, ["76"], storage_client=MagicMock())
+    assert changed is False
+    land.assert_not_called()
+
+
+def test_sync_raw_past_year_empty_lands_sentinel(settings) -> None:
+    """A *past*-year empty chunk lands an empty SENTINEL raw object (flagged
+    ``empty``) so its existence resume-skips the chunk next run instead of
+    re-fetching and re-billing the daily quota on every run."""
     with (
         patch.object(pipeline, "raw_provenance", return_value=None),
         patch.object(
@@ -159,8 +177,16 @@ def test_sync_raw_empty_response_lands_nothing(settings) -> None:
         patch.object(pipeline, "land_raw") as land,
     ):
         changed = pipeline.sync_raw(settings, 2022, ["76"], storage_client=MagicMock())
-    assert changed is False
-    land.assert_not_called()
+    assert changed is True
+    land.assert_called_once()
+    land_kwargs = land.call_args.kwargs
+    assert land_kwargs["basename"] == pipeline._basename(2022, ["76"])
+    assert land_kwargs["provenance"]["empty"] == "true"
+    assert land_kwargs["provenance"]["year"] == "2022"
+    # The sentinel carries the Bronze schema so Phase 2 reads a valid 0-row frame.
+    landed = land.call_args.args[0]
+    assert list(landed.columns) == pipeline.BRONZE_STRING_COLUMNS
+    assert len(landed) == 0
 
 
 def test_sync_raw_fetches_and_lands_with_provenance(settings) -> None:

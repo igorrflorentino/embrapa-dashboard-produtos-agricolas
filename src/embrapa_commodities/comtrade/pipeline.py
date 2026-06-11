@@ -132,10 +132,13 @@ def sync_raw(
     force: bool = False,
 ) -> bool:
     """Phase 1: fetch one (year, reporter-batch) chunk and archive it. Returns
-    ``True`` if (re)fetched, ``False`` if skipped (past-year chunk already raw).
+    ``True`` if (re)fetched (incl. a past-year empty sentinel landed), ``False``
+    if skipped (past-year chunk already raw) or the latest year came back empty.
 
     The latest configured year is always re-fetched (Comtrade revises it);
-    ``force`` re-fetches everything.
+    ``force`` re-fetches everything. A *past*-year empty fetch lands an empty
+    sentinel raw object so the chunk resume-skips next run instead of re-billing
+    the daily quota (the latest year is re-fetched regardless, so no sentinel).
     """
     basename = _basename(year, reporters)
     is_latest = year == settings.comtrade_end_year
@@ -163,9 +166,40 @@ def sync_raw(
         cmd_codes=cmd_codes,
         flows=settings.comtrade_flows_list,
     )
+    provenance = {
+        "source": "un-comtrade",
+        "year": str(year),
+        "reporters": str(len(reporters)),
+        # The exact codes (not just the count) so a content-keyed raw object
+        # is auditable: you can confirm which reporters a basename covers.
+        "reporter_codes": ",".join(sorted(reporters)),
+        "cmd_scope": ",".join(settings.comtrade_cmd_map),
+        "cmd_hs6_count": str(len(cmd_codes)),
+        "flows": ",".join(settings.comtrade_flows_list),
+    }
     if df.empty:
-        logger.info("Comtrade %s: no rows.", basename)
-        return False
+        # A latest-year empty chunk is re-fetched every run anyway (revisions),
+        # so landing nothing is correct there. A *past*-year empty chunk has no
+        # other resume signal than the raw object's existence — without a sentinel
+        # its absence reads as "never fetched", re-billing the daily quota on every
+        # run. Land an empty SENTINEL (flagged ``empty``) so raw_provenance is
+        # non-None next run and the chunk resume-skips. The frame already carries
+        # the BRONZE_COLUMNS schema (fetch_chunk returns an empty typed frame), so
+        # Phase 2 reads a valid 0-row parquet and skips the load.
+        if is_latest:
+            logger.info("Comtrade %s: no rows (latest year — re-fetched next run).", basename)
+            return False
+        logger.info("Comtrade %s: no rows — landing empty sentinel.", basename)
+        land_raw(
+            df.reindex(columns=BRONZE_STRING_COLUMNS),
+            settings=settings,
+            storage_client=storage_client,
+            source="comtrade",
+            dataset=RAW_DATASET,
+            basename=basename,
+            provenance={**provenance, "empty": "true"},
+        )
+        return True
     land_raw(
         df,
         settings=settings,
@@ -173,17 +207,7 @@ def sync_raw(
         source="comtrade",
         dataset=RAW_DATASET,
         basename=basename,
-        provenance={
-            "source": "un-comtrade",
-            "year": str(year),
-            "reporters": str(len(reporters)),
-            # The exact codes (not just the count) so a content-keyed raw object
-            # is auditable: you can confirm which reporters a basename covers.
-            "reporter_codes": ",".join(sorted(reporters)),
-            "cmd_scope": ",".join(settings.comtrade_cmd_map),
-            "cmd_hs6_count": str(len(cmd_codes)),
-            "flows": ",".join(settings.comtrade_flows_list),
-        },
+        provenance=provenance,
     )
     return True
 

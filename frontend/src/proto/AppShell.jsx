@@ -121,7 +121,11 @@ function AppShell({
     // Keys + array sentinel rules come from the shared codec (urlState.js) —
     // the same module the decoder (Dashboard.readStateFromURL) reads — so the
     // two halves can't drift on the wire format.
-    const arrParam = window.urlEncodeArr;
+    // Guard the codec globals (same as main.jsx's URL write-back) so a Share
+    // click before urlState.js has loaded degrades to a no-op instead of a
+    // "urlEncodeArr is not a function" throw.
+    if (!window.urlEncodeState) return;
+    const arrParam = window.urlEncodeArr || (() => '');
     const state = {
       v: view, b: database, ip: infoPage,
       cur: conventions?.currency, corr: conventions?.correction,
