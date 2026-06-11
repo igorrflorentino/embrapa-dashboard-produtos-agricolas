@@ -8,8 +8,16 @@
 //     it resolves; a boundary component subscribes + re-renders → cache is hot →
 //     the view's next synchronous get(key) returns real data.
 
-const cache = new Map(); // key -> { state:'pending'|'ready'|'error', data?, error? }
+const cache = new Map(); // key -> { state:'pending'|'ready'|'error', data?, error?, attempts? }
 const subs = new Set();
+
+// Producers call ensure() SYNCHRONOUSLY on every render, and each failure
+// notify()s subscribers → another render → another ensure(). If ensure() always
+// re-fetched on 'error', a persistently-failing endpoint would become an
+// unbounded request storm (and, against an uncapped warehouse, a self-inflicted
+// cost/DoS). Cap auto-retries: after MAX_ATTEMPTS the key stays errored until a
+// user action calls invalidate(key) to reset and retry.
+const MAX_ATTEMPTS = 3;
 
 const notify = () => {
   for (const fn of subs) {
@@ -42,7 +50,12 @@ export function errorOf(key) {
 export function ensure(key, urlFactory) {
   const e = cache.get(key);
   if (e && (e.state === 'pending' || e.state === 'ready')) return;
-  cache.set(key, { state: 'pending' });
+  // Stop auto-retrying a key that has already failed MAX_ATTEMPTS times — a
+  // persistent backend failure must not loop the dashboard into a request storm.
+  // invalidate(key) clears the entry (resetting attempts) for an explicit retry.
+  if (e && e.state === 'error' && (e.attempts || 0) >= MAX_ATTEMPTS) return;
+  const attempts = (e?.attempts || 0) + 1;
+  cache.set(key, { state: 'pending', attempts });
   fetch(urlFactory())
     .then((r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -53,7 +66,7 @@ export function ensure(key, urlFactory) {
       notify();
     })
     .catch((error) => {
-      cache.set(key, { state: 'error', error: error.message || String(error) });
+      cache.set(key, { state: 'error', error: error.message || String(error), attempts });
       notify();
     });
 }
