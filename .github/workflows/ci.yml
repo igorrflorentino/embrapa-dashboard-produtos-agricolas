@@ -1,13 +1,18 @@
 # Pull-request gate for the Embrapa commodities pipeline.
 #
 # Runs on every PR to main and on direct pushes to main (so the badge on
-# main stays meaningful). All three steps are credential-free: lint and
-# pytest never touch GCP, and `dbt parse` only compiles the manifest —
-# it does not open a BigQuery connection.
+# main stays meaningful). The `ci` (ruff + pytest + dbt parse) and `frontend`
+# (vitest) jobs are credential-free — they never touch GCP (`dbt parse` only
+# compiles the manifest, no BigQuery connection). The `sqlfluff` job is the
+# exception: SQLFluff's dbt templater runs `dbt compile`, which dbt requires a
+# warehouse for, so that job authenticates via keyless WIF and skips on forks
+# (see its own header comment).
 #
-# To enforce this gate, enable "Require status checks to pass before
-# merging" on the `main` branch in repo Settings → Branches and select
-# the "Lint, test, dbt parse" check produced by this workflow.
+# To enforce this gate, enable "Require status checks to pass before merging"
+# on the `main` branch in repo Settings → Branches and select these checks:
+#   • "Lint, test, dbt parse"            (this workflow, `ci` job)
+#   • "Frontend tests (Vitest)"          (this workflow, `frontend` job)
+#   • "SQLFluff (dbt templater, BigQuery)" (this workflow, `sqlfluff` job)
 
 name: CI
 
@@ -114,3 +119,89 @@ jobs:
 
       - name: Test (vitest run)
         run: npm test
+
+  # SQLFluff lint of the dbt models. UNLIKE the credential-free jobs above, this
+  # one needs a BigQuery connection: SQLFluff's dbt templater runs a full
+  # `dbt compile` (not `dbt parse`), which dbt requires a warehouse for — to
+  # populate the relation cache and evaluate `is_incremental()` (silver_ibge_pevs).
+  # No sqlfluff/dbt flag makes that offline, and the dbt-duckdb workaround renders
+  # duckdb-quoted relations the BigQuery dialect can't parse. So this job
+  # authenticates via the SAME keyless Workload Identity Federation as
+  # dbt-build-prod.yml (read-only intent — it only reads relation metadata, never
+  # runs model SQL) and lints with the real bigquery dialect.
+  #
+  # Fork PRs cannot mint the OIDC token (no id-token: write for untrusted forks),
+  # so they are skipped — a skipped required check still passes branch protection,
+  # and this is a private team repo so forks don't arise in practice. Setup is the
+  # same one-time WIF wiring dbt-build-prod.yml documents (no new SA/secret).
+  sqlfluff:
+    name: SQLFluff (dbt templater, BigQuery)
+    # Run on pushes to main and on PRs from THIS repo (not forks, which can't auth).
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # WIF needs this so GitHub mints the OIDC token for the auth step.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Auth to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DBT_BUILD_SERVICE_ACCOUNT }}
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.11"
+
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies (reproducible via uv.lock)
+        run: uv sync --frozen
+
+      # Inline oauth profile — WIF has already authenticated us AS the SA, so
+      # method: oauth picks up the ADC credential (no impersonation, which would
+      # short-circuit the WIF identity). Target prod: the relation cache /
+      # is_incremental lookups need the referenced tables to EXIST, and the prod
+      # silver/gold/bronze datasets are the populated ones.
+      - name: Generate dbt profile (oauth via ADC from WIF, target prod)
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION || 'us-central1' }}
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<EOF
+          embrapa_commodities:
+            target: prod
+            outputs:
+              prod:
+                type: bigquery
+                method: oauth
+                project: ${GCP_PROJECT_ID}
+                dataset: prod
+                location: ${BQ_LOCATION}
+                threads: 4
+                job_execution_timeout_seconds: 300
+                job_retries: 1
+                priority: interactive
+          EOF
+
+      - name: dbt deps (install dbt_utils — the templater compiles macros)
+        working-directory: dbt
+        run: uv run dbt deps
+
+      # `.sqlfluff` (templater = dbt, dialect = bigquery, profiles_dir = ~/.dbt)
+      # drives the rest. The dbt templater compiles each model against the prod
+      # connection, then SQLFluff lints the rendered BigQuery SQL. Mirrors the
+      # local `make sqlfluff`, which already passes.
+      - name: SQLFluff lint (dbt models)
+        working-directory: dbt
+        run: uv run sqlfluff lint models
