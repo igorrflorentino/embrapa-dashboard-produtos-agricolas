@@ -1,0 +1,168 @@
+# Scheduled DATA-staleness check: runs `dbt source freshness --target prod`
+# against the live Bronze sources every morning, a few hours after the nightly
+# ingestion Job lands. It is the standing monitor for "is the data still
+# arriving?" — the counterpart to the Cloud Monitoring alert that watches the
+# ingestion Job for *crashes*.
+#
+# Why both, and how they differ:
+#   • The Cloud Monitoring alert (deploy/ingestion/alert.sh) fires when the
+#     nightly Cloud Run JOB has a FAILED execution — i.e. the pipeline threw.
+#   • THIS workflow fires when the data is STALE even though nothing visibly
+#     crashed: a source silently stops publishing, an upstream API quietly
+#     returns empty, credentials lapse without an error, etc. The Job can
+#     "succeed" (exit 0, append nothing new) while the data rots — only a
+#     freshness check on `max(ingestion_timestamp)` catches that.
+#
+# Alerting mechanism (intentionally GitHub-native, mirroring dbt-build-prod.yml,
+# which also relies on run failure rather than a bespoke notifier):
+#   `dbt source freshness` exits NON-ZERO when any source breaches its
+#   `error_after` threshold, and exits 0 on a mere `warn_after` breach. So:
+#     • ERROR-level staleness  → this run FAILS → GitHub emails the user who
+#       last edited the cron schedule on the default branch (GitHub's documented
+#       scheduled-workflow notification target). That is the page.
+#     • WARN-level staleness   → this run PASSES, but the per-source verdict is
+#       surfaced in the run's Job Summary (the parse step below) and in
+#       target/sources.json (uploaded as an artifact) for an at-a-glance read.
+#   The two-tier thresholds in dbt/models/_sources.yml were chosen with exactly
+#   this split in mind (e.g. IBGE/BCB warn 2d / error 7d; COMEX warn 30d /
+#   error 60d to match its ~monthly ETag-gated cadence).
+#
+# To wire a louder/secondary channel later (Slack, an auto-filed Issue, an
+# email-on-failure action), add an `if: failure()` step after the freshness
+# step — the GitHub-native email is the floor, not the ceiling.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# GCP SETUP: none beyond what dbt-build-prod.yml already established. This reuses
+# the SAME Workload Identity Federation provider + dbt-build service account +
+# repo variables (GCP_WIF_PROVIDER, GCP_DBT_BUILD_SERVICE_ACCOUNT, GCP_PROJECT_ID,
+# BQ_LOCATION). The SA already has BigQuery read on Bronze, which is all freshness
+# needs (it only runs `select max(ingestion_timestamp)` per source — no writes).
+
+name: dbt source freshness
+
+on:
+  schedule:
+    # 11:00 UTC = 08:00 America/Sao_Paulo (BRT, UTC-3, no DST). The nightly
+    # ingestion Job runs at 05:00 BRT (08:00 UTC) with a 1h max wall-clock, so
+    # by 08:00 BRT last night's Bronze rows have long since landed. Cron in
+    # GitHub Actions is always UTC and has no timezone field.
+    - cron: '0 11 * * *'
+  workflow_dispatch: {}   # manual run (e.g. to confirm a staleness fix)
+
+# A freshness check is read-only and idempotent, but two overlapping runs would
+# just waste a warehouse slot — serialize and let a new one wait.
+concurrency:
+  group: dbt-source-freshness
+  cancel-in-progress: false
+
+# WIF needs id-token: write so GitHub mints the OIDC token for the auth step.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  freshness:
+    # Skip on forks — they can't reach the WIF provider (security boundary).
+    if: github.event.repository.fork == false
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DBT_BUILD_SERVICE_ACCOUNT }}
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.11"
+
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # Same inline oauth profile as dbt-build-prod.yml: WIF has already
+      # authenticated us AS the dbt-build SA, so method: oauth picks up the
+      # ADC credential directly (no impersonation — that would short-circuit
+      # the WIF identity).
+      - name: Generate dbt profile (oauth via ADC from WIF)
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION || 'us-central1' }}
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<EOF
+          embrapa_commodities:
+            target: prod
+            outputs:
+              prod:
+                type: bigquery
+                method: oauth
+                project: ${GCP_PROJECT_ID}
+                dataset: prod
+                location: ${BQ_LOCATION}
+                threads: 8
+                job_execution_timeout_seconds: 600
+                job_retries: 1
+                priority: batch
+          EOF
+
+      - name: dbt deps (project parse needs installed packages)
+        working-directory: dbt
+        run: uv run dbt deps
+
+      # The gate: exits non-zero iff a source breaches error_after. That
+      # non-zero is the alert — do NOT swallow it. WARN breaches exit 0.
+      - name: dbt source freshness (prod)
+        working-directory: dbt
+        run: uv run dbt source freshness --target prod
+
+      # Render every source's verdict into the run's Job Summary so WARN-level
+      # staleness (which does NOT fail the run) is still visible at a glance, and
+      # so a failed run names the offending source up front. Runs even on
+      # failure; never masks the real exit code (own `|| true` is local to the
+      # parse, the freshness step above already decided pass/fail).
+      - name: Summarize freshness verdicts
+        if: always()
+        working-directory: dbt
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY" || true
+          import json, os
+          path = os.path.join("target", "sources.json")
+          try:
+              with open(path) as f:
+                  results = json.load(f).get("results", [])
+          except FileNotFoundError:
+              print("_No `target/sources.json` produced — freshness did not run._")
+              raise SystemExit(0)
+          icon = {"pass": "✅", "warn": "⚠️", "error": "🚨", "runtime error": "💥"}
+          print("### dbt source freshness — prod\n")
+          print("| Source | Status | Age |")
+          print("|---|---|---|")
+          for r in sorted(results, key=lambda r: r.get("unique_id", "")):
+              status = (r.get("status") or "").lower()
+              age = r.get("max_loaded_at_time_ago_in_s")
+              age_str = f"{age/3600:.1f} h" if isinstance(age, (int, float)) else "—"
+              name = (r.get("unique_id") or "").replace("source.embrapa_commodities.", "")
+              print(f"| `{name}` | {icon.get(status, '?')} {status or 'unknown'} | {age_str} |")
+          PY
+
+      # Keep the machine-readable verdict for inspection regardless of outcome.
+      - name: Upload sources.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-sources-freshness
+          path: dbt/target/sources.json
+          if-no-files-found: ignore
+          retention-days: 14
