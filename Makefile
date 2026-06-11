@@ -1,5 +1,6 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
-        ingest-ibge-historical ingest-job-deploy ingest-job-schedule ingest-job-alert iam-grant \
+        ingest-ibge-historical reconcile ingest-job-deploy ingest-job-schedule \
+        ingest-job-reconcile-schedule ingest-job-alert iam-grant \
         dashboard-run dashboard-deploy \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
@@ -34,11 +35,23 @@ ingest-all:
 ingest-ibge-historical:    ## Ingest IBGE in safe 5-year chunks (for large historical windows)
 	$(PY) embrapa ingest ibge-batch --chunk-years 5
 
+reconcile: dbt-deps    ## Deep-refresh: full re-ingest (catches OLD-year revisions) then PROD dbt build
+	@echo "[reconcile] Full re-ingest (chunked IBGE + full BCB/COMEX) via LOCAL .env, then a PROD dbt build."
+	@echo "[reconcile] WARNING: this uses your LOCAL .env. Verify it matches prod (esp. BCB_CURRENCY_SERIES)"
+	@echo "[reconcile]          before running — a drifted local .env will regress Bronze. The deployed Job"
+	@echo "[reconcile]          path (make ingest-job-reconcile-schedule) uses the correct prod config and is unaffected."
+	$(PY) embrapa ingest reconcile
+	cd $(DBT_DIR) && $(PY) dbt build --target prod
+	@echo "[reconcile] Done. This may have rewritten HISTORICAL Gold — consider 'make backup-gold'."
+
 ingest-job-deploy:    ## Build + deploy the `embrapa ingest all` Cloud Run Job (reads .env)
 	bash deploy/ingestion/deploy.sh
 
 ingest-job-schedule:    ## Create/update the nightly Cloud Scheduler trigger for the job
 	bash deploy/ingestion/schedule.sh
+
+ingest-job-reconcile-schedule:    ## Create/update the MONTHLY deep-refresh trigger (Job with --args=reconcile)
+	bash deploy/ingestion/schedule_reconcile.sh
 
 ingest-job-alert:    ## Create the Cloud Monitoring alert for ingestion-job failures (needs INGEST_ALERT_EMAIL)
 	bash deploy/ingestion/alert.sh

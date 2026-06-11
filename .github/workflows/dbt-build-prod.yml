@@ -94,6 +94,16 @@ on:
       - 'dbt/**'
       - 'src/embrapa_commodities/config.py'  # Settings defaults consumed by dbt env_var()
       - '.github/workflows/dbt-build-prod.yml'
+  schedule:
+    # Daily prod build so INGESTED Bronze reaches Silver/Gold automatically —
+    # the ingestion Job only writes Bronze, nothing here rebuilds the marts
+    # between dbt-code pushes. This carries BOTH the nightly delta AND the
+    # monthly `reconcile` deep-refresh through to the dashboard. 11:30 UTC =
+    # 08:30 BRT: after the 05:00 BRT nightly ingest (1h max) has landed and
+    # after the 11:00 UTC freshness check. A PLAIN (non --full-refresh) build is
+    # enough — silver_ibge_pevs re-scans Bronze by ingestion_timestamp, not by
+    # year, so an upstream correction to an OLD year flows all the way to Gold.
+    - cron: '30 11 * * *'
   workflow_dispatch:
     inputs:
       full_refresh:
