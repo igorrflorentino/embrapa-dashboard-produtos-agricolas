@@ -91,6 +91,13 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
   const ref = useRef(null);
   const [failed, setFailed] = useState(false);
 
+  // Keep the latest onClick in a ref so the once-bound plotly_click listener
+  // always calls the CURRENT handler (which closes over the current data),
+  // never the stale first-render one. Updated on every render — cheap, and
+  // avoids re-attaching the Plotly listener when onClick/data change.
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -114,8 +121,11 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    const handler = onClick ? (e) => onClick(e) : null;
-    if (handler) el.on?.('plotly_click', handler);
+    // Bind once with a stable trampoline that reads the LATEST handler from the
+    // ref, so changing onClick/data never leaves a stale closure bound (and we
+    // don't re-attach on every render). A no-op when no onClick is set.
+    const handler = (e) => { const fn = onClickRef.current; if (fn) fn(e); };
+    el.on?.('plotly_click', handler);
     const ro = new ResizeObserver(() => {
       try {
         Plotly.Plots.resize(el);
@@ -126,7 +136,7 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
     ro.observe(el);
     return () => {
       ro.disconnect();
-      if (handler) el.removeListener?.('plotly_click', handler);
+      el.removeListener?.('plotly_click', handler);
       Plotly.purge(el);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

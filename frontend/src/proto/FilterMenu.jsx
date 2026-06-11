@@ -32,10 +32,34 @@ const { useState, useMemo } = React;
 // in data.js) so the labels shown here, in the chip bar and in the Qualidade
 // view never drift apart. The raw flag token (data_quality_flag) is still
 // surfaced verbatim alongside each pt-BR label.
-// Period bounds derived from the live time series — never hardcode
-// "1986–2024" so changing the source dataset propagates to the chips.
-const YEAR_START = (window.OVERVIEW_TS && window.OVERVIEW_TS[0]?.y) || 1986;
-const YEAR_END   = (window.OVERVIEW_TS && window.OVERVIEW_TS[window.OVERVIEW_TS.length - 1]?.y) || 2024;
+// Period bounds derive from the ACTIVE banco's live time series — resolved
+// PER BANCO inside the component (see `yearBounds`/`quickRanges` below), never
+// from a module-level snapshot read at import time (which froze to whichever
+// banco loaded first and to the synthetic 1986/2024 fallback). Switching banco
+// now shifts the date bounds + quick-ranges. The pair below is only the
+// last-resort fallback used when no snapshot exists yet for the banco.
+const YEAR_START_FALLBACK = 1986;
+const YEAR_END_FALLBACK   = 2024;
+
+// Compute the [start, end] year span from a banco snapshot's overview series,
+// falling back to the synthetic span when the snapshot is absent/empty.
+function bancoYearBounds(snap) {
+  const ts = (snap && snap.overviewTS) || null;
+  if (!ts || ts.length === 0) return [YEAR_START_FALLBACK, YEAR_END_FALLBACK];
+  return [ts[0]?.y || YEAR_START_FALLBACK, ts[ts.length - 1]?.y || YEAR_END_FALLBACK];
+}
+
+// Derive the quick-range presets from a [start, end] span (never hardcode the
+// span) so changing the source dataset shifts the chips + date bounds with it.
+function buildQuickRanges(yearStart, yearEnd) {
+  return [
+    { id: 'all',  label: 'Tudo',    start: `${yearStart}-01`,   end: `${yearEnd}-12` },
+    { id: '30a',  label: '30 anos', start: `${yearEnd - 29}-01`, end: `${yearEnd}-12` },
+    { id: '20a',  label: '20 anos', start: `${yearEnd - 19}-01`, end: `${yearEnd}-12` },
+    { id: '10a',  label: '10 anos', start: `${yearEnd - 9}-01`,  end: `${yearEnd}-12` },
+    { id: '5a',   label: '5 anos',  start: `${yearEnd - 4}-01`,  end: `${yearEnd}-12` },
+  ];
+}
 
 const QUALITY_CHIP = {
   OK: 'ok', ESTIMATED: 'info', MISSING_VALUE: 'warn',
@@ -50,16 +74,6 @@ const qualityLabelOf = (id) => {
   const f = QUALITY.find(x => x.flag === id);
   return f ? f.label : id;
 };
-
-// Derived from YEAR_START/YEAR_END (never hardcode the span) so changing the
-// source dataset shifts the quick ranges and date bounds with it.
-const QUICK_RANGES = [
-  { id: 'all',  label: 'Tudo',    start: `${YEAR_START}-01`,   end: `${YEAR_END}-12` },
-  { id: '30a',  label: '30 anos', start: `${YEAR_END - 29}-01`, end: `${YEAR_END}-12` },
-  { id: '20a',  label: '20 anos', start: `${YEAR_END - 19}-01`, end: `${YEAR_END}-12` },
-  { id: '10a',  label: '10 anos', start: `${YEAR_END - 9}-01`,  end: `${YEAR_END}-12` },
-  { id: '5a',   label: '5 anos',  start: `${YEAR_END - 4}-01`,  end: `${YEAR_END}-12` },
-];
 
 // Nations — producer + main PEVS export destinations.
 const NATIONS = [
@@ -376,6 +390,16 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       .map(p => ({ code: p.code, name: p.name, unit: p.unit, family: p.family }));
   }, [banco]);
 
+  // Period bounds + quick-ranges from the ACTIVE banco's snapshot (same source as
+  // PRODS), so switching banco shifts the date min/max and the quick-range chips
+  // instead of staying frozen to whichever banco loaded first at import time.
+  const [yearStart, yearEnd] = useMemo(() => {
+    const snap = (window.dataStore && window.dataStore.get && window.dataStore.get(banco))
+              || (window.snapshotFor && window.snapshotFor(banco)) || null;
+    return bancoYearBounds(snap);
+  }, [banco]);
+  const QUICK_RANGES = useMemo(() => buildQuickRanges(yearStart, yearEnd), [yearStart, yearEnd]);
+
   // multi-selects (Sets)
   const [products, setProducts] = useState(new Set(PRODS.map(p => p.code)));
   const [flags,    setFlags]    = useState(new Set(QUALITY.map(f => f.flag)));
@@ -392,10 +416,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [qStates,   setQStates]   = useState('');
   const [qMunis,    setQMunis]    = useState('');
 
-  // period
+  // period — seeded from the active banco's bounds (the open-effect below
+  // re-seeds from the applied filter / banco bounds each time the panel opens).
   const [quickRange, setQuickRange] = useState('all');
-  const [startDate,  setStartDate]  = useState(`${YEAR_START}-01`);
-  const [endDate,    setEndDate]    = useState(`${YEAR_END}-12`);
+  const [startDate,  setStartDate]  = useState(`${yearStart}-01`);
+  const [endDate,    setEndDate]    = useState(`${yearEnd}-12`);
 
   // per-row value (filter range — in BRL, no conversion)
   // null = no limit
@@ -456,10 +481,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       setRegions( v.regions != null ? new Set(v.regions) : new Set(FM_REGIONS.map(r => r.id)));
       setStates(  v.states  != null ? new Set(v.states)  : new Set(STATES.map(s => s.uf)));
       setMunis(   v.munis   != null ? new Set(v.munis)   : new Set(MUNICIPALITIES.map(m => m.code)));
-      const sd = v.startDate || `${YEAR_START}-01`;
-      const ed = v.endDate   || `${YEAR_END}-12`;
+      const sd = v.startDate || `${yearStart}-01`;
+      const ed = v.endDate   || `${yearEnd}-12`;
       setStartDate(sd); setEndDate(ed);
-      setQuickRange((sd === `${YEAR_START}-01` && ed === `${YEAR_END}-12`) ? 'all' : null);
+      setQuickRange((sd === `${yearStart}-01` && ed === `${yearEnd}-12`) ? 'all' : null);
       setValueMin(v.valueMin ?? null);
       setValueMax(v.valueMax ?? null);
     }
@@ -533,7 +558,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     const prodChip = window.chipFmt.products(
       products.size, PRODS.length, (PRODS.find(p => products.has(p.code)) || {}).name);
     const periodChip =
-      quickRange === 'all' ? `${YEAR_START}–${YEAR_END}`
+      quickRange === 'all' ? `${yearStart}–${yearEnd}`
       : `${formatMonth(startDate)}–${formatMonth(endDate)}`;
     const valueChip = window.chipFmt.valueRange(vMin, vMax, sym);
     const muniFull = !showMunis || munis.size === MUNICIPALITIES.length; // all listed (or no municipal level) = no municipal slice
@@ -701,14 +726,14 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   <div className="fm-date-field">
                     <label htmlFor="fm-start">Início</label>
                     <input id="fm-start" className="fm-date" type="month"
-                           value={startDate} min={`${YEAR_START}-01`} max={endDate}
+                           value={startDate} min={`${yearStart}-01`} max={endDate}
                            onChange={(e) => onDateChange('start', e.target.value)}/>
                   </div>
                   <div className="fm-arrow">{I.arrow}</div>
                   <div className="fm-date-field">
                     <label htmlFor="fm-end">Fim</label>
                     <input id="fm-end" className="fm-date" type="month"
-                           value={endDate} min={startDate} max={`${YEAR_END}-12`}
+                           value={endDate} min={startDate} max={`${yearEnd}-12`}
                            onChange={(e) => onDateChange('end', e.target.value)}/>
                   </div>
                 </div>

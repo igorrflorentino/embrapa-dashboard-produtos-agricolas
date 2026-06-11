@@ -11,6 +11,10 @@ import { cleanup, render, screen } from '@testing-library/react';
 // above imports). Each test swaps reactState.impl to choose success/throw.
 const { reactState } = vi.hoisted(() => ({ reactState: { impl: () => {} } }));
 
+// Stand-in for Plotly's graph-div event API: real Plotly augments the element
+// with .on/.removeListener/.emit. The default impl wires a tiny listener
+// registry onto the element so click-rebinding can be exercised; tests that
+// only care about the error boundary swap reactState.impl to a no-op/throw.
 vi.mock('./plotlyBundle', () => ({
   default: {
     react: (...args) => reactState.impl(...args),
@@ -18,6 +22,17 @@ vi.mock('./plotlyBundle', () => ({
     Plots: { resize: () => {} },
   },
 }));
+
+// Equip an element with the minimal Plotly event surface used by Plot.
+function wirePlotlyEvents(el) {
+  if (el.__listeners) return; // idempotent across re-renders
+  el.__listeners = {};
+  el.on = (evt, fn) => { (el.__listeners[evt] ||= []).push(fn); };
+  el.removeListener = (evt, fn) => {
+    el.__listeners[evt] = (el.__listeners[evt] || []).filter((f) => f !== fn);
+  };
+  el.__emit = (evt, payload) => (el.__listeners[evt] || []).forEach((f) => f(payload));
+}
 
 import { Plot } from './_base.jsx';
 
@@ -53,5 +68,36 @@ describe('Plot error boundary', () => {
 
     // The throw is caught in the effect → fallback rendered, no error propagates.
     expect(await screen.findByText(FALLBACK)).toBeTruthy();
+  });
+});
+
+describe('Plot click handler rebinding', () => {
+  // Regression: the plotly_click listener is bound once on mount. It must call
+  // the CURRENT onClick (which closes over the current data) — not the stale
+  // first-render one — when the parent re-renders with a new handler/data.
+  it('invokes the latest onClick after the prop changes, not the first one', () => {
+    reactState.impl = (el) => wirePlotlyEvents(el);
+
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Plot traces={[{ x: [1], y: [1] }]} onClick={first} />,
+    );
+    // The chart host is the inner div the ref attaches to — it's the element
+    // Plotly.react was called with, so it carries the wired .on/.emit surface.
+    const host = [...container.querySelectorAll('div')].find((d) => typeof d.__emit === 'function');
+    expect(host, 'chart host should have the Plotly event surface wired').toBeTruthy();
+
+    host.__emit('plotly_click', { points: [{ x: 1 }] });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).not.toHaveBeenCalled();
+
+    // Re-render with a different handler (as a parent would when data changes).
+    rerender(<Plot traces={[{ x: [2], y: [2] }]} onClick={second} />);
+    host.__emit('plotly_click', { points: [{ x: 2 }] });
+
+    // The latest handler fires; the stale one is NOT called again.
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenCalledTimes(1);
   });
 });
