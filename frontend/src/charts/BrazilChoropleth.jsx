@@ -1,0 +1,153 @@
+// BrazilChoropleth — an interactive geographic choropleth of Brazil's 27 UFs,
+// shaded by the active metric. Real state shapes (vs the tile grid), with
+// pan/zoom/hover via maplibre-gl over our own GeoJSON (no basemap tiles, so it
+// works offline). Same call shape as BrazilTileMap: <BrazilChoropleth data
+// valueKey label/>, data = [{ uf, name, [valueKey] }] (uf = 2-letter sigla).
+//
+// maplibre-gl (~250KB gz) is LAZY-loaded via dynamic import() on mount, so it's
+// fetched only when a researcher actually opens this map — not on first paint of
+// the app. Vite code-splits it into its own chunk.
+
+import { useRef, useEffect, useState } from 'react';
+
+import brazilUfGeo from './brazilUfGeo';
+import { NODATA, fillColorExpression, ufColorScale } from './choroplethScale';
+
+const BRAZIL_BOUNDS = [
+  [-74.5, -34.5],
+  [-33.5, 6.5],
+];
+
+export function BrazilChoropleth({ data, valueKey, label, height = 360 }) {
+  const ref = useRef(null);
+  const mapRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  // uf -> { name, value, label } for the hover popup, kept in a ref so the map's
+  // event handlers always read the latest data without re-binding listeners.
+  const lookupRef = useRef({});
+  useEffect(() => {
+    const idx = {};
+    (data || []).forEach((d) => {
+      idx[d.uf] = { name: d.name, value: Number(d[valueKey]) || 0, label };
+    });
+    lookupRef.current = idx;
+  }, [data, valueKey, label]);
+
+  // Create the map once (lazy-loading maplibre). Guarded so an unmount mid-load
+  // doesn't init a detached map or setState after teardown.
+  useEffect(() => {
+    if (!ref.current) return undefined;
+    let cancelled = false;
+    let map = null;
+    let popup = null;
+
+    (async () => {
+      let maplibregl;
+      try {
+        maplibregl = (await import('maplibre-gl')).default;
+        await import('maplibre-gl/dist/maplibre-gl.css');
+      } catch (err) {
+        console.error('[choropleth] maplibre failed to load:', err);
+        if (!cancelled) setFailed(true);
+        return;
+      }
+      if (cancelled || !ref.current) return;
+
+      try {
+        map = new maplibregl.Map({
+          container: ref.current,
+          style: {
+            version: 8,
+            sources: {},
+            layers: [{ id: 'bg', type: 'background', paint: { 'background-color': 'transparent' } }],
+          },
+          bounds: BRAZIL_BOUNDS,
+          fitBoundsOptions: { padding: 12 },
+          attributionControl: false,
+          dragRotate: false,
+          pitchWithRotate: false,
+        });
+      } catch (err) {
+        // No WebGL (headless / unsupported) — degrade instead of crashing the view.
+        console.error('[choropleth] maplibre init failed:', err);
+        if (!cancelled) setFailed(true);
+        return;
+      }
+      mapRef.current = map;
+      map.touchZoomRotate.disableRotation();
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+      popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
+
+      map.on('load', () => {
+        if (cancelled) return;
+        map.addSource('uf', { type: 'geojson', data: brazilUfGeo });
+        map.addLayer({ id: 'uf-fill', type: 'fill', source: 'uf', paint: { 'fill-color': NODATA, 'fill-opacity': 0.9 } });
+        map.addLayer({ id: 'uf-line', type: 'line', source: 'uf', paint: { 'line-color': '#ffffff', 'line-width': 0.8 } });
+        paint();
+        map.on('mousemove', 'uf-fill', onMove);
+        map.on('mouseleave', 'uf-fill', onLeave);
+      });
+
+      function onMove(e) {
+        map.getCanvas().style.cursor = 'pointer';
+        const f = e.features && e.features[0];
+        if (!f) return;
+        const uf = f.properties.uf;
+        const hit = lookupRef.current[uf];
+        const val = hit ? hit.value.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—';
+        const name = (hit && hit.name) || f.properties.name || uf;
+        const unit = (hit && hit.label) || '';
+        popup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<div style="font:600 12px var(--font-body,sans-serif)">${uf} · ${name}</div>` +
+              `<div style="font:11px var(--font-body,sans-serif);color:#555">${val} ${unit}</div>`,
+          )
+          .addTo(map);
+      }
+      function onLeave() {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (popup) popup.remove();
+      if (map) map.remove();
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-paint when the data / metric changes (no map rebuild).
+  function paint() {
+    const map = mapRef.current;
+    if (!map || !map.getLayer || !map.getLayer('uf-fill')) return;
+    const { byUf } = ufColorScale(data, valueKey);
+    map.setPaintProperty('uf-fill', 'fill-color', fillColorExpression(byUf));
+  }
+  useEffect(() => {
+    paint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, valueKey]);
+
+  if (failed) {
+    return (
+      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span className="caption" style={{ color: 'var(--fg-3)' }}>
+          Mapa indisponível neste navegador.
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="br-choropleth" style={{ position: 'relative', width: '100%', height }}>
+      <div ref={ref} style={{ position: 'absolute', inset: 0, borderRadius: 8, overflow: 'hidden' }} />
+    </div>
+  );
+}
+
+window.BrazilChoropleth = BrazilChoropleth;
