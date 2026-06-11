@@ -34,6 +34,7 @@ Built for **Embrapa researchers** — the purpose is historical/scientific explo
 | `SECURITY.md` | Vulnerability reporting policy |
 | `PLANS/` | Detailed feature plans (one .md per feature) |
 | `docs/` | Deep-dive docs (setup, IAM, testing, cost safety, etc.) |
+| `docs/operations_runbook.md` | Occasional prod ops: managing curators (BQ allowlist), backing up prod Gold locally, the destructive-command safety hooks |
 
 ## Code Style
 
