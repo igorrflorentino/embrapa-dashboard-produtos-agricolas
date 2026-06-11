@@ -10,7 +10,6 @@ gunicorn entrypoint: ``embrapa_commodities.webapi.app:app``.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import math
 import os
@@ -69,8 +68,12 @@ def create_app() -> Flask:
     # flask-caching needs GCP settings (project/dataset/TTLs). Best-effort so the
     # module still imports for lint/tests without a configured .env; at runtime
     # (Cloud Run / dev with .env) it binds and the gateway memoization works.
-    with contextlib.suppress(Exception):  # pragma: no cover - depends on environment
+    # A real bind failure leaves the cache UNBOUND (every memoized read then
+    # fails), so log it at WARNING rather than swallowing it silently.
+    try:
         init_cache(app, get_settings())
+    except Exception:  # pragma: no cover - depends on environment
+        logger.warning("init_cache failed; gateway memoization disabled", exc_info=True)
 
     app.register_blueprint(api, url_prefix="/api")
 

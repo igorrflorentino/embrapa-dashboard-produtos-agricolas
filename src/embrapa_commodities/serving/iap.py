@@ -33,6 +33,9 @@ IAP_EMAIL_HEADER = "X-Goog-Authenticated-User-Email"
 IAP_JWT_HEADER = "X-Goog-IAP-JWT-Assertion"
 # Google's IAP public-key endpoint (JWKS-equivalent) used to verify the assertion.
 IAP_CERTS_URL = "https://www.gstatic.com/iap/verify/public_key"
+# The only issuer a genuine IAP assertion carries. google-auth verifies the
+# signature + audience + expiry but does NOT check `iss`, so we assert it here.
+IAP_ISSUER = "https://cloud.google.com/iap"
 
 
 class MissingAuthorError(PermissionError):
@@ -90,6 +93,14 @@ def verify_iap_jwt(
         )
     except Exception as exc:  # google-auth raises ValueError subclasses on any failure
         raise InvalidIapAssertionError(f"IAP JWT assertion failed to verify: {exc}") from exc
+
+    # verify_token checks signature/aud/exp but NOT the issuer — assert it so a
+    # validly-signed token minted for a different Google product can't be replayed.
+    issuer = (claims or {}).get("iss", "")
+    if issuer != IAP_ISSUER:
+        raise InvalidIapAssertionError(
+            f"IAP JWT has unexpected issuer {issuer!r} (expected {IAP_ISSUER!r})."
+        )
 
     email = (claims or {}).get("email", "").strip()
     if not email:

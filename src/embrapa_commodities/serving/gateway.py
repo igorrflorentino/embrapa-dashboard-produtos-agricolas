@@ -60,11 +60,18 @@ def _client() -> bigquery.Client:
 
 
 def run_query(sql: str, params: list) -> object:
-    """Execute a parameterized query and return the result as a DataFrame."""
-    job = _client().query(
-        sql,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
-    )
+    """Execute a parameterized query and return the result as a DataFrame.
+
+    Applies a ``maximum_bytes_billed`` ceiling (``Settings.bq_max_bytes_billed``)
+    so the always-on /api path can't run an unbounded scan — a pathological filter
+    or a cold Bronze read is FAILED by BigQuery (visibly) rather than silently
+    billing a runaway query. ``None``/0 disables the cap.
+    """
+    cfg = get_settings()
+    job_config = bigquery.QueryJobConfig(query_parameters=params)
+    if cfg.bq_max_bytes_billed:
+        job_config.maximum_bytes_billed = cfg.bq_max_bytes_billed
+    job = _client().query(sql, job_config=job_config)
     return job.result().to_dataframe(create_bqstorage_client=False)
 
 
@@ -358,7 +365,7 @@ def fetch_comtrade_cpc_value(codes: tuple = ()):
     return run_query(sql, params)
 
 
-@cache.memoize()
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.
     Raises if the log table doesn't exist yet (no pair classified) — the seam

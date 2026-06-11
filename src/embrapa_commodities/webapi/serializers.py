@@ -323,22 +323,27 @@ def serialize_monthly(df: pd.DataFrame | None) -> dict:
     base = {"preview": False, "unit": "US$", "months": list(range(1, 13))}
     if _empty(df):
         return {**base, "years": [], "matrix": {}, "monthlyAvg": [], "series": []}
-    matrix: dict[int, list[float]] = {}
+    # Seed absent months as None (not 0.0) so the 12-month average can tell a
+    # genuine 0-export month from a month with no data row. The emitted `matrix`
+    # still uses 0.0 for absent months (the contract is 12 numbers per year).
+    matrix: dict[int, list[float | None]] = {}
     series: list[dict] = []
     for r in df.itertuples():
         y, m = int(r.reference_year), int(r.reference_month)
         v = _num(r.total_value_usd) / 1e6
-        matrix.setdefault(y, [0.0] * 12)[m - 1] = v
+        matrix.setdefault(y, [None] * 12)[m - 1] = v
         series.append({"ym": f"{y}-{m:02d}", "y": y, "m": m, "v": v})
     years = sorted(matrix)
     monthly_avg = []
     for mi in range(12):
-        vals = [matrix[y][mi] for y in years if matrix[y][mi]]
+        # Count real zeros; exclude only absent (None) cells — a truthiness
+        # filter would silently drop genuine 0.0 months and bias the avg upward.
+        vals = [matrix[y][mi] for y in years if matrix[y][mi] is not None]
         monthly_avg.append(sum(vals) / len(vals) if vals else 0.0)
     return {
         **base,
         "years": years,
-        "matrix": {str(y): matrix[y] for y in years},
+        "matrix": {str(y): [c if c is not None else 0.0 for c in matrix[y]] for y in years},
         "monthlyAvg": monthly_avg,
         "series": series,
     }

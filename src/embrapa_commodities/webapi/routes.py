@@ -15,6 +15,10 @@ from __future__ import annotations
 import logging
 
 from flask import Blueprint, jsonify, request
+from werkzeug.exceptions import HTTPException
+
+from embrapa_commodities.config import get_settings
+from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
 from .auth import current_author
@@ -22,6 +26,38 @@ from .auth import current_author
 logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__)
+
+
+@api.errorhandler(Exception)
+def _api_error(exc):
+    """Always emit parseable JSON from /api. Flask's default HTML 500 would make
+    the SPA's fetch layer fail to parse and (without a client retry cap) loop;
+    JSON keeps every error machine-readable. HTTP errors keep their status code."""
+    if isinstance(exc, HTTPException):
+        return jsonify(error=exc.description, code=exc.code), exc.code
+    logger.exception("Unhandled error on %s", request.path)
+    return jsonify(error="internal server error"), 500
+
+
+def _authorize_curator():
+    """Resolve the IAP author and enforce the curator allowlist (authorization).
+
+    Returns ``(author, None)`` when authorized, else ``(None, (response, status))``:
+    403 for a forged/invalid IAP assertion or a non-allowlisted author, 401 when
+    no trustworthy identity is present at all. The allowlist
+    (``Settings.curation_allowed_emails``) is empty by default — preserving the
+    current "any IAP-authenticated caller may curate" behaviour.
+    """
+    try:
+        author = current_author()
+    except InvalidIapAssertionError as exc:
+        return None, (jsonify(error=str(exc)), 403)
+    except PermissionError as exc:  # MissingAuthorError (+ any other) → no identity
+        return None, (jsonify(error=str(exc)), 401)
+    allowed = get_settings().curation_allowed_emails_list
+    if allowed and author.lower() not in allowed:
+        return None, (jsonify(error=f"{author} is not an authorized curator"), 403)
+    return author, None
 
 
 # ── catalog + provenance ──────────────────────────────────────────────────────
@@ -149,11 +185,11 @@ def curation_worklist():
 @api.post("/curation/code-level")
 def curation_code_level():
     """Append one per-code classification edit. Author captured from the IAP
-    header (dev fallback per config); 401 when no trustworthy identity."""
-    try:
-        author = current_author()
-    except PermissionError as exc:
-        return jsonify(error=str(exc)), 401
+    header (dev fallback per config); 401 (no identity) / 403 (invalid assertion
+    or not an allowlisted curator)."""
+    author, err = _authorize_curator()
+    if err:
+        return err
     body = request.get_json(silent=True) or {}
     source, code, level = body.get("source"), body.get("code"), body.get("level")
     if not (source and code and level):
@@ -171,11 +207,11 @@ def curation_flow_worklist():
 @api.post("/curation/flow-market")
 def curation_flow_market():
     """Append one (customs_code, flow_code) → market edit (market='' clears).
-    Author from the IAP header; 401 when no trustworthy identity."""
-    try:
-        author = current_author()
-    except PermissionError as exc:
-        return jsonify(error=str(exc)), 401
+    Author from the IAP header; 401 (no identity) / 403 (invalid assertion or not
+    an allowlisted curator)."""
+    author, err = _authorize_curator()
+    if err:
+        return err
     body = request.get_json(silent=True) or {}
     customs, flow = body.get("customs_code"), body.get("flow_code")
     market = body.get("market", "")

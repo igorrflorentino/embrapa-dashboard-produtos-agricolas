@@ -73,12 +73,17 @@ def init_cache(server, settings=None) -> Cache:
 
 
 def _bind_classification_ttl(timeout: int) -> None:
-    """Point the memoized classification read at the Settings-derived TTL.
+    """Point the memoized curation reads at the Settings-derived TTL.
 
     Imported lazily (gateway imports this module) to dodge a circular import.
     flask-caching reads ``decorated_fn.cache_timeout`` on every call, so updating
     it here overrides the decoration-time default with the authoritative value.
+    ALL THREE curation reads (commodity-level, per-code, and flow-market) must use
+    the short classification TTL — that short window is what bounds cross-instance
+    staleness on per-process SimpleCache — so rebind all three, not just the first.
     """
     from embrapa_commodities.serving import gateway
 
     gateway.fetch_current_classifications.cache_timeout = timeout
+    gateway.fetch_current_code_industrialization.cache_timeout = timeout
+    gateway.fetch_current_flow_market.cache_timeout = timeout

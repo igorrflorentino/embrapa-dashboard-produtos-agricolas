@@ -25,14 +25,19 @@ def _ptbr(value: float, decimals: int = 0) -> str:
 
 
 def fmt_brl(n: float | None) -> str:
-    """Compact BRL — bi/mi/mil thresholds (matches the prototype's fmtBRL)."""
+    """Compact BRL — bi/mi/mil thresholds (matches the prototype's fmtBRL).
+
+    Thresholds compare ``abs(n)`` so a large NEGATIVE value (e.g. a -5 bi
+    spread/delta) is still compacted; without it a negative fell through to the
+    full-digit branch, diverging from the sibling ``fmt_money``.
+    """
     if n is None:
         return "—"
-    if n >= 1e9:
+    if abs(n) >= 1e9:
         return "R$ " + _ptbr(n / 1e9, 2) + " bi"
-    if n >= 1e6:
+    if abs(n) >= 1e6:
         return "R$ " + _ptbr(n / 1e6, 1) + " mi"
-    if n >= 1e3:
+    if abs(n) >= 1e3:
         return "R$ " + _ptbr(n / 1e3, 0) + " mil"
     return "R$ " + _ptbr(n, 0)
 
