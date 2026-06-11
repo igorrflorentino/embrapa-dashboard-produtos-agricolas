@@ -584,15 +584,18 @@ def ingest_reconcile(
 
     # BCB inflation/FX + COMEX: --full re-fetches each one's whole configured
     # window. Reuse the same INGESTS registry as `ingest all`, skipping IBGE
-    # (already done, chunked) and the out-of-`all` COMTRADE.
+    # (already done, chunked) and the out-of-`all` COMTRADE. Gate on
+    # accepts_full exactly like `ingest all` so a future non-delta source added
+    # to the batch wouldn't trip on an unexpected full= kwarg.
     for spec in INGESTS:
         if not spec.in_all or spec.name == "ibge":
             continue
+        kwargs = {"full": True} if spec.accepts_full else {}
         console.print(f"[bold]→ {spec.label}[/bold] [dim](full)[/dim]")
         try:
-            with pipeline_run(spec.name, params={"full": True}) as (_run_id, log_path):
+            with pipeline_run(spec.name, params=kwargs) as (_run_id, log_path):
                 console.print(f"[dim]event log:[/dim] {log_path}")
-                spec.module.run(settings, full=True)
+                spec.module.run(settings, **kwargs)
         except Exception as exc:
             failures.append((spec.label, str(exc)[:200]))
             console.print(f"[red]✗ {spec.label} failed:[/red] {str(exc)[:200]}")

@@ -107,14 +107,15 @@ make ingest-job-reconcile-schedule    # 1st of month, 03:00 America/Sao_Paulo by
 This uses the Cloud Run Admin **v2** `:run` API (the only one that can override a
 Job's args) with a longer task timeout for the heavier full window. Overriding
 args needs **`run.jobs.runWithOverrides`**, which `roles/run.invoker` does *not*
-grant — so the scheduler SA needs `roles/run.developer` (the script prints the
-exact one-time binding command):
+grant (a non-empty `overrides` body with only invoker gets a 403). Grant the
+scheduler SA the least-privilege role built for this — `roles/run.jobsExecutorWithOverrides`
+(or the broader `roles/run.developer`). The script prints the exact command:
 
 ```bash
 gcloud run jobs add-iam-policy-binding embrapa-ingest-all \
   --region <INGEST_JOB_REGION> --project <GCP_PROJECT_ID> \
   --member "serviceAccount:sa-data-pipeline-prod@<GCP_PROJECT_ID>.iam.gserviceaccount.com" \
-  --role roles/run.developer
+  --role roles/run.jobsExecutorWithOverrides
 ```
 
 Run it once on demand (no scheduler) — e.g. to force-unstick a frozen source:

@@ -19,10 +19,11 @@
 # nightly Job's default — the full window is heavier — without touching the Job.
 #
 # IAM: arg overrides require the **run.jobs.runWithOverrides** permission, which
-# roles/run.invoker does NOT grant. The scheduler SA therefore needs
-# roles/run.developer (or a custom role with run.jobs.runWithOverrides). That is
-# an access-control change — the closing message prints the exact command for an
-# operator to run; this script does not grant IAM itself.
+# roles/run.invoker does NOT grant (a job that POSTs a non-empty `overrides` body
+# with only run.invoker gets 403). The least-privilege role built for exactly
+# this is roles/run.jobsExecutorWithOverrides; roles/run.developer also works but
+# is broader. That is an access-control change — the closing message prints the
+# exact command for an operator to run; this script does not grant IAM itself.
 #
 # Run by the OPERATOR. Defaults read from .env, mirroring schedule.sh. Idempotent.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,17 +107,22 @@ gcloud scheduler jobs "$ACTION" http "$SCHED_NAME" --project "$PROJECT" --locati
 
 cat <<EOF
 
-Scheduled the MONTHLY deep-refresh. Two one-time grants the scheduler SA needs
-on this job (arg overrides require runWithOverrides, which run.invoker lacks):
+Scheduled the MONTHLY deep-refresh. One-time grant the scheduler SA needs on this
+job — arg overrides require run.jobs.runWithOverrides, which roles/run.invoker
+does NOT include. Prefer the least-privilege role built for exactly this:
   gcloud run jobs add-iam-policy-binding $JOB_NAME --region $REGION --project $PROJECT \\
-    --member "serviceAccount:$SCHED_SA" --role roles/run.developer
-  # (roles/run.developer includes run.jobs.runWithOverrides; run.invoker alone is not enough.)
+    --member "serviceAccount:$SCHED_SA" --role roles/run.jobsExecutorWithOverrides
+  # (or the broader roles/run.developer; run.invoker alone gives 403 on the overrides body.)
 
 Trigger a test run immediately (runs the FULL re-ingest — heavier than the nightly):
   gcloud scheduler jobs run $SCHED_NAME --location $REGION --project $PROJECT
 
 Or run the deployed Job once on demand without the scheduler (same override):
   gcloud run jobs execute $JOB_NAME --region $REGION --project $PROJECT --args=reconcile
+
+NOTE: jobs:run returns a long-running Operation — the scheduler only sees the HTTP
+202, not the execution result. A FAILED reconcile execution is caught by the
+existing ingestion failure alert (make ingest-job-alert), not the scheduler.
 
 NOTE: this only refreshes BRONZE. Silver/Gold update on the next scheduled dbt
 build (.github/workflows/dbt-build-prod.yml) — the incremental Silver is
