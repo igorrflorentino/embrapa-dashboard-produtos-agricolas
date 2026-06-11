@@ -68,6 +68,16 @@ jobs:
       - name: Test (pytest)
         run: make test
 
+      # Non-gating dependency advisory for the Python deps: pip-audit checks the
+      # synced environment against the PyPI advisory DB. Kept visible but
+      # non-blocking (continue-on-error) so a transitive advisory with no fix yet
+      # doesn't red-light unrelated PRs — the Python analogue of the npm audit
+      # step in the frontend job. `uv run --with` pulls pip-audit in for this
+      # step alone (not a project dependency).
+      - name: Dependency audit (pip-audit, non-blocking)
+        run: uv run --with pip-audit pip-audit
+        continue-on-error: true
+
       # `dbt parse` needs a profile to exist, but with method: oauth it
       # does not actually authenticate during parse. The example profile
       # is enough to satisfy the schema check.
@@ -117,8 +127,22 @@ jobs:
       - name: Install dependencies (reproducible via package-lock.json)
         run: npm ci
 
+      # ESLint is scoped to the HAND-WRITTEN layer only (src/data + src/charts);
+      # the vendored prototype (src/proto/) is deliberately out of scope. See
+      # frontend/eslint.config.js. The `lint` script runs exactly those dirs.
+      - name: Frontend lint (ESLint)
+        run: npm run lint
+
       - name: Test (vitest run)
         run: npm test
+
+      # Non-gating dependency advisory: surfaces high/critical npm advisories
+      # without red-lighting PRs (continue-on-error). It stays informational on
+      # purpose — the dev-only vite/esbuild advisory has no production reach (the
+      # built SPA ships no esbuild), so it must not block merges.
+      - name: Dependency audit (npm, non-blocking)
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
   # SQLFluff lint of the dbt models. UNLIKE the credential-free jobs above, this
   # one needs a BigQuery connection: SQLFluff's dbt templater runs a full

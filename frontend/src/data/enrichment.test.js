@@ -7,7 +7,7 @@
 // Strategy: mock global fetch (the real ./resource uses it), and vi.resetModules
 // + re-import enrichment.js per test so each gets a fresh cache + draft.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const WORKLIST = {
   rows: [
