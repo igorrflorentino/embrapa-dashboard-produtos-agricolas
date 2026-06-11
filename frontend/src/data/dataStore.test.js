@@ -9,6 +9,11 @@ function jsonRes(body, { ok = true, status = 200 } = {}) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) });
 }
 
+// A contract-complete BancoSnapshot (the shape assertSnapshotShape requires).
+function validSnap(over = {}) {
+  return { products: [], productTS: {}, overviewTS: [], ufData: [], quality: [], ...over };
+}
+
 async function loadStore(fetchImpl) {
   globalThis.fetch = fetchImpl;
   vi.resetModules();
@@ -21,7 +26,7 @@ async function loadStore(fetchImpl) {
 
 describe('dataStore', () => {
   it('loads, decorates, and caches a snapshot', async () => {
-    const snap = { products: [], ufData: [{ uf: 'PA', value: 1 }], quality: [{ id: 'OK', count: 3 }] };
+    const snap = validSnap({ ufData: [{ uf: 'PA', value: 1 }], quality: [{ id: 'OK', count: 3 }] });
     const f = vi.fn(() => jsonRes(snap));
     const ds = await loadStore(f);
 
@@ -50,7 +55,7 @@ describe('dataStore', () => {
   });
 
   it('re-fetches under a different convention (currency drives the cache key)', async () => {
-    const f = vi.fn(() => jsonRes({ products: [] }));
+    const f = vi.fn(() => jsonRes(validSnap()));
     const ds = await loadStore(f);
 
     await ds.load('ibge_pevs'); // BRL|IPCA
@@ -60,5 +65,26 @@ describe('dataStore', () => {
     expect(f).toHaveBeenCalledTimes(2);
     const lastUrl = f.mock.calls[f.mock.calls.length - 1][0];
     expect(lastUrl).toContain('currency=USD');
+  });
+
+  it('rejects a drifted snapshot shape as status=error (no silent empty view)', async () => {
+    // products is fine but productTS arrived as an array (a contract drift) —
+    // every producer would read it and render blank; instead, fail loudly.
+    const f = vi.fn(() => jsonRes(validSnap({ productTS: [] })));
+    const ds = await loadStore(f);
+
+    const res = await ds.load('ibge_pevs');
+    expect(res.status).toBe('error');
+    expect(ds.error('ibge_pevs')).toMatch(/contrato.*productTS/i);
+    expect(ds.get('ibge_pevs')).toBe(null);
+  });
+
+  it('rejects a non-object snapshot payload (e.g. null / an error string)', async () => {
+    const f = vi.fn(() => jsonRes(null));
+    const ds = await loadStore(f);
+
+    const res = await ds.load('ibge_pevs');
+    expect(res.status).toBe('error');
+    expect(ds.error('ibge_pevs')).toMatch(/inesperada/i);
   });
 });

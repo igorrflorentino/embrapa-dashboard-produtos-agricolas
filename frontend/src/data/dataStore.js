@@ -56,6 +56,28 @@ const refreshOf = (id) =>
   (window.bancoById && window.bancoById(id)?.prov?.refresh) ||
   null;
 
+// The core BancoSnapshot fields (contracts.js) + their expected JS type. Their
+// presence distinguishes a real snapshot from an error payload or a drifted
+// backend shape — so a contract change surfaces as a CLEAR error, not a silent
+// empty view (every downstream producer reads these and would just render blank).
+const SNAPSHOT_SHAPE = [
+  ['products', Array.isArray],
+  ['productTS', (v) => !!v && typeof v === 'object' && !Array.isArray(v)],
+  ['overviewTS', Array.isArray],
+  ['ufData', Array.isArray],
+  ['quality', Array.isArray],
+];
+
+function assertSnapshotShape(snap) {
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
+    throw new Error('Resposta de /api/snapshot inesperada (não é um objeto BancoSnapshot).');
+  }
+  const bad = SNAPSHOT_SHAPE.filter(([k, ok]) => !ok(snap[k])).map(([k]) => k);
+  if (bad.length) {
+    throw new Error(`Resposta de /api/snapshot fora do contrato (campos inválidos: ${bad.join(', ')}).`);
+  }
+}
+
 async function fetchSnapshot(id) {
   const qs = new URLSearchParams({
     banco: id,
@@ -65,6 +87,7 @@ async function fetchSnapshot(id) {
   const r = await fetch(`${API}/snapshot?${qs}`);
   if (!r.ok) throw new Error(`Falha ao consultar a Gold no BigQuery (HTTP ${r.status}).`);
   const snap = await r.json();
+  assertSnapshotShape(snap); // fail loudly on a drifted contract, don't render blank
   snap.table = tableOf(id);
   return decorateSnapshot(snap);
 }
