@@ -791,10 +791,20 @@ def record_flow_market(customs_code: str, flow_code: str, market: str) -> dict:
 
 def market_nature(commodity_id: str | None = None) -> dict:
     """COMTRADE trade value (US$ bi) by curated economic purpose
-    (consumo/processamento) over the years. Empty until pairs are classified."""
-    codes = tuple(_codes(commodity_id, "comtrade")) if commodity_id else ()
-    df = gateway.fetch_comtrade_cpc_value(codes)
+    (consumo/processamento) over the years, optionally scoped to ONE commodity's
+    HS codes. Empty until pairs are classified."""
     mapping = _flow_market_map()
+    if commodity_id:
+        codes = tuple(_codes(commodity_id, "comtrade"))
+        if not codes:
+            # The commodity exists but has no COMTRADE (HS) codes → no global
+            # trade to split. Return empty rather than silently falling through
+            # to the UNSCOPED all-commodities total (an empty `codes` tuple means
+            # "no filter" to fetch_comtrade_cpc_value).
+            return {"years": [], "series": [], "latest": {}, "n_classified": len(mapping)}
+    else:
+        codes = ()
+    df = gateway.fetch_comtrade_cpc_value(codes)
     markets = [m["id"] for m in ENRICH_MARKETS]
     acc: dict = {}
     if df is not None and not df.empty:
