@@ -143,7 +143,7 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
       el.removeListener?.('plotly_click', handler);
       Plotly.purge(el);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (
