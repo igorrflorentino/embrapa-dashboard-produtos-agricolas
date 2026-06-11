@@ -90,8 +90,28 @@ function ViewValueAdded() {
 // ── Economic purpose: consume × process ───────────────────────────────
 function ViewMarketNature() {
   useEnrichmentTick();
-  const data = window.marketNatureAnalysis();
+  const [group, setGroup] = useCaState(null);
+  window.enrichment.worklist(); // kick the code worklist so ENRICH_GROUPS (the commodity chips) populates
+  const data = window.marketNatureAnalysis(group);
   const banco = window.bancoById('mdic_comex');
+
+  // Scope the analysis to one commodity's COMTRADE codes (or all curated).
+  const selector = (
+    <div className="pp-selector">
+      <span className="pp-selector-label">Commodity</span>
+      <div className="pp-chips">
+        <button className={'pp-chip ' + (!group ? 'on' : '')} onClick={() => setGroup(null)}
+          style={!group ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>Todas curadas</button>
+        {window.ENRICH_GROUPS.map(g => {
+          const on = group === g.id;
+          return (
+            <button key={g.id} className={'pp-chip ' + (on ? 'on' : '')} onClick={() => setGroup(g.id)}
+              style={on ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>{g.label}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   // Curated-real: the series is EMPTY until the researcher classifies customs×flow
   // pairs in Curadoria (or while the fetch is in flight). Guard before reading
@@ -102,6 +122,7 @@ function ViewMarketNature() {
       <>
         {data.preview && <window.PreviewBanner banco={banco}
           capabilityNote="A finalidade (consumo/processamento) de cada par procedimento aduaneiro × fluxo vem da Curadoria." />}
+        {selector}
         <div className="card subtle">
           <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
             title="Classifique os pares aduana × fluxo para ativar esta análise" />
@@ -129,6 +150,7 @@ function ViewMarketNature() {
     <>
       {data.preview && <window.PreviewBanner banco={banco}
         capabilityNote="Valores por fluxo entram como demonstração até o MDIC ser ligado; a finalidade (consumo/processamento) de cada par regime × fluxo vem da Curadoria." />}
+      {selector}
 
       <div className="kpi-row">
         {window.ENRICH_MARKETS.map(m => (

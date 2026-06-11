@@ -98,3 +98,26 @@ def test_market_nature_empty_when_nothing_classified(monkeypatch):
     out = seam.market_nature()
     assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
     assert out["n_classified"] == 0
+
+
+def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
+    # A commodity scoped by the selector that has NO COMTRADE HS codes must return
+    # empty — NOT silently fall through to the unscoped all-commodities total
+    # (an empty codes tuple means "no filter" to fetch_comtrade_cpc_value).
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {"manicoba": {"comtrade": [], "comex": ["1"], "pevs": ["2"]}},
+    )
+    # Data + a classification both exist; the guard must still return empty here.
+    cpc = pd.DataFrame(
+        [{"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9}]
+    )
+    fm = pd.DataFrame([{"customs_code": "C04", "flow_code": "M", "market": "processamento"}])
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
+    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: fm)
+
+    out = seam.market_nature("manicoba")
+    assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
+    assert out["n_classified"] == 1  # the mapping is still reported
