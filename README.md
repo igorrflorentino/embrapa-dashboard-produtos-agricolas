@@ -214,6 +214,7 @@ See [docs/ownership_transfer.md](docs/ownership_transfer.md). Nothing is hardcod
 | [docs/testing.md](docs/testing.md) | Testing strategy and guide |
 | [docs/ownership_transfer.md](docs/ownership_transfer.md) | Company transfer checklist |
 | [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Looker Studio → Gold connection |
+| [docs/gold_data_model.md](docs/gold_data_model.md) | Gold ER diagram + join guide (tables, dims, marts) |
 | [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Gold → frontend snapshot data contract (handoff) |
 | [docs/migration_history.md](docs/migration_history.md) | Migration history |
 | [scripts/README.md](scripts/README.md) | Auxiliary scripts documentation |
