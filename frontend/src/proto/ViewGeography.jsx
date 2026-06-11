@@ -5,10 +5,14 @@ const { useState: useGeoState, useMemo: useGeoMemo, useEffect: useGeoEffect } = 
 
 function ViewGeography({ families, conventions, summary, database }) {
   const conv     = conventions || window.DEFAULT_CONVENTIONS;
-  // UF_DATA.value is in banco base currency (mi) internally — scale by 1e6 to
-  // absolute, then convert through the base-aware factor.
+  // UF_DATA.value is in the banco's OWN base currency (mi) internally — scale by
+  // 1e6 to absolute, then convert base→display through the base-aware factor.
+  // For a USD-native banco (COMEX/Comtrade) the plain convFactor would leave a
+  // US$ magnitude under R$ once the display switches to BRL; base=BRL (PEVS/
+  // SEFAZ) routes through convFactor verbatim, so that path is unchanged.
   // UF_DATA.q_mass is in mil t internally; UF_DATA.q_vol is in mi m³.
-  const valueMul = window.convFactor(conv) * 1e6;  // mi → absolute, base-aware
+  const baseCcy  = window.canonCurrencyFor ? window.canonCurrencyFor(database) : 'BRL';
+  const valueMul = window.convFactorFor(baseCcy, conv) * 1e6;  // mi → absolute, base-aware
   const massMul  = window.massQtyMul(conv);   // 1e3 (t) or 1e6 (kg)
   const volMul   = window.volumeQtyMul(conv); // 1e6 (m³) or 1e9 (L)
   const valueUnitLabel = window.valueAxisLabel(conv); // "R$" / "US$" / etc.

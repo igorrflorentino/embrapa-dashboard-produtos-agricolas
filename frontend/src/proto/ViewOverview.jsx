@@ -6,6 +6,11 @@ function ViewOverview({ families, summary, database, conventions }) {
   const conv      = conventions || window.DEFAULT_CONVENTIONS;
   const monLabel  = window.conventionMonetaryLabel(conv);
   const valAxis   = window.valueAxisLabel(conv);
+  // ufData is in the banco's OWN base currency (USD for COMEX/Comtrade), so scale
+  // it with the base-aware factor — convFactor alone leaves a US$ magnitude under
+  // R$ when a USD-native banco switches display to BRL. base=BRL → unchanged.
+  const baseCcy   = window.canonCurrencyFor ? window.canonCurrencyFor(database) : 'BRL';
+  const ufFactor  = window.convFactorFor(baseCcy, conv);
 
   const filtered = window.applyFilters(summary || {}, database);
 
@@ -122,7 +127,7 @@ function ViewOverview({ families, summary, database, conventions }) {
           {(() => {
             const ufRows = filtered.ufData.map(u => ({
               ...u,
-              value: u.value * 1e6 * window.convFactor(conv),
+              value: u.value * 1e6 * ufFactor,
             }));
             const max = Math.max(...ufRows.map(u => u.value), 0);
             const { data, label } = window.scaleSeries(ufRows, max, conv, 'value', valAxis);
