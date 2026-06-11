@@ -338,6 +338,7 @@ def ingest_ibge_batch(
             "products in IBGE_PRODUCT_CODES so every state response stays "
             "under SIDRA's cell limit with a safety margin."
         ),
+        min=1,  # 0 → empty range (silent no-op); negative → ValueError. Reject both.
     ),
 ) -> None:
     """Ingest IBGE PEVS in year-chunked batches to avoid IBGE connection drops.
@@ -543,6 +544,7 @@ def ingest_reconcile(
         "--chunk-years",
         "-c",
         help="IBGE years per batch (see `ingest ibge-batch`). Omit to auto-size to the cell limit.",
+        min=1,  # reject 0 (silent no-op) / negative (ValueError) — same as ibge-batch.
     ),
 ) -> None:
     """Full re-download of every nightly source — the deliberate escape hatch.

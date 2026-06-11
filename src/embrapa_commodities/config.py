@@ -88,7 +88,9 @@ class Settings(BaseSettings):
     # the whole 1986→today window (a huge SIDRA request that can blow the slow-byte
     # deadline on an unattended Cloud Run job). `--full` ignores this; a cold
     # Bronze table also falls back to the full configured window.
-    ibge_delta_overlap_years: int = Field(default=1)
+    # ge=0: a NEGATIVE overlap would push the delta floor ABOVE latest_bronze_year,
+    # skipping not-yet-absorbed recent years on a warm table (silent data gap).
+    ibge_delta_overlap_years: int = Field(default=1, ge=0)
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
