@@ -150,6 +150,9 @@ def record_processing_stage(
     change_id = uuid.uuid4().hex
     bq = client or _bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curation_log_table)
+    # Self-heal the log table on a fresh project (mirrors record_flow_market) — the
+    # writer must not assume the app factory created it, or the first edit 500s.
+    ensure_curation_log_table(cfg, bq)
 
     # Parameterized DML INSERT: immediately consistent (read-after-write for the
     # SCD2 view) and injection-safe. edited_at is stamped server-side.
@@ -279,6 +282,8 @@ def record_code_industrialization(
     table_fqn = sqlbuild.table_ref(
         cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
     )
+    # Self-heal the log table on a fresh project (mirrors record_flow_market).
+    ensure_code_industrialization_log_table(cfg, bq)
 
     sql = f"""
         insert into `{table_fqn}`

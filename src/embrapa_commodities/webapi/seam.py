@@ -19,6 +19,7 @@ from __future__ import annotations
 import functools
 
 import pandas as pd
+from google.api_core.exceptions import NotFound
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving import gateway
@@ -617,7 +618,10 @@ def _current_code_levels() -> dict:
     (curation not enabled in this dataset yet) — so the worklist still renders."""
     try:
         df = gateway.fetch_current_code_industrialization()
-    except Exception:
+    except NotFound:
+        # The SCD2 view genuinely doesn't exist yet (curation not enabled) — render
+        # the worklist empty. Any OTHER error (transient BQ, permissions) must
+        # propagate, not be masked as "not built yet".
         return {}
     if df is None or df.empty:
         return {}
@@ -743,7 +747,9 @@ def _flow_market_map() -> dict:
     (nobody classified yet) — so the matrix + analysis render before activation."""
     try:
         df = gateway.fetch_current_flow_market()
-    except Exception:
+    except NotFound:
+        # Log table absent (nobody classified yet) — render the matrix empty. Other
+        # errors propagate instead of being masked as "not activated yet".
         return {}
     if df is None or df.empty:
         return {}

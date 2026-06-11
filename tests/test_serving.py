@@ -76,7 +76,7 @@ def test_verify_iap_jwt_returns_verified_email(monkeypatch):
         seen["token"] = token
         seen["audience"] = audience
         seen["certs_url"] = certs_url
-        return {"email": "verified@embrapa.br", "sub": "123"}
+        return {"email": "verified@embrapa.br", "sub": "123", "iss": iap.IAP_ISSUER}
 
     monkeypatch.setattr("google.oauth2.id_token.verify_token", fake_verify)
     headers = {iap.IAP_JWT_HEADER: "signed.jwt.token"}
@@ -105,8 +105,23 @@ def test_verify_iap_jwt_invalid_signature_raises(monkeypatch):
 
 
 def test_verify_iap_jwt_without_email_claim_raises(monkeypatch):
-    monkeypatch.setattr("google.oauth2.id_token.verify_token", lambda *a, **k: {"sub": "123"})
+    monkeypatch.setattr(
+        "google.oauth2.id_token.verify_token",
+        lambda *a, **k: {"sub": "123", "iss": iap.IAP_ISSUER},
+    )
     headers = {iap.IAP_JWT_HEADER: "valid.but.no.email"}
+    with pytest.raises(iap.InvalidIapAssertionError):
+        iap.verify_iap_jwt(headers, audience="aud")
+
+
+def test_verify_iap_jwt_wrong_issuer_raises(monkeypatch):
+    """A validly-signed token minted for a different Google product (wrong iss) is
+    rejected — verify_token checks signature/aud/exp but not the issuer."""
+    monkeypatch.setattr(
+        "google.oauth2.id_token.verify_token",
+        lambda *a, **k: {"email": "x@embrapa.br", "iss": "https://accounts.google.com"},
+    )
+    headers = {iap.IAP_JWT_HEADER: "signed.but.wrong.issuer"}
     with pytest.raises(iap.InvalidIapAssertionError):
         iap.verify_iap_jwt(headers, audience="aud")
 
@@ -115,7 +130,7 @@ def test_author_email_prefers_verified_jwt_when_audience_set(monkeypatch):
     """With audience set, the spoofable plaintext header is ignored; JWT wins."""
     monkeypatch.setattr(
         "google.oauth2.id_token.verify_token",
-        lambda *a, **k: {"email": "real@embrapa.br"},
+        lambda *a, **k: {"email": "real@embrapa.br", "iss": iap.IAP_ISSUER},
     )
     headers = {
         iap.IAP_JWT_HEADER: "signed.jwt",
@@ -465,10 +480,11 @@ def _settings() -> Settings:
     return Settings(gcp_project_id="test-project")
 
 
-def test_record_processing_stage_inserts_parameterized_row_with_author():
+def test_record_processing_stage_inserts_parameterized_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     settings = _settings()
     client = mock.Mock()
     client.query.return_value.result.return_value = None
@@ -528,10 +544,11 @@ def test_ensure_curation_log_table_creates_with_explicit_schema(monkeypatch):
     assert client.create_table.call_args.kwargs["exists_ok"] is True
 
 
-def test_record_code_industrialization_inserts_parameterized_row_with_author():
+def test_record_code_industrialization_inserts_parameterized_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     settings = _settings()
     client = mock.Mock()
     client.query.return_value.result.return_value = None
@@ -1004,6 +1021,9 @@ def test_run_query_executes_with_parameterized_job_config(monkeypatch):
     fake_client = mock.Mock()
     fake_client.query.return_value.result.return_value.to_dataframe.return_value = "DF"
     monkeypatch.setattr(gateway, "_client", lambda: fake_client)
+    monkeypatch.setattr(
+        gateway, "get_settings", lambda: Settings(gcp_project_id="p", bq_max_bytes_billed=4242)
+    )
 
     params = [bigquery.ScalarQueryParameter("year_start", "INT64", 2000)]
     result = gateway.run_query("select 1", params)
@@ -1013,6 +1033,8 @@ def test_run_query_executes_with_parameterized_job_config(monkeypatch):
     assert sent_sql == "select 1"
     job_config = fake_client.query.call_args.kwargs["job_config"]
     assert job_config.query_parameters == params
+    # The serving cost ceiling is applied to the job (Settings.bq_max_bytes_billed).
+    assert job_config.maximum_bytes_billed == 4242
     # BQ Storage client disabled (avoids an extra dependency/permission at read).
     to_df = fake_client.query.return_value.result.return_value.to_dataframe
     assert to_df.call_args.kwargs["create_bqstorage_client"] is False
@@ -1086,6 +1108,7 @@ def test_save_invalidates_classification_cache(monkeypatch):
 
     monkeypatch.setattr(gateway, "run_query", fake_run)
     monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
 
     bq_client = mock.Mock()
     bq_client.query.return_value.result.return_value = None
@@ -1160,11 +1183,12 @@ def test_record_processing_stage_rejects_overlong_note():
         )
 
 
-def test_record_processing_stage_accepts_free_text_stage():
+def test_record_processing_stage_accepts_free_text_stage(monkeypatch):
     """A novel, non-allowlisted stage label is accepted (open vocabulary by design)."""
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     client = mock.Mock()
     client.query.return_value.result.return_value = None
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}

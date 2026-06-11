@@ -211,6 +211,23 @@ class Settings(BaseSettings):
     # path is used. See src/embrapa_commodities/serving/iap.py.
     iap_audience: str | None = Field(default=None)
 
+    # ─── Authorization + serving-path cost ceiling ────────────────────────────
+    # Curator ALLOWLIST — authorization (may you curate), distinct from IAP
+    # authentication (who you are). NON-EMPTY → only these emails may POST a
+    # curation edit (others get 403); EMPTY (default) preserves current behaviour:
+    # any IAP-authenticated caller may curate. CURATION_ALLOWED_EMAILS=a@x,b@y.
+    curation_allowed_emails: str = Field(default="")
+    # Per-query byte ceiling on the always-on /api path (gateway.run_query): caps a
+    # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
+    # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)
+    # — above the pre-aggregated mart reads, below a true runaway. 0/None disables.
+    bq_max_bytes_billed: int | None = Field(default=100 * 1024**3)
+
+    @property
+    def curation_allowed_emails_list(self) -> list[str]:
+        """Parsed, lower-cased curator allowlist (empty → any authed caller may curate)."""
+        return [e.strip().lower() for e in self.curation_allowed_emails.split(",") if e.strip()]
+
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:
         if not self.gcs_bucket:
