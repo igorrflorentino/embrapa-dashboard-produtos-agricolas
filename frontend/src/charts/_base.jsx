@@ -6,7 +6,7 @@
 // (resolved at runtime via getComputedStyle) so charts match the rest of the UI
 // and follow any theme change. Researchers get zoom/pan/hover for free (Plotly).
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import Plotly from './plotlyBundle';
 
 const root = () => document.documentElement;
@@ -89,11 +89,26 @@ export const baseConfig = {
  *  resizes with its container, purges on unmount. */
 export function Plot({ traces, layout, config, height = 240, style, className, onClick }) {
   const ref = useRef(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    Plotly.react(el, traces || [], layout || baseLayout(), { ...baseConfig, ...config });
+    try {
+      Plotly.react(el, traces || [], layout || baseLayout(), { ...baseConfig, ...config });
+      if (failed) setFailed(false); // a good render recovers from a prior failure
+    } catch (err) {
+      // A malformed trace/layout must NOT crash the whole view (it would bubble to
+      // ViewErrorBoundary and blank the screen). Degrade THIS chart to an inline
+      // fallback; the rest of the perspective stays alive and interactive.
+      console.error('[chart] Plotly render failed:', err);
+      try {
+        Plotly.purge(el);
+      } catch {
+        /* best effort — the element may already be unusable */
+      }
+      setFailed(true);
+    }
   });
 
   useEffect(() => {
@@ -118,6 +133,26 @@ export function Plot({ traces, layout, config, height = 240, style, className, o
   }, []);
 
   return (
-    <div ref={ref} className={className} style={{ width: '100%', height, ...style }} />
+    <div className={className} style={{ position: 'relative', width: '100%', height, ...style }}>
+      <div ref={ref} style={{ width: '100%', height: '100%' }} />
+      {failed && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            padding: '0 12px',
+          }}
+        >
+          <span className="caption" style={{ color: 'var(--fg-3)' }}>
+            Não foi possível renderizar este gráfico.
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
