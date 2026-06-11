@@ -19,6 +19,7 @@ function ViewGeography({ families, conventions, summary, database }) {
 
   const [dim, setDim]     = useGeoState('value');
   const [scope, setScope] = useGeoState('uf');
+  const [ufViz, setUfViz] = useGeoState('map'); // 'map' = maplibre choropleth, 'tiles' = SVG tile-grid
 
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
@@ -134,7 +135,19 @@ function ViewGeography({ families, conventions, summary, database }) {
           }
         />
         {scope === 'region' && <window.RegionBars data={regScaled.data} valueKey={valueKey} label={regScaled.label} height={280} />}
-        {scope === 'uf' && <window.BrazilTileMap data={ufScaled.data} valueKey={valueKey} label={displayUnit} />}
+        {scope === 'uf' && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <div className="seg">
+                <button className={'seg-opt ' + (ufViz === 'map' ? 'on' : '')} onClick={() => setUfViz('map')}>Mapa</button>
+                <button className={'seg-opt ' + (ufViz === 'tiles' ? 'on' : '')} onClick={() => setUfViz('tiles')}>Blocos</button>
+              </div>
+            </div>
+            {ufViz === 'map'
+              ? <window.BrazilChoropleth data={ufScaled.data} valueKey={valueKey} label={displayUnit} />
+              : <window.BrazilTileMap data={ufScaled.data} valueKey={valueKey} label={displayUnit} />}
+          </>
+        )}
         {scope === 'municipio' && (
           <div className="muni-list">
             {muniScaled.data
