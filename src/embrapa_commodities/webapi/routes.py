@@ -44,9 +44,10 @@ def _authorize_curator():
 
     Returns ``(author, None)`` when authorized, else ``(None, (response, status))``:
     403 for a forged/invalid IAP assertion or a non-allowlisted author, 401 when
-    no trustworthy identity is present at all. The allowlist
-    (``Settings.curation_allowed_emails``) is empty by default — preserving the
-    current "any IAP-authenticated caller may curate" behaviour.
+    no trustworthy identity is present at all. The effective allowlist is the
+    UNION of the env var (``Settings.curation_allowed_emails``) and the
+    Console-managed ``research_inputs.curators`` table; BOTH empty/absent (default)
+    preserves the current "any IAP-authenticated caller may curate" behaviour.
     """
     try:
         author = current_author()
@@ -54,7 +55,7 @@ def _authorize_curator():
         return None, (jsonify(error=str(exc)), 403)
     except PermissionError as exc:  # MissingAuthorError (+ any other) → no identity
         return None, (jsonify(error=str(exc)), 401)
-    allowed = get_settings().curation_allowed_emails_list
+    allowed = set(get_settings().curation_allowed_emails_list) | seam.curator_emails()
     if allowed and author.lower() not in allowed:
         return None, (jsonify(error=f"{author} is not an authorized curator"), 403)
     return author, None
@@ -192,10 +193,11 @@ def curation_code_level():
         return err
     body = request.get_json(silent=True) or {}
     source, code, level = body.get("source"), body.get("code"), body.get("level")
+    change_id = body.get("change_id")
     if not (source and code and level):
         return jsonify(error="source, code and level are required"), 400
     logger.info("curation write by %s: %s/%s → %s", author, source, code, level)
-    return jsonify(seam.record_code_level(source, code, level))
+    return jsonify(seam.record_code_level(source, code, level, change_id))
 
 
 @api.get("/curation/flow-worklist")
@@ -215,7 +217,8 @@ def curation_flow_market():
     body = request.get_json(silent=True) or {}
     customs, flow = body.get("customs_code"), body.get("flow_code")
     market = body.get("market", "")
+    change_id = body.get("change_id")
     if not (customs and flow):
         return jsonify(error="customs_code and flow_code are required"), 400
     logger.info("flow-market write by %s: %s×%s → %s", author, customs, flow, market)
-    return jsonify(seam.record_flow_market(customs, flow, market))
+    return jsonify(seam.record_flow_market(customs, flow, market, change_id))

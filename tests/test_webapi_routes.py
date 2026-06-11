@@ -17,7 +17,7 @@ def _client(monkeypatch, **settings_over):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.config import Settings
     from embrapa_commodities.webapi import app as app_mod
-    from embrapa_commodities.webapi import auth, routes
+    from embrapa_commodities.webapi import auth, routes, seam
 
     base = {
         "gcp_project_id": "test-project",
@@ -30,6 +30,10 @@ def _client(monkeypatch, **settings_over):
     # Auth + allowlist read get_settings from their own module namespaces.
     monkeypatch.setattr(auth, "get_settings", lambda: cfg)
     monkeypatch.setattr(routes, "get_settings", lambda: cfg)
+    # Stub the BQ-table curator read empty by default so authorization tests
+    # exercise only the env allowlist and never touch BigQuery; the table-backed
+    # test overrides this.
+    monkeypatch.setattr(seam, "curator_emails", lambda: set())
     app = app_mod.create_app()
     app.config.update(TESTING=True)
     return app.test_client()
@@ -97,3 +101,46 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     assert resp.status_code == 500
     assert resp.content_type.startswith("application/json")
     assert resp.get_json()["error"] == "internal server error"
+
+
+def test_curation_post_authorized_via_bq_curators_table(monkeypatch):
+    """An author absent from the ENV allowlist but present in the Console-managed
+    BQ curators table is authorized — the effective allowlist is their UNION."""
+    from embrapa_commodities.webapi import seam
+
+    # Env allowlist names someone else; the author is only in the BQ table.
+    client = _client(
+        monkeypatch,
+        curation_dev_author="researcher@embrapa.br",
+        curation_allowed_emails="someone.else@embrapa.br",
+    )
+    monkeypatch.setattr(seam, "curator_emails", lambda: {"researcher@embrapa.br"})
+    monkeypatch.setattr(
+        seam, "record_code_level", lambda *a, **k: {"ok": True, "deduped": False}
+    )
+    resp = client.post(
+        "/api/curation/code-level",
+        json={"source": "x", "code": "1", "level": "bruta"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+
+
+def test_curation_post_forwards_change_id_to_seam(monkeypatch):
+    """The client-supplied idempotency key reaches the seam writer verbatim."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    captured = {}
+
+    def fake_record(source, code, level, change_id=None):
+        captured.update(source=source, code=code, level=level, change_id=change_id)
+        return {"deduped": False, "change_id": change_id}
+
+    monkeypatch.setattr(seam, "record_code_level", fake_record)
+    resp = client.post(
+        "/api/curation/code-level",
+        json={"source": "mdic_comex", "code": "0801", "level": "bruta", "change_id": "k-42"},
+    )
+    assert resp.status_code == 200
+    assert captured["change_id"] == "k-42"
