@@ -11,6 +11,12 @@ sources:
         description: "IBGE PEVS table (raw STRING columns)."
         config:
           loaded_at_field: ingestion_timestamp
+          # Nightly delta ingest (in_all=True): each successful run appends rows
+          # with a fresh ingestion_timestamp, so max(ts) tracks the pipeline, not
+          # the (annual) data period. Warn at 2 days, error after a week of misses.
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 7, period: day}
 
   - name: bronze_bcb
     description: "Raw BCB SGS series ingested by `embrapa ingest bcb-*`."
@@ -22,11 +28,19 @@ sources:
         description: "Monthly inflation indices (variation %)."
         config:
           loaded_at_field: ingestion_timestamp
+          # Nightly delta ingest (in_all=True) — see sidra_raw rationale.
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 7, period: day}
       - name: currency_raw
         identifier: "{{ env_var('BQ_BRONZE_BCB_CURRENCY_TABLE', 'currency_series_raw') }}"
         description: "Daily FX rates BRL per foreign unit."
         config:
           loaded_at_field: ingestion_timestamp
+          # Nightly delta ingest (in_all=True) — see sidra_raw rationale.
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 7, period: day}
 
   - name: bronze_comex
     description: "Raw MDIC Comex Stat foreign-trade flows ingested by `embrapa ingest comex`."
@@ -38,6 +52,10 @@ sources:
         description: "Export + import flows at source grain (raw STRING columns). flow + CO_* columns."
         config:
           loaded_at_field: ingestion_timestamp
+          # Nightly delta ingest (in_all=True) — see sidra_raw rationale.
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 7, period: day}
 
   - name: bronze_comtrade
     description: "Raw UN Comtrade global bilateral trade flows ingested by `embrapa ingest comtrade`."
@@ -49,6 +67,11 @@ sources:
         description: "Annual reporter→partner flows at source grain (raw STRING columns). One row per (refYear, reporter, partner, partner2, cmd, flow, customs, mos, mot, qtyUnit)."
         config:
           loaded_at_field: ingestion_timestamp
+          # Key-gated, refreshed MANUALLY (in_all=False — excluded from the nightly
+          # batch). Warn-only after a long gap so it never false-alarms the
+          # nightly check; no error threshold (manual cadence is expected).
+          freshness:
+            warn_after: {count: 60, period: day}
 
   - name: research_inputs
     description: >

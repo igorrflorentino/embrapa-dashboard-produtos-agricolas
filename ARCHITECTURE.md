@@ -294,6 +294,7 @@ as a per-run stamped object (append-only trail).
 - Four currency conventions (applicable to any monetary Gold table):
   - `val_yearfx_*` — nominal value converted at the year-average FX. NULL for foreign currencies pre-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — value deflated by the IPCA / IGP-M / IGP-DI chain, projected to today. **Use this column for cross-year comparisons.**
+- **ER diagram + join guide:** for the entity-relationship map of the Gold tables, the conformed dims, and the serving marts — plus a "how do I join this in Looker?" cheat-sheet — see [docs/gold_data_model.md](docs/gold_data_model.md).
 
 ### 4. Consumption
 
