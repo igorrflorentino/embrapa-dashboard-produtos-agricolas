@@ -43,6 +43,11 @@ models:
               - ncm_code
               - state_acronym
               - country_code
+              # `family` IS part of the model grain (GROUP BY at the model's tail),
+              # which deliberately splits a rare mixed-unit NCM into >1 row. Omitting
+              # it here made the test FALSELY fail on exactly that NCM; include it so
+              # the tested key equals the actual grain (matches serving_pevs_annual).
+              - family
     columns:
       - name: reference_year
         tests: [not_null]
