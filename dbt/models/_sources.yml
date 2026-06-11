@@ -52,10 +52,16 @@ sources:
         description: "Export + import flows at source grain (raw STRING columns). flow + CO_* columns."
         config:
           loaded_at_field: ingestion_timestamp
-          # Nightly delta ingest (in_all=True) — see sidra_raw rationale.
+          # COMEX re-downloads only on an MDIC ETag change (~monthly), so — unlike
+          # IBGE/BCB, which re-fetch a window and append EVERY nightly run — it does
+          # NOT append every night: its ingestion_timestamp tracks DATA updates, not
+          # pipeline health (which the Cloud Run Job failure alert covers). The
+          # window is therefore the publish cadence: warn when a monthly update is
+          # overdue, error after ~two missed. A 2d/7d window here false-alarms on
+          # every normal gap between MDIC releases.
           freshness:
-            warn_after: {count: 2, period: day}
-            error_after: {count: 7, period: day}
+            warn_after: {count: 30, period: day}
+            error_after: {count: 60, period: day}
 
   - name: bronze_comtrade
     description: "Raw UN Comtrade global bilateral trade flows ingested by `embrapa ingest comtrade`."
