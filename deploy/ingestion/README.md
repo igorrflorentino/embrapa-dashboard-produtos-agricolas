@@ -38,6 +38,8 @@ feeds Silver → Gold → the `serving` marts.
 | `cloudbuild.yaml` | Builds the image from the repo root via Cloud Build. |
 | `deploy.sh` | Build + create/update the Cloud Run Job. Reads `.env`. |
 | `schedule.sh` | Create/update the nightly Cloud Scheduler trigger. |
+| `alert.sh` | Create the Cloud Monitoring alert (email channel + policy) for job failures. |
+| `alert_policy.json` | The alert-policy template `alert.sh` applies (`__JOB_NAME__` substituted in). |
 
 ## One-time prerequisites
 
@@ -86,6 +88,39 @@ gcloud run jobs add-iam-policy-binding embrapa-ingest-all \
   --role roles/run.invoker
 ```
 
+## Alert on failure
+
+A blind nightly cron is only safe if a *failure* is noticed. `alert.sh` wires a
+**Cloud Monitoring** alert so a failed run emails someone instead of being
+discovered only when the dashboard looks stale.
+
+```bash
+# in .env: who to notify
+INGEST_ALERT_EMAIL=ops@example.com
+
+make ingest-job-alert         # creates an email channel + the alert policy (idempotent)
+```
+
+It creates two resources (both idempotent — safe to re-run):
+
+1. an **email notification channel** for `INGEST_ALERT_EMAIL` (tagged with a
+   user-label so re-runs reuse it; to change the recipient, delete the channel
+   and re-run);
+2. an **alert policy** on the metric `run.googleapis.com/job/completed_execution_count`
+   filtered to `result="failed"` for this job, firing when failed executions
+   `> 0` over a 1-hour window (the policy body is `alert_policy.json`).
+
+A Cloud Run execution only counts as `failed` after a task exhausts its retries
+(and the CLI itself retries upstream calls via `tenacity`), so this fires on a
+**real**, non-transient failure — not a flaky night. The runner needs
+`roles/monitoring.editor` (or `roles/monitoring.alertPolicyEditor` +
+`roles/monitoring.notificationChannelEditor`). Verify:
+
+```bash
+gcloud monitoring policies list --project <GCP_PROJECT_ID> \
+  --filter='display_name="Embrapa ingestion job failed - embrapa-ingest-all"'
+```
+
 ## Tunable knobs (optional `.env` overrides)
 
 All have sensible defaults; set them in `.env` only to override:
@@ -100,6 +135,8 @@ All have sensible defaults; set them in `.env` only to override:
 | `INGEST_JOB_MEMORY` / `INGEST_JOB_CPU` | `2Gi` / `1` | Resources |
 | `INGEST_SCHEDULE_CRON` | `0 5 * * *` | Cron expression |
 | `INGEST_SCHEDULE_TZ` | `America/Sao_Paulo` | Schedule timezone |
+| `INGEST_ALERT_EMAIL` | _(required for `alert.sh`)_ | Recipient for job-failure alerts |
+| `INGEST_ALERT_CHANNEL_NAME` | `Embrapa ingestion alerts` | Display name of the notification channel |
 
 ## Notes & troubleshooting
 
