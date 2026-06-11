@@ -219,6 +219,12 @@ class Settings(BaseSettings):
     # curation edit (others get 403); EMPTY (default) preserves current behaviour:
     # any IAP-authenticated caller may curate. CURATION_ALLOWED_EMAILS=a@x,b@y.
     curation_allowed_emails: str = Field(default="")
+    # Curator allowlist TABLE (research_inputs.<this>) — the Console-managed
+    # alternative to the env var above: add/remove curators by INSERT/DELETE rows
+    # in the BigQuery Console, no redeploy. The effective allowlist is the UNION of
+    # this table and CURATION_ALLOWED_EMAILS; if BOTH are empty/absent, any
+    # IAP-authenticated caller may curate (current behaviour). Auto-created.
+    bq_curators_table: str = Field(default="curators")
     # Per-query byte ceiling on the always-on /api path (gateway.run_query): caps a
     # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
     # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)

@@ -613,6 +613,141 @@ def test_ensure_code_industrialization_log_table_creates_with_explicit_schema(mo
     assert client.create_table.call_args.kwargs["exists_ok"] is True
 
 
+# ── curation: idempotency key (client-supplied change_id) ─────────────────────
+
+
+def _seen_client(exists: bool):
+    """A mock BQ client whose SELECT (the dedupe probe) yields one row when
+    ``exists`` else none; every ``query().result()`` returns the same iterable."""
+    client = mock.Mock()
+    client.query.return_value.result.return_value = [(1,)] if exists else []
+    return client
+
+
+def test_record_code_industrialization_generates_change_id_when_absent(monkeypatch):
+    """No client change_id → a fresh uuid is minted, the dedupe SELECT is SKIPPED
+    (a brand-new uuid can't pre-exist), and exactly one query (the INSERT) runs."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = _seen_client(exists=True)  # would dedupe IF it probed — it must not
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_code_industrialization(
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["deduped"] is False
+    assert len(record["change_id"]) == 32  # uuid4().hex
+    assert client.query.call_count == 1  # only the INSERT — no dedupe SELECT
+    assert "insert into" in client.query.call_args.args[0].lower()
+
+
+def test_record_code_industrialization_dedupes_on_repeated_change_id(monkeypatch):
+    """A client change_id that ALREADY exists in the log → no-op: the writer
+    returns deduped=True and never issues the INSERT (only the SELECT probe)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = _seen_client(exists=True)
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_code_industrialization(
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        change_id="dup-key-123",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["deduped"] is True
+    assert record["change_id"] == "dup-key-123"
+    # The single query is the SELECT probe; the INSERT must never run.
+    assert client.query.call_count == 1
+    assert "insert into" not in client.query.call_args.args[0].lower()
+
+
+def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch):
+    """A client change_id NOT yet in the log → the probe misses and the INSERT
+    proceeds, carrying the SAME change_id (so a retry would then dedupe)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = _seen_client(exists=False)
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_code_industrialization(
+        "mdic_comex",
+        "08013200",
+        "processada",
+        headers,
+        change_id="fresh-key-9",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["deduped"] is False
+    assert record["change_id"] == "fresh-key-9"
+    assert client.query.call_count == 2  # SELECT probe (miss) + INSERT
+    insert_call = client.query.call_args  # the LAST call is the INSERT
+    params = {p.name: p.value for p in insert_call.kwargs["job_config"].query_parameters}
+    assert params["change_id"] == "fresh-key-9"
+
+
+def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
+    """The flow-market writer honours the same idempotency contract."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
+    client = _seen_client(exists=True)
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_flow_market(
+        "4000",
+        "X",
+        "consumo",
+        headers,
+        change_id="dup-flow-1",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["deduped"] is True
+    assert client.query.call_count == 1
+    assert "insert into" not in client.query.call_args.args[0].lower()
+
+
+def test_ensure_curators_table_creates_with_explicit_schema(monkeypatch):
+    """The Console-managed curator allowlist table is auto-created with the
+    explicit (email, added_by, added_at) schema — never autodetected."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = curation.ensure_curators_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".curators")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} == {"email", "added_by", "added_at"}
+    assert client.create_table.call_args.kwargs["exists_ok"] is True
+
+
 # ── gateway: caching behavior ─────────────────────────────────────────────────
 
 

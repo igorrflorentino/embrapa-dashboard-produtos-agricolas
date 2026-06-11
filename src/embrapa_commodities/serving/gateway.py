@@ -366,6 +366,20 @@ def fetch_comtrade_cpc_value(codes: tuple = ()):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_curators():
+    """Distinct curator emails from the allowlist table (research_inputs.<curators>).
+
+    Short TTL (like the classification reads) so a Console add/remove takes effect
+    within the window. Raises NotFound when the table doesn't exist — the seam
+    treats that as 'no allowlist configured'. Bounded by maximum_bytes_billed.
+    """
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_research_inputs_dataset", settings.bq_curators_table)
+    sql = f"select distinct lower(trim(email)) as email from `{table}` where email is not null"
+    return run_query(sql, [])
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.
     Raises if the log table doesn't exist yet (no pair classified) — the seam
