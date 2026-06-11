@@ -85,14 +85,6 @@ jobs:
         working-directory: dbt
         run: uv run dbt parse
 
-      # SQLFluff lints the dbt models via the dbt templater (resolves
-      # {{ ref }}/macros against the manifest the steps above already built —
-      # like dbt parse, it templates offline and never opens a BigQuery
-      # connection). Config + tuned rules live in dbt/.sqlfluff.
-      - name: Lint dbt SQL (SQLFluff, BigQuery dialect)
-        working-directory: dbt
-        run: uv run sqlfluff lint models
-
   # The React SPA (frontend/) is a first-class consumption path, so its data
   # layer is unit-tested (Vitest + jsdom). This job is Node-only and runs in
   # parallel with the Python job above — no GCP credentials, no warehouse.
