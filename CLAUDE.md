@@ -74,7 +74,23 @@ of recent years and a newly published year — instead of the whole 1986→today
 window, a huge SIDRA request that can blow the slow-byte deadline on an
 unattended Cloud Run job. A cold Bronze table falls back to the full window.
 Use `--full` to force the complete window (or `ingest ibge-batch` to chunk a
-first historical backfill).
+first historical backfill). **COMEX is the exception** — its per-file ETag check
+re-detects a revision to *any* year every run, so the delta limitation below is
+IBGE/BCB-only.
+
+**Catching upstream revisions of OLD data — `reconcile`.** Because IBGE/BCB are
+delta, a correction the source publishes to an *old* year (e.g. IBGE revising a
+1999 value) is **never re-queried** by the nightly run. `embrapa ingest reconcile`
+(`make reconcile`) is the escape hatch: a full re-download of every nightly
+source (IBGE year-chunked for deadline-safety, BCB + COMEX `--full`), ignoring
+the delta/ETag short-circuit. It runs **monthly** on Cloud Run
+(`make ingest-job-reconcile-schedule` — the same Job with args overridden to
+`reconcile`). `reconcile` refreshes only **Bronze**; the **daily scheduled
+`dbt build`** (`.github/workflows/dbt-build-prod.yml`) propagates it to
+Silver/Gold. No `--full-refresh` is needed: `silver_ibge_pevs` is incremental but
+**year-agnostic** (it re-scans whatever Bronze years got a newer
+`ingestion_timestamp`), so a revised old year flows all the way to Gold on a
+plain build.
 
 Cold-storage backup of the prod Gold tables. **The recommended prod path
 bundles build + snapshot in one target — reach for this instead of bare

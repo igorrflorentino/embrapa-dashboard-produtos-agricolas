@@ -37,7 +37,8 @@ feeds Silver → Gold → the `serving` marts.
 | `Dockerfile` | The job image (`uv sync --no-dev`, runs `embrapa ingest all`). |
 | `cloudbuild.yaml` | Builds the image from the repo root via Cloud Build. |
 | `deploy.sh` | Build + create/update the Cloud Run Job. Reads `.env`. |
-| `schedule.sh` | Create/update the nightly Cloud Scheduler trigger. |
+| `schedule.sh` | Create/update the nightly (delta) Cloud Scheduler trigger. |
+| `schedule_reconcile.sh` | Create/update the MONTHLY deep-refresh trigger (same Job, args overridden to `reconcile`). |
 | `alert.sh` | Create the Cloud Monitoring alert (email channel + policy) for job failures. |
 | `alert_policy.json` | The alert-policy template `alert.sh` applies (`__JOB_NAME__` substituted in). |
 
@@ -88,6 +89,49 @@ gcloud run jobs add-iam-policy-binding embrapa-ingest-all \
   --role roles/run.invoker
 ```
 
+## Monthly deep-refresh (catch revisions of old data)
+
+The nightly run is **delta** — each source only revisits a recent window, so an
+upstream **correction to an old year** (IBGE revising a 1999 PEVS value, BCB
+re-publishing an old month) is never re-queried. COMEX is the exception: its
+per-file ETag check already re-detects any year. To catch IBGE/BCB old-year
+revisions, a **monthly** trigger runs the SAME Job with its args overridden to
+`reconcile` (`embrapa ingest reconcile`) — a full re-download of every source's
+configured history (the IBGE leg year-chunked so the big window survives the
+unattended slow-byte deadline; BCB + COMEX with `--full`).
+
+```bash
+make ingest-job-reconcile-schedule    # 1st of month, 03:00 America/Sao_Paulo by default
+```
+
+This uses the Cloud Run Admin **v2** `:run` API (the only one that can override a
+Job's args) with a longer task timeout for the heavier full window. Overriding
+args needs **`run.jobs.runWithOverrides`**, which `roles/run.invoker` does *not*
+grant — so the scheduler SA needs `roles/run.developer` (the script prints the
+exact one-time binding command):
+
+```bash
+gcloud run jobs add-iam-policy-binding embrapa-ingest-all \
+  --region <INGEST_JOB_REGION> --project <GCP_PROJECT_ID> \
+  --member "serviceAccount:sa-data-pipeline-prod@<GCP_PROJECT_ID>.iam.gserviceaccount.com" \
+  --role roles/run.developer
+```
+
+Run it once on demand (no scheduler) — e.g. to force-unstick a frozen source:
+
+```bash
+gcloud run jobs execute embrapa-ingest-all --region <INGEST_JOB_REGION> \
+  --project <GCP_PROJECT_ID> --args=reconcile
+```
+
+> **Reaches the dashboard via the scheduled dbt build.** `reconcile` refreshes
+> only **Bronze**. Silver/Gold update on the next run of the scheduled
+> `dbt build` (`.github/workflows/dbt-build-prod.yml`). Because the incremental
+> `silver_ibge_pevs` keys its re-scan off `ingestion_timestamp` (not year), a
+> plain build carries an old-year revision all the way to Gold — no
+> `--full-refresh` needed. Locally, `make reconcile` chains both (but re-ingests
+> via your **local** `.env` — verify it matches prod first).
+
 ## Alert on failure
 
 A blind nightly cron is only safe if a *failure* is noticed. `alert.sh` wires a
@@ -135,8 +179,11 @@ All have sensible defaults; set them in `.env` only to override:
 | `INGEST_JOB_SA` | `sa-data-pipeline-prod@<project>…` | Runtime service account |
 | `INGEST_JOB_TASK_TIMEOUT` | `3600s` | Max wall-clock per run |
 | `INGEST_JOB_MEMORY` / `INGEST_JOB_CPU` | `2Gi` / `1` | Resources |
-| `INGEST_SCHEDULE_CRON` | `0 5 * * *` | Cron expression |
-| `INGEST_SCHEDULE_TZ` | `America/Sao_Paulo` | Schedule timezone |
+| `INGEST_SCHEDULE_CRON` | `0 5 * * *` | Nightly (delta) cron expression |
+| `INGEST_SCHEDULE_TZ` | `America/Sao_Paulo` | Schedule timezone (both triggers) |
+| `RECONCILE_SCHEDULE_CRON` | `0 3 1 * *` | Monthly deep-refresh cron (1st of month, 03:00) |
+| `RECONCILE_SCHEDULE_NAME` | `<job>-reconcile-monthly` | Scheduler name for the deep-refresh trigger |
+| `RECONCILE_JOB_TASK_TIMEOUT` | `7200s` | Task timeout for the (heavier) reconcile execution |
 | `INGEST_ALERT_EMAIL` | _(required for `alert.sh`)_ | Recipient for job-failure alerts |
 | `INGEST_ALERT_CHANNEL_NAME` | `Embrapa ingestion alerts` | Display name of the notification channel |
 

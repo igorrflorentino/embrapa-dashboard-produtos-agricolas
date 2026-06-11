@@ -23,7 +23,7 @@ from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.comex import pipeline as comex_pipeline
 from embrapa_commodities.comtrade import pipeline as comtrade_pipeline
 from embrapa_commodities.comtrade.client import ComtradeQuotaError
-from embrapa_commodities.config import get_credentials, get_settings
+from embrapa_commodities.config import Settings, get_credentials, get_settings
 from embrapa_commodities.core import (
     ChunkOutcome,
     ChunkTracker,
@@ -242,30 +242,16 @@ def ingest_bcb_currency(
         console.print("[dim]BCB currency: nothing new since last ingest.[/dim]")
 
 
-@ingest_app.command("ibge-batch")
-def ingest_ibge_batch(
-    chunk_years: int | None = typer.Option(
-        None,
-        "--chunk-years",
-        "-c",
-        help=(
-            "Years per batch. If omitted, auto-computed from the number of "
-            "products in IBGE_PRODUCT_CODES so every state response stays "
-            "under SIDRA's cell limit with a safety margin."
-        ),
-    ),
-) -> None:
-    """Ingest IBGE PEVS in year-chunked batches to avoid IBGE connection drops.
+def _ibge_batch_ingest(settings: Settings, chunk_years: int | None) -> ChunkTracker:
+    """Ingest the full IBGE window in year chunks (each a ``full=True`` load).
 
-    For historical windows (>10 years), the IBGE API occasionally closes
-    large connections mid-transfer. This command splits the full window
-    defined by IBGE_START_YEAR / IBGE_END_YEAR into chunks and runs them
-    sequentially, each as a separate Bronze load (WRITE_APPEND).
-
-    Chunk size auto-scales with the number of products: more products means
-    smaller chunks (since SIDRA's cell limit is fixed per request).
+    Shared by ``ingest ibge-batch`` and ``ingest reconcile``. It owns the
+    chunked loop + continue-on-failure and returns the populated ChunkTracker
+    so each caller decides how to summarize/exit: ``ibge-batch`` exits non-zero
+    on any failed chunk, whereas ``reconcile`` records the failure and moves on
+    to the BCB/COMEX legs. Chunking (vs the single-shot ``ibge --full``) is what
+    keeps the huge 1986→today SIDRA pull under the unattended slow-byte deadline.
     """
-    settings = get_settings()
     if settings.ibge_start_year is None:
         raise typer.BadParameter("Set IBGE_START_YEAR in .env before running batch ingest.")
 
@@ -338,10 +324,38 @@ def ingest_ibge_batch(
             tracker.finish(outcome)
             _echo_chunk_result(tracker, outcome)
 
+    return tracker
+
+
+@ingest_app.command("ibge-batch")
+def ingest_ibge_batch(
+    chunk_years: int | None = typer.Option(
+        None,
+        "--chunk-years",
+        "-c",
+        help=(
+            "Years per batch. If omitted, auto-computed from the number of "
+            "products in IBGE_PRODUCT_CODES so every state response stays "
+            "under SIDRA's cell limit with a safety margin."
+        ),
+    ),
+) -> None:
+    """Ingest IBGE PEVS in year-chunked batches to avoid IBGE connection drops.
+
+    For historical windows (>10 years), the IBGE API occasionally closes
+    large connections mid-transfer. This command splits the full window
+    defined by IBGE_START_YEAR / IBGE_END_YEAR into chunks and runs them
+    sequentially, each as a separate Bronze load (WRITE_APPEND).
+
+    Chunk size auto-scales with the number of products: more products means
+    smaller chunks (since SIDRA's cell limit is fixed per request).
+    """
+    settings = get_settings()
+    tracker = _ibge_batch_ingest(settings, chunk_years)
     _summarize_and_exit(
         tracker,
         label="IBGE",
-        success_msg=f"\n[green bold]✓ All {total} batches complete[/green bold]",
+        success_msg=f"\n[green bold]✓ All {tracker.total} batches complete[/green bold]",
         retry_hint=(
             "\n[dim]Re-run failed chunks individually with:[/dim]\n"
             "  IBGE_START_YEAR=<start> IBGE_END_YEAR=<end> uv run embrapa ingest ibge"
@@ -520,6 +534,79 @@ def ingest_all(
             console.print(f"  [red]✗[/red] {label} — {err}")
         raise typer.Exit(code=1)
     console.print("[green bold]✓ All Bronze pipelines completed[/green bold]")
+
+
+@ingest_app.command("reconcile")
+def ingest_reconcile(
+    chunk_years: int | None = typer.Option(
+        None,
+        "--chunk-years",
+        "-c",
+        help="IBGE years per batch (see `ingest ibge-batch`). Omit to auto-size to the cell limit.",
+    ),
+) -> None:
+    """Full re-download of every nightly source — the deliberate escape hatch.
+
+    Unlike the nightly delta (which only revisits a recent window), reconcile
+    IGNORES each source's delta/ETag short-circuit and re-fetches the WHOLE
+    configured history. That is what catches an upstream CORRECTION to an old
+    year — e.g. IBGE revising a 1999 PEVS value — which the delta would never
+    re-query, and it also force-unsticks a source frozen for any reason.
+
+    Per source: IBGE runs year-CHUNKED (like `ibge-batch`, so the huge
+    1986→today SIDRA pull survives an unattended slow-byte deadline); BCB
+    inflation/FX and COMEX run with `--full`. COMTRADE is excluded (key-gated),
+    exactly like `ingest all`. Continue-on-failure at the source level.
+
+    Bronze only — run `dbt build` afterward to propagate the refreshed Bronze to
+    Silver/Gold (`make reconcile` chains both). The incremental Silver is
+    year-agnostic (it re-scans whatever Bronze years got a newer
+    ingestion_timestamp, of any age), so a plain `dbt build` carries an old-year
+    revision all the way to Gold — no `--full-refresh` needed.
+    """
+    settings = get_settings()
+    failures: list[tuple[str, str]] = []
+
+    # IBGE: chunked full window (not the single-shot `ibge --full`) so the huge
+    # 1986→today SIDRA pull survives the unattended slow-byte deadline. A
+    # BadParameter (IBGE_START_YEAR unset) is a real misconfig — let it abort.
+    console.print("[bold]→ IBGE PEVS[/bold] [dim](chunked full window)[/dim]")
+    try:
+        tracker = _ibge_batch_ingest(settings, chunk_years)
+    except typer.BadParameter:
+        raise
+    except Exception as exc:
+        failures.append(("IBGE PEVS", str(exc)[:200]))
+        console.print(f"[red]✗ IBGE PEVS failed:[/red] {str(exc)[:200]}")
+    else:
+        if tracker.chunks_failed:
+            failures.append(("IBGE PEVS", f"{len(tracker.chunks_failed)} chunk(s) failed"))
+
+    # BCB inflation/FX + COMEX: --full re-fetches each one's whole configured
+    # window. Reuse the same INGESTS registry as `ingest all`, skipping IBGE
+    # (already done, chunked) and the out-of-`all` COMTRADE.
+    for spec in INGESTS:
+        if not spec.in_all or spec.name == "ibge":
+            continue
+        console.print(f"[bold]→ {spec.label}[/bold] [dim](full)[/dim]")
+        try:
+            with pipeline_run(spec.name, params={"full": True}) as (_run_id, log_path):
+                console.print(f"[dim]event log:[/dim] {log_path}")
+                spec.module.run(settings, full=True)
+        except Exception as exc:
+            failures.append((spec.label, str(exc)[:200]))
+            console.print(f"[red]✗ {spec.label} failed:[/red] {str(exc)[:200]}")
+
+    if failures:
+        console.print(f"\n[yellow bold]⚠ {len(failures)} source(s) failed[/yellow bold]")
+        for label, err in failures:
+            console.print(f"  [red]✗[/red] {label} — {err}")
+        raise typer.Exit(code=1)
+    console.print("[green bold]✓ Reconcile complete — every source fully re-ingested[/green bold]")
+    console.print(
+        "[dim]Next:[/dim] run [bold]dbt build[/bold] to propagate any revisions to Silver/Gold "
+        "[dim](`make reconcile` chains it for you)[/dim]."
+    )
 
 
 # ─── discover ─────────────────────────────────────────────────────────────────

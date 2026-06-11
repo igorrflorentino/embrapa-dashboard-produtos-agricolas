@@ -535,6 +535,126 @@ def test_ingest_all_aborts_cleanly_listing_partial_chunk_failure(
     assert "MDIC COMEX" in result.output
 
 
+# ─── ingest reconcile ────────────────────────────────────────────────────────
+def _wire_reconcile(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None:
+    """Stub GCP + chunk sizing so reconcile's IBGE batch leg runs offline (1-year chunks)."""
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "recommended_chunk_years", lambda n_products: 1)
+    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
+    monkeypatch.setattr(cli.storage, "Client", MagicMock())
+    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+
+
+def test_ingest_reconcile_chunks_ibge_and_fulls_bcb_comex(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """IBGE runs year-CHUNKED (full per chunk); BCB×2 + COMEX run once with full=True;
+    COMTRADE (out of `all`) is never touched."""
+    settings.ibge_start_year = 2010
+    settings.ibge_end_year = 2012  # 3 chunks at chunk_years=1
+    _wire_reconcile(monkeypatch, settings)
+
+    ibge_chunks: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        cli.ibge_pipeline,
+        "run",
+        lambda s, **kw: ibge_chunks.append((s.ibge_start_year, s.ibge_end_year)) or "dest",
+    )
+    full_seen: list[str] = []
+    monkeypatch.setattr(
+        cli.bcb_inflation, "run", lambda s, full: full_seen.append(f"inflation-{full}") or ""
+    )
+    monkeypatch.setattr(
+        cli.bcb_currency, "run", lambda s, full: full_seen.append(f"currency-{full}") or ""
+    )
+    monkeypatch.setattr(
+        cli.comex_pipeline, "run", lambda s, full: full_seen.append(f"comex-{full}") or ""
+    )
+    comtrade = MagicMock()
+    monkeypatch.setattr(cli.comtrade_pipeline, "run", comtrade)
+
+    result = runner.invoke(cli.app, ["ingest", "reconcile"])
+
+    assert result.exit_code == 0, result.output
+    # IBGE: one full=True load per year chunk (2010, 2011, 2012).
+    assert ibge_chunks == [(2010, 2010), (2011, 2011), (2012, 2012)]
+    # BCB + COMEX: each once, forced full.
+    assert full_seen == ["inflation-True", "currency-True", "comex-True"]
+    # COMTRADE is key-gated / out of `all` — reconcile never re-ingests it.
+    comtrade.assert_not_called()
+
+
+def test_ingest_reconcile_continues_after_a_source_fails(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A BCB failure must not strand COMEX: every source still runs, exit is non-zero."""
+    settings.ibge_start_year = 2010
+    settings.ibge_end_year = 2010
+    _wire_reconcile(monkeypatch, settings)
+
+    ran: list[str] = []
+    monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, **kw: ran.append("ibge") or "dest")
+
+    def boom(_s: Settings, full: bool) -> str:
+        ran.append("inflation")
+        raise RuntimeError("BCB 503")
+
+    monkeypatch.setattr(cli.bcb_inflation, "run", boom)
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: ran.append("currency") or "")
+    monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: ran.append("comex") or "")
+
+    result = runner.invoke(cli.app, ["ingest", "reconcile"])
+
+    assert ran == ["ibge", "inflation", "currency", "comex"]
+    assert result.exit_code == 1
+    assert "1 source(s) failed" in result.output
+    assert "BCB inflation" in result.output
+
+
+def test_ingest_reconcile_records_ibge_chunk_failure_but_runs_rest(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A failed IBGE chunk is recorded as an IBGE source failure (exit 1), yet the
+    BCB + COMEX legs still run — the chunk loop never raises out of the IBGE leg."""
+    settings.ibge_start_year = 2010
+    settings.ibge_end_year = 2011  # 2 chunks
+    _wire_reconcile(monkeypatch, settings)
+
+    def flaky(s: Settings, **kw: object) -> str:
+        if s.ibge_start_year == 2011:
+            raise RuntimeError("network blip")
+        return "dest"
+
+    monkeypatch.setattr(cli.ibge_pipeline, "run", flaky)
+    ran_other: list[str] = []
+    monkeypatch.setattr(
+        cli.bcb_inflation, "run", lambda s, full: ran_other.append("inflation") or ""
+    )
+    monkeypatch.setattr(cli.bcb_currency, "run", lambda s, full: ran_other.append("currency") or "")
+    monkeypatch.setattr(cli.comex_pipeline, "run", lambda s, full: ran_other.append("comex") or "")
+
+    result = runner.invoke(cli.app, ["ingest", "reconcile"])
+
+    assert result.exit_code == 1
+    assert "IBGE PEVS" in result.output  # the failed leg is named in the summary
+    # Continue-on-failure across sources: BCB + COMEX still ran.
+    assert ran_other == ["inflation", "currency", "comex"]
+
+
+def test_ingest_reconcile_raises_when_ibge_start_year_unset(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """IBGE_START_YEAR unset is a real misconfig (the full window has no floor) —
+    reconcile aborts cleanly rather than silently skipping history."""
+    settings.ibge_start_year = None
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    result = runner.invoke(cli.app, ["ingest", "reconcile"])
+
+    assert result.exit_code != 0
+    assert "IBGE_START_YEAR" in result.output
+
+
 # ─── discover ────────────────────────────────────────────────────────────────
 def test_discover_ibge_products_prints_matches(monkeypatch: pytest.MonkeyPatch) -> None:
     from embrapa_commodities.discover import ProductMatch
