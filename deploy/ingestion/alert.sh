@@ -41,26 +41,38 @@ POLICY_DISPLAY="Embrapa ingestion job failed - ${JOB_NAME}"   # must match alert
 POLICY_TEMPLATE="$REPO_ROOT/deploy/ingestion/alert_policy.json"
 [ -f "$POLICY_TEMPLATE" ] || { echo "ERROR: $POLICY_TEMPLATE not found"; exit 1; }
 
-# ── 1. email notification channel (reuse the one we tagged, else create) ──────
-# `channels` is a beta-only surface (no GA command exists). We tag ours with a
-# user-label so re-runs reuse it. NOTE: to change the recipient, delete the
-# channel (printed below) and re-run — the lookup is by our label, not by email.
-CHANNEL="$(gcloud beta monitoring channels list --project "$PROJECT" \
-  --filter="type=\"email\" AND userLabels.${CH_LABEL}=\"1\"" \
-  --format='value(name)' 2>/dev/null | head -n1 || true)"
+# ── 1. email notification channel(s) — one per recipient ──────────────────────
+# INGEST_ALERT_EMAIL may be a COMMA-SEPARATED list; each address gets its own
+# channel, reused on re-run by its email_address (idempotent), all attached to
+# the policy below. `channels` is a beta-only surface (no GA command exists); we
+# also tag ours with a user-label for ownership.
+resolve_channel() {  # email -> channel resource name (find-or-create), logs to stderr
+  local email="$1" ch
+  ch="$(gcloud beta monitoring channels list --project "$PROJECT" \
+        --filter="type=\"email\" AND labels.email_address=\"${email}\"" \
+        --format='value(name)' 2>/dev/null | head -n1 || true)"
+  if [ -z "$ch" ]; then
+    echo "Creating email notification channel for ${email}" >&2
+    ch="$(gcloud beta monitoring channels create --project "$PROJECT" \
+          --display-name="$CH_DISPLAY" --type=email \
+          --channel-labels="email_address=${email}" \
+          --user-labels="${CH_LABEL}=1" --format='value(name)')"
+  else
+    echo "Reusing notification channel for ${email}: ${ch}" >&2
+  fi
+  echo "$ch"
+}
 
-if [ -z "$CHANNEL" ]; then
-  echo "Creating email notification channel for ${EMAIL}"
-  CHANNEL="$(gcloud beta monitoring channels create --project "$PROJECT" \
-    --display-name="$CH_DISPLAY" \
-    --type=email \
-    --channel-labels="email_address=${EMAIL}" \
-    --user-labels="${CH_LABEL}=1" \
-    --format='value(name)')"
-else
-  echo "Reusing notification channel: ${CHANNEL}"
-fi
-[ -n "$CHANNEL" ] || { echo "ERROR: could not resolve a notification channel"; exit 1; }
+CHANNELS=""
+IFS=',' read -ra _EMAILS <<< "$EMAIL"
+for _e in "${_EMAILS[@]}"; do
+  _e="$(printf '%s' "$_e" | tr -d '[:space:]')" # trim any whitespace around commas
+  [ -n "$_e" ] || continue
+  _ch="$(resolve_channel "$_e")"
+  [ -n "$_ch" ] || { echo "ERROR: could not resolve a channel for ${_e}"; exit 1; }
+  CHANNELS="${CHANNELS:+$CHANNELS,}$_ch"
+done
+[ -n "$CHANNELS" ] || { echo "ERROR: no notification channels resolved from INGEST_ALERT_EMAIL"; exit 1; }
 
 # ── 2. alert policy (GA; create if absent — never duplicate) ──────────────────
 EXISTING="$(gcloud monitoring policies list --project "$PROJECT" \
@@ -83,7 +95,7 @@ sed -e "s/__JOB_NAME__/${JOB_NAME}/g" "$POLICY_TEMPLATE" > "$TMP"
 echo "Creating alert policy '${POLICY_DISPLAY}'"
 gcloud monitoring policies create --project "$PROJECT" \
   --policy-from-file="$TMP" \
-  --notification-channels="$CHANNEL"
+  --notification-channels="$CHANNELS"
 
 cat <<EOF
 

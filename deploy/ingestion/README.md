@@ -95,17 +95,16 @@ A blind nightly cron is only safe if a *failure* is noticed. `alert.sh` wires a
 discovered only when the dashboard looks stale.
 
 ```bash
-# in .env: who to notify
-INGEST_ALERT_EMAIL=ops@example.com
+# in .env: who to notify (comma-separated for multiple recipients)
+INGEST_ALERT_EMAIL=ops@example.com,lead@example.com
 
-make ingest-job-alert         # creates an email channel + the alert policy (idempotent)
+make ingest-job-alert         # creates the email channel(s) + the alert policy (idempotent)
 ```
 
-It creates two resources (both idempotent — safe to re-run):
+It creates (both idempotent — safe to re-run):
 
-1. an **email notification channel** for `INGEST_ALERT_EMAIL` (tagged with a
-   user-label so re-runs reuse it; to change the recipient, delete the channel
-   and re-run);
+1. an **email notification channel per recipient** in `INGEST_ALERT_EMAIL`
+   (comma-separated), reused on re-run by its email address;
 2. an **alert policy** on the metric `run.googleapis.com/job/completed_execution_count`
    filtered to `result="failed"` for this job, firing when failed executions
    `> 0` over a 1-hour window (the policy body is `alert_policy.json`).
