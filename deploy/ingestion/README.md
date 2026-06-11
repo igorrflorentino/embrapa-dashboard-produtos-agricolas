@@ -113,7 +113,10 @@ A Cloud Run execution only counts as `failed` after a task exhausts its retries
 (and the CLI itself retries upstream calls via `tenacity`), so this fires on a
 **real**, non-transient failure — not a flaky night. The runner needs
 `roles/monitoring.editor` (or `roles/monitoring.alertPolicyEditor` +
-`roles/monitoring.notificationChannelEditor`). Verify:
+`roles/monitoring.notificationChannelEditor`). The channel is created via the
+Monitoring REST API (the `gcloud monitoring channels` surface is beta-only and
+often not installed), so the script needs `curl` + `python3` + base `gcloud`
+auth — no `beta` component. Verify:
 
 ```bash
 gcloud monitoring policies list --project <GCP_PROJECT_ID> \
