@@ -131,8 +131,16 @@ const STATES = [
   { uf: 'SC', name: 'Santa Catarina',      region: 'S'  },
 ];
 
-// Sample of leading PEVS-producing municipalities. (~40 from real PEVS data.)
-const MUNICIPALITIES = [
+// Município universe — HONEST sourcing (#24): the real picker universe is
+// resolved PER BANCO from the active snapshot's `topMunis` cities (see `MUNIS`
+// inside the component). The frozen list below is only a labelled SAMPLE of
+// leading PEVS municipalities, used purely as a graceful fallback for offline
+// dev/preview — it is NEVER presented as the full universe. In production the
+// município endpoint is not wired yet (decorate.js: topMunis defaults to []),
+// so the live snapshot yields no cities and the Municípios column is GATED
+// behind an honest "disponível em breve" disabled state rather than parading
+// this 40-row sample as the real 5 570-município universe.
+const MUNI_SAMPLE = [
   // Norte
   { code: '1302603', name: 'Manaus',         uf: 'AM' },
   { code: '1501402', name: 'Belém',          uf: 'PA' },
@@ -178,10 +186,12 @@ const MUNICIPALITIES = [
   { code: '4209102', name: 'Lages',          uf: 'SC' },
 ];
 
-// Name universe the município picker can address — read by dataFilters so a
-// município the picker can't address (data leader outside this partial list)
-// stays governed by the UF filter alone instead of being wrongly excluded.
-window.MUNI_PICKER_NAMES = new Set(MUNICIPALITIES.map(m => m.name));
+// window.MUNI_PICKER_NAMES (read by dataFilters.js to decide which município
+// names the picker can address) is published PER BANCO from inside the
+// component, since the addressable universe is now snapshot-derived rather than
+// a frozen module-level list. Seed it to empty so that — before any banco opens
+// the menu — no município name is wrongly claimed as picker-addressable.
+window.MUNI_PICKER_NAMES = new Set();
 
 // ----- icons ------------------------------------------------------
 const I = {
@@ -390,6 +400,50 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       .map(p => ({ code: p.code, name: p.name, unit: p.unit, family: p.family }));
   }, [banco]);
 
+  // Município universe — resolved PER BANCO from the live snapshot's `topMunis`
+  // cities (#24). The snapshot keys municípios by NAME (no município code in the
+  // data), so the picker keys on the city name too — which is exactly what the
+  // engine matches on (summary.muniNames). When the snapshot carries no município
+  // rows — the real production case, since the município endpoint isn't wired and
+  // topMunis defaults to [] (decorate.js) — `MUNIS` is empty and `muniUniverseLive`
+  // is false, so the column renders an honest "disponível em breve" disabled state
+  // instead of presenting the frozen MUNI_SAMPLE as the real universe. The sample
+  // is used only as an offline-dev fallback when there is no dataStore at all.
+  const { MUNIS, muniUniverseLive } = useMemo(() => {
+    const snap = (window.dataStore && window.dataStore.get && window.dataStore.get(banco))
+              || (window.snapshotFor && window.snapshotFor(banco)) || null;
+    const cities = (snap && Array.isArray(snap.topMunis)) ? snap.topMunis : null;
+    if (cities && cities.length) {
+      // De-dupe the snapshot's leader rows into a (name, uf) município list.
+      const seen = new Set();
+      const list = [];
+      cities.forEach(m => {
+        if (!m || !m.city || seen.has(m.city)) return;
+        seen.add(m.city);
+        list.push({ code: m.city, name: m.city, uf: m.uf });
+      });
+      return { MUNIS: list, muniUniverseLive: true };
+    }
+    // No live município universe: fall back to the labelled sample ONLY when
+    // there's no dataStore (offline dev). With a dataStore present but empty,
+    // keep MUNIS empty so the column is honestly gated as "em breve".
+    const offline = !(window.dataStore && window.dataStore.get);
+    return { MUNIS: offline ? MUNI_SAMPLE : [], muniUniverseLive: false };
+  }, [banco]);
+
+  // Publish the addressable município universe for dataFilters.js. A município
+  // the picker can't address stays governed by the UF filter alone (never wrongly
+  // excluded). Keyed by NAME — the same key the engine matches on.
+  React.useEffect(() => {
+    window.MUNI_PICKER_NAMES = new Set(MUNIS.map(m => m.name));
+  }, [MUNIS]);
+
+  // The município dimension is a REAL filter slice only when the column is both
+  // declared (geoLevel === 'municipio') AND backed by a live universe. When the
+  // universe isn't live the column is gated/disabled, so it must never count as
+  // an active geographic slice in the summary/chips (else "X de 0 municípios").
+  const muniSliceable = showMunis && muniUniverseLive;
+
   // Period bounds + quick-ranges from the ACTIVE banco's snapshot (same source as
   // PRODS), so switching banco shifts the date min/max and the quick-range chips
   // instead of staying frozen to whichever banco loaded first at import time.
@@ -406,7 +460,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [nations,  setNations]  = useState(new Set(['BR']));
   const [regions,  setRegions]  = useState(new Set(FM_REGIONS.map(r => r.id)));
   const [states,   setStates]   = useState(new Set(STATES.map(s => s.uf)));
-  const [munis,    setMunis]    = useState(new Set(MUNICIPALITIES.map(m => m.code))); // all by default (0 = none, same as the other dimensions)
+  const [munis,    setMunis]    = useState(new Set(MUNIS.map(m => m.code))); // all by default (0 = none, same as the other dimensions)
 
   // search strings, one per multi-select
   const [qProducts, setQProducts] = useState('');
@@ -437,8 +491,8 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     [regions, eligibleRegions]
   );
   const eligibleMunis = useMemo(
-    () => MUNICIPALITIES.filter(m => states.has(m.uf) && eligibleStates.some(s => s.uf === m.uf)),
-    [states, eligibleStates]
+    () => MUNIS.filter(m => states.has(m.uf) && eligibleStates.some(s => s.uf === m.uf)),
+    [states, eligibleStates, MUNIS]
   );
 
   // Cascade pruning — deselecting a parent removes its now-ineligible children
@@ -480,7 +534,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       setNations( v.nations != null ? new Set(v.nations) : new Set(['BR']));
       setRegions( v.regions != null ? new Set(v.regions) : new Set(FM_REGIONS.map(r => r.id)));
       setStates(  v.states  != null ? new Set(v.states)  : new Set(STATES.map(s => s.uf)));
-      setMunis(   v.munis   != null ? new Set(v.munis)   : new Set(MUNICIPALITIES.map(m => m.code)));
+      setMunis(   v.munis   != null ? new Set(v.munis)   : new Set(MUNIS.map(m => m.code)));
       const sd = v.startDate || `${yearStart}-01`;
       const ed = v.endDate   || `${yearEnd}-12`;
       setStartDate(sd); setEndDate(ed);
@@ -543,15 +597,15 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     const geoTxt =
       !hasGeo
         ? 'sem recorte geográfico'
-      : nations.size === NATIONS.length && regions.size === FM_REGIONS.length && states.size === STATES.length && (!showMunis || munis.size === MUNICIPALITIES.length)
+      : nations.size === NATIONS.length && regions.size === FM_REGIONS.length && states.size === STATES.length && (!muniSliceable || munis.size === MUNIS.length)
         ? 'todo o território'
-      : nations.size === 1 && nations.has('BR') && states.size === STATES.length && (!showMunis || munis.size === MUNICIPALITIES.length)
+      : nations.size === 1 && nations.has('BR') && states.size === STATES.length && (!muniSliceable || munis.size === MUNIS.length)
         ? 'Brasil · todos os estados'
-      : showMunis
-        ? `${nations.size} nação(ões), ${states.size} UF, ${munis.size === MUNICIPALITIES.length ? 'todos os' : munis.size} municípios`
+      : muniSliceable
+        ? `${nations.size} nação(ões), ${states.size} UF, ${munis.size === MUNIS.length ? 'todos os' : munis.size} municípios`
         : `${nations.size} nação(ões), ${states.size} UF`;
     return { prodTxt, period, geoTxt };
-  }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, showMunis]);
+  }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, muniSliceable, MUNIS]);
 
   // chip-bar summary published on apply (display strings only)
   const buildChipSummary = (vMin = valueMin, vMax = valueMax) => {
@@ -561,7 +615,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       quickRange === 'all' ? `${yearStart}–${yearEnd}`
       : `${formatMonth(startDate)}–${formatMonth(endDate)}`;
     const valueChip = window.chipFmt.valueRange(vMin, vMax, sym);
-    const muniFull = !showMunis || munis.size === MUNICIPALITIES.length; // all listed (or no municipal level) = no municipal slice
+    const muniFull = !muniSliceable || munis.size === MUNIS.length; // all listed (or no live municipal slice) = no municipal slice
     const geoChip = !hasGeo
       ? 'Não se aplica'
       : nations.size === 1 && nations.has('BR') && states.size === STATES.length && muniFull
@@ -591,7 +645,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
         munis:     [...munis],
         // Selected município NAMES (the data keys by city name, not code) so
         // the engine can actually narrow topMunis by the município selection.
-        muniNames: [...munis].map(c => (MUNICIPALITIES.find(m => m.code === c) || {}).name).filter(Boolean),
+        muniNames: [...munis].map(c => (MUNIS.find(m => m.code === c) || {}).name).filter(Boolean),
         startDate, endDate,
         valueMin:  vMin,  valueMax: vMax,
       });
@@ -606,7 +660,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     setNations(new Set(['BR']));
     setRegions(new Set(FM_REGIONS.map(r => r.id)));
     setStates(new Set(STATES.map(s => s.uf)));
-    setMunis(new Set(MUNICIPALITIES.map(m => m.code)));
+    setMunis(new Set(MUNIS.map(m => m.code)));
     applyQuick('all');
     setValueMin(null);
     setValueMax(null);
@@ -623,7 +677,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               <div className="fm-head-text">
                 <span className="fm-head-over">
                   Filtros · {bancoMeta ? bancoMeta.short : 'Banco'}
-                  {schema && <span className="fm-head-table"> · <code>{window.bancoTable(banco)}</code></span>}
+                  {schema && <span className="fm-head-table"> · <code>{(window.dataStore && window.dataStore.meta(bancoMeta?.id || banco).table) || window.bancoTable(banco)}</code></span>}
                 </span>
                 <span id="fm-title" className="fm-title">
                   {isLive ? 'Editar filtros' : 'Dimensões filtráveis'}
@@ -832,7 +886,9 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   <strong>{nations.size}</strong> {nations.size === 1 ? 'nação' : 'nações'} ·{' '}
                   <strong>{regions.size}</strong> {regions.size === 1 ? 'região' : 'regiões'} ·{' '}
                   <strong>{states.size}</strong> {states.size === 1 ? 'UF' : 'UFs'}
-                  {showMunis && <>{' '}·{' '}<strong>{munis.size}</strong> {munis.size === 1 ? 'município' : 'municípios'}</>}
+                  {showMunis && (muniUniverseLive
+                    ? <>{' '}·{' '}<strong>{munis.size}</strong> {munis.size === 1 ? 'município' : 'municípios'}</>
+                    : <>{' '}·{' '}<span className="fm-soon-inline">municípios em breve</span></>)}
                 </span>
               </div>
 
@@ -884,7 +940,16 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   setSelected={setMunis}
                   search={qMunis}
                   setSearch={setQMunis}
-                  disabledReason={eligibleStates.length === 0 || states.size === 0 ? 'Selecione ao menos um estado.' : null}
+                  // Gate the column when no live município universe is available
+                  // (endpoint not wired): honest "em breve" instead of parading a
+                  // frozen sample as the universe. When live, keep cascade gating.
+                  disabledReason={
+                    !muniUniverseLive
+                      ? 'Seleção por município disponível em breve.'
+                      : eligibleStates.length === 0 || states.size === 0
+                        ? 'Selecione ao menos um estado.'
+                        : null
+                  }
                 />
                 )}
               </div>
@@ -892,8 +957,12 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               {showMunis && (
               <div className="fm-geo-foot">
                 <span className="fm-section-meta">
-                  Lista parcial: {MUNICIPALITIES.length} municípios líderes.{' '}
-                  <a href="#" onClick={(e) => e.preventDefault()}>Carregar todos os 5 570</a>
+                  {/* Honest footer (#24): when the snapshot serves municípios,
+                      state the real count it covers; otherwise say the slice
+                      isn't wired yet — never the fabricated "5 570" link. */}
+                  {muniUniverseLive
+                    ? `Cobertura atual: ${MUNIS.length} ${MUNIS.length === 1 ? 'município' : 'municípios'} com dados no recorte ativo.`
+                    : 'Recorte por município ainda não disponível neste banco — em breve.'}
                 </span>
               </div>
               )}
@@ -981,7 +1050,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
             {/* FOOTER */}
             <footer className="fm-foot">
               <div className="fm-foot-info">
-                Os filtros serão aplicados sobre <strong>{window.bancoTable(banco) || 'gold_pevs_production'}</strong>
+                {/* Read the Gold table from the LIVE provenance (dataStore.meta →
+                    /api/source-meta overlay), not the static bancoTable/registry
+                    literal — so a backend rename of the served table propagates here. */}
+                Os filtros serão aplicados sobre <strong>{window.dataStore.meta(bancoMeta?.id || banco).table || 'gold_pevs_production'}</strong>
                 <span className="fm-dot"></span>
                 {bancoMeta?.prov?.refresh ? `Refresh ${bancoMeta.prov.refresh}` : 'Atualização diária às 06h00 BRT'}
               </div>

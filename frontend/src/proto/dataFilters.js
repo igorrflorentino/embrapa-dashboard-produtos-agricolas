@@ -23,14 +23,16 @@
   // Heuristic share of rows that pass the row-level value filter.
   // Used only to scale the "Linhas" provenance counter; not data display.
   // The thresholds + shares come from the shared window.VALUE_PRESETS
-  // (filtersSchema.js) so the FilterMenu shortcuts and this counter never
-  // desync; a custom (non-preset) range falls back to a mid estimate.
+  // (filtersSchema.js). There is no real backend COUNT for a value threshold yet,
+  // so rather than assert a fabricated filtered count we leave the "Linhas" counter
+  // at the unfiltered total (share 1.00) for every value-threshold — presets AND a
+  // custom range alike — until a real /api count exists.
   function valueShareForRange(min, max) {
     if (min == null && max == null) return 1.00;
     if (min === 0 && max == null)   return 1.00;
     const preset = (window.VALUE_PRESETS || []).find(p => p.min === min && p.max === max);
     if (preset) return preset.rowShare;
-    return 0.66; // arbitrary custom range
+    return 1.00; // custom range — no fabricated share (was 0.66)
   }
 
   window.applyFilters = function (summary, bancoId) {

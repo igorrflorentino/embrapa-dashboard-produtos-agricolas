@@ -61,10 +61,12 @@ function MetricConventions({ value, onChange, families }) {
           label="Moeda"
           mono
           options={[
+            // BRL/USD/EUR are real Gold columns (BCB PTAX series). CNY is omitted:
+            // the BCB publishes no BRL/CNY series, so a CNY value would have to be
+            // fabricated — better not to offer it than to show a made-up rate.
             { id: 'BRL', sub: 'R$'  },
             { id: 'USD', sub: 'US$' },
             { id: 'EUR', sub: '€'   },
-            { id: 'CNY', sub: '¥'   },
           ]}
           active={value.currency}
           onPick={(id) => set({ currency: id })}
@@ -134,12 +136,16 @@ function _fmtRescaled(v, conv, unitSuffix) {
   return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' ' + unitSuffix;
 }
 
-// Currency conversion factors vs. BRL (illustrative · last-year rates)
+// Currency display symbols + BRL-pivot FX rates. The rates are NOT used by the
+// BRL-native path (convFactor: BRL/USD/EUR are server-native real Gold columns →
+// factor 1); they ARE still used by convFactorFor to cross-convert a USD-NATIVE
+// trade banco (COMEX/Comtrade) to a non-default display currency (the
+// cross-contract #5 base-aware path). CNY is intentionally absent — the BCB
+// publishes no BRL/CNY series, so it is not an offerable currency.
 window.CURRENCY_FX = {
   BRL: { rate: 1,     symbol: 'R$',  long: 'Real'  },
   USD: { rate: 0.205, symbol: 'US$', long: 'Dólar' },
   EUR: { rate: 0.187, symbol: '€',   long: 'Euro'  },
-  CNY: { rate: 1.490, symbol: '¥',   long: 'Yuan'  },
 };
 
 // Mock nominal-deflation factor: when Nominal correction is picked we
@@ -163,12 +169,15 @@ window.convFactor = (conv) => {
   // REACT MIGRATION: currency × correction now select the REAL deflated value
   // column SERVER-side (val_real_{ipca,igpm,igpdi}_brl, val_yearfx_* for Nominal,
   // *_usd for USD) — the scientific core — instead of this flat client multiplier.
-  // So: correction is fully server-applied (factor 1); BRL/USD are server-native
-  // columns (factor 1). Only EUR/CNY lack a real column (the BFF falls back to the
-  // BRL-with-correction column), so they keep an approximate display FX on top.
-  // (Edge: USD + IGP-M/IGP-DI has no _usd column → BFF falls back to BRL; the
-  // value_label flags "moeda indisponível → R$".)
-  const serverNative = conv.currency === 'BRL' || conv.currency === 'USD';
+  // So: correction is fully server-applied (factor 1); BRL/USD AND EUR are now
+  // server-native columns (val_*_brl / val_*_usd / val_*_eur — the serving marts
+  // carry real BCB PTAX EUR), so all three are factor 1 (a EUR snapshot is already
+  // EUR-valued and must NOT be re-multiplied). CNY is not offered (no BCB BRL/CNY
+  // series). The FX fallback below is now defensive only — no selectable currency
+  // hits it. (Edge: USD + IGP-M/IGP-DI has no _usd column → BFF falls back to BRL;
+  // the value_label flags "moeda indisponível → R$".)
+  const serverNative =
+    conv.currency === 'BRL' || conv.currency === 'USD' || conv.currency === 'EUR';
   return serverNative ? 1 : (window.CURRENCY_FX[conv.currency] || { rate: 1 }).rate;
 };
 
@@ -280,7 +289,7 @@ window.scaleSeries = (series, refMag, conv, valueKey, unitSuffix) => {
   const data = series.map(d => ({ ...d, [valueKey]: d[valueKey] / factor }));
   // Currency symbols sit BEFORE the magnitude suffix ("R$ bi"),
   // physical units sit AFTER ("bi t").
-  const CURRENCY_SYMS = ['R$', 'US$', '€', '¥'];
+  const CURRENCY_SYMS = ['R$', 'US$', '€'];
   const label = CURRENCY_SYMS.includes(unitSuffix)
     ? `${unitSuffix} ${suffix}`
     : `${suffix} ${unitSuffix}`.trim();

@@ -7,6 +7,10 @@ models:
       from year×UF×city×product up to year×UF×product×family — the municipality
       grain dropped — so the dashboard scans MB, not GB. Backs overviewTS /
       productTS / ufData. Carries commodity_id for the live dim_commodity_scd2 join.
+      Monetary measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
+      (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
+      carried alongside BRL/USD). CNY is intentionally omitted — gold val_*_cny are
+      all NULL (no BCB BRL/CNY series).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -35,7 +39,11 @@ models:
       the source-parameterized gateway readers serve PAM with no per-source SQL.
       Gold rolled from year×UF×city×product up to year×UF×product×family. Backs
       overviewTS / productTS / ufData for the ibge_pam banco (quantity + value
-      today; área/rendimento are a planned expansion off the same Gold).
+      today; área/rendimento are a planned expansion off the same Gold). Monetary
+      measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
+      (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
+      carried alongside BRL/USD). CNY is intentionally omitted — gold val_*_cny are
+      all NULL (no BCB BRL/CNY series).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

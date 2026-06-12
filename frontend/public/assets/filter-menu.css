@@ -287,6 +287,8 @@
   font-weight: 500;
 }
 .fm-section-meta a:hover { color: var(--embrapa-green-darker); text-decoration: underline; }
+/* honest "em breve" hint inline in the geo-summary (município universe not yet served) */
+.fm-soon-inline { color: var(--status-warn-ink); font-style: italic; }
 
 /* cascade hint pill */
 .fm-cascade-hint {

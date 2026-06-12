@@ -264,6 +264,31 @@ def _uf_data(df: pd.DataFrame | None) -> list[dict]:
     ]
 
 
+def serialize_product_uf(df: pd.DataFrame | None) -> dict:
+    """seam.product_uf_ranking() → { uf: [{uf, name, region, value}] }.
+
+    The real per-UF total for a single product (backs ViewProductProfile's
+    'Onde X é produzido' bars, which previously faked the distribution with a
+    sine jitter over a synthetic affinity table). ``value`` is the reader's raw
+    total_value; rows are emitted descending. Empty list when df is None/empty.
+    """
+    if _empty(df):
+        return {"uf": []}
+    rows = [
+        {
+            "uf": r.state_acronym,
+            "name": r.state_name,
+            "region": r.region_abbrev,
+            # PEVS/PAM expose total_value; the COMEX-by-UF reader names it
+            # total_value_usd — accept either so both geo bancos serialize.
+            "value": _num(getattr(r, "total_value", getattr(r, "total_value_usd", None))),
+        }
+        for r in df.itertuples()
+    ]
+    rows.sort(key=lambda d: d["value"], reverse=True)
+    return {"uf": rows}
+
+
 def _quality(df: pd.DataFrame | None) -> list[dict]:
     # label/color added client-side from QUALITY_FLAGS. `share` is the mart's
     # 0-1 fraction (fmtPct ×100 expects that).

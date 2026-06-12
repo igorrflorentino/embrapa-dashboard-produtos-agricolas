@@ -21,9 +21,12 @@ function ViewAbout() {
   // repeated in the pipeline text.
   const goldTables = bancos.map(b => window.bancoTable(b.id)).join(', ');
 
-  // App version is config; the date follows the snapshot refresh (bancos.js).
+  // App version is config; the date follows the LIVE Gold refresh from
+  // window.dataStore.meta() (/api/source-meta overlay), not the frozen registry
+  // prov — so the footer date tracks the real last refresh once it resolves.
   const APP_VERSION = 'v0.4.2';
-  const refreshDate = (livePev?.prov?.refresh || '').split(' · ')[0] || '—';
+  const _pevMeta = window.dataStore && window.dataStore.meta ? window.dataStore.meta('ibge_pevs') : null;
+  const refreshDate = ((_pevMeta && _pevMeta.refresh) || '').split(' · ')[0] || '—';
 
   const PIPELINE = [
     {

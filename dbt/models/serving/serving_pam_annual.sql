@@ -44,10 +44,17 @@ with pam as (
         sum(area_harvested_ha)          as area_harvested_ha,
         sum(val_yearfx_brl)             as val_yearfx_brl,
         sum(val_yearfx_usd)             as val_yearfx_usd,
+        -- EUR carried alongside BRL/USD (real BCB BRL/EUR series). CNY is
+        -- intentionally excluded: gold val_*_cny are all NULL (no BCB BRL/CNY
+        -- series), so the mart must not offer a currency it can't honestly serve.
+        sum(val_yearfx_eur)             as val_yearfx_eur,
         sum(val_real_ipca_brl)          as val_real_ipca_brl,
         sum(val_real_ipca_usd)          as val_real_ipca_usd,
+        sum(val_real_ipca_eur)          as val_real_ipca_eur,
         sum(val_real_igpm_brl)          as val_real_igpm_brl,
+        sum(val_real_igpm_eur)          as val_real_igpm_eur,
         sum(val_real_igpdi_brl)         as val_real_igpdi_brl,
+        sum(val_real_igpdi_eur)         as val_real_igpdi_eur,
         count(distinct city_name)       as n_cities,
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
@@ -76,10 +83,14 @@ select
     p.area_harvested_ha,
     p.val_yearfx_brl,
     p.val_yearfx_usd,
+    p.val_yearfx_eur,
     p.val_real_ipca_brl,
     p.val_real_ipca_usd,
+    p.val_real_ipca_eur,
     p.val_real_igpm_brl,
+    p.val_real_igpm_eur,
     p.val_real_igpdi_brl,
+    p.val_real_igpdi_eur,
     p.n_cities,
     p.source_rows,
     p.last_refresh
