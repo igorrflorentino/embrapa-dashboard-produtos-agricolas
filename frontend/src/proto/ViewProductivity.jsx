@@ -35,6 +35,7 @@ function ViewProductivity({ summary, conventions, database }) {
   const series = data.series;
   const last = series[series.length - 1] || { y: 0, yieldKgHa: 0, areaHa: 0, prodT: 0 };
   const prev = series[series.length - 2] || last;
+  const first = series[0] || last; // guard the empty loading frame (series resolves async)
   const yDelta = prev.yieldKgHa ? ((last.yieldKgHa - prev.yieldKgHa) / prev.yieldKgHa) * 100 : 0;
   const aDelta = prev.areaHa ? ((last.areaHa - prev.areaHa) / prev.areaHa) * 100 : 0;
 
@@ -93,7 +94,7 @@ function ViewProductivity({ summary, conventions, database }) {
         <window.KpiCardSpark
           label="CAGR do rendimento"
           value={window.fmtSigned(data.national.yieldCagr)}
-          sub={`ganho de produtividade · ${series[0].y}–${last.y}`}
+          sub={`ganho de produtividade · ${first.y}–${last.y}`}
           spark={series.slice(-12).map(d => ({ y: d.y, v: d.yieldKgHa }))}
           sparkKey="v"
           sparkColor="var(--viz-7)"

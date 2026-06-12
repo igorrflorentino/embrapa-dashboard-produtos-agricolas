@@ -158,11 +158,11 @@ window.BANCOS = [
     maturity: 'beta',
     maturityNote: 'Primeira fração: 5 principais lavouras a partir de 2010, com quantidade e valor da produção. Área e rendimento já estão no Gold e entram no painel em seguida; demais lavouras na sequência.',
     maturityDate: '1º trimestre/2027',
-    // LEAN surface: product + geography + quality (the PEVS-shaped views that are
-    // wired end-to-end). 'area'/'yield' are in the Gold table but not yet surfaced
-    // in the painel → kept OUT of `provides` so those perspectives gate off
-    // honestly ("Não se aplica") until the área/rendimento expansion lands.
-    provides: ['product', 'geo', 'quality'],
+    // LEAN surface: product + geography + quality + yield. The PEVS-shaped views
+    // AND the PAM-only Produtividade (área × rendimento) view are wired end-to-end:
+    // gold_pam_production carries area_planted/harvested_ha + production, surfaced
+    // via /api/productivity (rendimento = produção ÷ área colhida, server-side).
+    provides: ['product', 'geo', 'quality', 'yield'],
     baseCurrency: 'BRL',
     geoLevel: 'municipio',
     dimensions: {

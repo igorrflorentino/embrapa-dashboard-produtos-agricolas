@@ -199,6 +199,37 @@ def production_by_uf(
     return sql, params
 
 
+def productivity(
+    table: str,
+    *,
+    product_code: str,
+) -> tuple[str, list]:
+    """Production (t) + planted/harvested area (ha) by (year, UF) for ONE crop,
+    from a PAM-shaped mart (``serving_pam_annual``; backs ViewProductivity).
+
+    Yield (kg/ha) is a RATIO — not summable — so it is deliberately NOT aggregated
+    here; the seam recomputes it as ``production_kg / area_harvested_ha`` at each
+    grain it needs (national per year, per UF for the latest year). ``product_code``
+    is bound as a parameter (one crop at a time, picked by the view's selector)."""
+    params: list = [bigquery.ScalarQueryParameter("product_code", "STRING", product_code)]
+    sql = f"""
+        select
+            reference_year,
+            state_acronym,
+            any_value(state_name)        as state_name,
+            any_value(region)            as region,
+            any_value(region_abbrev)     as region_abbrev,
+            sum(qty_native)              as production_t,
+            sum(area_planted_ha)         as area_planted_ha,
+            sum(area_harvested_ha)       as area_harvested_ha
+        from `{table}`
+        where product_code = @product_code
+        group by reference_year, state_acronym
+        order by reference_year, state_acronym
+    """
+    return sql, params
+
+
 def comex_seasonality(
     table: str,
     *,

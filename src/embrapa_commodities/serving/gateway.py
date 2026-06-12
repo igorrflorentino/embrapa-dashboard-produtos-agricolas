@@ -168,6 +168,16 @@ def fetch_production_by_uf(
 
 
 @cache.memoize()
+def fetch_productivity(product_code: str, source: str = "ibge_pam"):
+    """Production + harvested/planted area by (year, UF) for one crop, from a
+    PAM-shaped mart (backs ViewProductivity). Yield is recomputed downstream."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
+    sql, params = sqlbuild.productivity(table, product_code=product_code)
+    return run_query(sql, params)
+
+
+@cache.memoize()
 def fetch_comex_seasonality(
     year_start: int | None = None,
     year_end: int | None = None,

@@ -289,6 +289,70 @@ def serialize_product_uf(df: pd.DataFrame | None) -> dict:
     return {"uf": rows}
 
 
+def serialize_productivity(payload: dict | None) -> dict | None:
+    """seam.productivity() → the ViewProductivity contract (área × rendimento).
+
+    Recomputes yield (kg/ha) as ``production_kg / harvested-area_ha`` at each grain
+    (a ratio is NOT summable): the national series per year + the per-UF map for the
+    LATEST year. ``prodT`` (t) and ``areaHa`` (ha) stay raw — the view scales them
+    (mi t / mil ha). Returns None when the banco lacks the yield capability so the
+    view renders its honest empty-state.
+    """
+    if not payload:
+        return None
+    df = payload.get("rows")
+    base = {
+        "crop": {"code": payload.get("active", ""), "name": payload.get("active_name", "")},
+        "crops": payload.get("crops", []),
+        "yieldUnit": "kg/ha",
+        "areaUnit": "ha",
+        "series": [],
+        "national": {"yieldCagr": 0.0},
+        "byUF": [],
+    }
+    if _empty(df):
+        return base
+
+    def _yield(prod_t: Any, area_ha: Any) -> float:
+        area = _num(area_ha)
+        return (_num(prod_t) * 1000.0) / area if area > 0 else 0.0
+
+    # National series: production + harvested area summed per year (additive across
+    # UFs); yield recomputed from the two totals, never averaged.
+    nat = df.groupby("reference_year")[["production_t", "area_harvested_ha"]].sum().reset_index()
+    base["series"] = [
+        {
+            "y": int(r.reference_year),
+            "yieldKgHa": _yield(r.production_t, r.area_harvested_ha),
+            "areaHa": _num(r.area_harvested_ha),
+            "prodT": _num(r.production_t),
+        }
+        for r in nat.itertuples()
+    ]
+
+    # Yield CAGR over the covered span (first → last national yield).
+    series = base["series"]
+    if len(series) >= 2:
+        first, last = series[0]["yieldKgHa"], series[-1]["yieldKgHa"]
+        span = series[-1]["y"] - series[0]["y"]
+        if first > 0 and span > 0:
+            base["national"]["yieldCagr"] = ((last / first) ** (1.0 / span) - 1.0) * 100.0
+
+    # Per-UF productivity for the LATEST year (the map + ranking grain).
+    latest_year = int(df["reference_year"].max())
+    latest = df[df["reference_year"] == latest_year]
+    base["byUF"] = [
+        {
+            "uf": r.state_acronym,
+            "name": r.state_name,
+            "region": r.region_abbrev,
+            "yieldKgHa": _yield(r.production_t, r.area_harvested_ha),
+        }
+        for r in latest.itertuples()
+    ]
+    return base
+
+
 def _quality(df: pd.DataFrame | None) -> list[dict]:
     # label/color added client-side from QUALITY_FLAGS. `share` is the mart's
     # 0-1 fraction (fmtPct ×100 expects that).

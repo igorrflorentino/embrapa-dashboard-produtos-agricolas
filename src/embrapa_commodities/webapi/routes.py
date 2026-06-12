@@ -117,6 +117,19 @@ def product_uf():
     return jsonify(serializers.serialize_product_uf(df))
 
 
+@api.get("/productivity")
+def productivity():
+    """Área × rendimento for one crop (backs ViewProductivity, IBGE PAM only).
+
+    `crop` picks the active crop (defaults to the first when absent). Yield (kg/ha)
+    is recomputed server-side from production ÷ harvested area on the PAM mart;
+    `null` when the banco lacks the `yield` capability."""
+    banco = request.args.get("banco", "")
+    crop = request.args.get("crop") or None
+    payload = seam.productivity(banco, crop, None)
+    return jsonify(serializers.serialize_productivity(payload))
+
+
 # ── trade adapters (flow / partner / monthly) — COMEX/COMTRADE ─────────────────
 
 

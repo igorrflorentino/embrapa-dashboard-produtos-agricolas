@@ -317,7 +317,10 @@ BANCOS: list[Banco] = [
             "a partir de 2010, com quantidade e valor da produção. Área e rendimento "
             "já estão no Gold e entram no painel em seguida; demais lavouras na sequência."
         ),
-        provides=("product", "geo", "quality"),
+        # 'yield' (área × rendimento) is wired end-to-end via /api/productivity over
+        # gold_pam_production's area_*_ha + production columns — keep in sync with
+        # the frontend bancos.js provides list.
+        provides=("product", "geo", "quality", "yield"),
         base_currency="BRL",
         geo_level="municipio",
         dimensions={**_UF_DIMS, "product": {"codeLabel": "Código PAM"}},
