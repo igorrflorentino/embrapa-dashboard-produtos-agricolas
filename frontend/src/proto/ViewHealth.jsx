@@ -5,8 +5,24 @@
 // for an operational metric (run history, run duration, SLA windows, row deltas),
 // the page honestly empty-states ('—' / 'não monitorado') instead of inventing.
 
+const { useState: useHsState, useEffect: useHsEffect } = React;
+
 function ViewHealth() {
   const bancos = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
+
+  // ── Live provenance bootstrap ───────────────────────────────────────────
+  // Saúde is an info-page: reached via ?ip=health it renders OUTSIDE the data
+  // boundary, so no banco snapshot loads first and /api/source-meta is never
+  // fetched — meta() would fall back to the frozen registry literal (stale Gold
+  // stamp). Proactively fetch the meta for every live banco on mount, and
+  // subscribe so the page re-renders to the REAL Gold metadata once it resolves.
+  const [, forceHs] = useHsState(0);
+  useHsEffect(() => window.dataStore.subscribe(() => forceHs(n => n + 1)), []);
+  useHsEffect(() => {
+    if (!(window.dataStore && window.dataStore.loadMeta)) return;
+    bancos.filter(b => b.status === 'live').forEach(b => window.dataStore.loadMeta(b.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Per-banco OPERATIONAL facts — read from the LIVE provenance seam ─────
   // window.dataStore.meta(id) returns the registry declaration OVERLAID with the

@@ -3,10 +3,22 @@
 // usage tips, credits. No insights, no live data — just what the
 // dashboard is and how to use it.
 
+const { useState: useAbState, useEffect: useAbEffect } = React;
+
 function ViewAbout() {
   const bancos = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
   const livePev = window.bancoById ? window.bancoById('ibge_pevs') : null;
   const yearStart = livePev?.prov?.yearStart || 1986;
+
+  // Sobre is an info-page (?ip=about): reached directly it renders outside the
+  // data boundary, so /api/source-meta is never fetched and the footer date
+  // would fall back to the frozen registry literal. Fetch the PEVS provenance on
+  // mount + subscribe, so the footer/citation date tracks the real Gold refresh.
+  const [, forceAb] = useAbState(0);
+  useAbEffect(() => window.dataStore.subscribe(() => forceAb(n => n + 1)), []);
+  useAbEffect(() => {
+    if (window.dataStore && window.dataStore.loadMeta) window.dataStore.loadMeta('ibge_pevs');
+  }, []);
 
   // Perspectives derived from the single registry (views.js · VIEW_GROUPS) so
   // this page never goes stale when a view is added/removed. The glossary is a

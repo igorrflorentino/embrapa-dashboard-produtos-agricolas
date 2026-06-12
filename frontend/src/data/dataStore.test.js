@@ -12,6 +12,7 @@ function jsonRes(body, { ok = true, status = 200 } = {}) {
 // load() also fires a /api/source-meta fetch (live provenance) alongside the
 // snapshot; these tests assert on the SNAPSHOT query cadence, so count only those.
 const snapCalls = (f) => f.mock.calls.filter((c) => String(c[0]).includes('/snapshot')).length;
+const metaCalls = (f) => f.mock.calls.filter((c) => String(c[0]).includes('/source-meta')).length;
 
 // A contract-complete BancoSnapshot (the shape assertSnapshotShape requires).
 function validSnap(over = {}) {
@@ -93,5 +94,29 @@ describe('dataStore', () => {
     const res = await ds.load('ibge_pevs');
     expect(res.status).toBe('error');
     expect(ds.error('ibge_pevs')).toMatch(/inesperada/i);
+  });
+
+  it('loadMeta fetches /source-meta once and overlays it onto meta() (deduped)', async () => {
+    // The freshness/about info-pages reach loadMeta directly (no snapshot load),
+    // so it must fetch provenance on its own and never double-fetch a resolved one.
+    const sm = {
+      table: 'gold_pevs_production',
+      yearStart: 1986,
+      yearEnd: 2024,
+      totalRows: 94771,
+      lastRefreshLabel: '11 jun 2026 · 05:02 BRT',
+    };
+    const f = vi.fn((url) => jsonRes(String(url).includes('/source-meta') ? sm : validSnap()));
+    const ds = await loadStore(f);
+    window.bancoById = () => ({ prov: { refresh: 'fallback' } }); // registry fallback
+
+    await ds.loadMeta('ibge_pevs');
+    expect(metaCalls(f)).toBe(1);
+    const m = ds.meta('ibge_pevs');
+    expect(m.refresh).toBe('11 jun 2026 · 05:02 BRT'); // overlaid, not the fallback
+    expect(m.coverage).toMatchObject({ yearEnd: 2024, totalRows: 94771 });
+
+    await ds.loadMeta('ibge_pevs'); // already resolved → no second fetch
+    expect(metaCalls(f)).toBe(1);
   });
 });
