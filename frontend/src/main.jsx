@@ -89,7 +89,13 @@ function readStateFromURL() {
   const q = new URLSearchParams(location.search);
   if (!window.urlHasOwnState || !window.urlHasOwnState(q)) return null;
   const conv = { ...window.DEFAULT_CONVENTIONS };
-  if (q.get('cur')) conv.currency = q.get('cur');
+  // Clamp the hydrated currency to the offered set (the CURRENCY_FX keys). A stale
+  // shared/bookmarked URL may still carry an unsupported value (e.g. ?cur=CNY,
+  // dropped when CNY lost its fabricated FX rate); an unknown currency would later
+  // deref CURRENCY_FX[cur].symbol (undefined) and white-screen the view, so keep
+  // the default instead.
+  const cur = q.get('cur');
+  if (cur && window.CURRENCY_FX && window.CURRENCY_FX[cur]) conv.currency = cur;
   if (q.get('corr')) conv.correction = q.get('corr');
   if (q.get('mu') || q.get('vu')) {
     conv.units = { ...conv.units, mass: q.get('mu') || conv.units?.mass, volume: q.get('vu') || conv.units?.volume };

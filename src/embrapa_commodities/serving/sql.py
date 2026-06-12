@@ -21,14 +21,23 @@ from google.cloud import bigquery
 
 # Measures a chart may sum. Interpolated as an identifier (cannot be a bind
 # param), so it MUST be validated against this allowlist first.
+#
+# EUR columns are served (the PEVS/PAM marts carry them — real BCB BRL/EUR
+# series), so effective_value_column() resolves EUR server-side instead of
+# falling back to BRL. CNY is intentionally absent: gold val_*_cny are all NULL
+# (no BCB BRL/CNY series), so no _cny column may be selected.
 ALLOWED_VALUE_COLUMNS = frozenset(
     {
         "val_yearfx_brl",
         "val_yearfx_usd",
+        "val_yearfx_eur",
         "val_real_ipca_brl",
         "val_real_ipca_usd",
+        "val_real_ipca_eur",
         "val_real_igpm_brl",
+        "val_real_igpm_eur",
         "val_real_igpdi_brl",
+        "val_real_igpdi_eur",
         "net_weight_kg",
         "qty_base",
     }

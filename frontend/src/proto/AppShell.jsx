@@ -70,9 +70,14 @@ function AppShell({
     : database;
   const today = new Date();
   const accessedOn = today.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-  const _ovTs = window.OVERVIEW_TS || [];
-  const _yStart = _ovTs[0]?.y || 1986;
-  const _yEnd   = _ovTs[_ovTs.length - 1]?.y || 2024;
+  // Recorte temporal: the ACTIVE banco's LIVE coverage \u2014 its snapshot overviewTS
+  // span first (window.dataStore.get), then the /api/source-meta coverage
+  // (meta().coverage), then '\u2014'. NEVER window.OVERVIEW_TS, which is the synthetic
+  // seed frozen identically for every banco (audit #23).
+  const _ovTs = (window.dataStore && window.dataStore.get && window.dataStore.get(database)?.overviewTS) || [];
+  const _cov = (window.dataStore && window.dataStore.meta && window.dataStore.meta(database)?.coverage) || null;
+  const _yStart = _ovTs[0]?.y ?? _cov?.yearStart ?? '\u2014';
+  const _yEnd   = _ovTs[_ovTs.length - 1]?.y ?? _cov?.yearEnd ?? '\u2014';
   const period = summary && (summary.startDate || summary.endDate)
     ? `${String(summary.startDate || _yStart).slice(0,4)}\u2013${String(summary.endDate || _yEnd).slice(0,4)}`
     : `${_yStart}\u2013${_yEnd}`;

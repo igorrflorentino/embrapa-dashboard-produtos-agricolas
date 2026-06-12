@@ -296,7 +296,14 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   }
 
   // ---- Provenance + selection block (live banco) ----
+  // BANCO_PROV is the registry (synthetic) fallback; the LIVE provenance comes
+  // from window.dataStore.meta(database) — read at RENDER time so the async
+  // /api/source-meta overlay wins once it resolves. meta.prov.* carries the REAL
+  // refresh / última-safra year / ufsTotal / yearsTotal / counts; the registry
+  // prov stays as the pre-resolution fallback inside meta() itself.
   const prov = BANCO_PROV[database];
+  const _meta = window.dataStore && window.dataStore.meta ? window.dataStore.meta(database) : null;
+  const metaProv = (_meta && _meta.prov) || prov;
 
   // ---- Perspective not applicable to this banco (capability mismatch) --
   // Distinct from 'soon': even when built, this view won't apply here.
@@ -412,11 +419,11 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">Última safra</span>
-              <span className="meta-val tnum">{prov.lastCrop} <small>· {prov.lastCropDate}</small></span>
+              <span className="meta-val tnum">{metaProv.lastCrop} <small>· {metaProv.lastCropDate}</small></span>
             </div>
             <div className="meta-row">
               <span className="meta-label">Refresh Gold</span>
-              <span className="meta-val tnum">{prov.refresh}</span>
+              <span className="meta-val tnum">{metaProv.refresh}</span>
             </div>
           </div>
 
@@ -434,11 +441,11 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">UFs cobertas</span>
-              <span className="meta-val tnum">{ufsCovered} / {prov.ufsTotal}</span>
+              <span className="meta-val tnum">{ufsCovered} / {metaProv.ufsTotal}</span>
             </div>
             <div className="meta-row">
               <span className="meta-label">Anos cobertos</span>
-              <span className="meta-val tnum">{yearsCovered} / {prov.yearsTotal}</span>
+              <span className="meta-val tnum">{yearsCovered} / {metaProv.yearsTotal}</span>
             </div>
           </div>
         </div>

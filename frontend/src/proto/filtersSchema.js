@@ -17,18 +17,25 @@
 
 // ── Value-range quick presets (single source of truth) ───────────────────
 // Used BOTH by the FilterMenu "valor mínimo" shortcut buttons AND by the
-// row-counter heuristic in dataFilters.js (valueShareForRange). `rowShare` is
-// the approximate fraction of rows that clear each threshold — it scales only
-// the "Linhas" provenance counter, never the data shown. Keeping the two
-// consumers on one list means a preset change can't silently desync the
-// counter. `suffix` builds the label as `≥ <symbol> <suffix>` at render time
-// (symbol depends on the active currency); `none` has no threshold.
+// row-counter heuristic in dataFilters.js (valueShareForRange, which reads
+// `rowShare`). `suffix` builds the label as `≥ <symbol> <suffix>` at render
+// time (symbol depends on the active currency); `none` has no threshold.
+//
+// HONESTY (#7): the per-threshold `rowShare` fractions used to be 0.81 / 0.52 /
+// 0.18 / 0.04 — fabricated guesses, since there is NO real COUNT of rows that
+// clear a value threshold (no backend aggregate exists for it). They scaled the
+// "Linhas X de Y" hero counter, making it assert a made-up filtered count. They
+// are now all 1.00, so a value-threshold preset leaves the counter at the
+// UNFILTERED total rather than parading an invented number. `rowShare` stays on
+// each preset (kept at 1.00) so dataFilters.js's `preset.rowShare` lookup keeps
+// returning a valid number — never undefined/NaN — and the real, snapshot-derived
+// share dimensions (product/flag/year/state) are untouched.
 window.VALUE_PRESETS = [
   { id: 'none', min: null,      max: null, suffix: null,      rowShare: 1.00 },
-  { id: '1k',   min: 1_000,     max: null, suffix: '1 mil',   rowShare: 0.81 },
-  { id: '10k',  min: 10_000,    max: null, suffix: '10 mil',  rowShare: 0.52 },
-  { id: '100k', min: 100_000,   max: null, suffix: '100 mil', rowShare: 0.18 },
-  { id: '1M',   min: 1_000_000, max: null, suffix: '1 mi',    rowShare: 0.04 },
+  { id: '1k',   min: 1_000,     max: null, suffix: '1 mil',   rowShare: 1.00 },
+  { id: '10k',  min: 10_000,    max: null, suffix: '10 mil',  rowShare: 1.00 },
+  { id: '100k', min: 100_000,   max: null, suffix: '100 mil', rowShare: 1.00 },
+  { id: '1M',   min: 1_000_000, max: null, suffix: '1 mi',    rowShare: 1.00 },
 ];
 
 window.FILTER_SCHEMAS = {

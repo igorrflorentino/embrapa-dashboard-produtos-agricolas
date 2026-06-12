@@ -27,26 +27,9 @@ window.PRODUCTS = [
   { code: '49224', name: 'Piaçava (fibra)',   unit: 't',  family: 'mass'   },
 ];
 
-// Region affinity per PEVS product code — biases the synthetic per-UF
-// allocation in ViewProductProfile so each product's UF ranking is plausible
-// (castanha/açaí → Norte, erva-mate/pinhão → Sul, etc.). Keyed by the same
-// product universe as window.PRODUCTS. Synthetic mock weighting, NOT measured
-// data; replaced by a real per-UF aggregate when the Gold table lands. Lives
-// HERE (not in the view) so the data layer stays the single source of truth.
-window.PRODUCT_REGION_AFFINITY = {
-  '49101': { N: 3.4 },              // castanha → Norte
-  '49103': { N: 4.0 },              // açaí → Norte
-  '49105': { SE: 1.6, S: 1.4 },     // palmito
-  '49106': { NE: 3.2 },             // babaçu → Nordeste (MA/PI)
-  '49108': { S: 4.2 },              // erva-mate → Sul
-  '49112': { S: 5.0 },              // pinhão → Sul
-  '49215': { N: 2.4, CO: 1.6 },     // madeira tora
-  '49216': { S: 1.6, NE: 1.4 },     // lenha
-  '49218': { CO: 2.2, SE: 1.6 },    // carvão → MG/MT
-  '49221': { N: 3.0 },              // borracha → Norte (AC)
-  '49222': { NE: 4.5 },             // carnaúba → Nordeste (CE/PI)
-  '49224': { NE: 3.0 },             // piaçava → Nordeste/Norte
-};
+// (window.PRODUCT_REGION_AFFINITY removed — ViewProductProfile's "Onde X é
+// produzido" ranking now fetches the REAL per-product × UF breakdown from
+// /api/product-uf instead of a synthetic region-biased allocation.)
 
 // ── Unit families registry ───────────────────────────────────────────
 // REGISTRY-DRIVEN: each family is a physical DIMENSION. Quantities of

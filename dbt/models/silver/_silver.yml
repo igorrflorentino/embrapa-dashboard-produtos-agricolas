@@ -36,6 +36,44 @@ models:
               arguments:
                 expression: "is null or numeric_value >= 0"
 
+  - name: silver_ibge_pam
+    description: "PAM crop production (SIDRA 5457) cleaned, typed, deduplicated. LONG: one row per (year, city, product, variable)."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - city_code
+              - product_code
+              - variable_code
+              - unit_of_measure
+    columns:
+      - name: reference_year
+        tests:
+          - not_null
+          # Lean-window guard: the ×1000 monetary scaling assumes "Mil Reais"
+          # (1994+). If PAM is backfilled below 1994 this fails, flagging that a
+          # date-aware reform factor is now required (see silver_ibge_pam header).
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1994 and extract(year from current_date()) + 1"
+      - name: state_acronym
+        tests: [not_null]
+      - name: product_code
+        description: "SIDRA classification-782 crop code (e.g. 40124 = Soja)."
+        tests: [not_null]
+      - name: variable_code
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["8331", "216", "214", "112", "215"]
+      - name: numeric_value
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or numeric_value >= 0"
+
   - name: silver_bcb_inflation
     description: |
       Monthly inflation series with chain-linked 100-base index_value, so any

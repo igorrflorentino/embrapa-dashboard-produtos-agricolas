@@ -61,9 +61,11 @@ class Settings(BaseSettings):
 
     # ─── BigQuery dataset / table names ───────────────────────────────────────
     bq_bronze_ibge_dataset: str = Field(default="bronze_ibge")
+    bq_bronze_pam_dataset: str = Field(default="bronze_pam")
     bq_bronze_bcb_dataset: str = Field(default="bronze_bcb")
     bq_bronze_comex_dataset: str = Field(default="bronze_comex")
     bq_bronze_ibge_table: str = Field(default="sidra_t289_raw")
+    bq_bronze_pam_table: str = Field(default="sidra_t5457_raw")
     bq_bronze_bcb_inflation_table: str = Field(default="inflation_series_raw")
     bq_bronze_bcb_currency_table: str = Field(default="currency_series_raw")
     bq_bronze_comex_flows_table: str = Field(default="comex_flows_raw")
@@ -91,6 +93,28 @@ class Settings(BaseSettings):
     # ge=0: a NEGATIVE overlap would push the delta floor ABOVE latest_bronze_year,
     # skipping not-yet-absorbed recent years on a warm table (silent data gap).
     ibge_delta_overlap_years: int = Field(default=1, ge=0)
+
+    # ─── IBGE PAM (Produção Agrícola Municipal — SIDRA table 5457) ─────────────
+    # The second IBGE/SIDRA source: ANNUAL crop production by municipality. Same
+    # SIDRA client + two-phase Bronze as PEVS (see ibge/pam_pipeline.py), just a
+    # different table/classification/products and its OWN Bronze + raw-zone segment
+    # (dataset "pam"), so the two never collide on --from-raw replays.
+    pam_table_id: str = Field(default="5457")
+    # Classification 782 = "produto das lavouras temporárias e permanentes".
+    pam_classification_id: str = Field(default="782")
+    # LEAN first cut — the 5 highest-value Brazilian crops. Widen via .env
+    # (PAM_PRODUCT_CODES) once the pipeline is validated. Codes are SIDRA c782:
+    #   40124 Soja · 40122 Milho · 40139 Café (Total) · 40106 Cana-de-açúcar · 40102 Arroz
+    pam_product_codes: str = Field(default="40124,40122,40139,40106,40102")
+    # LEAN floor — start recent on purpose for the first cut (PAM history runs to
+    # 1974; the full backfill is heavy). Lower PAM_START_YEAR for older history
+    # once validated. The END floats with the current year (like IBGE PEVS) so the
+    # nightly delta absorbs PAM's recent-year revisions and auto-picks-up a newly
+    # published year; SIDRA simply returns no rows for years not yet published.
+    pam_start_year: int | None = Field(default=2010)
+    pam_end_year: int = Field(default_factory=_current_year)
+    # Same delta semantics as IBGE PEVS (PAM also revises only recent years).
+    pam_delta_overlap_years: int = Field(default=1, ge=0)
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
@@ -248,6 +272,15 @@ class Settings(BaseSettings):
         codes = [c.strip() for c in self.ibge_product_codes.split(",") if c.strip()]
         if not codes:
             raise ValueError("IBGE_PRODUCT_CODES is empty.")
+        return codes
+
+    @property
+    def pam_product_codes_list(self) -> list[str]:
+        """Parsed PAM crop codes (SIDRA c782). Named *_list to avoid shadowing the
+        ``pam_product_codes`` raw env field (cf. ``product_codes`` for PEVS)."""
+        codes = [c.strip() for c in self.pam_product_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PAM_PRODUCT_CODES is empty.")
         return codes
 
     @property

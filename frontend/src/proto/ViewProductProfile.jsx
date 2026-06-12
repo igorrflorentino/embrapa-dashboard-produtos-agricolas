@@ -28,6 +28,40 @@ function ViewProductProfile({ families, summary, database, conventions }) {
   const [code, setCode] = usePPState(defaultCode);
   const activeCode = (code && available.includes(code)) ? code : defaultCode;
 
+  // Real per-UF ranking for the active product. The "Onde X é produzido" chart
+  // previously FABRICATED the per-UF split (a sine jitter over a synthetic
+  // affinity table). Fetch the true per-product × UF breakdown from
+  // /api/product-uf (Gold grouped by product × UF, already in the active currency,
+  // honouring the year filter). Hooks sit ABOVE the early-return so hook order is
+  // stable across renders (Rules of Hooks).
+  const [ufRank, setUfRank] = usePPState({ rows: null, loading: true });
+  React.useEffect(() => {
+    // Only fetch when the UF card will actually render (hasGeo) — skip the needless
+    // request for non-geo bancos (e.g. COMTRADE) where the card is gated off.
+    if (!activeCode || !hasGeo) return undefined;
+    let alive = true;
+    setUfRank({ rows: null, loading: true });
+    const qs = new URLSearchParams({
+      banco: database,
+      code: activeCode,
+      currency: conv.currency,
+      correction: conv.correction,
+    });
+    if (summary?.startDate) qs.set('startDate', summary.startDate);
+    if (summary?.endDate) qs.set('endDate', summary.endDate);
+    fetch(`/api/product-uf?${qs}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setUfRank({ rows: (d && d.uf) || [], loading: false });
+      })
+      .catch(() => {
+        if (alive) setUfRank({ rows: [], loading: false });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [database, activeCode, hasGeo, conv.currency, conv.correction, summary?.startDate, summary?.endDate]);
+
   if (!activeCode) {
     return (
       <div className="card subtle">
@@ -68,27 +102,13 @@ function ViewProductProfile({ families, summary, database, conventions }) {
   const lastPrice = (last.v * 1e6 * cvf) / (last.q * 1e3);
   const lastShare = totalByYear[last.y] ? (last.v / totalByYear[last.y]) * 100 : 0;
 
-  // Per-product UF ranking — deterministic allocation of the product's
-  // latest national value across UFs, biased by region affinity (data.js →
-  // window.PRODUCT_REGION_AFFINITY, the single source) so the ranking is
-  // plausible and product-specific.
-  const aff = (window.PRODUCT_REGION_AFFINITY || {})[activeCode] || {};
-  const ufAlloc = (() => {
-    const seedChar = activeCode.charCodeAt(4);
-    const weighted = filtered.ufDataFull.map((u, i) => {
-      const base = u.value;
-      const regionMul = aff[u.region] || 0.5;
-      const jitter = 0.8 + 0.4 * Math.abs(Math.sin(i * 1.7 + seedChar));
-      return { uf: u.uf, name: u.name, region: u.region, w: base * regionMul * jitter };
-    });
-    const totalW = weighted.reduce((s, u) => s + u.w, 0) || 1;
-    const prodValAbs = lastValAbs;
-    return weighted
-      .map(u => ({ ...u, value: (u.w / totalW) * prodValAbs }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10);
-  })();
-  const ufScaled = window.scaleSeries(ufAlloc, Math.max(...ufAlloc.map(u => u.value), 0), conv, 'value', fx.symbol);
+  // Top-10 producing UFs from the REAL per-UF ranking (already in the active
+  // currency, absolute magnitude → scaleSeries picks bi/mi). No client-side
+  // currency multiply: the server applied the conventions' value column.
+  const ufRows = (ufRank.rows || []).slice().sort((a, b) => b.value - a.value).slice(0, 10);
+  const ufScaled = window.scaleSeries(
+    ufRows, Math.max(...ufRows.map(u => u.value), 0), conv, 'value', fx.symbol,
+  );
 
   // Quality for this product (may be absent from the curated subset)
   const qaRow = filtered.qualityByProduct.find(r => r.code === activeCode);
@@ -198,11 +218,21 @@ function ViewProductProfile({ families, summary, database, conventions }) {
         {hasGeo && (
         <div className="card">
           <window.SectionHeader
-            overline={`Ranking de UFs produtoras · ${yearEnd}`}
+            overline={`Ranking de UFs produtoras · ${yearStart}–${yearEnd}`}
             title={`Onde ${prod.name} é produzido`}
             action={<span className="caption">Top 10 · {ufScaled.label}</span>}
           />
-          <window.BarChart data={ufScaled.data} valueKey="value" color="var(--viz-2)" height={320} />
+          {ufRank.loading ? (
+            <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
+              Carregando distribuição por UF…
+            </p>
+          ) : ufRows.length ? (
+            <window.BarChart data={ufScaled.data} valueKey="value" color="var(--viz-2)" height={320} />
+          ) : (
+            <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
+              Sem dados por UF para este produto.
+            </p>
+          )}
         </div>
         )}
         <div className="card">

@@ -11,22 +11,22 @@
 }}
 
 -- ────────────────────────────────────────────────────────────────────────────
--- serving_pevs_annual — pre-aggregated PEVS mart for Pushdown Computing.
+-- serving_pam_annual — pre-aggregated IBGE PAM mart for Pushdown Computing.
 --
--- Rolls gold_pevs_production (year × UF × CITY × product) up to
--- (year × UF × product × family), dropping the municipality grain — the row
--- multiplier the dashboard never charts directly. This is the GB→MB reduction
--- that lets the stateless Dash app push a parameterized GROUP BY down to BigQuery
--- and scan a small, clustered table instead of the full Gold fact.
+-- COLUMN-IDENTICAL to serving_pevs_annual (plus area_* extras) so the generic,
+-- source-parameterized gateway readers (fetch_products / fetch_product_timeseries
+-- / fetch_production_overview / fetch_production_by_uf) serve PAM with no
+-- per-source SQL — PAM rides the entire PEVS-shaped snapshot and the
+-- currency/correction toggles for free.
 --
--- Backs (frontend_data_contract.md §3): overviewTS (GROUP BY year), productTS
--- (GROUP BY year, product_code), ufData (GROUP BY state_acronym). Carries
--- commodity_id so the UI can LEFT JOIN dim_commodity_scd2 live at query time.
---
--- Grain: one row per (reference_year, state_acronym, product_code, family).
+-- Rolls gold_pam_production (year × UF × CITY × product) up to
+-- (year × UF × product × family), dropping the municipality grain. Area columns
+-- are summed (additive across cities); yield is intentionally NOT carried (a
+-- ratio is not summable — recompute as qty/area in the future área/rendimento
+-- expansion). Grain: one row per (reference_year, state_acronym, product_code, family).
 -- ────────────────────────────────────────────────────────────────────────────
 
-with pevs as (
+with pam as (
 
     select
         reference_year,
@@ -36,12 +36,12 @@ with pevs as (
         any_value(product_description)  as product_description,
         any_value(base_unit)            as base_unit,
         any_value(unit_native)          as unit_native,
-        -- qty_native / qty_base are summed WITHIN a family (family is in the grain),
-        -- so this is never the forbidden cross-family sum. Monetary values are
-        -- family-agnostic. qty_native stays in unit_native — the quantity productTS
-        -- charts (frontend_data_contract.md §3.3); qty_base is the normalised one.
+        -- qty_native / qty_base summed WITHIN a family (family is in the grain) —
+        -- never the forbidden cross-family sum. Monetary values are family-agnostic.
         sum(qty_native)                 as qty_native,
         sum(qty_base)                   as qty_base,
+        sum(area_planted_ha)            as area_planted_ha,
+        sum(area_harvested_ha)          as area_harvested_ha,
         sum(val_yearfx_brl)             as val_yearfx_brl,
         sum(val_yearfx_usd)             as val_yearfx_usd,
         -- EUR carried alongside BRL/USD (real BCB BRL/EUR series). CNY is
@@ -58,7 +58,7 @@ with pevs as (
         count(distinct city_name)       as n_cities,
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
-    from {{ ref('gold_pevs_production') }}
+    from {{ ref('gold_pam_production') }}
     group by reference_year, state_acronym, product_code, family
 
 )
@@ -79,6 +79,8 @@ select
     p.unit_native,
     p.qty_native,
     p.qty_base,
+    p.area_planted_ha,
+    p.area_harvested_ha,
     p.val_yearfx_brl,
     p.val_yearfx_usd,
     p.val_yearfx_eur,
@@ -92,8 +94,10 @@ select
     p.n_cities,
     p.source_rows,
     p.last_refresh
-from pevs p
+from pam p
 left join {{ ref('dim_geo_br') }} g
     on g.state_acronym = p.state_acronym
+-- source='pam' has no crosswalk rows yet → commodity_id/name come out NULL
+-- (the dashboard handles NULL commodity); it lights up if 'pam' rows are seeded.
 left join {{ ref('gold_commodity_crosswalk') }} x
-    on x.source = 'pevs' and x.code = p.product_code
+    on x.source = 'pam' and x.code = p.product_code

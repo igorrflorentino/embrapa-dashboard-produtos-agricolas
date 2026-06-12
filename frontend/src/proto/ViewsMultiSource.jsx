@@ -181,6 +181,10 @@ function ViewMirror({ view }) {
   const banco = window.crossPreviewBanco(view);
   const last = data.series[data.series.length - 1];
   const avgDisc = data.discrepancy.reduce((s, d) => s + d.v, 0) / (data.discrepancy.length || 1);
+  // Real series window (#25) — never the hardcoded "1997–2024". Derived from the
+  // same series the KPIs above read, so it tracks the actual data span.
+  const mirrorYears = (data?.series || []).map(d => d.y);
+  const mirrorWindow = mirrorYears.length ? `${mirrorYears[0]}–${mirrorYears[mirrorYears.length - 1]}` : '—';
   const lineSeries = [
     { name: 'MDIC · SECEX', color: 'var(--viz-1)', data: data.series.map(d => ({ y: d.y, v: d.mdic })) },
     { name: 'UN Comtrade (Brasil)', color: 'var(--viz-3)', data: data.series.map(d => ({ y: d.y, v: d.comtrade })) },
@@ -196,7 +200,7 @@ function ViewMirror({ view }) {
         <window.KpiCardSpark label="Divergência média" value={msPct(avgDisc)} sub="entre a maior e a menor fonte" />
         <window.KpiCardSpark label="Maior reporte" value="Parceiros" sub="tendem a registrar mais que a origem" />
         <window.KpiCardSpark label="Exportação MDIC" value={'US$ ' + msNum(last?.mdic, 1) + ' bi'} sub={`${last?.y}`} />
-        <window.KpiCardSpark label="Janela" value="1997–2024" sub="cobertura comparável" />
+        <window.KpiCardSpark label="Janela" value={mirrorWindow} sub="cobertura comparável" />
       </div>
 
       <div className="card">

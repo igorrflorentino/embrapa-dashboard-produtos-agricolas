@@ -30,6 +30,7 @@ from embrapa_commodities.core import (
     chunked_run,
     pipeline_run,
 )
+from embrapa_commodities.ibge import pam_pipeline
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
 
@@ -78,6 +79,11 @@ class IngestSpec:
 # working (see tests/test_cli.py).
 INGESTS: list[IngestSpec] = [
     IngestSpec("ibge", ibge_pipeline, accepts_full=True, label="IBGE PEVS"),
+    # PAM is ANNUAL, slow-changing data (~1yr publication lag) and a freshly-shipped
+    # source: kept OUT of the nightly `ingest all` (in_all=False) so the live cron
+    # path stays unchanged. Runs on demand via `ingest ibge-pam`; give it its own
+    # monthly cadence later (like COMTRADE) once validated.
+    IngestSpec("ibge-pam", pam_pipeline, accepts_full=True, label="IBGE PAM", in_all=False),
     IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflation"),
     IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB FX"),
     IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
@@ -185,6 +191,43 @@ def ingest_ibge(
             "[yellow]⚠ IBGE ingest skipped:[/yellow] SIDRA returned no new rows. "
             "On a delta run Bronze is likely already current; on --full, lower "
             "IBGE_END_YEAR in .env to the latest published year."
+        )
+
+
+@ingest_app.command("ibge-pam")
+def ingest_ibge_pam(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Re-fetch the whole PAM_START_YEAR→END window (default is delta: recent years only).",
+    ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SIDRA response(s), without re-querying SIDRA.",
+    ),
+) -> None:
+    """Ingest IBGE PAM (Produção Agrícola Municipal) into Bronze (extract→raw→bronze)."""
+    settings = get_settings()
+    with pipeline_run(
+        "ibge-pam",
+        params={
+            "start_year": settings.pam_start_year,
+            "end_year": settings.pam_end_year,
+            "products": settings.pam_product_codes_list,
+            "full": full,
+            "from_raw": from_raw,
+        },
+    ) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
+        destination = pam_pipeline.run(settings, full=full, from_raw=from_raw)
+    if destination:
+        console.print(f"[green]✓[/green] IBGE PAM bronze loaded → {destination}")
+    else:
+        console.print(
+            "[yellow]⚠ IBGE PAM ingest skipped:[/yellow] SIDRA returned no new rows. "
+            "On a delta run Bronze is likely already current; on --full, lower "
+            "PAM_END_YEAR in .env to the latest published year."
         )
 
 

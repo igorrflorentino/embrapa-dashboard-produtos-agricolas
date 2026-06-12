@@ -33,6 +33,21 @@ having count(*) > 0   -- an empty source emits no metadata row (NULL coverage wo
 union all
 
 select
+    'ibge_pam'                     as source,
+    'gold_pam_production'          as gold_table,
+    'annual'                       as cadence,
+    min(reference_year)            as year_start,
+    max(reference_year)            as year_end,
+    count(*)                       as total_rows,
+    count(distinct product_code)   as products_total,
+    count(distinct case when state_name is not null then state_acronym end) as ufs_total,
+    max(last_refresh)              as last_refresh
+from {{ ref('gold_pam_production') }}
+having count(*) > 0
+
+union all
+
+select
     'mdic_comex',
     'gold_comex_flows',
     'monthly',

@@ -152,16 +152,17 @@ window.BANCOS = [
     scope:  'Brasil · UF · município',
     source: 'IBGE',
     table:  'gold_pam_production',
-    // Beta: freshly connected agricultural banco, partial coverage → renders
-    // real perspectives with a caveat banner. Demonstrates that a NEW domain
-    // (lavouras) plugs in by declaration alone.
+    // Beta: live first cut — 5 principais lavouras (soja, milho, café, cana,
+    // arroz) a partir de 2010, com QUANTIDADE e VALOR da produção. Renderiza as
+    // perspectivas de produção/geo/qualidade com banner de cobertura parcial.
     maturity: 'beta',
-    maturityNote: 'Banco agrícola recém-conectado — cobertura inicial (lavouras principais), em expansão.',
+    maturityNote: 'Primeira fração: 5 principais lavouras a partir de 2010, com quantidade e valor da produção. Área e rendimento já estão no Gold e entram no painel em seguida; demais lavouras na sequência.',
     maturityDate: '1º trimestre/2027',
-    // Production banco WITH the agricultural capabilities: product, geography,
-    // area (planted/harvested) and yield (productivity). Annual → NO flow /
-    // partner / monthly (those perspectives gate off with "Não se aplica").
-    provides: ['product', 'geo', 'area', 'yield', 'quality'],
+    // LEAN surface: product + geography + quality (the PEVS-shaped views that are
+    // wired end-to-end). 'area'/'yield' are in the Gold table but not yet surfaced
+    // in the painel → kept OUT of `provides` so those perspectives gate off
+    // honestly ("Não se aplica") until the área/rendimento expansion lands.
+    provides: ['product', 'geo', 'quality'],
     baseCurrency: 'BRL',
     geoLevel: 'municipio',
     dimensions: {
@@ -170,36 +171,36 @@ window.BANCOS = [
       partner: { label: 'UF produtora', kind: 'uf' },
       product: { codeLabel: 'Código PAM' },
     },
-    // Cross-source metrics — adds the new area/rendimento families to the
-    // catalog so PAM series can be plotted alongside trade/production series.
-    metrics: [
-      { id: 'prod_value',    label: 'Valor da produção',  family: 'currency',   unit: 'R$',    agg: 'Valor da produção das lavouras', years: [1990, 2024] },
-      { id: 'prod_quantity', label: 'Quantidade produzida', family: 'mass',      unit: 't',     agg: 'Produção colhida (massa)',       years: [1990, 2024] },
-      { id: 'area_harvested',label: 'Área colhida',        family: 'area',       unit: 'ha',    agg: 'Área colhida das lavouras',      years: [1990, 2024] },
-      { id: 'yield',         label: 'Rendimento médio',    family: 'rendimento', unit: 'kg/ha', agg: 'Produção ÷ área colhida (área-ponderada)', years: [1990, 2024] },
-    ],
+    // Cross-source comparador: not yet wired for PAM (the BFF cross seam serves
+    // PEVS/COMEX/COMTRADE only). Empty → PAM doesn't appear in the comparator
+    // picker (would return null) until its cross series builders land. PAM's own
+    // production/geo/quality views are fully live regardless.
+    metrics: [],
+    // Provenance shown ONLY as a pre-load fallback — the live app overrides every
+    // counter from gold_source_metadata (dataStore.meta('ibge_pam')). Kept honest
+    // to the lean window so even the fallback never overstates coverage.
     prov: {
       lastCrop:     'PAM 2024',
       lastCropDate: 'publ. set 2025',
-      refresh:      '30 mai 2026 · 04:45 BRT',
-      totalRows:    8_932_140,
+      refresh:      '—',
+      totalRows:    null,
       productsTotal: 5,
       ufsTotal:      27,
-      yearStart:     1990,
+      yearStart:     2010,
       yearEnd:       2024,
-      yearsTotal:    35,
+      yearsTotal:    15,
     },
     plannedScope: [
       { col: 'produto (lavoura)',            desc: 'Cultura agrícola — temporária ou permanente.' },
       { col: 'uf · município',               desc: 'Localização da lavoura (até o nível municipal).' },
-      { col: 'area_plantada · area_colhida', desc: 'Área destinada e efetivamente colhida (ha).' },
-      { col: 'quantidade_produzida',         desc: 'Produção colhida (t).' },
-      { col: 'rendimento_medio',             desc: 'Produtividade = produção ÷ área colhida (kg/ha).' },
-      { col: 'valor_producao',               desc: 'Valor da produção (R$).' },
+      { col: 'area_plantada · area_colhida', desc: 'Área destinada e efetivamente colhida (ha) — no Gold; painel em seguida.' },
+      { col: 'quantidade_produzida',         desc: 'Produção colhida (t) — disponível.' },
+      { col: 'rendimento_medio',             desc: 'Produtividade = produção ÷ área colhida (kg/ha) — no Gold; painel em seguida.' },
+      { col: 'valor_producao',               desc: 'Valor da produção (R$) — disponível.' },
     ],
     cobertura: {
-      years:      '1990 → presente',
-      atualizacao:'anual',
+      years:      '2010 → presente',
+      atualizacao:'anual (atualização manual)',
       granularidade: 'lavoura × município × ano',
     },
   },

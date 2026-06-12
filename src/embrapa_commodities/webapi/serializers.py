@@ -17,8 +17,15 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+from . import format as fmt
+
+# Gold timestamps are UTC; the dashboard provenance stamp is displayed in
+# Brasília time (e.g. "28 mai 2026 · 04:30 BRT").
+_SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 
 # Gold/PEVS physical-unit family is pt-BR ('massa'); the views key on the
 # English 'mass' (dataFilters.js: `pt.family === 'mass'`). Map at the boundary.
@@ -68,6 +75,65 @@ def serialize_snapshot(snap: dict) -> dict:
         "valueLabel": snap.get("value_label", ""),
         "preview": False,
         "_synthetic": False,
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    """Coerce a numpy/pandas number to a JSON-safe int, or None for NaN/missing."""
+    try:
+        if value is None:
+            return None
+        f = float(value)
+        return None if math.isnan(f) else int(f)
+    except (TypeError, ValueError):
+        return None
+
+
+def _refresh_label(ts: Any) -> str | None:
+    """UTC Gold timestamp → 'DD mês YYYY · HH:MM BRT' (Brasília, pt-BR), or None."""
+    if ts is None:
+        return None
+    try:
+        t = pd.Timestamp(ts)
+    except (TypeError, ValueError):
+        return None
+    if t is None or pd.isna(t):
+        return None
+    t = (t.tz_localize("UTC") if t.tzinfo is None else t).tz_convert(_SAO_PAULO)
+    month = fmt.MONTH_ABBR_PT[t.month - 1].lower()
+    return f"{t.day:02d} {month} {t.year} · {t.hour:02d}:{t.minute:02d} BRT"
+
+
+def serialize_source_meta(meta: dict | None) -> dict:
+    """gold_source_metadata row → page-hero provenance JSON.
+
+    Converts the raw pandas/numpy row (numpy.int64 counters, a UTC Timestamp) into
+    native JSON types the frontend can render directly: real coverage (yearStart/
+    yearEnd), counters (totalRows/productsTotal/ufsTotal), the Gold table name, and
+    the last-refresh stamp both as an ISO string (for staleness math) and a pt-BR
+    Brasília label (for display). Empty dict when the source has no Gold row yet.
+    """
+    if not meta:
+        return {}
+    last = meta.get("last_refresh")
+    iso = None
+    if last is not None:
+        try:
+            ts = pd.Timestamp(last)
+            iso = None if pd.isna(ts) else ts.isoformat()
+        except (TypeError, ValueError):
+            iso = None
+    return {
+        "source": meta.get("source"),
+        "table": meta.get("gold_table"),
+        "cadence": meta.get("cadence"),
+        "yearStart": _int_or_none(meta.get("year_start")),
+        "yearEnd": _int_or_none(meta.get("year_end")),
+        "totalRows": _int_or_none(meta.get("total_rows")),
+        "productsTotal": _int_or_none(meta.get("products_total")),
+        "ufsTotal": _int_or_none(meta.get("ufs_total")),
+        "lastRefresh": iso,
+        "lastRefreshLabel": _refresh_label(last),
     }
 
 
@@ -196,6 +262,31 @@ def _uf_data(df: pd.DataFrame | None) -> list[dict]:
         }
         for r in df.itertuples()
     ]
+
+
+def serialize_product_uf(df: pd.DataFrame | None) -> dict:
+    """seam.product_uf_ranking() → { uf: [{uf, name, region, value}] }.
+
+    The real per-UF total for a single product (backs ViewProductProfile's
+    'Onde X é produzido' bars, which previously faked the distribution with a
+    sine jitter over a synthetic affinity table). ``value`` is the reader's raw
+    total_value; rows are emitted descending. Empty list when df is None/empty.
+    """
+    if _empty(df):
+        return {"uf": []}
+    rows = [
+        {
+            "uf": r.state_acronym,
+            "name": r.state_name,
+            "region": r.region_abbrev,
+            # PEVS/PAM expose total_value; the COMEX-by-UF reader names it
+            # total_value_usd — accept either so both geo bancos serialize.
+            "value": _num(getattr(r, "total_value", getattr(r, "total_value_usd", None))),
+        }
+        for r in df.itertuples()
+    ]
+    rows.sort(key=lambda d: d["value"], reverse=True)
+    return {"uf": rows}
 
 
 def _quality(df: pd.DataFrame | None) -> list[dict]:

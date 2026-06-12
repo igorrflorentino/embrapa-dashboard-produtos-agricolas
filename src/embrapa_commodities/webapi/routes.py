@@ -72,8 +72,14 @@ def catalog():
 
 @api.get("/source-meta")
 def source_meta():
-    """Provenance row for a banco (backs the page-hero meta); {} if absent."""
-    return jsonify(seam.source_meta(request.args.get("banco", "")))
+    """Provenance row for a banco (backs the page-hero meta); {} if absent.
+
+    Shaped by ``serialize_source_meta`` into native JSON (real coverage/counters +
+    the last-refresh stamp), so the frontend renders live gold_source_metadata
+    instead of frozen bancos.js literals.
+    """
+    raw = seam.source_meta(request.args.get("banco", ""))
+    return jsonify(serializers.serialize_source_meta(raw))
 
 
 # ── per-banco snapshot ─────────────────────────────────────────────────────────
@@ -91,6 +97,24 @@ def snapshot():
         "correction": request.args.get("correction", "IPCA"),
     }
     return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, None)))
+
+
+@api.get("/product-uf")
+def product_uf():
+    """Real per-UF ranking for a single product (backs ViewProductProfile's
+    'Onde X é produzido' bars). currency+correction pick the deflated value column
+    server-side, same as /snapshot; optional startDate/endDate scope the year
+    window to match the view's filter. { uf: [] } when the banco has no geo grain."""
+    banco = request.args.get("banco", "")
+    code = request.args.get("code", "")
+    conv = {
+        "currency": request.args.get("currency", "BRL"),
+        "correction": request.args.get("correction", "IPCA"),
+    }
+    start, end = request.args.get("startDate"), request.args.get("endDate")
+    summary = {"startDate": start, "endDate": end} if (start or end) else None
+    df = seam.product_uf_ranking(banco, code, conv, summary)
+    return jsonify(serializers.serialize_product_uf(df))
 
 
 # ── trade adapters (flow / partner / monthly) — COMEX/COMTRADE ─────────────────

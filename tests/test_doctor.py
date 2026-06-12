@@ -139,9 +139,10 @@ def test_check_bcb_reachable(settings: Settings) -> None:
 def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
         client = bq_cls.return_value
-        # First table found, others missing.
+        # First table found, others missing (6 Bronze targets: ibge, pam, bcb×2, comex, comtrade).
         client.get_table.side_effect = [
             MagicMock(),
+            NotFound("nope"),
             NotFound("nope"),
             NotFound("nope"),
             NotFound("nope"),
@@ -162,8 +163,9 @@ def test_check_serving_marts_all_present_and_populated(settings: Settings) -> No
 
 def test_check_serving_marts_reports_missing(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
-        # First five marts present; gold_source_metadata (the 6th target) missing.
+        # First six marts present; gold_source_metadata (the 7th target) missing.
         bq_cls.return_value.get_table.side_effect = [
+            MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
@@ -182,6 +184,7 @@ def test_check_serving_marts_flags_empty_mart(settings: Settings) -> None:
         # serving_pevs_annual is empty (0 rows); the view (last) has num_rows=None.
         bq_cls.return_value.get_table.side_effect = [
             MagicMock(num_rows=0),
+            MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
@@ -309,6 +312,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "BigQuery reachable",
         "GCS bucket",
         "IBGE SIDRA reachable",
+        "IBGE PAM reachable",
         "BCB SGS reachable",
         "COMEX reachable",
         "COMTRADE reachable",

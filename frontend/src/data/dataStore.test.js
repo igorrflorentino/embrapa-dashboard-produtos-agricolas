@@ -9,6 +9,10 @@ function jsonRes(body, { ok = true, status = 200 } = {}) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) });
 }
 
+// load() also fires a /api/source-meta fetch (live provenance) alongside the
+// snapshot; these tests assert on the SNAPSHOT query cadence, so count only those.
+const snapCalls = (f) => f.mock.calls.filter((c) => String(c[0]).includes('/snapshot')).length;
+
 // A contract-complete BancoSnapshot (the shape assertSnapshotShape requires).
 function validSnap(over = {}) {
   return { products: [], productTS: {}, overviewTS: [], ufData: [], quality: [], ...over };
@@ -41,7 +45,7 @@ describe('dataStore', () => {
     expect(data.quality[0]).toMatchObject({ label: 'Sem ressalvas', color: 'var(--ok)' });
 
     await ds.load('ibge_pevs'); // same banco + convention → served from cache
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(snapCalls(f)).toBe(1);
   });
 
   it('surfaces an HTTP error as status=error with a message', async () => {
@@ -62,8 +66,11 @@ describe('dataStore', () => {
     ds.setConventions({ currency: 'USD', correction: 'IPCA' });
     await ds.load('ibge_pevs'); // USD|IPCA → new key → fetch again
 
-    expect(f).toHaveBeenCalledTimes(2);
-    const lastUrl = f.mock.calls[f.mock.calls.length - 1][0];
+    expect(snapCalls(f)).toBe(2);
+    const lastUrl = f.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes('/snapshot'))
+      .pop();
     expect(lastUrl).toContain('currency=USD');
   });
 
