@@ -16,6 +16,25 @@ function ufTiles() {
   return idx;
 }
 
+/** Join UF tile coords (col/row/region/name) onto any uf-keyed rows. The
+ *  BrazilTileMap positions each tile by col/row, which /api omits (the views own
+ *  the UF_DATA registry) — so any per-UF series headed to the tile map must be
+ *  decorated here, the same join ufData gets in decorateSnapshot. */
+export function decorateUfRows(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows || [];
+  const tiles = ufTiles();
+  return rows.map((r) => {
+    const t = tiles[r.uf] || {};
+    return {
+      ...r,
+      col: r.col ?? t.col,
+      row: r.row ?? t.row,
+      region: r.region || t.region,
+      name: r.name || t.name,
+    };
+  });
+}
+
 /** quality-flag id → { label, color } from the shared taxonomy. */
 function qualityTaxonomy() {
   const idx = {};
@@ -29,17 +48,7 @@ export function decorateSnapshot(snap) {
   if (!snap || typeof snap !== 'object') return snap;
 
   if (Array.isArray(snap.ufData) && snap.ufData.length) {
-    const tiles = ufTiles();
-    snap.ufData = snap.ufData.map((r) => {
-      const t = tiles[r.uf] || {};
-      return {
-        ...r,
-        col: r.col ?? t.col,
-        row: r.row ?? t.row,
-        region: r.region || t.region,
-        name: r.name || t.name,
-      };
-    });
+    snap.ufData = decorateUfRows(snap.ufData);
   }
 
   if (Array.isArray(snap.quality) && snap.quality.length) {

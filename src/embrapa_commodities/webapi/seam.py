@@ -202,6 +202,43 @@ def product_uf_ranking(
     )
 
 
+def productivity(banco_id: str, crop: str | None, summary: dict | None = None) -> dict | None:
+    """Área × rendimento for one crop (backs ViewProductivity).
+
+    Returns ``{crops, active, active_name, rows}`` where ``rows`` is the per-(year,
+    UF) production + harvested-area frame for the active crop, or ``None`` when the
+    banco lacks the ``yield`` capability (the router gates the perspective before
+    this is reached). The serializer recomputes yield (= prod_kg / area_ha) and
+    shapes the national series + per-UF latest-year geography.
+    """
+    banco = banco_by_id(banco_id)
+    if banco_id not in _LIVE_SOURCES or "yield" not in banco.provides:
+        return None
+    products = gateway.fetch_products(banco_id)
+    crops = (
+        [
+            {
+                "code": str(r.code),
+                "name": (r.name if isinstance(r.name, str) and r.name else str(r.code)),
+            }
+            for r in products.itertuples()
+        ]
+        if products is not None and not products.empty
+        else []
+    )
+    if not crops:
+        return None
+    codes = {c["code"] for c in crops}
+    active = crop if (crop and crop in codes) else crops[0]["code"]
+    active_name = next((c["name"] for c in crops if c["code"] == active), active)
+    return {
+        "crops": crops,
+        "active": active,
+        "active_name": active_name,
+        "rows": gateway.fetch_productivity(active, source=banco_id),
+    }
+
+
 # ── Trade adapters (flow / partner / monthly) — M2 ───────────────────────────
 # The generic adapters from the contract (previewData.js). Each dispatches by
 # banco to the matching gateway reader and returns the raw USD-valued frame; the

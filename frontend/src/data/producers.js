@@ -10,6 +10,7 @@
 // gets real data. Trade adapters (flow/partner/monthly) have no endpoint yet;
 // chain/lag/market-nature are data-blocked — all return honest preview shells.
 
+import { decorateUfRows } from './decorate';
 import { ensure, get } from './resource';
 
 const API = '/api';
@@ -179,6 +180,28 @@ window.monthlyData = function monthlyData(bancoId) {
     }
   );
 };
-window.productivityData = function productivityData() {
-  return null; // PAM not connected in this repo
+// PAM área × rendimento (backs ViewProductivity). Resource-backed: fetches the
+// real /api/productivity (production ÷ harvested area → yield kg/ha, server-side)
+// for the selected crop. The router only renders this view for a yield-capable
+// banco (IBGE PAM), so the empty shell below is just the brief loading frame —
+// the view renders empty charts until the resource resolves with real data.
+window.productivityData = function productivityData(bancoId, crop) {
+  const key = `productivity:${bancoId}:${crop || 'default'}`;
+  ensure(key, () => `${API}/productivity?${qs({ banco: bancoId, crop: crop || undefined })}`);
+  const data = get(key);
+  if (!data) {
+    return {
+      preview: false,
+      crop: { code: '', name: '' },
+      crops: [],
+      yieldUnit: 'kg/ha',
+      areaUnit: 'ha',
+      series: [],
+      national: { yieldCagr: 0 },
+      byUF: [],
+    };
+  }
+  // The per-UF tile map needs col/row tile coords the /api omits — decorate from
+  // the UF_DATA registry, exactly like the snapshot's ufData (decorate.js).
+  return { ...data, byUF: decorateUfRows(data.byUF) };
 };

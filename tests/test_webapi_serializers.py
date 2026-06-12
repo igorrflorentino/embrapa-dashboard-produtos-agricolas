@@ -8,6 +8,7 @@ mass quantity ÷1e3, volume ÷1e6) and the pt-BR→en family rename the views ne
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from embrapa_commodities.webapi import serializers as s
 
@@ -229,3 +230,115 @@ def test_serialize_market_nature_empty_is_safe():
         "series": [],
         "latest": {},
     }
+
+
+def _productivity_payload():
+    # Soja, 2 UFs × 2 years. Yield (kg/ha) = production_t × 1000 / area_harvested_ha,
+    # recomputed from the SUMMED totals at each grain — never averaged across UFs.
+    rows = pd.DataFrame(
+        [
+            {
+                "reference_year": 2023,
+                "state_acronym": "PR",
+                "state_name": "Paraná",
+                "region": "Sul",
+                "region_abbrev": "S",
+                "production_t": 1000.0,
+                "area_planted_ha": 520.0,
+                "area_harvested_ha": 500.0,
+            },
+            {
+                "reference_year": 2023,
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region": "Centro-Oeste",
+                "region_abbrev": "CO",
+                "production_t": 2000.0,
+                "area_planted_ha": 410.0,
+                "area_harvested_ha": 400.0,
+            },
+            {
+                "reference_year": 2024,
+                "state_acronym": "PR",
+                "state_name": "Paraná",
+                "region": "Sul",
+                "region_abbrev": "S",
+                "production_t": 1200.0,
+                "area_planted_ha": 520.0,
+                "area_harvested_ha": 500.0,
+            },
+            {
+                "reference_year": 2024,
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region": "Centro-Oeste",
+                "region_abbrev": "CO",
+                "production_t": 2400.0,
+                "area_planted_ha": 410.0,
+                "area_harvested_ha": 400.0,
+            },
+        ]
+    )
+    return {
+        "crops": [{"code": "40124", "name": "Soja"}, {"code": "40122", "name": "Milho"}],
+        "active": "40124",
+        "active_name": "Soja",
+        "rows": rows,
+    }
+
+
+def test_serialize_productivity_recomputes_yield_and_aggregates():
+    out = s.serialize_productivity(_productivity_payload())
+    assert out["crop"] == {"code": "40124", "name": "Soja"}
+    assert [c["code"] for c in out["crops"]] == ["40124", "40122"]
+    assert out["yieldUnit"] == "kg/ha" and out["areaUnit"] == "ha"
+
+    # National series: production + harvested area SUMMED per year; yield from totals.
+    assert [d["y"] for d in out["series"]] == [2023, 2024]
+    y2023, y2024 = out["series"]
+    assert y2023["prodT"] == 3000.0 and y2023["areaHa"] == 900.0
+    # 3333.3 kg/ha — from the totals, NOT the average of 2000 & 5000.
+    assert y2023["yieldKgHa"] == pytest.approx(3000.0 * 1000 / 900)
+    assert y2024["yieldKgHa"] == pytest.approx(3600.0 * 1000 / 900)  # 4000
+
+    # CAGR over the 1-year span: (4000/3333.3)^(1/1) − 1 = 20%.
+    assert out["national"]["yieldCagr"] == pytest.approx(20.0, abs=0.1)
+
+    # Per-UF is the LATEST year (2024) only, yield per UF.
+    by_uf = {r["uf"]: r["yieldKgHa"] for r in out["byUF"]}
+    assert set(by_uf) == {"PR", "MT"}
+    assert by_uf["MT"] == pytest.approx(2400.0 * 1000 / 400)  # 6000
+    assert by_uf["PR"] == pytest.approx(1200.0 * 1000 / 500)  # 2400
+
+
+def test_serialize_productivity_handles_zero_area_and_empty():
+    assert s.serialize_productivity(None) is None  # banco lacks the yield capability
+    # Empty frame → a valid contract with empty series (the view renders empty charts).
+    empty = s.serialize_productivity(
+        {"crops": [], "active": "", "active_name": "", "rows": pd.DataFrame()}
+    )
+    assert empty["series"] == [] and empty["byUF"] == []
+    assert empty["national"]["yieldCagr"] == 0.0
+    # Zero harvested area must not divide-by-zero → yield 0.
+    zero = s.serialize_productivity(
+        {
+            "crops": [{"code": "1", "name": "X"}],
+            "active": "1",
+            "active_name": "X",
+            "rows": pd.DataFrame(
+                [
+                    {
+                        "reference_year": 2024,
+                        "state_acronym": "PR",
+                        "state_name": "Paraná",
+                        "region": "Sul",
+                        "region_abbrev": "S",
+                        "production_t": 100.0,
+                        "area_planted_ha": 0.0,
+                        "area_harvested_ha": 0.0,
+                    }
+                ]
+            ),
+        }
+    )
+    assert zero["series"][0]["yieldKgHa"] == 0.0 and zero["byUF"][0]["yieldKgHa"] == 0.0
