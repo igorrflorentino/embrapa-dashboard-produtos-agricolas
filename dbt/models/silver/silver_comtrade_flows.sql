@@ -58,8 +58,14 @@ with deduplicated as (
     qualify row_number() over (
         partition by
             refYear, reporterCode, partnerCode, partner2Code,
-            cmdCode, flowCode, customsCode, mosCode, motCode, qtyUnitCode
-        order by ingestion_timestamp desc
+            cmdCode, flowCode, customsCode, mosCode, motCode
+        -- NOT partitioned by qtyUnitCode: the same fully-aggregated trade is
+        -- sometimes returned under TWO qtyUnitCodes (e.g. '12' kg AND '-1'
+        -- no-quantity) with an IDENTICAL primary value, so keeping both would
+        -- DOUBLE-COUNT the value in gold_comtrade_flows. Collapse to one row,
+        -- preferring a real measurement unit over the no-quantity '-1' variant
+        -- (so qty_native stays meaningful), then the latest ingestion.
+        order by (qtyUnitCode = '-1'), ingestion_timestamp desc
     ) = 1
 
 ),
