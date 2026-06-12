@@ -341,6 +341,11 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // so the hero counters reflect EVERY active dimension (products, value,
   // period, UF, quality) — not just products × value.
   const _f = window.applyFilters ? window.applyFilters(filters || {}, database) : null;
+  // Unfiltered snapshot pass — gives the LIVE totals for the hero denominators
+  // (products / rows). The prov.* registry values are synthetic prototype
+  // leftovers (e.g. PEVS shows 12 products / 11,2 mi rows when the live Gold has
+  // 3 products / ~95 mil rows); the live snapshot is the source of truth.
+  const _fAll = window.applyFilters ? window.applyFilters({}, database) : null;
   const _shares = (_f && _f._shares) || {};
   // UFs that survive the state filter AND still carry production.
   const ufsCovered = _f
@@ -351,9 +356,21 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // Approximate selection counts from current filters. basket == null means
   // "no filter" (all); an explicit (possibly empty) basket counts literally —
   // zero selected products must read 0, never fall back to the total.
-  const productsSelected = basket == null ? prov.productsTotal : basket.length;
+  // Product universe = the ACTIVE banco's live snapshot products (3 for PEVS),
+  // not the synthetic window.PRODUCTS the prov getter reads (12). Fallback to
+  // prov only when the snapshot hasn't loaded.
+  const productsTotal = (_f && _f.productsTotal != null) ? _f.productsTotal : prov.productsTotal;
+  const productsSelected = basket == null ? productsTotal : basket.length;
+  // Total rows = sum of the snapshot's quality-flag counts (every Gold row carries
+  // exactly one quality flag, so the sum IS the row count). Live ⇒ matches the real
+  // table (~95 mil for PEVS) instead of prov.totalRows' synthetic 11,2 mi. Fallback
+  // to the registry estimate only if quality counts are unavailable.
+  const _liveRows = _fAll && Array.isArray(_fAll.qualityFlags)
+    ? _fAll.qualityFlags.reduce((s, f) => s + (f.count || 0), 0)
+    : 0;
+  const totalRows = _liveRows || prov.totalRows;
   const rowsAfter = Math.round(
-    prov.totalRows *
+    totalRows *
     (_shares.productShare ?? 1) *
     (_shares.valueShare   ?? 1) *
     (_shares.yearShare    ?? 1) *
@@ -361,7 +378,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     (_shares.stateShare   ?? 1)
   );
   const fmtRows = window.fmtRows;  // shared compact mi/mil counter (data.js)
-  const rowsTotalLabel = fmtRows(prov.totalRows);
+  const rowsTotalLabel = fmtRows(totalRows);
   const rowsAfterLabel = fmtRows(rowsAfter);
 
   // ---- Data views ----
@@ -413,7 +430,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">Produtos</span>
-              <span className="meta-val tnum">{productsSelected} / {prov.productsTotal}</span>
+              <span className="meta-val tnum">{productsSelected} / {productsTotal}</span>
             </div>
             <div className="meta-row">
               <span className="meta-label">UFs cobertas</span>

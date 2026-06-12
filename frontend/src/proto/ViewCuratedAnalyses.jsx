@@ -49,8 +49,8 @@ function ViewValueAdded() {
       </div>
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Exportação processada" value={caPct(last?.procShare)} sub={`${last?.y} · do valor exportado`} />
-        <window.KpiCardSpark label="Variação na janela" value={window.fmtSigned((last?.procShare || 0) - (first?.procShare || 0), 1, ' p.p.')} deltaPositive={(last?.procShare || 0) >= (first?.procShare || 0)} sub={`${first?.y}–${last?.y}`} />
+        <window.KpiCardSpark label="Exportação processada" value={caPct(last?.procShare)} sub={`${last?.y ?? '—'} · do valor exportado`} />
+        <window.KpiCardSpark label="Variação na janela" value={window.fmtSigned((last?.procShare || 0) - (first?.procShare || 0), 1, ' p.p.')} deltaPositive={(last?.procShare || 0) >= (first?.procShare || 0)} sub={`${first?.y ?? '—'}–${last?.y ?? '—'}`} />
         <window.KpiCardSpark label="Prêmio do processado" value={'×' + caNum(last?.premium, 1)} sub="preço processada ÷ bruta" />
         <window.KpiCardSpark label="Códigos na análise" value={data.nCodes} sub="incluídos e classificados" />
       </div>
