@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "embrapa-dashboard",
+      "name": "webapi",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "python", "-m", "embrapa_commodities.dashboard.app"],
-      "port": 8050
+      "runtimeArgs": ["run", "--extra", "webapi", "python", "-c", "from embrapa_commodities.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"],
+      "port": 8000
     },
     {
       "name": "frontend-react",

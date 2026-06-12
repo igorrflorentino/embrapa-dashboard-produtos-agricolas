@@ -110,9 +110,9 @@ function ViewMarketShare({ view }) {
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Participação atual" value={msPct(last?.share)} sub={`${last?.y} · do mercado mundial`} />
-        <window.KpiCardSpark label="Pico histórico" value={msPct(peak?.share)} sub={`em ${peak?.y}`} />
-        <window.KpiCardSpark label="Variação na janela" value={window.fmtSigned((last?.share || 0) - (first?.share || 0), 1, ' p.p.')} deltaPositive={(last?.share || 0) >= (first?.share || 0)} sub={`${first?.y}–${last?.y}`} />
+        <window.KpiCardSpark label="Participação atual" value={msPct(last?.share)} sub={`${last?.y ?? '—'} · do mercado mundial`} />
+        <window.KpiCardSpark label="Pico histórico" value={msPct(peak?.share)} sub={`em ${peak?.y ?? '—'}`} />
+        <window.KpiCardSpark label="Variação na janela" value={window.fmtSigned((last?.share || 0) - (first?.share || 0), 1, ' p.p.')} deltaPositive={(last?.share || 0) >= (first?.share || 0)} sub={`${first?.y ?? '—'}–${last?.y ?? '—'}`} />
         <window.KpiCardSpark label="Exportação BR" value={'US$ ' + msNum(last?.br, 1) + ' bi'} sub={`mundo: US$ ${msNum(last?.world)} bi`} />
       </div>
 
@@ -148,7 +148,7 @@ function ViewPriceSpread({ view }) {
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Preço FOB atual" value={'US$ ' + msNum(last?.fob, 2) + '/kg'} sub={`${last?.y} · no porto`} />
+        <window.KpiCardSpark label="Preço FOB atual" value={'US$ ' + msNum(last?.fob, 2) + '/kg'} sub={`${last?.y ?? '—'} · no porto`} />
         <window.KpiCardSpark label="Preço na porteira" value={'US$ ' + msNum(last?.gate, 2) + '/kg'} sub="na produção" />
         <window.KpiCardSpark label="Markup" value={'×' + msNum(last?.markup, 1)} sub="FOB ÷ porteira" />
         <window.KpiCardSpark label="Spread" value={'US$ ' + msNum(last?.spread, 2) + '/kg'} sub="valor agregado entre porteira e porto" />
