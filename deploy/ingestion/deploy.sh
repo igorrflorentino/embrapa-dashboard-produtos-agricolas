@@ -102,6 +102,24 @@ grep -E "$INGEST_ALLOWLIST" "$ENV_FILE" \
     done > "$ENV_YAML"
 [ -s "$ENV_YAML" ] || { echo "ERROR: no ingestion config matched in $ENV_FILE (check GCP_PROJECT_ID etc.)"; exit 1; }
 
+# 3b) OPTIONAL — UN Comtrade backfill support. Comtrade is key-gated and excluded
+#     from the nightly `all` (cli.IngestSpec in_all=False), so its scope vars + key
+#     are NOT forwarded by default. When COMTRADE_KEY_SECRET names a Secret
+#     Manager secret holding the UN key, ALSO forward the COMTRADE_* / Bronze
+#     config and mount the key as a secret env var — so the Job can run
+#     `embrapa ingest comtrade` (driven by schedule_comtrade.sh). The key itself
+#     never touches .env or this script: it lives only in Secret Manager.
+COMTRADE_SECRET="${COMTRADE_KEY_SECRET:-$(get_env COMTRADE_KEY_SECRET)}"
+if [ -n "$COMTRADE_SECRET" ]; then
+  echo "Comtrade enabled: forwarding COMTRADE_* config + mounting key from secret '$COMTRADE_SECRET'."
+  # Append Comtrade scope/Bronze config (NOT the key — that comes from the secret).
+  grep -E '^(BQ_BRONZE_COMTRADE_[A-Z0-9_]+|COMTRADE_[A-Z0-9_]+)=' "$ENV_FILE" \
+    | grep -vE '^COMTRADE_API_KEY=' \
+    | while IFS='=' read -r key val; do
+        printf "%s: '%s'\n" "$key" "$(printf '%s' "$val" | tr -d '\r')"
+      done >> "$ENV_YAML"
+fi
+
 # 4) Deploy / update the Cloud Run Job (create-or-update).
 echo "Deploying Cloud Run Job…"
 gcloud run jobs deploy "$JOB_NAME" --project "$PROJECT" --region "$REGION" \
@@ -111,7 +129,8 @@ gcloud run jobs deploy "$JOB_NAME" --project "$PROJECT" --region "$REGION" \
   --task-timeout "$TASK_TIMEOUT" \
   --max-retries 1 \
   --memory "$MEMORY" \
-  --cpu "$CPU"
+  --cpu "$CPU" \
+  ${COMTRADE_SECRET:+--set-secrets COMTRADE_API_KEY=${COMTRADE_SECRET}:latest}
 
 cat <<EOF
 
