@@ -171,6 +171,16 @@ window.dataStore = {
     };
   },
 
+  // Fetch ONLY the live provenance (/api/source-meta) for a banco, without the
+  // heavy per-convention snapshot pushdown. Lets a provenance-only surface (Saúde,
+  // reached directly via ?ip=health without any data view loading first) show the
+  // REAL Gold metadata instead of the registry fallback. Deduped: a banco whose
+  // meta already resolved is a no-op. Pair with subscribe() to re-render on resolve.
+  loadMeta(id) {
+    if (sourceMeta[id]) return Promise.resolve(sourceMeta[id]);
+    return fetchSourceMeta(id);
+  },
+
   isStale: (id) =>
     !!(
       store[cacheKey(id)] &&
