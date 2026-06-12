@@ -28,6 +28,33 @@ models:
       - name: commodity_id
         description: "Cross-source commodity slug (NULL when the product is unlinked)."
 
+  - name: serving_pam_annual
+    description: |
+      Pre-aggregated PAM mart (Pushdown Computing serving layer). COLUMN-IDENTICAL
+      to serving_pevs_annual (plus area_planted_ha / area_harvested_ha extras), so
+      the source-parameterized gateway readers serve PAM with no per-source SQL.
+      Gold rolled from year×UF×city×product up to year×UF×product×family. Backs
+      overviewTS / productTS / ufData for the ibge_pam banco (quantity + value
+      today; área/rendimento are a planned expansion off the same Gold).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - state_acronym
+              - product_code
+              - family
+    columns:
+      - name: reference_year
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: family
+        description: "Physical-unit family (always 'massa'/t for the lean crops)."
+        tests: [not_null]
+      - name: area_harvested_ha
+        description: "Área colhida summed across cities (additive). Yield is NOT carried (a ratio is not summable)."
+
   - name: serving_comex_annual
     description: |
       Pre-aggregated COMEX mart, annual. Month and transport route (via)
@@ -120,7 +147,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["ibge_pevs", "mdic_comex", "un_comtrade"]
+                values: ["ibge_pevs", "ibge_pam", "mdic_comex", "un_comtrade"]
       - name: data_quality_flag
         tests: [not_null]
       - name: share

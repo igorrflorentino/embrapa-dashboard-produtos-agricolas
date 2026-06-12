@@ -29,7 +29,7 @@ from . import format as fmt
 from .registries import Banco, banco_by_id
 
 # Banco id → the BFF source key (they already align by construction).
-_LIVE_SOURCES = {"ibge_pevs", "mdic_comex", "un_comtrade"}
+_LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "mdic_comex", "un_comtrade"}
 
 # Trade bancos serve USD-nominal values (the trade marts only carry USD); the
 # currency/correction conventions apply fully only to PEVS (BRL-native, with the
@@ -127,15 +127,15 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         overview_ts = overview_ts.rename(columns={"total_value_usd": "total_value"})
         if uf_data is not None:
             uf_data = uf_data.rename(columns={"total_value_usd": "total_value"})
-    else:  # PEVS
+    else:  # PEVS-shaped (ibge_pevs, ibge_pam): production marts, BRL-native value matrix
         product_ts = gateway.fetch_product_timeseries(
             banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col
         )
         overview_ts = gateway.fetch_production_overview(
-            year_start=y0, year_end=y1, product_codes=codes, value_column=value_col
+            year_start=y0, year_end=y1, product_codes=codes, value_column=value_col, source=banco_id
         )
         uf_data = gateway.fetch_production_by_uf(
-            year_start=y0, year_end=y1, product_codes=codes, value_column=value_col
+            year_start=y0, year_end=y1, product_codes=codes, value_column=value_col, source=banco_id
         )
 
     return {
@@ -198,7 +198,7 @@ def product_uf_ranking(
     if banco_id == "mdic_comex":
         return gateway.fetch_comex_by_uf(year_start=y0, year_end=y1, ncm_codes=(code,))
     return gateway.fetch_production_by_uf(
-        year_start=y0, year_end=y1, product_codes=(code,), value_column=value_col
+        year_start=y0, year_end=y1, product_codes=(code,), value_column=value_col, source=banco_id
     )
 
 

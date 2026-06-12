@@ -311,15 +311,19 @@ BANCOS: list[Banco] = [
         scope="Brasil · UF · município",
         source="IBGE",
         table="gold_pam_production",
-        maturity="planejado",
-        maturity_note="Banco agrícola planejado — sem tabela Gold publicada neste projeto.",
-        provides=("product", "geo", "area", "yield", "quality"),
+        maturity="beta",
+        maturity_note=(
+            "Primeira fração: 5 principais lavouras (soja, milho, café, cana, arroz) "
+            "a partir de 2010, com quantidade e valor da produção. Área e rendimento "
+            "já estão no Gold e entram no painel em seguida; demais lavouras na sequência."
+        ),
+        provides=("product", "geo", "quality"),
         base_currency="BRL",
         geo_level="municipio",
         dimensions={**_UF_DIMS, "product": {"codeLabel": "Código PAM"}},
         cobertura={
-            "years": "1990 → presente",
-            "atualizacao": "anual",
+            "years": "2010 → presente",
+            "atualizacao": "anual (atualização manual)",
             "granularidade": "lavoura × município × ano",
         },
     ),

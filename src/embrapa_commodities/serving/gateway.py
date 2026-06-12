@@ -86,6 +86,12 @@ _PRODUCT_SOURCES = {
         "product_description",
         "val_real_ipca_brl",
     ),
+    "ibge_pam": (
+        "serving_pam_annual",
+        "product_code",
+        "product_description",
+        "val_real_ipca_brl",
+    ),
     "mdic_comex": ("serving_comex_annual", "ncm_code", "ncm_description", "val_yearfx_usd"),
     "un_comtrade": ("serving_comtrade_annual", "cmd_code", "cmd_description", "val_yearfx_usd"),
 }
@@ -100,16 +106,36 @@ def _product_source(source: str) -> tuple[str, str, str, str]:
         ) from None
 
 
+# Production sources whose marts are COLUMN-IDENTICAL (PEVS shape: product_code,
+# state_acronym, family, qty_native, val_*). fetch_production_* are generic over
+# them — PAM rides them with no per-source SQL because serving_pam_annual matches
+# serving_pevs_annual's schema. Trade marts are NOT here (different shape).
+_PRODUCTION_MART = {
+    "ibge_pevs": "serving_pevs_annual",
+    "ibge_pam": "serving_pam_annual",
+}
+
+
+def _production_mart(source: str) -> str:
+    try:
+        return _PRODUCTION_MART[source]
+    except KeyError:
+        raise ValueError(
+            f"unknown production source {source!r}; choose one of {sorted(_PRODUCTION_MART)}"
+        ) from None
+
+
 @cache.memoize()
 def fetch_production_overview(
     year_start: int | None = None,
     year_end: int | None = None,
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    source: str = "ibge_pevs",
 ):
-    """Annual PEVS production total (backs overviewTS)."""
+    """Annual production total for a PEVS-shaped source (backs overviewTS)."""
     settings = get_settings()
-    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_pevs_annual")
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
     sql, params = sqlbuild.production_overview(
         table,
         year_start=year_start,
@@ -126,10 +152,11 @@ def fetch_production_by_uf(
     year_end: int | None = None,
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    source: str = "ibge_pevs",
 ):
-    """PEVS production aggregated by UF (backs ufData)."""
+    """Production aggregated by UF for a PEVS-shaped source (backs ufData)."""
     settings = get_settings()
-    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_pevs_annual")
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
     sql, params = sqlbuild.production_by_uf(
         table,
         year_start=year_start,
@@ -327,6 +354,7 @@ def fetch_quality_by_source(source: str | None = None):
 # since the serving marts aren't year×flag). Matches gold_source_metadata.gold_table.
 _GOLD_TABLE = {
     "ibge_pevs": "gold_pevs_production",
+    "ibge_pam": "gold_pam_production",
     "mdic_comex": "gold_comex_flows",
     "un_comtrade": "gold_comtrade_flows",
 }
@@ -347,6 +375,7 @@ def fetch_quality_timeseries(source: str):
 # Source → its Gold product (code, name) columns.
 _GOLD_PRODUCT = {
     "ibge_pevs": ("product_code", "product_description"),
+    "ibge_pam": ("product_code", "product_description"),
     "mdic_comex": ("ncm_code", "ncm_description"),
     "un_comtrade": ("cmd_code", "cmd_description"),
 }

@@ -80,6 +80,84 @@ models:
               arguments:
                 values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
 
+  - name: gold_pam_production
+    description: |
+      Gold table for IBGE PAM (Produção Agrícola Municipal, SIDRA 5457) — the
+      comprehensive `production` fact for crop agriculture. One row per
+      (reference_year, state_acronym, city_code, product_code), pivoting PAM's
+      five measures into columns: area_planted_ha / area_harvested_ha (ha),
+      qty_native (t, the 'massa' quantity) / qty_base, yield_kg_ha (kg/ha), and
+      the monetary val_* matrix (same FX + inflation deflation as
+      gold_pevs_production). Lean window (1994+): val_raw is nominal R$ with no
+      historical-currency reform factor (see silver_ibge_pam). serving_pam_annual
+      derives the chart-grain mart from this table.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - state_acronym
+              - city_code
+              - product_code
+    columns:
+      - name: reference_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1994 and extract(year from current_date()) + 1"
+      - name: reference_date
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: state_name
+        description: "Full state name derived from state_acronym."
+        tests: [not_null]
+      - name: region
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+      - name: city_code
+        description: "IBGE 7-digit municipal code."
+        tests: [not_null]
+      - name: product_code
+        description: "SIDRA classification-782 crop code (e.g. 40124 = Soja)."
+        tests: [not_null]
+      - name: family
+        description: "Physical-unit family of the quantity (always 'massa'/t for the lean crops)."
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["massa", "volume", "energia", "contagem", "area", "desconhecida"]
+      - name: area_planted_ha
+        description: "Área plantada ou destinada à colheita (hectares). NULL when the source omitted it."
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or area_planted_ha >= 0"
+      - name: area_harvested_ha
+        description: "Área colhida (hectares)."
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or area_harvested_ha >= 0"
+      - name: yield_kg_ha
+        description: "Rendimento médio da produção (kg/ha), as reported by SIDRA (not summable — recompute as qty/area at coarser grains)."
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or yield_kg_ha >= 0"
+      - name: last_refresh
+        tests: [not_null]
+      - name: data_quality_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE"]
+
   - name: gold_comex_flows
     description: |
       Gold table for MDIC Comex Stat — the single comprehensive `flows` table
@@ -314,13 +392,13 @@ models:
             combination_of_columns: [source]
     columns:
       - name: source
-        description: "Bank id matching bancos.js (ibge_pevs / mdic_comex / un_comtrade)."
+        description: "Bank id matching bancos.js (ibge_pevs / ibge_pam / mdic_comex / un_comtrade)."
         tests:
           - not_null
           - unique
           - accepted_values:
               arguments:
-                values: ["ibge_pevs", "mdic_comex", "un_comtrade"]
+                values: ["ibge_pevs", "ibge_pam", "mdic_comex", "un_comtrade"]
       - name: gold_table
         description: "Gold table backing this source."
         tests: [not_null]

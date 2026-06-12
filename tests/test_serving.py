@@ -1447,3 +1447,25 @@ def test_ensure_flow_market_log_table_creates_with_explicit_schema(monkeypatch):
     }
     assert table_arg.clustering_fields == ["customs_code", "flow_code"]
     assert client.create_table.call_args.kwargs["exists_ok"] is True
+
+
+# ── gateway: PAM rides the PEVS-shaped production registries ───────────────────
+def test_gateway_production_mart_resolves_pevs_and_pam():
+    """fetch_production_* are generic over the PEVS-shaped marts; PAM is registered."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    assert gateway._production_mart("ibge_pevs") == "serving_pevs_annual"
+    assert gateway._production_mart("ibge_pam") == "serving_pam_annual"
+    with pytest.raises(ValueError, match="unknown production source"):
+        gateway._production_mart("mdic_comex")  # trade mart is a different shape
+
+
+def test_gateway_pam_in_product_and_gold_registries():
+    """PAM is wired into the source-parameterized products / quality readers."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    assert gateway._product_source("ibge_pam")[0] == "serving_pam_annual"
+    assert gateway._GOLD_TABLE["ibge_pam"] == "gold_pam_production"
+    assert gateway._GOLD_PRODUCT["ibge_pam"] == ("product_code", "product_description")

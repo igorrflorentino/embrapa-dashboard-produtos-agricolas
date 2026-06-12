@@ -57,6 +57,17 @@ vars:
   ibge_variable_quantity: "144"
   ibge_variable_value: "145"
 
+  # IBGE PAM (SIDRA table 5457) variable codes. `v/all` ingests all of them; the
+  # Silver model keeps these five real measures (dropping the 3 "% do total"
+  # variables) and Gold pivots them into columns. Verified against the SIDRA 5457
+  # metadata (área plantada/colhida in ha, quantidade in t, rendimento in kg/ha,
+  # valor in Mil Reais for 1994+).
+  pam_variable_area_planted: "8331"     # Área plantada ou destinada à colheita (Hectares)
+  pam_variable_area_harvested: "216"    # Área colhida (Hectares)
+  pam_variable_quantity: "214"          # Quantidade produzida (Toneladas)
+  pam_variable_yield: "112"             # Rendimento médio da produção (kg/Hectare)
+  pam_variable_value: "215"             # Valor da produção (Mil Reais, 1994+)
+
   # Codes consumed by the Gold deflation logic. If you change the keys in
   # BCB_INFLATION_SERIES (.env), set the matching env vars below so dbt picks
   # the right series for IPCA/IGP-M/IGP-DI projections.

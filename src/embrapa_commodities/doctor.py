@@ -144,6 +144,17 @@ def _check_ibge(settings: Settings) -> CheckResult:
         return CheckResult("IBGE SIDRA reachable", False, str(exc)[:120])
 
 
+def _check_pam(settings: Settings) -> CheckResult:
+    """SIDRA metadata endpoint responds for the configured PAM table (5457)."""
+    url = SIDRA_METADATA_URL.format(table_id=settings.pam_table_id)
+    try:
+        response = requests.get(url, timeout=PROBE_TIMEOUT_S)
+        response.raise_for_status()
+        return CheckResult("IBGE PAM reachable", True, f"t{settings.pam_table_id} 200 OK")
+    except Exception as exc:
+        return CheckResult("IBGE PAM reachable", False, str(exc)[:120])
+
+
 def _check_bcb(settings: Settings) -> CheckResult:
     """BCB SGS responds for the first inflation series in .env."""
     try:
@@ -254,6 +265,7 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
 # standard build and would raise a false alarm here.
 SERVING_TARGETS: list[tuple[str, str]] = [
     ("bq_serving_dataset", "serving_pevs_annual"),
+    ("bq_serving_dataset", "serving_pam_annual"),
     ("bq_serving_dataset", "serving_comex_annual"),
     ("bq_serving_dataset", "serving_comex_seasonality"),
     ("bq_serving_dataset", "serving_comtrade_annual"),
@@ -389,6 +401,7 @@ _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
 # docs/adding_a_data_source.md.
 SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
+    ("pam", _check_pam),
     ("bcb", _check_bcb),
     ("comex", _check_comex),
     ("comtrade", _check_comtrade),
@@ -398,6 +411,7 @@ SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
 # in Settings. _check_bronze_tables iterates over this list.
 BRONZE_TARGETS: list[tuple[str, str]] = [
     ("bq_bronze_ibge_dataset", "bq_bronze_ibge_table"),
+    ("bq_bronze_pam_dataset", "bq_bronze_pam_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_currency_table"),
     ("bq_bronze_comex_dataset", "bq_bronze_comex_flows_table"),

@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 ## [Unreleased]
 
 ### Added
+- **New data source: IBGE PAM (Produção Agrícola Municipal, SIDRA table 5457)** —
+  annual crop production (área, quantidade, rendimento, valor) by municipality,
+  the second IBGE/SIDRA source alongside PEVS. Lean first cut: 5 highest-value
+  crops (soja, milho, café, cana, arroz) from 2010, surfacing **quantidade** and
+  **valor da produção** in the dashboard (área/rendimento are carried in Gold for
+  a follow-up). Reuses the generic SIDRA client; new `ibge/pam_pipeline.py`
+  (two-phase Bronze, own `bronze_pam` dataset + `raw/ibge/pam/` segment),
+  `ingest ibge-pam` CLI (**excluded from nightly `ingest all`** — annual,
+  slow-changing — runnable on demand), `doctor` PAM probe + Bronze/serving
+  targets. dbt: `silver_ibge_pam` → `gold_pam_production` → `serving_pam_annual`
+  (column-identical to the PEVS mart, so PAM rides the source-parameterized
+  gateway readers, the currency/correction toggles, and the quality views), plus
+  a Silver→Gold conservation test. Banco `ibge_pam` graduates `planejado → beta`.
+  Lean assumption: the monetary value is nominal R$ via ×1000 from "Mil Reais",
+  valid for the post-1994 window (`PAM_START_YEAR` ≥ 1994). New knobs:
+  `PAM_TABLE_ID`/`PAM_CLASSIFICATION_ID`/`PAM_PRODUCT_CODES`/`PAM_START_YEAR`/
+  `PAM_END_YEAR`/`PAM_DELTA_OVERLAP_YEARS`, `BQ_BRONZE_PAM_{DATASET,TABLE}`.
 - **IBGE PEVS is now delta by default** (like the BCB). `ingest ibge` / `ingest all`
   re-fetch only from `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` (default 1)
   forward — absorbing PEVS revisions and a newly published year — instead of

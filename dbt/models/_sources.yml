@@ -18,6 +18,22 @@ sources:
             warn_after: {count: 2, period: day}
             error_after: {count: 7, period: day}
 
+  - name: bronze_pam
+    description: "Raw SIDRA PAM (table 5457) payloads ingested by `embrapa ingest ibge-pam`."
+    database: "{{ target.project }}"
+    schema: "{{ env_var('BQ_BRONZE_PAM_DATASET', 'bronze_pam') }}"
+    tables:
+      - name: sidra_raw
+        identifier: "{{ env_var('BQ_BRONZE_PAM_TABLE', 'sidra_t5457_raw') }}"
+        description: "IBGE PAM crop production table (raw STRING columns)."
+        config:
+          loaded_at_field: ingestion_timestamp
+          # PAM is refreshed MANUALLY (in_all=False — excluded from the nightly
+          # batch; annual, slow-changing data). Warn-only after a long gap so it
+          # never false-alarms the nightly check; no error threshold (manual cadence).
+          freshness:
+            warn_after: {count: 60, period: day}
+
   - name: bronze_bcb
     description: "Raw BCB SGS series ingested by `embrapa ingest bcb-*`."
     database: "{{ target.project }}"
