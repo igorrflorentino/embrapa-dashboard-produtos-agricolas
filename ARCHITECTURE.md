@@ -8,7 +8,7 @@
 
 ## Pipeline Overview
 
-The project implements a **Medallion architecture** (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR, CNY) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
+The project implements a **Medallion architecture** (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
 
 ```
  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
@@ -109,7 +109,7 @@ embrapa-dashboard-commodities/
 │   │   ├── client.py                 # SGS API HTTP client
 │   │   ├── series.py                 # Generic SGS pipeline (inflation/currency)
 │   │   ├── inflation.py              # IPCA/IGP-M/IGP-DI spec
-│   │   └── currency.py               # USD/EUR spec (CNY comes from an external, non-BCB source)
+│   │   └── currency.py               # USD/EUR spec (PTAX daily, via BCB SGS)
 │   │
 │   ├── comex/                        # MDIC Comex Stat pipeline (bulk CSV)
 │   │   ├── client.py                 # CSV downloader (stream to disk + filter)
@@ -131,8 +131,7 @@ embrapa-dashboard-commodities/
 │   │   │   ├── silver_ibge_pevs.sql  # Typed PEVS + dedup (incremental)
 │   │   │   ├── silver_bcb_inflation.sql  # IPCA chain index
 │   │   │   ├── silver_bcb_currency.sql   # BCB FX (daily USD/EUR PTAX)
-│   │   │   ├── silver_extfx_currency.sql # External FX (CNY via ECB/seed)
-│   │   │   ├── silver_currency.sql       # UNION BCB ∪ external (read by Gold)
+│   │   │   ├── silver_currency.sql       # BCB FX, normalized for Gold
 │   │   │   ├── silver_comex_flows.sql    # Typed COMEX + dedup (source grain)
 │   │   │   └── silver_comtrade_flows.sql # COMTRADE HS6, 4 regimes; aggregate record only (anti-double-counting)
 │   │   ├── gold/
@@ -174,7 +173,6 @@ embrapa-dashboard-commodities/
 │   │   ├── commodity_crosswalk.csv   # Cross-source bridge (commodity ↔ pevs/ncm/hs6)
 │   │   ├── product_unit_factors.csv  # Statistical-unit → base factor (mass/volume) by NCM
 │   │   ├── unit_family_conversions.csv  # Unit families and conversions (mass/volume)
-│   │   └── extfx_cny_brl.csv         # Monthly BRL/CNY (ECB; scripts/refresh_cny_seed.py)
 │   └── tests/                        # Custom dbt tests
 │
 ├── tests/                            # Python tests (pytest)
@@ -205,7 +203,6 @@ embrapa-dashboard-commodities/
 │   ├── README.md                     # Scripts documentation
 │   ├── setup_dev_env.py              # Unified cross-platform setup
 │   ├── test_setup.py                 # Setup tests
-│   ├── refresh_cny_seed.py           # Updates the extfx_cny_brl.csv seed (ECB)
 │   ├── refresh_comtrade_country_seed.py  # Updates the comtrade_country.csv seed (M49)
 │   ├── grant-sa-iam-roles.ps1        # IAM roles
 │   ├── setup-claude-code-web-sa.sh   # SA for Claude Code Web

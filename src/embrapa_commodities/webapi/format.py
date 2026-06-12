@@ -43,7 +43,7 @@ def fmt_brl(n: float | None) -> str:
 
 
 def fmt_money(n: float | None, symbol: str = "R$", *, compact: bool = True) -> str:
-    """Compact currency in any symbol (US$, €, ¥, R$)."""
+    """Compact currency in any symbol (US$, €, R$)."""
     if n is None:
         return "—"
     if compact:
@@ -118,8 +118,8 @@ DEFAULT_CONVENTIONS: dict = {
     "auto_scale": False,
 }
 
-CURRENCY_SYMBOL = {"BRL": "R$", "USD": "US$", "EUR": "€", "CNY": "¥"}
-CURRENCY_LONG = {"BRL": "Real", "USD": "Dólar", "EUR": "Euro", "CNY": "Yuan"}
+CURRENCY_SYMBOL = {"BRL": "R$", "USD": "US$", "EUR": "€"}
+CURRENCY_LONG = {"BRL": "Real", "USD": "Dólar", "EUR": "Euro"}
 
 # Correction id → the Gold/serving column infix. 'Nominal' uses the year-FX
 # (un-deflated) value; the others use the IPCA/IGP-M/IGP-DI real columns.
@@ -129,7 +129,7 @@ _CORRECTION_INFIX = {
     "IGP-M": "real_igpm",
     "IGP-DI": "real_igpdi",
 }
-_CURRENCY_SUFFIX = {"BRL": "brl", "USD": "usd", "EUR": "eur", "CNY": "cny"}
+_CURRENCY_SUFFIX = {"BRL": "brl", "USD": "usd", "EUR": "eur"}
 
 
 def monetary_column(currency: str, correction: str) -> str:
@@ -168,7 +168,7 @@ def symbol_for_column(column: str | None) -> str:
     """Currency symbol implied by a resolved value column's suffix."""
     if not column:
         return "R$"
-    for suffix, sym in (("_usd", "US$"), ("_eur", "€"), ("_cny", "¥"), ("_brl", "R$")):
+    for suffix, sym in (("_usd", "US$"), ("_eur", "€"), ("_brl", "R$")):
         if column.endswith(suffix):
             return sym
     return "R$"

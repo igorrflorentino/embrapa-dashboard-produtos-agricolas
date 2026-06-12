@@ -24,7 +24,7 @@
    The client-side `convFactor` for currency/correction is **neutralized to 1.0** (server already
    applied it); the physical-unit conversion (`massQtyMul`/`volumeQtyMul`) and `autoScale`
    magnitude abbreviation stay client-side. → small required patch to `MetricConventions.jsx` (§6).
-   EUR/CNY have no real column → seam falls back to BRL with a label note (honest).
+   EUR is a real column; an unmodelled currency/correction combo → seam falls back to BRL with a label note (honest).
 
 3. **Client-side registries stay in the frontend** — they are presentation metadata, not data:
    UF tile coords (`col`/`row`) + region names (`UF_DATA`/`REGIONS`), quality-flag `label`/`color`

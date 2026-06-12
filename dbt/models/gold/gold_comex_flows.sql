@@ -21,11 +21,11 @@
 -- from PEVS, whose val_raw is BRL):
 --
 --  • val_yearfx_*   = VL_FOB converted at the FX rate of THAT month. usd is the
---                     source value itself; brl/eur/cny triangulate through BRL.
+--                     source value itself; brl/eur triangulate through BRL.
 --                     Nominal — no inflation correction.
 --  • val_real_{ipca,igpm,igpdi}_* = VL_FOB → BRL at the month FX → projected to
 --                     today via the respective BCB chain index → optionally
---                     reconverted to USD/EUR/CNY at TODAY's FX. Use these for
+--                     reconverted to USD/EUR at TODAY's FX. Use these for
 --                     cross-year comparison.
 --
 --  NULL semantics: missing month FX (e.g. EUR pre-1999) → NULL that currency's
@@ -74,8 +74,7 @@ fx_month as (
         reference_year,
         reference_month,
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg,
-        avg(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_avg
+        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
     group by reference_year, reference_month
@@ -118,8 +117,7 @@ fx_latest as (
 
     select
         max(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_current,
-        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current,
-        max(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_current
+        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current
     from (
         select currency, brl_per_foreign_unit
         from {{ ref('silver_currency') }}
@@ -138,10 +136,8 @@ enriched as (
         b.*,
         fm.brl_per_usd_avg,
         fm.brl_per_eur_avg,
-        fm.brl_per_cny_avg,
         fxl.brl_per_usd_current,
         fxl.brl_per_eur_current,
-        fxl.brl_per_cny_current,
 
         -- Nominal BRL at the month-of-record FX (US$ FOB → R$ of that month).
         b.val_fob_usd * fm.brl_per_usd_avg                                            as val_nominal_brl,
@@ -210,25 +206,21 @@ select
     val_fob_usd                                             as val_yearfx_usd,
     val_nominal_brl                                         as val_yearfx_brl,
     safe_divide(val_nominal_brl, brl_per_eur_avg)           as val_yearfx_eur,
-    safe_divide(val_nominal_brl, brl_per_cny_avg)           as val_yearfx_cny,
 
     -- ── Real via IPCA (comparable across years, expressed in today's units) ──
     val_real_ipca_brl                                       as val_real_ipca_brl,
     safe_divide(val_real_ipca_brl, brl_per_usd_current)     as val_real_ipca_usd,
     safe_divide(val_real_ipca_brl, brl_per_eur_current)     as val_real_ipca_eur,
-    safe_divide(val_real_ipca_brl, brl_per_cny_current)     as val_real_ipca_cny,
 
     -- ── Real via IGP-M ───────────────────────────────────────────────────────
     val_real_igpm_brl                                       as val_real_igpm_brl,
     safe_divide(val_real_igpm_brl, brl_per_usd_current)     as val_real_igpm_usd,
     safe_divide(val_real_igpm_brl, brl_per_eur_current)     as val_real_igpm_eur,
-    safe_divide(val_real_igpm_brl, brl_per_cny_current)     as val_real_igpm_cny,
 
     -- ── Real via IGP-DI ──────────────────────────────────────────────────────
     val_real_igpdi_brl                                      as val_real_igpdi_brl,
     safe_divide(val_real_igpdi_brl, brl_per_usd_current)    as val_real_igpdi_usd,
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)    as val_real_igpdi_eur,
-    safe_divide(val_real_igpdi_brl, brl_per_cny_current)    as val_real_igpdi_cny,
 
     -- ── Freight / insurance (nominal US$, import-only; NULL/0 on export) ─────
     freight_usd                                             as val_freight_usd,

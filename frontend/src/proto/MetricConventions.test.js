@@ -21,7 +21,7 @@ describe('convFactorFor (base-aware value multiplier)', () => {
 
   // ---- Defaults must be byte-identical to the pre-fix convFactor path -------
   it('BRL base delegates to convFactor verbatim (PEVS/SEFAZ path unchanged)', () => {
-    for (const currency of ['BRL', 'USD', 'EUR', 'CNY']) {
+    for (const currency of ['BRL', 'USD', 'EUR']) {
       const conv = { currency };
       expect(window.convFactorFor('BRL', conv)).toBe(window.convFactor(conv));
     }

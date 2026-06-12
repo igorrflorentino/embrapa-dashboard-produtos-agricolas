@@ -8,7 +8,7 @@ without reading every `dbt/models/gold/*.sql`.
 Grains and columns below are the authoritative ones from `dbt/models/gold/_gold.yml`
 and `dbt/models/core/_core.yml`; the diagram shows **key columns + a representative
 few**, not every column (each fact carries the full
-`val_yearfx_{brl,usd,eur,cny}` nominal + `val_real_{ipca,igpm,igpdi}_{brl,usd,eur,cny}`
+`val_yearfx_{brl,usd,eur}` nominal + `val_real_{ipca,igpm,igpdi}_{brl,usd,eur}`
 deflated value matrix — see [§ Value columns](#value-columns)).
 
 ## ER diagram
@@ -160,8 +160,8 @@ dashboard scans MB not GB. They derive **from** Gold, they don't replace it.
 Every fact carries the same value matrix (chosen server-side by the BFF's
 currency × correction convention):
 
-- `val_yearfx_{brl,usd,eur,cny}` — **nominal**, at the FX of the record's period.
-- `val_real_ipca_{brl,usd,eur,cny}` / `val_real_igpm_*` / `val_real_igpdi_*` —
+- `val_yearfx_{brl,usd,eur}` — **nominal**, at the FX of the record's period.
+- `val_real_ipca_{brl,usd,eur}` / `val_real_igpm_*` / `val_real_igpdi_*` —
   **deflated to today** via the respective BCB chain index, optionally converted
   to a foreign currency at today's FX. Use these for cross-year comparison.
 - Trade extras: `val_freight_usd` / `val_insurance_usd` (COMEX imports),

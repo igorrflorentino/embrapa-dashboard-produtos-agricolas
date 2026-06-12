@@ -100,8 +100,7 @@ models:
         tests: [not_null]
       - name: currency
         # Guards the series_code filter: only configured BCB FX currencies may
-        # surface here. CNY is NOT a BCB series — it is seed-sourced via
-        # silver_extfx_currency. A stale Bronze series leaking in would fail this.
+        # surface here. A stale Bronze series leaking in would fail this.
         tests:
           - not_null
           - accepted_values:
@@ -218,38 +217,17 @@ models:
               arguments:
                 expression: "is null or qty_base >= 0"
 
-  - name: silver_extfx_currency
-    description: |
-      Externally-sourced FX rates the BCB does not publish (currently BRL/CNY,
-      from the ECB via the extfx_cny_brl seed). Shaped exactly like
-      silver_bcb_currency so silver_currency can UNION them.
-    columns:
-      - name: currency
-        tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                values: ["CNY"]
-      - name: reference_date
-        tests: [not_null]
-      - name: brl_per_foreign_unit
-        tests:
-          - dbt_utils.expression_is_true:
-              arguments:
-                expression: "is null or brl_per_foreign_unit > 0"
-
   - name: silver_currency
     description: |
-      Unified FX source for the Gold deflation: BCB SGS (USD, EUR) ∪ external
-      (CNY). One row schema for every currency, so the Gold fx CTEs are
-      currency-agnostic.
+      Unified FX source for the Gold deflation: BCB SGS (USD, EUR). One row
+      schema for every currency, so the Gold fx CTEs are currency-agnostic.
     columns:
       - name: currency
         tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ["USD", "EUR", "CNY"]
+                values: ["USD", "EUR"]
       - name: brl_per_foreign_unit
         tests:
           - dbt_utils.expression_is_true:

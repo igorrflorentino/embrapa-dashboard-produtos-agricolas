@@ -9,7 +9,7 @@
 // Controlled component:
 //   <MetricConventions value={...} onChange={fn(next)} />
 // where value is:
-//   { currency: 'BRL'|'USD'|'EUR'|'CNY',
+//   { currency: 'BRL'|'USD'|'EUR',
 //     correction: 'Nominal'|'IPCA'|'IGP-M'|'IGP-DI',
 //     units: { mass: 't', volume: 'm³', … }  // display unit per family }
 
@@ -61,9 +61,7 @@ function MetricConventions({ value, onChange, families }) {
           label="Moeda"
           mono
           options={[
-            // BRL/USD/EUR are real Gold columns (BCB PTAX series). CNY is omitted:
-            // the BCB publishes no BRL/CNY series, so a CNY value would have to be
-            // fabricated — better not to offer it than to show a made-up rate.
+            // BRL/USD/EUR are real Gold columns (BCB PTAX series).
             { id: 'BRL', sub: 'R$'  },
             { id: 'USD', sub: 'US$' },
             { id: 'EUR', sub: '€'   },
@@ -140,8 +138,7 @@ function _fmtRescaled(v, conv, unitSuffix) {
 // BRL-native path (convFactor: BRL/USD/EUR are server-native real Gold columns →
 // factor 1); they ARE still used by convFactorFor to cross-convert a USD-NATIVE
 // trade banco (COMEX/Comtrade) to a non-default display currency (the
-// cross-contract #5 base-aware path). CNY is intentionally absent — the BCB
-// publishes no BRL/CNY series, so it is not an offerable currency.
+// cross-contract #5 base-aware path).
 window.CURRENCY_FX = {
   BRL: { rate: 1,     symbol: 'R$',  long: 'Real'  },
   USD: { rate: 0.205, symbol: 'US$', long: 'Dólar' },
@@ -172,8 +169,8 @@ window.convFactor = (conv) => {
   // So: correction is fully server-applied (factor 1); BRL/USD AND EUR are now
   // server-native columns (val_*_brl / val_*_usd / val_*_eur — the serving marts
   // carry real BCB PTAX EUR), so all three are factor 1 (a EUR snapshot is already
-  // EUR-valued and must NOT be re-multiplied). CNY is not offered (no BCB BRL/CNY
-  // series). The FX fallback below is now defensive only — no selectable currency
+  // EUR-valued and must NOT be re-multiplied). The FX fallback below is now
+  // defensive only — no selectable currency
   // hits it. (Edge: USD + IGP-M/IGP-DI has no _usd column → BFF falls back to BRL;
   // the value_label flags "moeda indisponível → R$".)
   const serverNative =

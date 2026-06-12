@@ -103,8 +103,7 @@ fx_year as (
     select
         reference_year,
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg,
-        avg(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_avg
+        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
     group by reference_year
@@ -115,8 +114,7 @@ fx_latest as (
 
     select
         max(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_current,
-        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current,
-        max(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_current
+        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current
     from (
         select currency, brl_per_foreign_unit
         from {{ ref('silver_currency') }}
@@ -135,10 +133,8 @@ enriched as (
         b.*,
         fy.brl_per_usd_avg,
         fy.brl_per_eur_avg,
-        fy.brl_per_cny_avg,
         fxl.brl_per_usd_current,
         fxl.brl_per_eur_current,
-        fxl.brl_per_cny_current,
 
         -- Real BRL via each inflation chain (val_raw already nominal present-era R$).
         b.val_raw * safe_divide(il.ipca_current,  iy.ipca_year_end)  as val_real_ipca_brl,
@@ -187,26 +183,21 @@ select
         then safe_divide(val_raw, brl_per_usd_avg) end       as val_yearfx_usd,
     case when reference_year >= 1994
         then safe_divide(val_raw, brl_per_eur_avg) end       as val_yearfx_eur,
-    case when reference_year >= 1994
-        then safe_divide(val_raw, brl_per_cny_avg) end       as val_yearfx_cny,
 
     -- ── Real via IPCA ─────────────────────────────────────────────────────────
     val_real_ipca_brl                                        as val_real_ipca_brl,
     safe_divide(val_real_ipca_brl, brl_per_usd_current)      as val_real_ipca_usd,
     safe_divide(val_real_ipca_brl, brl_per_eur_current)      as val_real_ipca_eur,
-    safe_divide(val_real_ipca_brl, brl_per_cny_current)      as val_real_ipca_cny,
 
     -- ── Real via IGP-M ───────────────────────────────────────────────────────
     val_real_igpm_brl                                        as val_real_igpm_brl,
     safe_divide(val_real_igpm_brl, brl_per_usd_current)      as val_real_igpm_usd,
     safe_divide(val_real_igpm_brl, brl_per_eur_current)      as val_real_igpm_eur,
-    safe_divide(val_real_igpm_brl, brl_per_cny_current)      as val_real_igpm_cny,
 
     -- ── Real via IGP-DI ──────────────────────────────────────────────────────
     val_real_igpdi_brl                                       as val_real_igpdi_brl,
     safe_divide(val_real_igpdi_brl, brl_per_usd_current)     as val_real_igpdi_usd,
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
-    safe_divide(val_real_igpdi_brl, brl_per_cny_current)     as val_real_igpdi_cny,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
     {{ data_quality_flag('qty_native', 'val_raw') }}        as data_quality_flag,

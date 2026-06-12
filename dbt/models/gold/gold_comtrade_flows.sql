@@ -31,13 +31,13 @@
 -- but annual, so FX is the year average and inflation the year-end index like
 -- gold_pevs_production):
 --   • val_yearfx_*   = primary_value_usd converted at THAT year's avg FX. usd is
---                      the source value; brl/eur/cny triangulate through BRL.
+--                      the source value; brl/eur triangulate through BRL.
 --                      Nominal — no inflation correction.
 --   • val_real_{ipca,igpm,igpdi}_* = USD → BRL at the year FX → projected to today
 --                      via the BCB chain index → optionally reconverted to
---                      USD/EUR/CNY at TODAY's FX. Use these for cross-year comparison.
+--                      USD/EUR at TODAY's FX. Use these for cross-year comparison.
 --
--- NULL semantics: missing year FX (EUR pre-1999, CNY pre-2004) → NULL that
+-- NULL semantics: missing year FX (EUR pre-1999) → NULL that
 -- currency's columns; missing year inflation index → NULL the real_* columns;
 -- chapter-44 rows with no reported quantity → NULL qty_native/qty_base/weight.
 -- ────────────────────────────────────────────────────────────────────────────
@@ -117,8 +117,7 @@ fx_year as (
     select
         reference_year,
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg,
-        avg(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_avg
+        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
     group by reference_year
@@ -129,8 +128,7 @@ fx_latest as (
 
     select
         max(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_current,
-        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current,
-        max(case when currency = 'CNY' then brl_per_foreign_unit end) as brl_per_cny_current
+        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current
     from (
         select currency, brl_per_foreign_unit
         from {{ ref('silver_currency') }}
@@ -149,10 +147,8 @@ enriched as (
         b.*,
         fy.brl_per_usd_avg,
         fy.brl_per_eur_avg,
-        fy.brl_per_cny_avg,
         fxl.brl_per_usd_current,
         fxl.brl_per_eur_current,
-        fxl.brl_per_cny_current,
 
         -- Nominal BRL at the year-average FX (US$ → R$ of that year).
         b.primary_value_usd * fy.brl_per_usd_avg                                              as val_nominal_brl,
@@ -211,25 +207,21 @@ select
     primary_value_usd                                      as val_yearfx_usd,
     val_nominal_brl                                        as val_yearfx_brl,
     safe_divide(val_nominal_brl, brl_per_eur_avg)          as val_yearfx_eur,
-    safe_divide(val_nominal_brl, brl_per_cny_avg)          as val_yearfx_cny,
 
     -- ── Real via IPCA (comparable across years, in today's units) ────────────
     val_real_ipca_brl                                      as val_real_ipca_brl,
     safe_divide(val_real_ipca_brl, brl_per_usd_current)    as val_real_ipca_usd,
     safe_divide(val_real_ipca_brl, brl_per_eur_current)    as val_real_ipca_eur,
-    safe_divide(val_real_ipca_brl, brl_per_cny_current)    as val_real_ipca_cny,
 
     -- ── Real via IGP-M ───────────────────────────────────────────────────────
     val_real_igpm_brl                                      as val_real_igpm_brl,
     safe_divide(val_real_igpm_brl, brl_per_usd_current)    as val_real_igpm_usd,
     safe_divide(val_real_igpm_brl, brl_per_eur_current)    as val_real_igpm_eur,
-    safe_divide(val_real_igpm_brl, brl_per_cny_current)    as val_real_igpm_cny,
 
     -- ── Real via IGP-DI ──────────────────────────────────────────────────────
     val_real_igpdi_brl                                     as val_real_igpdi_brl,
     safe_divide(val_real_igpdi_brl, brl_per_usd_current)   as val_real_igpdi_usd,
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)   as val_real_igpdi_eur,
-    safe_divide(val_real_igpdi_brl, brl_per_cny_current)   as val_real_igpdi_cny,
 
     -- ── CIF / FOB split (nominal US$, where the reporter provides it) ────────
     cif_value_usd                                          as val_cif_usd,

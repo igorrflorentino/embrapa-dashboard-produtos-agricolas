@@ -15,9 +15,9 @@ models:
       not replace it.
       Physical table (not a view) so BI Engine can cache it.
 
-      Value columns: val_yearfx_{brl,usd,eur,cny} (nominal at year-of-record FX),
-      val_real_ipca_{brl,usd,eur,cny} / val_real_igpm_{brl,usd,eur,cny} /
-      val_real_igpdi_{brl,usd,eur,cny} (deflated to today via the respective
+      Value columns: val_yearfx_{brl,usd,eur} (nominal at year-of-record FX),
+      val_real_ipca_{brl,usd,eur} / val_real_igpm_{brl,usd,eur} /
+      val_real_igpdi_{brl,usd,eur} (deflated to today via the respective
       BCB chain index, optionally converted to foreign currency at today's FX).
     tests:
       - dbt_utils.unique_combination_of_columns:
@@ -167,8 +167,8 @@ models:
       transport route / customs office / statistical unit) is summed up here.
       Any coarser aggregation is derived at query time via GROUP BY.
 
-      Value columns: val_yearfx_{usd,brl,eur,cny} (nominal at month-of-record FX,
-      from the source US$ FOB), val_real_ipca_{brl,usd,eur,cny} /
+      Value columns: val_yearfx_{usd,brl,eur} (nominal at month-of-record FX,
+      from the source US$ FOB), val_real_ipca_{brl,usd,eur} /
       val_real_igpm_* / val_real_igpdi_* (US$ FOB → BRL at month FX → projected
       to today via the respective BCB chain index → reconverted at today's FX).
       Plus val_freight_usd / val_insurance_usd (import-only, nominal US$).
@@ -271,8 +271,8 @@ models:
       BY. The World partner (0) is dropped in Silver, so SUM over partner_code is a
       true bilateral total. Products are HS6; flow ∈ export/import/re-export/re-import.
 
-      Annual source value is nominal US$ (primaryValue): val_yearfx_{usd,brl,eur,cny}
-      (at the year-average FX), val_real_ipca_{brl,usd,eur,cny} / val_real_igpm_* /
+      Annual source value is nominal US$ (primaryValue): val_yearfx_{usd,brl,eur}
+      (at the year-average FX), val_real_ipca_{brl,usd,eur} / val_real_igpm_* /
       val_real_igpdi_* (US$ → BRL at year FX → projected to today via the BCB chain
       index → reconverted at today's FX). Plus val_cif_usd / val_fob_usd.
     tests:

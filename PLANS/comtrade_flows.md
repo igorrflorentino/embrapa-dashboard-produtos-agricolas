@@ -39,7 +39,7 @@ docs already anticipate it).
 - **Flows:** export (`X`) + import (`M`).
 - **Frequency:** annual (`A`) — Comtrade's complete/authoritative series.
 - **Window:** `COMTRADE_START_YEAR..END_YEAR` (default 2000→current).
-- US$→BRL deflation reusing `silver_currency` (BCB USD/EUR ∪ ECB CNY).
+- US$→BRL deflation reusing `silver_currency` (BCB USD/EUR).
 - Quantity in the **unit-family model (#44)**: `qty`+`qtyUnitCode` →
   `family`/`qty_native`/`qty_base`/`base_unit`; `netWgt` as a parallel kg mass.
 

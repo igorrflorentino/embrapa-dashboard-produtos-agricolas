@@ -9,8 +9,7 @@ models:
       productTS / ufData. Carries commodity_id for the live dim_commodity_scd2 join.
       Monetary measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
       (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
-      carried alongside BRL/USD). CNY is intentionally omitted — gold val_*_cny are
-      all NULL (no BCB BRL/CNY series).
+      carried alongside BRL/USD).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -42,8 +41,7 @@ models:
       today; área/rendimento are a planned expansion off the same Gold). Monetary
       measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
       (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
-      carried alongside BRL/USD). CNY is intentionally omitted — gold val_*_cny are
-      all NULL (no BCB BRL/CNY series).
+      carried alongside BRL/USD).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

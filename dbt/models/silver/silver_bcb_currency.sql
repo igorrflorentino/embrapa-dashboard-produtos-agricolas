@@ -14,16 +14,12 @@
 
     Surfaces ONLY the BCB SGS series the ingestion config currently pulls —
     USD (1) + EUR (21619) as daily PTAX — by filtering series_code to the
-    `currency_series` var (mirrors BCB_CURRENCY_SERIES / config.py). The BCB
-    publishes no BRL/CNY rate, so CNY is SINGLE-SOURCED from the ECB/Frankfurter
-    seed (silver_extfx_currency); silver_currency UNIONs the two, no overlap.
+    `currency_series` var (mirrors BCB_CURRENCY_SERIES / config.py).
 
     The series_code filter matters because Bronze is APPEND-ONLY: a series from a
-    past config (e.g. 20542, which config.py documents as "not BRL-per-unit FX at
-    all") can still sit in Bronze long after being dropped from the series list.
-    Without the filter those stale rows would leak into silver_currency and, if
-    once labelled CNY, would double-source against the seed. Keep in sync with
-    config.py's bcb_currency_series.
+    past config can still sit in Bronze long after being dropped from the series
+    list. Without the filter those stale rows would leak into silver_currency.
+    Keep in sync with config.py's bcb_currency_series.
 -#}
 
 {#- Valid BCB FX series codes from config, e.g. "1:USD,21619:EUR" -> '1', '21619'. -#}

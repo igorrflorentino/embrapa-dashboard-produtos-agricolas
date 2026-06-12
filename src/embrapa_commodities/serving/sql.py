@@ -24,8 +24,7 @@ from google.cloud import bigquery
 #
 # EUR columns are served (the PEVS/PAM marts carry them — real BCB BRL/EUR
 # series), so effective_value_column() resolves EUR server-side instead of
-# falling back to BRL. CNY is intentionally absent: gold val_*_cny are all NULL
-# (no BCB BRL/CNY series), so no _cny column may be selected.
+# falling back to BRL.
 ALLOWED_VALUE_COLUMNS = frozenset(
     {
         "val_yearfx_brl",

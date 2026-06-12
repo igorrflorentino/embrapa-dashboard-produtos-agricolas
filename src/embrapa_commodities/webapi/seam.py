@@ -43,7 +43,7 @@ def effective_value_column(banco: Banco, conv: dict) -> tuple[str, str]:
     PEVS has the full {yearfx, real_ipca, real_igpm, real_igpdi} × {brl, usd}
     matrix (minus a few combos); trade marts only have USD. We pick the requested
     column when the mart has it, else fall back to the nearest available, so the
-    conventions strip never errors on an unmodelled combo (e.g. EUR/CNY).
+    conventions strip never errors on an unmodelled combo (e.g. USD + IGP-M).
     """
     if banco.id in _TRADE:
         return "val_yearfx_usd", "Valor (US$ FOB)"

@@ -94,7 +94,7 @@ def test_inflation_series_map_parses_default() -> None:
 
 def test_currency_series_map_parses_default() -> None:
     s = _make_settings()
-    # Daily PTAX venda: SGS 1 = USD, 21619 = EUR. CNY omitted (no BCB BRL/CNY series).
+    # Daily PTAX venda: SGS 1 = USD, 21619 = EUR.
     assert s.currency_series_map == {"1": "USD", "21619": "EUR"}
 
 
