@@ -51,7 +51,31 @@ const goldTable = {
   sefaz_nf: 'gold_nfe_flows',
 };
 const tableOf = (id) => goldTable[id] || null;
+
+// Live provenance from /api/source-meta (gold_source_metadata), fetched per banco
+// and cached. This is what makes the hero / Sobre / Saúde provenance + coverage
+// denominators track the REAL Gold (last_refresh, year_start/end, total_rows,
+// products_total, ufs_total) instead of the frozen bancos.js literals — the seam
+// existed, the frontend just never called it. Falls back to the registry prov
+// until it resolves (or for a source with no Gold row yet).
+const sourceMeta = {}; // bancoId -> serialize_source_meta payload (or {} when absent)
+
+function fetchSourceMeta(id) {
+  return fetch(`${API}/source-meta?banco=${encodeURIComponent(id)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((m) => {
+      if (m && typeof m === 'object') {
+        sourceMeta[id] = m;
+        notify(); // re-render the hero/Sobre/Saúde with the real values
+      }
+    })
+    .catch(() => {
+      /* provenance is non-critical: keep the registry fallback, never block load() */
+    });
+}
+
 const refreshOf = (id) =>
+  (sourceMeta[id] && sourceMeta[id].lastRefreshLabel) ||
   (goldVersion[id] && goldVersion[id].at) ||
   (window.bancoById && window.bancoById(id)?.prov?.refresh) ||
   null;
@@ -102,19 +126,48 @@ window.dataStore = {
   latestAt: (id) => refreshOf(id),
   table: (id) => tableOf(id),
 
+  // Live provenance for a banco. The numeric coverage (rows, products, UFs, year
+  // span) + the last-refresh stamp are overlaid from /api/source-meta when it has
+  // resolved, so every consumer (hero counters + denominators, Sobre, Saúde) reads
+  // the REAL Gold instead of the registry literal. The registry prov is the
+  // pre-resolution / no-Gold-row fallback.
   meta: (id) => {
     const b = (window.bancoById && window.bancoById(id)) || {};
+    const sm = sourceMeta[id] || null;
+    const prov = b.prov ? { ...b.prov } : sm ? {} : null;
+    if (sm && prov) {
+      if (sm.totalRows != null) prov.totalRows = sm.totalRows;
+      if (sm.productsTotal != null) prov.productsTotal = sm.productsTotal;
+      if (sm.ufsTotal != null) prov.ufsTotal = sm.ufsTotal;
+      if (sm.yearStart != null) prov.yearStart = sm.yearStart;
+      if (sm.yearEnd != null) prov.yearEnd = sm.yearEnd;
+      if (sm.yearStart != null && sm.yearEnd != null) prov.yearsTotal = sm.yearEnd - sm.yearStart + 1;
+      if (sm.lastRefreshLabel) prov.refresh = sm.lastRefreshLabel;
+      // Keep the registry "última safra" label but track the real latest year.
+      if (sm.yearEnd != null && typeof prov.lastCrop === 'string') {
+        prov.lastCrop = prov.lastCrop.replace(/\d{4}/, String(sm.yearEnd));
+      }
+    }
     return {
-      table: tableOf(id),
+      table: (sm && sm.table) || tableOf(id),
       refresh: refreshOf(id),
       version: (goldVersion[id] && goldVersion[id].v) || null,
+      coverage: sm
+        ? {
+            yearStart: sm.yearStart,
+            yearEnd: sm.yearEnd,
+            totalRows: sm.totalRows,
+            productsTotal: sm.productsTotal,
+            ufsTotal: sm.ufsTotal,
+          }
+        : null,
       source: b.source,
       scope: b.scope,
       domain: b.domain,
       cobertura: b.cobertura || null,
       maturity: b.maturity,
       maturityDate: b.maturity === 'estavel' ? null : b.maturityDate || b.plannedRelease || null,
-      prov: b.prov || null,
+      prov,
     };
   },
 
@@ -134,6 +187,9 @@ window.dataStore = {
   // Run (or re-run) a banco's pushdown query and cache the decorated result.
   load(id) {
     const key = cacheKey(id);
+    // Fetch live provenance once per banco (independent of the per-convention
+    // snapshot cache), so the hero/Sobre/Saúde show real Gold metadata.
+    if (!sourceMeta[id]) fetchSourceMeta(id);
     const cur = store[key];
     if (cur && cur.status === 'ready' && !this.isStale(id)) return Promise.resolve(cur);
     if (cur && cur.status === 'loading') return Promise.resolve(cur);

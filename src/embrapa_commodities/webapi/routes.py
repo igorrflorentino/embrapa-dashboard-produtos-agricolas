@@ -72,8 +72,14 @@ def catalog():
 
 @api.get("/source-meta")
 def source_meta():
-    """Provenance row for a banco (backs the page-hero meta); {} if absent."""
-    return jsonify(seam.source_meta(request.args.get("banco", "")))
+    """Provenance row for a banco (backs the page-hero meta); {} if absent.
+
+    Shaped by ``serialize_source_meta`` into native JSON (real coverage/counters +
+    the last-refresh stamp), so the frontend renders live gold_source_metadata
+    instead of frozen bancos.js literals.
+    """
+    raw = seam.source_meta(request.args.get("banco", ""))
+    return jsonify(serializers.serialize_source_meta(raw))
 
 
 # ── per-banco snapshot ─────────────────────────────────────────────────────────
