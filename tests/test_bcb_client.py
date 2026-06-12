@@ -34,12 +34,12 @@ def test_fetch_series_returns_dataframe() -> None:
 def test_fetch_series_returns_empty_on_no_data() -> None:
     responses.add(
         method=responses.GET,
-        url=re.compile(r"https://api\.bcb\.gov\.br/dados/serie/bcdata\.sgs\.20542/dados.*"),
+        url=re.compile(r"https://api\.bcb\.gov\.br/dados/serie/bcdata\.sgs\.1/dados.*"),
         json=[],
         status=200,
     )
 
-    df = client.fetch_series("20542", 1900, 1900)
+    df = client.fetch_series("1", 1900, 1900)
     assert df.empty
     assert list(df.columns) == ["data", "valor"]
 

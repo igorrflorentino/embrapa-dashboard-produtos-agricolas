@@ -44,9 +44,7 @@ with pam as (
         sum(area_harvested_ha)          as area_harvested_ha,
         sum(val_yearfx_brl)             as val_yearfx_brl,
         sum(val_yearfx_usd)             as val_yearfx_usd,
-        -- EUR carried alongside BRL/USD (real BCB BRL/EUR series). CNY is
-        -- intentionally excluded: gold val_*_cny are all NULL (no BCB BRL/CNY
-        -- series), so the mart must not offer a currency it can't honestly serve.
+        -- EUR carried alongside BRL/USD (real BCB BRL/EUR series).
         sum(val_yearfx_eur)             as val_yearfx_eur,
         sum(val_real_ipca_brl)          as val_real_ipca_brl,
         sum(val_real_ipca_usd)          as val_real_ipca_usd,

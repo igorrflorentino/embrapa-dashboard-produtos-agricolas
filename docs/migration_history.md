@@ -49,3 +49,11 @@ Two manual cleanups outside this repo (dbt does NOT do these for you):
 
    Do this only AFTER confirming `gold_pevs_production` built and Looker is
    repointed — the drop is irreversible.
+
+## CNY currency removal (2026-06)
+
+The `val_*_cny` columns were dropped from all four Gold facts and the external-FX
+seed path (`extfx_cny_brl` → `silver_extfx_currency` → `silver_currency` UNION) was
+removed. The Gold tables physically shed the columns only after
+`dbt build --full-refresh`; until then the dropped columns linger harmlessly
+(nothing reads them). The currency selector now offers BRL/USD/EUR only.

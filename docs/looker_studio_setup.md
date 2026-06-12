@@ -90,15 +90,12 @@ On the data source configuration screen, adjust:
 | `val_yearfx_brl` | Number (BRL currency) | Sum |
 | `val_yearfx_usd` | Number (USD currency) | Sum |
 | `val_yearfx_eur` | Number (EUR currency) | Sum |
-| `val_yearfx_cny` | Number (CNY currency) | Sum |
 | `val_real_ipca_brl` | Number (BRL currency) | Sum |
 | `val_real_ipca_usd` | Number (USD currency) | Sum |
 | `val_real_ipca_eur` | Number (EUR currency) | Sum |
-| `val_real_ipca_cny` | Number (CNY currency) | Sum |
 | `val_real_igpm_brl` | Number (BRL currency) | Sum |
 | `val_real_igpm_usd` | Number (USD currency) | Sum |
 | `val_real_igpm_eur` | Number (EUR currency) | Sum |
-| `val_real_igpm_cny` | Number (CNY currency) | Sum |
 | `data_quality_flag` | Text | — |
 | `last_refresh` | Date and time | Maximum |
 
@@ -142,7 +139,7 @@ This excludes rows where IBGE did not publish a monetary value (e.g.: Pinheiro b
 | Chart | Configuration |
 |---|---|
 | Line chart — Nominal vs real values | Series 1: `val_yearfx_brl` · Series 2: `val_real_ipca_brl` · Series 3: `val_real_igpm_brl` |
-| Bar chart — By currency | Metrics: `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny` |
+| Bar chart — By currency | Metrics: `val_real_ipca_usd`, `val_real_ipca_eur` |
 
 ---
 

@@ -6,7 +6,7 @@
 [![uv](https://img.shields.io/badge/pkg-uv-blueviolet)](https://docs.astral.sh/uv/)
 [![dbt](https://img.shields.io/badge/transform-dbt-FF694B)](https://www.getdbt.com/)
 
-Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scientific analysis** of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR, CNY) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank. A tool built for **Embrapa researchers** — the focus is on time series and data exploration, **not** business metrics or real-time analytics (data is ingested and transformed in batch).
+Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scientific analysis** of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank. A tool built for **Embrapa researchers** — the focus is on time series and data exploration, **not** business metrics or real-time analytics (data is ingested and transformed in batch).
 
 > 📊 **Two consumption paths, in parallel.** The Gold tables are served by two first-class frontends, both reading the same data:
 > 1. **Looker Studio** — direct no-code connection to the Gold table; available today.
@@ -123,7 +123,7 @@ The `discover` commands are **auxiliary and not part of the production pipeline*
 
 | Column | Meaning | When it is NULL |
 |---|---|---|
-| `val_yearfx_*` | `val_raw` (already in present-day R$ numéraire, without inflation adjustment) converted by the **average FX of the same year**. Foreign-currency columns are `NULL` pre-1994 so as not to mix old Cruzeiros with present-day values. | Year FX unavailable (e.g. EUR < 1999); or `reference_year < 1994` for USD/EUR/CNY. |
+| `val_yearfx_*` | `val_raw` (already in present-day R$ numéraire, without inflation adjustment) converted by the **average FX of the same year**. Foreign-currency columns are `NULL` pre-1994 so as not to mix old Cruzeiros with present-day values. | Year FX unavailable (e.g. EUR < 1999); or `reference_year < 1994` for USD/EUR. |
 | `val_real_ipca_*` | Value projected to today via the **IPCA chain** (absorbs inflation + currency reforms) and converted to current FX. **Use this column for cross-year comparisons.** | Base-year IPCA unavailable. |
 | `val_real_igpm_*` | Same, using IGP-M. | Base-year IGP-M unavailable. |
 | `val_real_igpdi_*` | Same, using IGP-DI. | Base-year IGP-DI unavailable. |
@@ -153,16 +153,16 @@ One row per `(reference_year, state_acronym, city_name, product_code)`. Columns:
 > ⚠️ **Never sum `qty_base` across families.** Every quantity sum requires `GROUP BY family` (build `q_by_family = {massa:Σt, volume:Σm³, …}` at query time). Factors come from the `unit_family_conversions` + `product_unit_factors` seeds; a unit without a conversion → null `qty_base` (curation). Monetary value remains family-agnostic and summable.
 
 **Values by year FX (foreign zeroed pre-1994)**
-`val_yearfx_brl`, `val_yearfx_usd`, `val_yearfx_eur`, `val_yearfx_cny`.
+`val_yearfx_brl`, `val_yearfx_usd`, `val_yearfx_eur`.
 
 **Real values via IPCA**
-`val_real_ipca_brl`, `val_real_ipca_usd`, `val_real_ipca_eur`, `val_real_ipca_cny`.
+`val_real_ipca_brl`, `val_real_ipca_usd`, `val_real_ipca_eur`.
 
 **Real values via IGP-M**
-`val_real_igpm_brl`, `val_real_igpm_usd`, `val_real_igpm_eur`, `val_real_igpm_cny`.
+`val_real_igpm_brl`, `val_real_igpm_usd`, `val_real_igpm_eur`.
 
 **Real values via IGP-DI**
-`val_real_igpdi_brl`, `val_real_igpdi_usd`, `val_real_igpdi_eur`, `val_real_igpdi_cny`.
+`val_real_igpdi_brl`, `val_real_igpdi_usd`, `val_real_igpdi_eur`.
 
 **Quality / provenance**
 `data_quality_flag`, `last_refresh`.

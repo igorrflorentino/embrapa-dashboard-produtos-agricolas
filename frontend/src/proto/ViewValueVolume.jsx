@@ -7,7 +7,7 @@ function ViewValueVolume({ families, conventions, summary, database }) {
   const conv      = conventions || window.DEFAULT_CONVENTIONS;
   const ccyLabel  = window.conventionMonetaryLabel(conv);
   const fx        = window.CURRENCY_FX[conv.currency];
-  const ccyColor  = { BRL: 'var(--viz-1)', USD: 'var(--viz-2)', EUR: 'var(--viz-3)', CNY: 'var(--viz-4)' }[conv.currency];
+  const ccyColor  = { BRL: 'var(--viz-1)', USD: 'var(--viz-2)', EUR: 'var(--viz-3)' }[conv.currency];
   const massMul   = window.massQtyMul(conv);
   const volMul    = window.volumeQtyMul(conv);
   const massAx    = window.massAxisLabel(conv);
@@ -71,7 +71,7 @@ function ViewValueVolume({ families, conventions, summary, database }) {
     const max = Math.max(...yearTotals);
     const { factor, suffix } = window.autoScaleNum(max);
     if (!suffix) return { layers, label: unit };
-    const CURRENCY_SYMS = ['R$', 'US$', '€', '¥'];
+    const CURRENCY_SYMS = ['R$', 'US$', '€'];
     const out = layers.map(l => ({
       ...l,
       data: l.data.map(d => ({ ...d, [key]: d[key] / factor })),

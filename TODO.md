@@ -10,7 +10,7 @@
 ### Backend (data pipeline)
 - [x] Complete Medallion pipeline (Bronze → Silver → Gold)
 - [x] IBGE PEVS ingestion via the SIDRA API
-- [x] BCB ingestion (IPCA/IGP-M/IGP-DI inflation + USD/EUR/CNY FX)
+- [x] BCB ingestion (IPCA/IGP-M/IGP-DI inflation + USD/EUR FX)
 - [x] Delta ingestion for the BCB pipelines (new data only)
 - [x] Chunked IBGE ingestion (`ibge-batch --chunk-years`)
 - [x] IPCA chain index (Silver) for historical deflation

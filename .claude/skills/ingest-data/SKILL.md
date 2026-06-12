@@ -19,7 +19,7 @@ uv run embrapa ingest all               # COMTRADE is key-gated → excluded fro
 # Individual pipelines
 uv run embrapa ingest ibge              # IBGE PEVS
 uv run embrapa ingest bcb-inflation     # BCB inflation (IPCA, IGP-M, IGP-DI)
-uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR; CNY via external source)
+uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR)
 uv run embrapa ingest comex             # MDIC Comex Stat flows (export + import)
 uv run embrapa ingest comtrade          # UN Comtrade global flows (needs COMTRADE_API_KEY)
 
@@ -80,7 +80,7 @@ The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_
    ```
    BCB_INFLATION_SERIES=433:IPCA,189:IGP-M,...,<CODE>:<LABEL>
    # or for currency:
-   BCB_CURRENCY_SERIES=1:USD,21619:EUR,21623:CNY,...,<CODE>:<LABEL>
+   BCB_CURRENCY_SERIES=1:USD,21619:EUR,...,<CODE>:<LABEL>
    ```
 
 2. If the new series is an inflation index used for deflation in Gold:

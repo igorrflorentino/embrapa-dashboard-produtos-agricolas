@@ -90,8 +90,8 @@ function readStateFromURL() {
   if (!window.urlHasOwnState || !window.urlHasOwnState(q)) return null;
   const conv = { ...window.DEFAULT_CONVENTIONS };
   // Clamp the hydrated currency to the offered set (the CURRENCY_FX keys). A stale
-  // shared/bookmarked URL may still carry an unsupported value (e.g. ?cur=CNY,
-  // dropped when CNY lost its fabricated FX rate); an unknown currency would later
+  // shared/bookmarked URL may still carry a currency that is no longer offered;
+  // an unknown currency would later
   // deref CURRENCY_FX[cur].symbol (undefined) and white-screen the view, so keep
   // the default instead.
   const cur = q.get('cur');
