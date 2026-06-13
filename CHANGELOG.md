@@ -33,9 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   quantities (kg summed and scaled as tonnes). Decomposed all radon grade-C
   functions and added ~210 tests (Python 497→701, frontend 47→103); full suite
   green. Detailed report: `PLANS/codebase_audit_2026-06-12.md`.
-  > Open item needing a real-browser check: the Geografia maplibre choropleth
-  > ("Mapa" mode) could not be verified in the headless preview (the "Blocos" SVG
-  > map works); the data path was hardened defensively.
+- **Geografia choropleth ("Mapa" mode) rendered blank.** Confirmed in production
+  (not a headless artifact): `brazilUfGeo` shipped **143 empty `[]` sub-polygons**
+  inside its MultiPolygons (a shape-simplification artifact), and maplibre-gl 4.x's
+  geojson-vt worker throws "Cannot read properties of undefined (reading 'length')"
+  on an empty sub-polygon, dropping the ENTIRE feature → 0 features → blank map. The
+  GeoJSON is now sanitized once at load (`charts/geoSanitize.js`, unit-tested) into
+  valid GeoJSON, and a `map.on('error')` handler surfaces any future maplibre error
+  under our own prefix. The Geografia per-UF map/bars also gained the "(parcial)"
+  marker on an incomplete latest year, matching the Overview.
 
 ### Removed
 - **Chinese Yuan (CNY) dropped entirely.** The dashboard now offers only BRL, USD and EUR. Removed the external-FX path that sourced BRL/CNY (the `extfx_cny_brl` seed, `silver_extfx_currency`, and `scripts/refresh_cny_seed.py`) and dropped the `val_yearfx_cny` / `val_real_ipca_cny` / `val_real_igpm_cny` / `val_real_igpdi_cny` columns from every Gold fact (`gold_pevs_production`, `gold_pam_production`, `gold_comex_flows`, `gold_comtrade_flows`). Requires a `dbt build --full-refresh` to physically drop the columns; Looker Studio reports bound to the CNY metrics must unbind them (see `docs/looker_studio_setup.md`). China-the-country trade flows (COMEX/COMTRADE partner geography) are unaffected.

@@ -24,7 +24,15 @@ function ViewGeography({ families, conventions, summary, database }) {
   // fall short of yearEnd (future/partial endDate). Label them with the data's OWN
   // year so the caption never diverges from what's plotted (FINDING #1).
   const mapYear     = filtered.ufLatestYear != null ? filtered.ufLatestYear : filtered.yearEnd;
-  const mapYearTag  = filtered.ufYearPartial ? `${mapYear} (parcial)` : `${mapYear}`;
+  // "(parcial)" when the UF data lags the window end (ufYearPartial) OR the map year
+  // is the calendar-incomplete latest year (a monthly banco's current year — the same
+  // FINDING #3 signal the Overview uses), so the map is as honest as the time series.
+  const geoLatest   = (window.dataStore && window.dataStore.meta)
+    ? (window.dataStore.meta(database) || {}).latest : null;
+  const mapYearCalPartial = !!geoLatest && geoLatest.yearComplete === false &&
+    (geoLatest.completeYear == null || mapYear > geoLatest.completeYear);
+  const mapPartial  = filtered.ufYearPartial || mapYearCalPartial;
+  const mapYearTag  = mapPartial ? `${mapYear} (parcial)` : `${mapYear}`;
 
   const [dim, setDim]     = useGeoState('value');
   const [scope, setScope] = useGeoState('uf');
