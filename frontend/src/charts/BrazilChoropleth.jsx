@@ -12,6 +12,11 @@ import { useRef, useEffect, useState } from 'react';
 
 import brazilUfGeo from './brazilUfGeo';
 import { NODATA, fillColorExpression, ufColorScale } from './choroplethScale';
+import { sanitizeFeatureCollection } from './geoSanitize';
+
+// brazilUfGeo ships empty `[]` sub-polygons that crash maplibre's geojson-vt worker
+// and blank the map (FINDING #5); sanitize once at module load into valid GeoJSON.
+const UF_GEO = sanitizeFeatureCollection(brazilUfGeo);
 
 const BRAZIL_BOUNDS = [
   [-74.5, -34.5],
@@ -75,6 +80,11 @@ export function BrazilChoropleth({ data, valueKey, label, height = 360 }) {
         return;
       }
       mapRef.current = map;
+      // Surface any maplibre-internal error under our own prefix (maplibre's default
+      // handler logs a stackless console.error) — diagnostic only, never blanks the map.
+      map.on('error', (e) => {
+        console.warn('[choropleth] maplibre error:', (e && e.error && e.error.message) || e);
+      });
       map.touchZoomRotate.disableRotation();
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
@@ -82,7 +92,7 @@ export function BrazilChoropleth({ data, valueKey, label, height = 360 }) {
 
       map.on('load', () => {
         if (cancelled) return;
-        map.addSource('uf', { type: 'geojson', data: brazilUfGeo });
+        map.addSource('uf', { type: 'geojson', data: UF_GEO });
         map.addLayer({ id: 'uf-fill', type: 'fill', source: 'uf', paint: { 'fill-color': NODATA, 'fill-opacity': 0.9 } });
         map.addLayer({ id: 'uf-line', type: 'line', source: 'uf', paint: { 'line-color': '#ffffff', 'line-width': 0.8 } });
         paint();
