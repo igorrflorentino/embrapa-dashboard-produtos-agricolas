@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { decorateSnapshot } from './decorate.js';
+import { decorateSnapshot, isCanonicalUf } from './decorate.js';
 
 describe('decorateSnapshot', () => {
   beforeEach(() => {
@@ -52,5 +52,30 @@ describe('decorateSnapshot', () => {
     expect(out).toBe(snap); // in-place contract — the views hold this same ref
     expect(out.ufData).toEqual([]); // empty arrays skip the map, stay []
     expect(out.quality).toEqual([]);
+  });
+});
+
+describe('isCanonicalUf (FINDING #4)', () => {
+  beforeEach(() => {
+    window.UF_DATA = [
+      { uf: 'PA', name: 'Pará' },
+      { uf: 'SP', name: 'São Paulo' },
+    ];
+  });
+
+  it('accepts a registered Brazilian UF and rejects COMEX trade pseudo-codes', () => {
+    expect(isCanonicalUf('PA')).toBe(true);
+    expect(isCanonicalUf('SP')).toBe(true);
+    // ND/EX/ZN/CB/RE/MC… are trade-origin pseudo-codes, NOT states — they must
+    // not count toward the "UFs cobertas / 27" tally.
+    expect(isCanonicalUf('ND')).toBe(false);
+    expect(isCanonicalUf('EX')).toBe(false);
+    expect(isCanonicalUf('ZN')).toBe(false);
+  });
+
+  it('is null/empty-safe and exposed on window for the reused views', () => {
+    expect(isCanonicalUf(null)).toBe(false);
+    expect(isCanonicalUf('')).toBe(false);
+    expect(window.isCanonicalUf).toBe(isCanonicalUf);
   });
 });

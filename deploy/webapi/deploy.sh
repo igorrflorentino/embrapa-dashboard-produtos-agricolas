@@ -75,7 +75,10 @@ gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
 #    SPA_DIST_DIR is baked into the image (not from .env).
 #    BQ_GOLD_DATASET / BQ_SERVING_DATASET deliberately NOT forwarded — a dev .env
 #    often points them at the auto-expiring dev datasets; forced to prod below.
-WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO)='
+#    CURATION_ALLOWED_EMAILS (the curation write lockdown) and BQ_MAX_BYTES_BILLED
+#    (the serving-path cost ceiling) ARE forwarded — both are read by the deployed
+#    webapi, and omitting them silently left prod on the open/default behaviour.
+WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO|CURATION_ALLOWED_EMAILS|BQ_MAX_BYTES_BILLED)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
 grep -E "$WEBAPI_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
@@ -122,5 +125,7 @@ Done. React SPA + REST API deployed PRIVATE to '$SERVICE_NAME' at:
 
 IAP (already configured on this service for the Dash app) gates browser SSO; the
 served app is now the React SPA. Verify: open the URL (IAP login) → the dashboard
-loads; /api/healthz returns {"status":"ok"}; the analytical charts are Plotly.
+loads; /healthz returns {"status":"ok"} (app-level, OUTSIDE the /api blueprint —
+/api/healthz would match the SPA catch-all and serve index.html with a misleading
+200); the analytical charts are Plotly.
 EOF

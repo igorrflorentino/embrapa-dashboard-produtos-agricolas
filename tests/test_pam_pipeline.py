@@ -235,3 +235,38 @@ def test_run_from_raw_replays_archived_objects(settings: Settings, sidra_df: pd.
     fetch.assert_not_called()
     assert read_raw.call_count == 2
     assert load.call_count == 2
+
+
+def test_run_from_raw_orders_replay_by_fetched_at_not_basename(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """Like PEVS, PAM --from-raw must replay oldest-fetch-first (stored fetched_at
+    provenance), not in lexical basename order, so the newest extract wins
+    Silver's ingestion_timestamp-desc dedup."""
+    fetched_at = {
+        # Lexically FIRST, but the NEWEST extract.
+        "products_40124_2010_2026": {"fetched_at": "2026-06-01T00:00:00Z"},
+        # Lexically LAST, but an OLD backfill chunk.
+        "products_40124_2023_2024": {"fetched_at": "2024-01-01T00:00:00Z"},
+    }
+    with (
+        patch("embrapa_commodities.ibge.pam_pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pam_pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pam_pipeline.ensure_dataset"),
+        patch(
+            "embrapa_commodities.ibge.pam_pipeline.list_raw",
+            return_value=sorted(fetched_at),  # list_raw returns lexical order
+        ),
+        # _order_by_fetched_at lives in (and reads provenance via) ibge.pipeline.
+        patch(
+            "embrapa_commodities.ibge.pipeline.raw_provenance",
+            side_effect=lambda *_a, basename, **_kw: fetched_at[basename],
+        ),
+        patch("embrapa_commodities.ibge.pam_pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pam_pipeline.load_dataframe"),
+    ):
+        _patch_phase2_df(read_raw, sidra_df)
+        pam_pipeline.run(settings, from_raw=True)
+
+    replayed = [call.kwargs["basename"] for call in read_raw.call_args_list]
+    assert replayed == ["products_40124_2023_2024", "products_40124_2010_2026"]

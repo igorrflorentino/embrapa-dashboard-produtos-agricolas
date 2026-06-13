@@ -21,8 +21,20 @@ function ViewHealth() {
   useHsEffect(() => {
     if (!(window.dataStore && window.dataStore.loadMeta)) return;
     bancos.filter(b => b.status === 'live').forEach(b => window.dataStore.loadMeta(b.id));
+    // The quality-history card + KPI sparkline read the REAL per-banco quality
+    // series (snapshot.qualityTs). Saúde is an info-page reached outside the data
+    // boundary, so no snapshot loads on its own — proactively load IBGE PEVS so
+    // the real series is available instead of leaving the card empty.
+    if (window.dataStore.load) window.dataStore.load('ibge_pevs');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Real quality-over-time series for IBGE PEVS (snapshot.qualityTs: per-year OK
+  // share, 0-1). NEVER the synthetic window.QUALITY_TS the prototype generated —
+  // this is an institutional health page; every fact must come from the live seam.
+  const pevSnap = (window.dataStore && window.dataStore.get)
+    ? window.dataStore.get('ibge_pevs') : null;
+  const qualityTs = (pevSnap && Array.isArray(pevSnap.qualityTs)) ? pevSnap.qualityTs : [];
 
   // ── Per-banco OPERATIONAL facts — read from the LIVE provenance seam ─────
   // window.dataStore.meta(id) returns the registry declaration OVERLAID with the
@@ -45,10 +57,11 @@ function ViewHealth() {
 
   // ── Active alerts — DERIVED from real signals only ──────────────────────
   // The only operational signal this repo actually has is the per-banco quality
-  // timeseries (snapshot.qualityTs). If the most recent year's OUTLIER share is
-  // materially above its historical mean, that is a genuine alert. Provenance
-  // (última safra publicada) is a factual coverage note read from real meta().
-  // There is NO incident/ticket backend — we never fabricate one.
+  // timeseries (snapshot.qualityTs: per-year flag SHARES from real Gold). If the
+  // most recent year's NON-OK (problem-row) share is materially above its
+  // historical mean, that is a genuine integrity alert. Provenance (última safra
+  // publicada) is a factual coverage note read from real meta(). There is NO
+  // incident/ticket backend — we never fabricate one.
   const buildAlerts = () => {
     const out = [];
 
@@ -64,20 +77,23 @@ function ViewHealth() {
       });
     }
 
-    // Real outlier signal from the loaded snapshot, when available.
-    const snap = (window.dataStore && window.dataStore.get) ? window.dataStore.get('ibge_pevs') : null;
-    const qts = (snap && Array.isArray(snap.qualityTs)) ? snap.qualityTs : null;
+    // Real integrity signal from the loaded snapshot, when available. The real
+    // Gold flags carry OK (=integral); the problem share is 1 − OK. A meaningful
+    // jump above the historical mean is a genuine data-quality alert.
+    const qts = qualityTs.length ? qualityTs : null;
     if (qts && qts.length >= 2) {
+      const issueShare = (d) => 1 - (d.ok || 0);
       const latest = qts[qts.length - 1];
       const hist = qts.slice(0, -1);
-      const histMean = hist.reduce((s, d) => s + (d.outlier || 0), 0) / hist.length;
+      const histMean = hist.reduce((s, d) => s + issueShare(d), 0) / hist.length;
+      const latestIssue = latest ? issueShare(latest) : 0;
       // Flag only a meaningful jump (>50% above the historical mean) to avoid noise.
-      if (latest && latest.outlier != null && histMean > 0 && latest.outlier > histMean * 1.5) {
+      if (latest && histMean > 0 && latestIssue > histMean * 1.5) {
         out.push({
           level: 'warn',
           banco: 'ibge_pevs',
-          title: `OUTLIER acima da média histórica · ${latest.y}`,
-          desc: `O detector estatístico marcou ${window.fmtPct(latest.outlier)} das linhas em ${latest.y} (média histórica: ${window.fmtPct(histMean)}).`,
+          title: `Integridade abaixo da média histórica · ${latest.y}`,
+          desc: `${window.fmtPct(latestIssue)} das linhas em ${latest.y} não estão íntegras (flag ≠ OK); média histórica: ${window.fmtPct(histMean)}.`,
           since: pevMeta.refresh || null,
         });
       }
@@ -156,10 +172,10 @@ function ViewHealth() {
           sub={OVERALL.note}
         />
         <window.KpiCardSpark
-          label="Bancos saudáveis"
+          label="Bancos saudáveis (em produção)"
           value={`${liveBancos.length} / ${liveDefined.length}`}
-          sub={`${pendingCount} aguardando ingestão`}
-          spark={window.QUALITY_TS.slice(-12)}
+          sub={`${liveDefined.length} em produção · ${pendingCount} aguardando ingestão · ${bancos.length} no total`}
+          spark={qualityTs.slice(-12)}
           sparkKey="ok"
           sparkColor="var(--ok)"
         />
@@ -209,7 +225,7 @@ function ViewHealth() {
         <window.SectionHeader
           overline="Saúde por banco de dados"
           title="Estado atual da pipeline em cada fonte"
-          action={<span className="caption">{bancos.length} bancos monitorados</span>}
+          action={<span className="caption">{bancos.length} bancos monitorados · {liveDefined.length} em produção</span>}
         />
         <div className="hs-table-wrap">
           <table className="hs-table">
@@ -344,20 +360,27 @@ function ViewHealth() {
         </div>
       </div>
 
-      {/* Quality trend cross-link */}
+      {/* Quality trend cross-link — REAL per-year OK share from the live snapshot
+          (snapshot.qualityTs), never the synthetic prototype series. */}
       <div className="card">
         <window.SectionHeader
           overline="Qualidade dos dados · histórico"
           title="% de linhas íntegras (flag = OK) · IBGE PEVS"
           action={<span className="caption">Para diagnóstico completo, veja Qualidade dos dados</span>}
         />
-        <window.LineChart
-          data={window.QUALITY_TS.map(d => ({ y: d.y, v: d.ok * 100 }))}
-          label="% OK"
-          valueKey="v"
-          color="var(--ok)"
-          height={220}
-        />
+        {qualityTs.length ? (
+          <window.LineChart
+            data={qualityTs.map(d => ({ y: d.y, v: (d.ok || 0) * 100 }))}
+            label="% OK"
+            valueKey="v"
+            color="var(--ok)"
+            height={220}
+          />
+        ) : (
+          <p className="caption" style={{ padding: '12px 4px' }}>
+            Carregando a série de qualidade da Gold (IBGE PEVS)…
+          </p>
+        )}
       </div>
     </div>
   );

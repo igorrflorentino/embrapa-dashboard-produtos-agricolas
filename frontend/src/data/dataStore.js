@@ -59,9 +59,17 @@ const tableOf = (id) => goldTable[id] || null;
 // existed, the frontend just never called it. Falls back to the registry prov
 // until it resolves (or for a source with no Gold row yet).
 const sourceMeta = {}; // bancoId -> serialize_source_meta payload (or {} when absent)
+// In-flight /source-meta requests, keyed by banco. fetchSourceMeta only sets
+// sourceMeta[id] AFTER the request resolves, so concurrent callers (load() +
+// loadMeta() from ViewHealth/ViewAbout, a re-render, React StrictMode's double
+// effect) would each pass the `!sourceMeta[id]` guard and fire a DUPLICATE
+// request before the first lands. Sharing the in-flight promise dedupes them to
+// exactly one network call per banco (FINDING #8).
+const sourceMetaInFlight = {}; // bancoId -> Promise
 
 function fetchSourceMeta(id) {
-  return fetch(`${API}/source-meta?banco=${encodeURIComponent(id)}`)
+  if (sourceMetaInFlight[id]) return sourceMetaInFlight[id];
+  const p = fetch(`${API}/source-meta?banco=${encodeURIComponent(id)}`)
     .then((r) => (r.ok ? r.json() : null))
     .then((m) => {
       if (m && typeof m === 'object') {
@@ -71,7 +79,12 @@ function fetchSourceMeta(id) {
     })
     .catch(() => {
       /* provenance is non-critical: keep the registry fallback, never block load() */
+    })
+    .finally(() => {
+      delete sourceMetaInFlight[id]; // allow a future refresh once this settles
     });
+  sourceMetaInFlight[id] = p;
+  return p;
 }
 
 const refreshOf = (id) =>
@@ -161,6 +174,22 @@ window.dataStore = {
             ufsTotal: sm.ufsTotal,
           }
         : null,
+      // Latest-year completeness signal (/api/source-meta, FINDING #3). Monthly
+      // bancos (COMEX) publish the current year month-by-month, so yearEnd is
+      // usually PARTIAL — a raw YoY against it reads a few months vs a full year
+      // as a spurious crash. The Overview anchors its headline YoY on
+      // latestCompleteYear when latestYearComplete === false. Annual bancos
+      // (PEVS/PAM/COMTRADE) are always complete → null/true here, YoY unchanged.
+      latest: sm
+        ? {
+            monthsInLatestYear: sm.monthsInLatestYear ?? null,
+            // Default to complete when the field is absent (annual bancos, or an
+            // older backend) so the YoY is only ever SUPPRESSED on a known-partial
+            // year, never spuriously hidden.
+            yearComplete: sm.latestYearComplete !== false,
+            completeYear: sm.latestCompleteYear ?? null,
+          }
+        : null,
       source: b.source,
       scope: b.scope,
       domain: b.domain,
@@ -178,6 +207,8 @@ window.dataStore = {
   // meta already resolved is a no-op. Pair with subscribe() to re-render on resolve.
   loadMeta(id) {
     if (sourceMeta[id]) return Promise.resolve(sourceMeta[id]);
+    // fetchSourceMeta shares the in-flight promise, so a concurrent load() (which
+    // also kicks it) and this call resolve to a SINGLE network request (#8).
     return fetchSourceMeta(id);
   },
 
@@ -231,15 +262,26 @@ window.dataStore = {
   },
 
   // Boot bridge: the app calls this when the conventions change. Switching the
-  // currency/correction means a different deflated value column → re-fetch. We
-  // just update the active conv + notify; subscribed DataBoundaries re-render
-  // and call load(id), which now hits the new convention's cache key.
+  // currency/correction means a different deflated value column → re-fetch.
+  //
+  // The store caches per `${id}|${currency}|${correction}`, so the new convention
+  // is a DIFFERENT cache key that nothing has loaded. A bare notify() would NOT
+  // help: useBancoData only issues load() inside a useEffect keyed [bancoId], so a
+  // re-render never re-runs the fetch — the gate would sit on the loading skeleton
+  // forever (a deep-linked ?cur=USD/?corr=Nominal wedged every data view). So we
+  // proactively re-run load() for every banco that was already loaded (or is
+  // loading) under the PREVIOUS conventions, now under the new key, then notify.
   setConventions(conv) {
     if (!conv) return;
     const next = { currency: conv.currency || 'BRL', correction: conv.correction || 'IPCA' };
     if (next.currency === activeConv.currency && next.correction === activeConv.correction) return;
+    // Bancos touched under any previous convention (cache keys are `id|cur|corr`).
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
     activeConv = next;
     notify();
+    // Kick the snapshot fetch for the new convention's key so the gate resolves
+    // instead of waiting on a [bancoId]-only effect that never re-fires.
+    loadedBancos.forEach((id) => this.load(id));
   },
 
   // Re-run the active query (used by the freshness "Recarregar" + error retry).

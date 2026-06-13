@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ y, [valueKey] }]
 
-import { Plot, baseLayout, resolveColor, withAlpha } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, withAlpha } from './_base';
 
 function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = '', valueKey = 'v' }) {
   const c = resolveColor(color);
@@ -20,13 +20,17 @@ function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = ''
       name: label,
     },
   ];
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G") so a value axis matches the
+  // dashboard's "R$ bi/mi/mil" labels and is consistent across cards (FINDING #9).
+  // Falls back to Plotly's SI `~s` when the data has no usable positive max.
+  const yaxis = {
+    title: { text: label, font: { size: 11 }, standoff: 8 },
+    rangemode: 'tozero',
+    ...ptBrLinearAxis(seriesMax(data, (d) => d[valueKey])),
+  };
   const layout = baseLayout({
     margin: { l: 56, r: 12, t: 18, b: 28 },
-    yaxis: {
-      title: { text: label, font: { size: 11 }, standoff: 8 },
-      rangemode: 'tozero',
-      tickformat: '~s',
-    },
+    yaxis,
     xaxis: { dtick: 'auto', tickformat: 'd' },
   });
   return <Plot traces={traces} layout={layout} height={height} />;

@@ -177,7 +177,7 @@ window.viewComponent = (id) => {
   const name = window.VIEW_COMPONENTS[id];
   const comp = name ? window[name] : null;
   if (!comp && window.isViewLive && window.isViewLive(id)) {
-    console.warn(`[views] sem componente para a perspectiva live "${id}" (mapeada para ${name || 'nada'})`);
+    console.warn(`[views] no component for live perspective "${id}" (mapped to ${name || 'nothing'})`);
   }
   return comp;
 };

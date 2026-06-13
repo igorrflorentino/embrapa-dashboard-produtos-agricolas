@@ -104,7 +104,8 @@ def _fetch_window(code: str, start_year: int, end_year: int) -> pd.DataFrame:
             # BCB_START_YEAR works for series with different inception dates
             # (the year-chunking in ``fetch_series`` queries early windows that
             # predate some series). A genuinely bad series code also 404s and
-            # yields empty here, which the full-mode "no data" guard catches.
+            # yields empty here, which the full-mode per-series empty guard in
+            # ``series.extract`` catches (it raises naming the empty series).
             if response.status_code == 404:
                 logger.info(
                     "BCB SGS %s: 404 (no data) for %d-%d — skipping window.",

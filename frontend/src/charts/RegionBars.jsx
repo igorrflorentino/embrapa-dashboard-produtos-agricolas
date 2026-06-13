@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ id, label, color, [valueKey], ufs }]
 
-import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
 
 function RegionBars({ data = [], valueKey = 'value', label = '', height = 200 }) {
   // One bar per region, colored by d.color (falling back to the categorical
@@ -30,7 +30,9 @@ function RegionBars({ data = [], valueKey = 'value', label = '', height = 200 })
     yaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',
-      tickformat: '~s',
+      // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+      // (FINDING #9). Falls back to `~s` when there is no usable positive max.
+      ...ptBrLinearAxis(seriesMax(data, (d) => d[valueKey])),
     },
     xaxis: { type: 'category' },
   });

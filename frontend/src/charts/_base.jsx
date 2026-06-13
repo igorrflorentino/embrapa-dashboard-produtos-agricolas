@@ -47,6 +47,75 @@ export function withAlpha(color, alpha = 0.12) {
   return c;
 }
 
+/** pt-BR magnitude suffix for a value's order of magnitude, matching the app's
+ *  number language (window.autoScaleNum → "bi"/"mi"/"mil"). Plotly's SI `~s`
+ *  tickformat renders English/SI letters ("15G"/"3M"/"5k"), which clash with the
+ *  "R$ bi"/"R$ mi" labels the rest of the dashboard uses — so a value axis showed
+ *  "15G" on one card and "150" (bi) on another for the SAME R$ series (FINDING #9).
+ *  This formats a tick value into the SAME pt-BR magnitude words, keeping every
+ *  value axis consistent with the labels and with each other. */
+export function ptBrMagnitude(v) {
+  const a = Math.abs(v);
+  let factor = 1;
+  let suffix = '';
+  if (a >= 1e9) { factor = 1e9; suffix = ' bi'; }
+  else if (a >= 1e6) { factor = 1e6; suffix = ' mi'; }
+  else if (a >= 1e3) { factor = 1e3; suffix = ' mil'; }
+  const scaled = v / factor;
+  // Up to 1 decimal for readability; drop a trailing ",0".
+  const txt = scaled.toLocaleString('pt-BR', {
+    maximumFractionDigits: Math.abs(scaled) < 10 ? 1 : 0,
+  });
+  return txt + suffix;
+}
+
+/** A small set of "nice" axis ticks over [0, max], labelled in pt-BR magnitude
+ *  words (ptBrMagnitude). Returns { tickvals, ticktext } for a Plotly y-axis so
+ *  the value axis reads "15 bi / 10 bi / 5 bi" instead of the SI "15G / 10G / 5G"
+ *  (FINDING #9). Falls back to null (let Plotly auto-tick) when max is not a
+ *  usable positive number, so loading/empty charts are unaffected. */
+export function ptBrValueTicks(max, count = 4) {
+  if (!Number.isFinite(max) || max <= 0) return null;
+  const raw = max / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const niceNorm = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const step = niceNorm * mag;
+  const tickvals = [];
+  for (let v = 0; v <= max + step * 0.5; v += step) tickvals.push(v);
+  if (tickvals.length < 2) return null;
+  return { tickvals, ticktext: tickvals.map(ptBrMagnitude) };
+}
+
+/** The value-axis tick props to spread onto ANY chart's y/x value axis, so every
+ *  value axis in the app reads pt-BR magnitude words ("15 bi") instead of d3's SI
+ *  letters ("15G") — the single contract that kills the "15G vs 15 bi" mismatch
+ *  across cards (FINDING #9). Pass the series' max (the largest absolute value the
+ *  axis must cover). When that yields nice pt-BR ticks we emit a fixed
+ *  tickmode:'array'; otherwise we fall back to Plotly's `~s` so loading/empty/
+ *  degenerate axes still tick. Spread the result over the axis object:
+ *    yaxis: { title: …, rangemode: 'tozero', ...ptBrLinearAxis(ymax) }
+ *  Keeping the SI fallback here (not at each call site) means a future card that
+ *  feeds an absolute-magnitude series gets pt-BR ticks automatically. */
+export function ptBrLinearAxis(max) {
+  const ticks = ptBrValueTicks(max);
+  return ticks
+    ? { tickmode: 'array', tickvals: ticks.tickvals, ticktext: ticks.ticktext }
+    : { tickformat: '~s' };
+}
+
+/** The max absolute value across a chart's series, for ptBrLinearAxis. Accepts a
+ *  flat number list or rows + a value accessor. Non-finite/negative values are
+ *  ignored; returns 0 for empty input (→ ptBrLinearAxis falls back to `~s`). */
+export function seriesMax(rows, pick) {
+  let m = 0;
+  for (const r of rows || []) {
+    const v = Number(pick ? pick(r) : r);
+    if (Number.isFinite(v) && v > m) m = v;
+  }
+  return m;
+}
+
 /** Base layout shared by all charts — transparent bg, DS fonts/colors, light
  *  grid, tight margins. Pass overrides (axis titles, legend, height handled by
  *  the wrapper div). */

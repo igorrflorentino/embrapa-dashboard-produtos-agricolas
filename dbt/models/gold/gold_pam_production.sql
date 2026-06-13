@@ -106,6 +106,11 @@ fx_year as (
         avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
+        -- 1994 changeover (Plano Real, 1994-07-01): PTAX before that date is
+        -- CR$/unit, after it R$/unit. Average only the R$ half for 1994 so
+        -- val_yearfx_* stays correct if PAM_START_YEAR is lowered to 1994
+        -- (mirrors gold_pevs_production). Pre-1994 years are guarded below.
+        and (reference_year != 1994 or reference_date >= date(1994, 7, 1))
     group by reference_year
 
 ),
@@ -178,6 +183,8 @@ select
     yield_kg_ha,
 
     -- ── Year-FX: val_raw converted via FX of THAT year ──────────────────────
+    -- Foreign-FX columns are NULL pre-1994 (old-currency PTAX would mix scales);
+    -- 1994 itself is valid — fx_year averages only the R$ half (>= 1994-07-01).
     val_raw                                                  as val_yearfx_brl,
     case when reference_year >= 1994
         then safe_divide(val_raw, brl_per_usd_avg) end       as val_yearfx_usd,

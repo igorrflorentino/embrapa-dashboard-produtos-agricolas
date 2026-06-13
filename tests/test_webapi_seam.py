@@ -1,9 +1,10 @@
-"""Unit tests for the seam's market-nature aggregation (the #5 analytical core).
+"""Unit tests for the seam's analytical core (+ the app's /api 404 contract).
 
-Pure-ish: the two gateway readers are monkeypatched with synthetic DataFrames,
-so no BigQuery. Locks the curated-purpose contract — COMTRADE value summed by the
-(customsCode × flowCode) → market mapping, with unclassified pairs dropped and the
-``C00`` exclusion already handled upstream in the SQL builder.
+Pure-ish: the gateway readers are monkeypatched with synthetic DataFrames, so no
+BigQuery. Locks the curated-purpose contract (market-nature), the base-unit
+quantity aggregation, the no-codes guards on the cross producers, the
+exp_price/None gap, the export-coefficient window alignment, the COMEX Sankey
+export filter, the value-added batching and the TTL-cached catalog.
 """
 
 from __future__ import annotations
@@ -11,12 +12,25 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from embrapa_commodities.config import Settings
+
 
 def _seam():
     pytest.importorskip("flask_caching")
     from embrapa_commodities.webapi import seam
 
     return seam
+
+
+def _bind_simplecache():
+    """Bind the shared serving cache to a fresh Flask app (SimpleCache)."""
+    from flask import Flask
+
+    from embrapa_commodities.serving.cache import cache
+
+    app = Flask(__name__)
+    cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
+    return app, cache
 
 
 def test_flow_market_worklist_builds_grid_with_summed_values(monkeypatch):
@@ -121,3 +135,1415 @@ def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
     out = seam.market_nature("manicoba")
     assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
     assert out["n_classified"] == 1  # the mapping is still reported
+
+
+# ── overview quantities: base unit (t / m³), never the mixed native units ──────
+
+
+def test_with_overview_quantities_sums_qty_base_per_family():
+    """q_mass/q_vol come from total_qty_base: trade sources mix kg- and t-native
+    codes inside 'massa', so summing/scaling the native quantity was ~1000× off."""
+    seam = _seam()
+    overview = pd.DataFrame([{"reference_year": 2022, "total_value": 1e9}])
+    pts = pd.DataFrame(
+        [
+            # kg-native NCM: 5e9 kg native, 5e6 t base
+            {
+                "code": "08012100",
+                "reference_year": 2022,
+                "total_qty_native": 5e9,
+                "total_qty_base": 5e6,
+                "family": "massa",
+            },
+            # t-native NCM in the same family (native == base)
+            {
+                "code": "44012200",
+                "reference_year": 2022,
+                "total_qty_native": 3e3,
+                "total_qty_base": 3e3,
+                "family": "massa",
+            },
+            {
+                "code": "44071100",
+                "reference_year": 2022,
+                "total_qty_native": 7e6,
+                "total_qty_base": 7e6,
+                "family": "volume",
+            },
+        ]
+    )
+    out = seam._with_overview_quantities(overview, pts)
+    assert float(out.loc[0, "q_mass"]) == 5_003_000.0  # t — never 5e9 + 3e3
+    assert float(out.loc[0, "q_vol"]) == 7_000_000.0  # m³
+
+
+# ── snapshot: a REAL per-(UF, year) frame backs the ano × UF heatmap ───────────
+
+
+def _stub_snapshot_readers(seam, monkeypatch, *, uf_yearly, source):
+    """Stub every gateway reader snapshot() touches with empty frames, except the
+    year×UF reader under test which returns ``uf_yearly``."""
+    empty = pd.DataFrame()
+    for name in (
+        "fetch_products",
+        "fetch_quality_by_source",
+        "fetch_product_timeseries",
+        "fetch_quality_timeseries",
+        "fetch_quality_by_product",
+        "fetch_production_overview",
+        "fetch_production_by_uf",
+        "fetch_comex_overview",
+        "fetch_comtrade_overview",
+        "fetch_comex_by_uf",
+    ):
+        monkeypatch.setattr(seam.gateway, name, lambda *a, **k: empty)
+    reader = (
+        "fetch_production_by_uf_yearly" if source == "ibge_pevs" else "fetch_comex_by_uf_yearly"
+    )
+    monkeypatch.setattr(seam.gateway, reader, lambda *a, **k: uf_yearly)
+
+
+def test_snapshot_exposes_real_uf_yearly_for_pevs(monkeypatch):
+    seam = _seam()
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "PA",
+                "state_name": "Pará",
+                "region_abbrev": "N",
+                "reference_year": 2020,
+                "total_value": 1e6,
+                "q_mass": 2e6,
+                "q_vol": None,
+            }
+        ]
+    )
+    _stub_snapshot_readers(seam, monkeypatch, uf_yearly=yearly, source="ibge_pevs")
+    out = seam.snapshot("ibge_pevs", {"currency": "BRL", "correction": "IPCA"})
+    assert "uf_yearly" in out
+    uy = out["uf_yearly"]
+    assert list(uy["state_acronym"]) == ["PA"] and list(uy["reference_year"]) == [2020]
+
+
+def test_snapshot_renames_comex_uf_yearly_value_column(monkeypatch):
+    """The COMEX year×UF reader returns total_value_usd; snapshot() must rename it
+    to total_value so the serializer/heatmap read the same field as PEVS/PAM."""
+    seam = _seam()
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "SP",
+                "state_name": "São Paulo",
+                "region_abbrev": "SE",
+                "reference_year": 2022,
+                "total_value_usd": 9e6,
+                "q_mass": 4e6,
+                "q_vol": 0.0,
+            }
+        ]
+    )
+    _stub_snapshot_readers(seam, monkeypatch, uf_yearly=yearly, source="mdic_comex")
+    out = seam.snapshot("mdic_comex", {})
+    uy = out["uf_yearly"]
+    assert "total_value" in uy.columns and "total_value_usd" not in uy.columns
+    assert float(uy.loc[0, "total_value"]) == 9e6
+
+
+# ── value label: Comtrade imports are CIF, not FOB ─────────────────────────────
+
+
+def test_effective_value_column_states_both_valuation_bases_for_comtrade():
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    # US$-nominal request: the FOB/CIF basis is stated in the label, but the figure
+    # IS in the requested currency (the real year-FX US$ column).
+    col, label = seam.effective_value_column(
+        banco_by_id("un_comtrade"), {"currency": "USD", "correction": "Nominal"}
+    )
+    assert col == "val_yearfx_usd"
+    assert "FOB" in label and "CIF" in label  # exports FOB / imports CIF
+    col, label = seam.effective_value_column(
+        banco_by_id("mdic_comex"), {"currency": "USD", "correction": "Nominal"}
+    )
+    assert col == "val_yearfx_usd"
+    assert "FOB" in label  # COMEX serves FOB for both flows
+
+
+def test_effective_value_column_trade_serves_real_brl_eur_columns():
+    """A BRL/EUR request on a trade banco now serves the REAL year-FX column the
+    mart carries (no more client-side mock FX cross-conversion). The label keeps the
+    customs FOB/CIF valuation-basis note so the researcher knows the US$ origin."""
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    # BRL · Nominal → the real year-FX BRL column.
+    col, label = seam.effective_value_column(
+        banco_by_id("mdic_comex"), {"currency": "BRL", "correction": "Nominal"}
+    )
+    assert col == "val_yearfx_brl"
+    assert "R$" in label and "FOB" in label
+    # EUR · IPCA → the real deflated EUR column.
+    col, label = seam.effective_value_column(
+        banco_by_id("un_comtrade"), {"currency": "EUR", "correction": "IPCA"}
+    )
+    assert col == "val_real_ipca_eur"
+    assert "€" in label and "FOB" in label and "CIF" in label
+    # The route default (BRL · IPCA, no explicit currency) resolves to the real
+    # BRL column — NOT the old USD hard-lock.
+    col, label = seam.effective_value_column(banco_by_id("mdic_comex"), {})
+    assert col == "val_real_ipca_brl"
+
+
+def test_effective_value_column_trade_falls_back_for_unmodelled_combo():
+    """USD × IGP-M is omitted from the allowlist (no val_real_igpm_usd served), so a
+    trade request for it falls back to the same correction in BRL — a REAL column,
+    never a mock conversion — and the label flags the substitution + FOB/CIF basis."""
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    col, label = seam.effective_value_column(
+        banco_by_id("un_comtrade"), {"currency": "USD", "correction": "IGP-M"}
+    )
+    assert col == "val_real_igpm_brl"
+    assert "indisponível" in label and "FOB" in label and "CIF" in label
+
+
+# ── COMEX Sankey: exports only (import rows run country→UF, not UF→country) ────
+
+
+def test_flow_data_comex_filters_to_exports(monkeypatch):
+    seam = _seam()
+    recorded = {}
+
+    def fake_flows(year_start=None, year_end=None, ncm_codes=(), flow=None, uf_codes=()):
+        recorded["flow"] = flow
+        return pd.DataFrame(
+            [
+                {
+                    "origin_code": "PA",
+                    "origin_name": "Pará",
+                    "dest_code": "156",
+                    "dest_name": "China",
+                    "value_usd": 1e6,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_flows", fake_flows)
+    out = seam.flow_data("mdic_comex")
+    assert recorded["flow"] == "export"
+    assert out is not None and not out["links"].empty
+
+
+def test_flow_data_threads_basket_and_year_window(monkeypatch):
+    """A non-None summary (basket + period) reaches the gateway flow reader as
+    ncm_codes + year_start/year_end — the bug was the summary being discarded so
+    a filtered request returned the unscoped flows."""
+    seam = _seam()
+    recorded = {}
+
+    cols = ["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
+
+    def fake_flows(year_start=None, year_end=None, ncm_codes=(), flow=None, uf_codes=()):
+        recorded.update(year_start=year_start, year_end=year_end, ncm_codes=ncm_codes)
+        return pd.DataFrame(columns=cols)
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_flows", fake_flows)
+    seam.flow_data(
+        "mdic_comex",
+        {"basket": ["0801", "0802"], "startDate": "2018", "endDate": "2022"},
+    )
+    assert recorded["ncm_codes"] == ("0801", "0802")
+    assert recorded["year_start"] == 2018
+    assert recorded["year_end"] == 2022
+
+
+def test_flow_data_comex_threads_uf_filter(monkeypatch):
+    """The active origin-UF (``states``) selection reaches the COMEX flow reader as
+    ``uf_codes`` — the audit gap was the UF dimension being dropped on the trade
+    origin readers."""
+    seam = _seam()
+    recorded = {}
+    cols = ["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
+
+    def fake_flows(year_start=None, year_end=None, ncm_codes=(), flow=None, uf_codes=()):
+        recorded.update(uf_codes=uf_codes)
+        return pd.DataFrame(columns=cols)
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_flows", fake_flows)
+    seam.flow_data("mdic_comex", {"states": ["PA", "SP"]})
+    assert recorded["uf_codes"] == ("PA", "SP")
+
+
+def test_flow_data_comex_no_uf_filter_passes_empty(monkeypatch):
+    """No ``states`` selection → empty ``uf_codes`` tuple (no UF filter — the
+    existing 'empty = unfiltered' convention)."""
+    seam = _seam()
+    recorded = {}
+    cols = ["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
+
+    def fake_flows(year_start=None, year_end=None, ncm_codes=(), flow=None, uf_codes=()):
+        recorded.update(uf_codes=uf_codes)
+        return pd.DataFrame(columns=cols)
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_flows", fake_flows)
+    seam.flow_data("mdic_comex", {"basket": ["0801"]})
+    assert recorded["uf_codes"] == ()
+
+
+def test_flow_data_comtrade_ignores_uf_filter(monkeypatch):
+    """COMTRADE's origin is a reporter country (no UF column), so its flow reader
+    takes no ``uf_codes`` — a UF selection must NOT reach it (it would error / be
+    meaningless). The frontend surfaces the not-applicable note instead."""
+    seam = _seam()
+    recorded = {}
+    cols = ["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
+
+    def fake_flows(year_start=None, year_end=None, cmd_codes=()):
+        recorded["called"] = True
+        return pd.DataFrame(columns=cols)
+
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_flows", fake_flows)
+    # No TypeError despite an active states filter: the seam never forwards uf_codes
+    # to the COMTRADE reader (whose signature has none).
+    out = seam.flow_data("un_comtrade", {"states": ["PA", "SP"]})
+    assert recorded.get("called") and out is not None
+
+
+def test_partner_data_comex_threads_uf_filter(monkeypatch):
+    """The active UF (``states``) selection narrows the COMEX partner ranking via
+    ``uf_codes``; empty = unfiltered."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_partners(year_start=None, year_end=None, ncm_codes=(), uf_codes=()):
+        recorded.update(uf_codes=uf_codes)
+        return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_partners", fake_partners)
+    seam.partner_data("mdic_comex", {"states": ["PA"]})
+    assert recorded["uf_codes"] == ("PA",)
+    recorded.clear()
+    seam.partner_data("mdic_comex", {"basket": ["0801"]})
+    assert recorded["uf_codes"] == ()
+
+
+def test_partner_data_comtrade_ignores_uf_filter(monkeypatch):
+    """COMTRADE partner reader has no origin-UF column, so a UF selection never
+    reaches it (the frontend surfaces not-applicable)."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_partners(year_start=None, year_end=None, cmd_codes=()):
+        recorded["called"] = True
+        return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
+
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_partners", fake_partners)
+    seam.partner_data("un_comtrade", {"states": ["PA"]})
+    assert recorded.get("called")
+
+
+def test_productivity_threads_year_window_to_gateway(monkeypatch):
+    """ViewProductivity's period filter reaches fetch_productivity as
+    year_start/year_end — previously the summary was ignored, so a year window
+    left the yield/area trajectory unchanged."""
+    seam = _seam()
+    recorded = {}
+
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_products",
+        lambda banco_id: pd.DataFrame([{"code": "2713", "name": "Café"}]),
+    )
+
+    def fake_productivity(product_code, source="ibge_pam", year_start=None, year_end=None):
+        recorded.update(
+            product_code=product_code, source=source, year_start=year_start, year_end=year_end
+        )
+        return pd.DataFrame(columns=["reference_year", "state_acronym"])
+
+    monkeypatch.setattr(seam.gateway, "fetch_productivity", fake_productivity)
+    out = seam.productivity("ibge_pam", "2713", {"startDate": "2010", "endDate": "2020"})
+    assert out is not None and out["active"] == "2713"
+    assert recorded["product_code"] == "2713"
+    assert recorded["year_start"] == 2010
+    assert recorded["year_end"] == 2020
+
+
+# ── exp_price: a year without weight is a gap (None), never value ÷ 1 ──────────
+
+
+def test_cross_points_exp_price_emits_none_when_weight_missing(monkeypatch):
+    seam = _seam()
+    val = pd.DataFrame(
+        [
+            {"reference_year": 2020, "value": 5e9},
+            {"reference_year": 2021, "value": 6e9},
+        ]
+    )
+    wt = pd.DataFrame([{"reference_year": 2020, "value": 1e9}])  # 2021 missing
+
+    def fake_cross(metric, year_start=None, year_end=None):
+        return val if metric == "mdic_comex:exp_value" else wt
+
+    monkeypatch.setattr(seam.gateway, "fetch_cross_series", fake_cross)
+    pts = seam._cross_points("mdic_comex", "exp_price", 2020, 2021, "US$/kg")
+    assert pts == [{"y": 2020, "v": 5.0}, {"y": 2021, "v": None}]
+
+
+# ── cross producers: no codes for a needed source → honest empty, never the ────
+# unscoped ALL-commodities totals (empty codes mean "no filter" to the readers)
+
+
+def _no_codes_catalog(seam, monkeypatch):
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {"manicoba": {"name": "Maniçoba", "pevs": ["9"], "comex": [], "comtrade": []}},
+    )
+    monkeypatch.setattr(
+        seam,
+        "_xyear",
+        lambda metric, codes: pytest.fail("must not query the unscoped totals"),
+    )
+
+
+def test_market_share_empty_for_commodity_without_codes(monkeypatch):
+    seam = _seam()
+    _no_codes_catalog(seam, monkeypatch)
+    out = seam.market_share("manicoba")
+    assert out == {"unit": "US$ bi", "series": [], "by_product": []}
+
+
+def test_trade_mirror_empty_for_commodity_without_codes(monkeypatch):
+    seam = _seam()
+    _no_codes_catalog(seam, monkeypatch)
+    out = seam.trade_mirror("manicoba")
+    assert out == {"unit": "US$ bi", "series": [], "discrepancy": []}
+
+
+def test_price_spread_empty_for_commodity_without_comex_codes(monkeypatch):
+    seam = _seam()
+    _no_codes_catalog(seam, monkeypatch)
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)  # mass PEVS side
+    out = seam.price_spread("manicoba")
+    assert out == {"unit": "US$/kg", "series": []}
+
+
+def test_export_coefficient_empty_for_commodity_without_comex_codes(monkeypatch):
+    seam = _seam()
+    _no_codes_catalog(seam, monkeypatch)
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(
+        seam,
+        "_pevs_mass_by_year",
+        lambda codes: pytest.fail("must not query the unscoped totals"),
+    )
+    out = seam.export_coefficient("manicoba")
+    assert out == {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
+
+
+# ── export coefficient: by-UF/national restricted to the common year window ────
+
+
+def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
+    """PEVS starts in 1986 but COMEX in 1997 — the cumulative by-UF/national
+    ratios must cover the SAME window the timeseries intersects, or coefPct is
+    systematically understated."""
+    seam = _seam()
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "pevs": ["3405"],
+                "comex": ["08012100"],
+                "comtrade": ["080121"],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        seam, "_pevs_mass_by_year", lambda codes: {1986: 5.0, 1997: 10.0, 2000: 20.0}
+    )
+    monkeypatch.setattr(  # exp_weight (kg): years 1997/2000/2024
+        seam, "_xyear", lambda metric, codes: {1997: 2e9, 2000: 4e9, 2024: 1e9}
+    )
+    recorded = {}
+
+    def fake_prod(**kw):
+        recorded["prod"] = kw
+        return pd.DataFrame(
+            [
+                {
+                    "state_acronym": "PA",
+                    "state_name": "Pará",
+                    "region_abbrev": "N",
+                    "total_value": 10_000,  # qty_base (t)
+                }
+            ]
+        )
+
+    def fake_exp(**kw):
+        recorded["exp"] = kw
+        return pd.DataFrame([{"state_acronym": "PA", "total_weight_kg": 2_000_000}])
+
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf", fake_prod)
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf", fake_exp)
+
+    out = seam.export_coefficient("castanha")
+
+    # Both readers bounded to the intersection window 1997–2000 (1986 excluded).
+    assert recorded["prod"]["year_start"] == 1997 and recorded["prod"]["year_end"] == 2000
+    assert recorded["exp"]["year_start"] == 1997 and recorded["exp"]["year_end"] == 2000
+    assert recorded["exp"]["flow"] == "export"
+    # The export coefficient is window-CUMULATIVE on BOTH sides — never the snapshot's
+    # latest-year scoping (which would make it a single-year ratio and reintroduce the
+    # year-window mismatch). FINDING #1/#11: the by-UF readers opt out of latest-year.
+    assert recorded["prod"]["latest_year_only"] is False
+    assert recorded["exp"]["latest_year_only"] is False
+    assert [d["y"] for d in out["timeseries"]] == [1997, 2000]
+    assert out["by_uf"][0]["coefPct"] == pytest.approx(20.0)  # 2 mil t / 10 mil t
+
+
+# ── value added: set-based (2 queries per level), never 2 per code ─────────────
+
+
+def test_value_added_batches_codes_per_level(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "_current_code_levels",
+        lambda: {
+            ("mdic_comex", "A"): "bruta",
+            ("mdic_comex", "B"): "bruta",
+            ("mdic_comex", "C"): "processada",
+            ("ibge_pevs", "Z"): "bruta",  # other source — out of scope
+            ("mdic_comex", "D"): "misturado",  # not a value-added level
+        },
+    )
+    calls = []
+
+    def fake_xyear(metric, codes):
+        calls.append((metric, codes))
+        return {2020: 2e9} if metric.endswith("exp_value") else {2020: 1e9}
+
+    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+
+    out = seam.value_added()
+
+    assert len(calls) == 4  # 2 per level — flat in the number of codes
+    assert ("mdic_comex:exp_value", ("A", "B")) in calls
+    assert ("mdic_comex:exp_weight", ("A", "B")) in calls
+    assert ("mdic_comex:exp_value", ("C",)) in calls
+    assert ("mdic_comex:exp_weight", ("C",)) in calls
+    assert out["n_codes"] == 3
+    row = out["series"][0]
+    assert row["y"] == 2020 and row["brutaV"] == 2.0 and row["procV"] == 2.0
+
+
+# ── catalog caching: flask-caching TTL (refreshable), not process-lifetime ─────
+
+
+def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
+    """The crosswalk/catalog reads honor the serving cache policy: memoized via
+    flask-caching (CACHE_DEFAULT_TIMEOUT), so a warm instance converges to the
+    nightly dbt rebuild — unlike functools.lru_cache, which never expires."""
+    seam = _seam()
+    # flask-caching memoize marker (lru_cache has cache_clear, not uncached)
+    assert hasattr(seam.commodity_catalog, "uncached")
+    assert hasattr(seam._crosswalk_df, "uncached")
+    assert hasattr(seam._pevs_family_by_commodity, "uncached")
+    assert hasattr(seam._code_to_commodity, "uncached")
+
+    calls = {"n": 0}
+
+    def fake_run(query, params):
+        calls["n"] += 1
+        return pd.DataFrame(
+            [{"commodity_id": "x", "commodity_name": "X", "source": "pevs", "code": "1"}]
+        )
+
+    monkeypatch.setattr(seam.gateway, "run_query", fake_run)
+    monkeypatch.setattr(seam, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        assert seam.commodity_catalog()["x"]["pevs"] == ["1"]
+        seam.commodity_catalog()  # served from cache
+        assert calls["n"] == 1
+        cache.clear()  # cache expiry/invalidation → re-queries (lru never would)
+        seam.commodity_catalog()
+        assert calls["n"] == 2
+
+
+# ── app: unknown /api paths are JSON 404, never the SPA index.html ─────────────
+
+
+def test_unknown_api_path_returns_json_404(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_commodities.webapi import seam
+
+    monkeypatch.setattr(app_mod, "get_settings", lambda: Settings(gcp_project_id="p"))
+    app = app_mod.create_app()
+    app.config.update(TESTING=True)
+    client = app.test_client()
+
+    for resp in (client.get("/api/definitely-not-a-route"), client.post("/api/nope")):
+        assert resp.status_code == 404
+        assert resp.content_type.startswith("application/json")
+        assert resp.get_json()["error"] == "endpoint de API não encontrado"
+
+    # Registered routes still win over the catch-all.
+    monkeypatch.setattr(seam, "commodity_catalog", lambda: {"x": {"name": "X"}})
+    resp = client.get("/api/catalog")
+    assert resp.status_code == 200 and resp.get_json() == {"x": {"name": "X"}}
+    assert client.get("/healthz").status_code == 200
+
+
+# ── effective_value_column: convention → column with fallback chain ────────────
+
+
+def test_effective_value_column_pevs_picks_requested_when_mart_has_it():
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    pevs = banco_by_id("ibge_pevs")
+    col, label = seam.effective_value_column(pevs, {"currency": "BRL", "correction": "IGP-M"})
+    assert col == "val_real_igpm_brl"
+    assert label == "Valor real (IGP-M) — R$"
+
+
+def test_effective_value_column_pevs_falls_back_to_brl_when_combo_absent():
+    """USD + IGP-M is not in the mart (ALLOWED_VALUE_COLUMNS), so the seam swaps it
+    for the same correction in BRL and flags the substitution in the label."""
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    pevs = banco_by_id("ibge_pevs")
+    col, label = seam.effective_value_column(pevs, {"currency": "USD", "correction": "IGP-M"})
+    assert col == "val_real_igpm_brl"
+    assert "R$" in label and "moeda indisponível" in label
+
+
+def test_effective_value_column_final_fallback_to_real_ipca_brl(monkeypatch):
+    """When neither the requested combo NOR its BRL sibling is in the mart, the
+    fallback chain bottoms out at val_real_ipca_brl."""
+    seam = _seam()
+    from embrapa_commodities.webapi.registries import banco_by_id
+
+    pevs = banco_by_id("ibge_pevs")
+    # Shrink the allowlist to exclude both the requested column and its BRL sibling.
+    monkeypatch.setattr(seam.sqlbuild, "ALLOWED_VALUE_COLUMNS", frozenset({"val_real_ipca_brl"}))
+    col, label = seam.effective_value_column(pevs, {"currency": "USD", "correction": "IGP-M"})
+    assert col == "val_real_ipca_brl"
+    assert label == "Valor real (IPCA) — R$"
+
+
+# ── snapshot: PEVS-shaped (production marts) + the dead/None banco path ────────
+
+
+def test_snapshot_returns_empty_shape_for_non_live_banco():
+    seam = _seam()
+    out = seam.snapshot("sefaz_nfe", {"currency": "BRL", "correction": "IPCA"})
+    assert out["products"] is None and out["uf_data"] is None and out["uf_yearly"] is None
+    assert out["value_column"] is None and out["value_label"] == ""
+
+
+def test_snapshot_pevs_threads_basket_window_and_value_column(monkeypatch):
+    """PEVS snapshot: every production reader gets the resolved value column +
+    parsed year window + basket; overview gains q_mass/q_vol from product_ts."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_products(banco_id):
+        return pd.DataFrame([{"code": "1", "name": "Açaí"}])
+
+    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None):
+        recorded["pts"] = dict(
+            source=source, y0=year_start, y1=year_end, codes=codes, value_column=value_column
+        )
+        return pd.DataFrame(
+            [
+                {
+                    "code": "1",
+                    "reference_year": 2020,
+                    "total_qty_native": 2e3,
+                    "total_qty_base": 2e3,
+                    "family": "massa",
+                }
+            ]
+        )
+
+    def fake_overview(
+        year_start=None, year_end=None, product_codes=(), value_column=None, source=None
+    ):
+        recorded["ov"] = dict(value_column=value_column, source=source)
+        return pd.DataFrame([{"reference_year": 2020, "total_value": 9.0}])
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", fake_products)
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_source", lambda source=None: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", fake_pts)
+    monkeypatch.setattr(seam.gateway, "fetch_production_overview", fake_overview)
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf", lambda **k: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf_yearly", lambda **k: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_timeseries", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_product", lambda b: pd.DataFrame())
+
+    out = seam.snapshot(
+        "ibge_pevs",
+        {"currency": "BRL", "correction": "IPCA"},
+        {"basket": ["1"], "startDate": "2018-01-01", "endDate": "2021"},
+    )
+    assert recorded["pts"]["codes"] == ("1",)
+    assert recorded["pts"]["y0"] == 2018 and recorded["pts"]["y1"] == 2021
+    assert recorded["pts"]["value_column"] == "val_real_ipca_brl"
+    assert recorded["ov"]["source"] == "ibge_pevs"
+    # overview carries the q_mass derived from product_ts.total_qty_base.
+    assert float(out["overview_ts"].loc[0, "q_mass"]) == 2e3
+    assert out["value_column"] == "val_real_ipca_brl"
+
+
+def test_snapshot_comtrade_uses_comtrade_overview_and_no_geo(monkeypatch):
+    """COMTRADE snapshot: routes to fetch_comtrade_overview (cmd_codes), renames
+    total_value_usd→total_value, and carries no per-UF geography (uf_data None)."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_overview(year_start=None, year_end=None, cmd_codes=(), flow=None, value_column=None):
+        recorded["cmd_codes"] = cmd_codes
+        recorded["value_column"] = value_column
+        return pd.DataFrame([{"reference_year": 2022, "total_value_usd": 4.0}])
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_source", lambda source=None: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_overview", fake_overview)
+    monkeypatch.setattr(seam.gateway, "fetch_quality_timeseries", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_product", lambda b: pd.DataFrame())
+
+    out = seam.snapshot(
+        "un_comtrade", {"currency": "USD", "correction": "Nominal"}, {"basket": ["080121"]}
+    )
+    assert recorded["cmd_codes"] == ("080121",)
+    # The requested currency×correction now drives the overview measure (the trade
+    # mart carries the full matrix) instead of being hard-locked to USD.
+    assert recorded["value_column"] == "val_yearfx_usd"
+    assert out["uf_data"] is None and out["uf_yearly"] is None
+    assert "total_value" in out["overview_ts"].columns
+    assert float(out["overview_ts"].loc[0, "total_value"]) == 4.0
+
+
+def test_snapshot_comex_brl_request_serves_real_brl_column_not_usd(monkeypatch):
+    """The mock-FX regression fix: a BRL display on COMEX must thread the REAL
+    year-FX BRL column into EVERY value reader (overview, productTS, by-UF, year×UF)
+    — never the USD column the frontend would then cross-convert via a mock rate."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_overview(year_start=None, year_end=None, ncm_codes=(), flow=None, value_column=None):
+        recorded["overview"] = value_column
+        return pd.DataFrame([{"reference_year": 2022, "total_value_usd": 7.0}])
+
+    def fake_by_uf(year_start=None, year_end=None, ncm_codes=(), flow=None, value_column=None):
+        recorded["uf"] = value_column
+        return pd.DataFrame([{"state_acronym": "SP", "total_value_usd": 3.0}])
+
+    def fake_by_uf_yearly(
+        year_start=None, year_end=None, ncm_codes=(), flow=None, value_column=None
+    ):
+        recorded["uf_yearly"] = value_column
+        return pd.DataFrame(
+            [{"state_acronym": "SP", "reference_year": 2022, "total_value_usd": 3.0}]
+        )
+
+    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None):
+        recorded["pts"] = value_column
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_source", lambda source=None: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", fake_pts)
+    monkeypatch.setattr(seam.gateway, "fetch_comex_overview", fake_overview)
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf", fake_by_uf)
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", fake_by_uf_yearly)
+    monkeypatch.setattr(seam.gateway, "fetch_quality_timeseries", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_product", lambda b: pd.DataFrame())
+
+    out = seam.snapshot("mdic_comex", {"currency": "BRL", "correction": "Nominal"})
+    assert recorded["overview"] == "val_yearfx_brl"
+    assert recorded["uf"] == "val_yearfx_brl"
+    assert recorded["uf_yearly"] == "val_yearfx_brl"
+    assert recorded["pts"] == "val_yearfx_brl"
+    # The value_column the snapshot reports is the real BRL column (no USD-derived
+    # mock conversion), and the label states R$ + the FOB customs basis.
+    assert out["value_column"] == "val_yearfx_brl"
+    assert "R$" in out["value_label"] and "FOB" in out["value_label"]
+
+
+def test_with_overview_quantities_none_when_product_ts_has_no_family():
+    """When product_ts lacks the 'family' column (or is empty), q_mass/q_vol fall
+    back to None rather than crashing the groupby."""
+    seam = _seam()
+    overview = pd.DataFrame([{"reference_year": 2022, "total_value": 1.0}])
+    out = seam._with_overview_quantities(overview, pd.DataFrame([{"reference_year": 2022}]))
+    assert out.loc[0, "q_mass"] is None and out.loc[0, "q_vol"] is None
+
+
+def test_with_overview_quantities_passthrough_on_empty_overview():
+    seam = _seam()
+    empty = pd.DataFrame()
+    assert seam._with_overview_quantities(empty, pd.DataFrame()).empty
+    assert seam._with_overview_quantities(None, None) is None
+
+
+# ── source_meta / product_uf_ranking ──────────────────────────────────────────
+
+
+def test_source_meta_returns_first_row_dict(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "ibge_pevs", "rows": 100}]),
+    )
+    meta = seam.source_meta("ibge_pevs")
+    # The provenance row is preserved verbatim...
+    assert meta["source"] == "ibge_pevs" and meta["rows"] == 100
+    # ...and augmented with the latest-year completeness signal (annual banco, no
+    # year_end in this fixture → trivially complete, no months query).
+    assert meta["latest_year_complete"] is True
+    assert meta["months_in_latest_year"] is None
+
+
+def test_source_meta_empty_for_absent_or_non_live(monkeypatch):
+    seam = _seam()
+    assert seam.source_meta("sefaz_nfe") == {}  # non-live short-circuits
+    monkeypatch.setattr(seam.gateway, "fetch_source_metadata", lambda source=None: pd.DataFrame())
+    assert seam.source_meta("ibge_pevs") == {}
+
+
+def test_source_meta_annual_banco_latest_year_always_complete(monkeypatch):
+    """An annual banco (PEVS) has no month grain: its latest year is complete by
+    construction (no months query is issued) — FINDING #3."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "ibge_pevs", "year_end": 2024}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_months_per_year",
+        lambda: pytest.fail("annual banco must not query the monthly mart"),
+    )
+    meta = seam.source_meta("ibge_pevs")
+    assert meta["latest_year_complete"] is True
+    assert meta["months_in_latest_year"] is None
+    assert meta["latest_complete_year"] == 2024
+
+
+def test_source_meta_comex_partial_latest_year_flags_incomplete(monkeypatch):
+    """COMEX 2026 has < 12 months → the latest year is PARTIAL; latest_complete_year
+    falls back to 2025 so the frontend anchors YoY on the last full year."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "mdic_comex", "year_end": 2026}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_months_per_year",
+        lambda: pd.DataFrame(
+            [{"reference_year": 2025, "n_months": 12}, {"reference_year": 2026, "n_months": 5}]
+        ),
+    )
+    meta = seam.source_meta("mdic_comex")
+    assert meta["months_in_latest_year"] == 5
+    assert meta["latest_year_complete"] is False
+    assert meta["latest_complete_year"] == 2025
+
+
+def test_source_meta_comex_full_latest_year_is_complete(monkeypatch):
+    """A COMEX year with all 12 months is complete; latest_complete_year == year_end."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "mdic_comex", "year_end": 2024}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_months_per_year",
+        lambda: pd.DataFrame([{"reference_year": 2024, "n_months": 12}]),
+    )
+    meta = seam.source_meta("mdic_comex")
+    assert meta["months_in_latest_year"] == 12
+    assert meta["latest_year_complete"] is True
+    assert meta["latest_complete_year"] == 2024
+
+
+def test_product_uf_ranking_pevs_and_comex(monkeypatch):
+    seam = _seam()
+    recorded = {}
+
+    def fake_prod(**k):
+        recorded["pevs"] = k
+        return pd.DataFrame([{"state_acronym": "PA", "total_value": 5.0}])
+
+    def fake_comex(**k):
+        recorded["comex"] = k
+        return pd.DataFrame([{"state_acronym": "SP", "total_value_usd": 7.0}])
+
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf", fake_prod)
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf", fake_comex)
+    pevs = seam.product_uf_ranking("ibge_pevs", "1", {"currency": "BRL", "correction": "IPCA"})
+    assert recorded["pevs"]["product_codes"] == ("1",)
+    assert list(pevs["state_acronym"]) == ["PA"]
+    comex = seam.product_uf_ranking("mdic_comex", "0801", {})
+    assert recorded["comex"]["ncm_codes"] == ("0801",)
+    assert list(comex["state_acronym"]) == ["SP"]
+
+
+def test_product_uf_ranking_none_without_geo(monkeypatch):
+    seam = _seam()
+    # COMTRADE has no 'geo' capability → ranking is unavailable.
+    assert seam.product_uf_ranking("un_comtrade", "080121", {}) is None
+    assert seam.product_uf_ranking("sefaz_nfe", "1", {}) is None
+
+
+# ── productivity: crops list, default-crop fallback, None without yield ────────
+
+
+def test_productivity_defaults_to_first_crop_when_requested_absent(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_products",
+        lambda b: pd.DataFrame([{"code": "2713", "name": "Café"}, {"code": "9", "name": "Soja"}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_productivity",
+        lambda *a, **k: pd.DataFrame(columns=["reference_year", "state_acronym"]),
+    )
+    out = seam.productivity("ibge_pam", "nonexistent")
+    assert out["active"] == "2713" and out["active_name"] == "Café"
+    assert {c["code"] for c in out["crops"]} == {"2713", "9"}
+
+
+def test_productivity_none_when_banco_lacks_yield():
+    seam = _seam()
+    # PEVS has no 'yield' capability.
+    assert seam.productivity("ibge_pevs", "1") is None
+
+
+def test_productivity_none_when_no_crops(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
+    assert seam.productivity("ibge_pam", None) is None
+
+
+# ── partner_data / monthly_data: capability gating + dispatch ──────────────────
+
+
+def test_partner_data_dispatches_by_banco(monkeypatch):
+    seam = _seam()
+    recorded = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_partners",
+        lambda **k: recorded.setdefault("comex", k) or pd.DataFrame([{"country_code": "156"}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comtrade_partners",
+        lambda **k: recorded.setdefault("comtrade", k) or pd.DataFrame([{"partner_code": "156"}]),
+    )
+    seam.partner_data("mdic_comex", {"basket": ["0801"], "startDate": "2019", "endDate": "2021"})
+    assert recorded["comex"]["ncm_codes"] == ("0801",)
+    assert recorded["comex"]["year_start"] == 2019 and recorded["comex"]["year_end"] == 2021
+    seam.partner_data("un_comtrade", {"basket": ["080121"]})
+    assert recorded["comtrade"]["cmd_codes"] == ("080121",)
+
+
+def test_partner_data_none_without_partner_capability():
+    seam = _seam()
+    assert seam.partner_data("ibge_pevs") is None
+
+
+def test_monthly_data_comex_only(monkeypatch):
+    seam = _seam()
+    recorded = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_seasonality",
+        lambda **k: recorded.update(k) or pd.DataFrame([{"month": 1, "value_usd": 5.0}]),
+    )
+    out = seam.monthly_data("mdic_comex", {"basket": ["0801"]})
+    assert recorded["ncm_codes"] == ("0801",)
+    assert not out.empty
+    # COMTRADE has no monthly grain capability.
+    assert seam.monthly_data("un_comtrade") is None
+    assert seam.monthly_data("ibge_pevs") is None
+
+
+# ── cross_metric_refs / cross_series ───────────────────────────────────────────
+
+
+def test_cross_metric_refs_lists_only_known_display_unit_metrics():
+    seam = _seam()
+    refs = seam.cross_metric_refs()
+    keys = {f"{r['banco']}:{r['metric']}" for r in refs}
+    assert keys <= set(seam.CROSS_DISPLAY_UNIT)
+    assert "ibge_pevs:prod_value" in keys
+    assert "mdic_comex:exp_price" in keys  # derived metric is offered
+    assert "un_comtrade:world_exp" in keys
+
+
+def test_cross_series_none_for_unknown_metric():
+    seam = _seam()
+    assert seam.cross_series("ibge_pevs", "not_a_metric") is None
+    assert seam.cross_series("sefaz_nfe", "exp_value") is None
+
+
+def test_cross_series_pevs_prod_value_scales_to_bi(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_production_overview",
+        lambda **k: pd.DataFrame([{"reference_year": 2020, "total_value": 5e9}]),
+    )
+    out = seam.cross_series("ibge_pevs", "prod_value", 2020, 2020)
+    assert out["unit"] == "R$ bi"
+    assert out["points"] == [{"y": 2020, "v": 5.0}]
+
+
+def test_cross_series_pevs_prod_mass_filters_family_and_scales(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_product_timeseries",
+        lambda *a, **k: pd.DataFrame(
+            [
+                {"reference_year": 2020, "total_qty_native": 4e3, "family": "massa"},
+                {"reference_year": 2020, "total_qty_native": 9e6, "family": "volume"},
+            ]
+        ),
+    )
+    out = seam.cross_series("ibge_pevs", "prod_mass", 2020, 2020)
+    assert out["unit"] == "mil t"
+    assert out["points"] == [{"y": 2020, "v": 4.0}]  # 4e3 t / 1e3 — volume excluded
+
+
+def test_cross_series_comex_exp_value_scales_to_bi(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_cross_series",
+        lambda metric, year_start=None, year_end=None: pd.DataFrame(
+            [{"reference_year": 2022, "value": 3e9}]
+        ),
+    )
+    out = seam.cross_series("mdic_comex", "exp_value", 2022, 2022)
+    assert out["unit"] == "US$ bi" and out["points"] == [{"y": 2022, "v": 3.0}]
+
+
+# ── _pevs_mass_by_year / _is_mass_basis ────────────────────────────────────────
+
+
+def test_pevs_mass_by_year_scales_t_to_mil_t(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_product_timeseries",
+        lambda *a, **k: pd.DataFrame(
+            [
+                {"reference_year": 2020, "total_qty_native": 5e3},
+                {"reference_year": 2020, "total_qty_native": 1e3},
+            ]
+        ),
+    )
+    assert seam._pevs_mass_by_year(("1",)) == {2020: 6.0}  # (5e3 + 1e3) / 1e3
+
+
+def test_pevs_mass_by_year_empty(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", lambda *a, **k: pd.DataFrame())
+    assert seam._pevs_mass_by_year(()) == {}
+
+
+def test_is_mass_basis_true_only_for_pure_massa(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "_pevs_family_by_commodity",
+        lambda: {"castanha": {"massa"}, "madeira": {"volume"}, "*": {"massa", "volume"}},
+    )
+    assert seam._is_mass_basis("castanha") is True
+    assert seam._is_mass_basis("madeira") is False
+    assert seam._is_mass_basis(None) is False  # the "*" all-products basket is mixed
+
+
+# ── market_share / price_spread / trade_mirror: happy paths ───────────────────
+
+
+def test_market_share_happy_path_with_by_product(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "comex": ["0801"],
+                "comtrade": ["080121"],
+                "pevs": ["1"],
+            }
+        },
+    )
+
+    def fake_xyear(metric, codes):
+        return {2022: 2e9} if metric.startswith("mdic_comex") else {2022: 8e9}
+
+    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    out = seam.market_share("castanha")
+    assert out["unit"] == "US$ bi"
+    row = out["series"][0]
+    assert row["y"] == 2022 and row["br"] == 2.0 and row["world"] == 8.0
+    assert row["share"] == pytest.approx(25.0)  # 2 / 8 * 100
+    assert out["by_product"][0]["code"] == "castanha"
+    assert out["by_product"][0]["share"] == pytest.approx(25.0)
+
+
+def test_price_spread_happy_path_markup(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "comex": ["0801"],
+                "comtrade": ["080121"],
+                "pevs": ["1"],
+            }
+        },
+    )
+    # FOB = 6e9 US$ / 2e9 kg = 3 US$/kg
+    monkeypatch.setattr(
+        seam,
+        "_xyear",
+        lambda metric, codes: {2022: 6e9} if metric.endswith("exp_value") else {2022: 2e9},
+    )
+    # gate = value(US$) / (q(t) * 1000) = 2e6 / (1e3 * 1000) = 2 US$/kg
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_product_timeseries",
+        lambda *a, **k: pd.DataFrame(
+            [{"reference_year": 2022, "total_value": 2e6, "total_qty_native": 1e3}]
+        ),
+    )
+    out = seam.price_spread("castanha")
+    assert out["unit"] == "US$/kg"
+    row = out["series"][0]
+    assert row["y"] == 2022
+    assert row["fob"] == pytest.approx(3.0) and row["gate"] == pytest.approx(2.0)
+    assert row["spread"] == pytest.approx(1.0)
+    assert row["markup"] == pytest.approx(1.5)
+
+
+def test_price_spread_incompatible_for_volume_basis(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: False)
+    out = seam.price_spread("madeira")
+    assert out == {"unit": "US$/kg", "incompatible": True, "series": []}
+
+
+def test_export_coefficient_incompatible_for_volume_basis(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: False)
+    out = seam.export_coefficient("madeira")
+    assert out["incompatible"] is True and out["by_uf"] == []
+
+
+def test_export_coefficient_empty_timeseries_when_no_year_overlap(monkeypatch):
+    """Mass basis + codes present, but PEVS and COMEX share no year → empty."""
+    seam = _seam()
+    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {"c": {"name": "C", "pevs": ["1"], "comex": ["0801"], "comtrade": ["080121"]}},
+    )
+    monkeypatch.setattr(seam, "_pevs_mass_by_year", lambda codes: {1986: 5.0})
+    monkeypatch.setattr(seam, "_xyear", lambda metric, codes: {2022: 1e6})
+    out = seam.export_coefficient("c")
+    assert out == {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
+
+
+def test_trade_mirror_happy_path_discrepancy(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "comex": ["0801"],
+                "comtrade": ["080121"],
+                "pevs": ["1"],
+            }
+        },
+    )
+
+    def fake_xyear(metric, codes):
+        if metric.startswith("mdic_comex"):
+            return {2022: 4e9}
+        if metric == "un_comtrade:partner_exp":
+            return {2022: 7e9}
+        return {2022: 6e9}
+
+    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    out = seam.trade_mirror("castanha")
+    # The third "Reportado pelos parceiros" line (partner=Brazil on imports) must
+    # be present so ViewMirror's third series gets data, per the contract.
+    assert out["series"][0] == {"y": 2022, "mdic": 4.0, "comtrade": 6.0, "partners": 7.0}
+    # |4-6| / ((4+6)/2) * 100 = 2 / 5 * 100 = 40
+    assert out["discrepancy"][0]["v"] == pytest.approx(40.0)
+
+
+def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
+    """A year present in mdic & comtrade but missing partner-reported data carries
+    partners=None (the front end renders a gap, not a fabricated zero)."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "comex": ["0801"],
+                "comtrade": ["080121"],
+                "pevs": ["1"],
+            }
+        },
+    )
+
+    def fake_xyear(metric, codes):
+        if metric.startswith("mdic_comex"):
+            return {2022: 4e9}
+        if metric == "un_comtrade:partner_exp":
+            return {}
+        return {2022: 6e9}
+
+    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    out = seam.trade_mirror("castanha")
+    assert out["series"][0] == {"y": 2022, "mdic": 4.0, "comtrade": 6.0, "partners": None}
+
+
+# ── Curadoria reads: curator_emails, worklist, current code levels ────────────
+
+
+def test_curator_emails_lowercases_and_strips(monkeypatch):
+    seam = _seam()
+    # The gateway query filters `where email is not null`, so emails arrive as
+    # non-null strings; the seam lowercases + strips them.
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_curators",
+        lambda: pd.DataFrame([{"email": " Alice@EMBRAPA.br "}, {"email": "bob@x.org"}]),
+    )
+    assert seam.curator_emails() == {"alice@embrapa.br", "bob@x.org"}
+
+
+def test_curator_emails_empty_on_notfound(monkeypatch):
+    seam = _seam()
+    from google.api_core.exceptions import NotFound
+
+    def boom():
+        raise NotFound("no allowlist table")
+
+    monkeypatch.setattr(seam.gateway, "fetch_curators", boom)
+    assert seam.curator_emails() == set()
+
+
+def test_curator_emails_propagates_other_errors(monkeypatch):
+    """A transient/permission fault must NOT be swallowed into 'open gate'."""
+    seam = _seam()
+
+    def boom():
+        raise RuntimeError("transient BQ")
+
+    monkeypatch.setattr(seam.gateway, "fetch_curators", boom)
+    with pytest.raises(RuntimeError):
+        seam.curator_emails()
+
+
+def test_current_code_levels_empty_on_notfound(monkeypatch):
+    seam = _seam()
+    from google.api_core.exceptions import NotFound
+
+    def boom():
+        raise NotFound("scd2 view absent")
+
+    monkeypatch.setattr(seam.gateway, "fetch_current_code_industrialization", boom)
+    assert seam._current_code_levels() == {}
+
+
+def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "_current_code_levels",
+        lambda: {("mdic_comex", "0801"): "processada"},
+    )
+    monkeypatch.setattr(seam, "_code_to_commodity", lambda: {("mdic_comex", "0801"): "castanha"})
+    monkeypatch.setattr(seam, "commodity_catalog", lambda: {"castanha": {"name": "Castanha"}})
+
+    def fake_products(src):
+        if src == "mdic_comex":
+            return pd.DataFrame(
+                [{"code": "0801", "name": "Castanhas"}, {"code": "0802", "name": "Nozes"}]
+            )
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", fake_products)
+    out = seam.curation_worklist()
+    assert out["total"] == 2 and out["classified"] == 1 and out["pending"] == 1
+    assert out["by_level"]["processada"] == 1
+    classified_row = next(r for r in out["rows"] if r["code"] == "0801")
+    assert classified_row["level"] == "processada"
+    assert classified_row["commodity"] == "castanha"
+    assert classified_row["commodity_name"] == "Castanha"
+    unclassified = next(r for r in out["rows"] if r["code"] == "0802")
+    assert unclassified["level"] is None and unclassified["commodity"] is None
+
+
+# ── _flow_market_map NotFound branch (market-nature/worklist degrade gracefully)
+
+
+def test_flow_market_map_empty_on_notfound(monkeypatch):
+    seam = _seam()
+    from google.api_core.exceptions import NotFound
+
+    def boom():
+        raise NotFound("log table absent")
+
+    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", boom)
+    assert seam._flow_market_map() == {}
+
+
+# ── value_added: empty until codes are classified ──────────────────────────────
+
+
+def test_value_added_empty_when_nothing_classified(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam, "_current_code_levels", lambda: {})
+    out = seam.value_added()
+    assert out == {"series": [], "n_codes": 0}
+
+
+# ── crosswalk-derived indices: _xyear, _code_to_commodity, family-by-commodity ─
+
+
+def test_xyear_maps_year_to_value(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_cross_series",
+        lambda metric, codes=(): pd.DataFrame(
+            [{"reference_year": 2021, "value": 3.0}, {"reference_year": 2022, "value": 5.0}]
+        ),
+    )
+    assert seam._xyear("mdic_comex:exp_value", ("0801",)) == {2021: 3.0, 2022: 5.0}
+
+
+def test_code_to_commodity_reverse_indexes_every_source(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "name": "Castanha",
+                "pevs": ["1"],
+                "comex": ["0801"],
+                "comtrade": ["080121"],
+            }
+        },
+    )
+    idx = seam._code_to_commodity()
+    assert idx[("ibge_pevs", "1")] == "castanha"
+    assert idx[("mdic_comex", "0801")] == "castanha"
+    assert idx[("un_comtrade", "080121")] == "castanha"
+
+
+def test_pevs_family_by_commodity_indexes_run_query(monkeypatch):
+    seam = _seam()
+    monkeypatch.setattr(seam, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(
+        seam.gateway,
+        "run_query",
+        lambda q, p: pd.DataFrame(
+            [
+                {"cid": "castanha", "family": "massa"},
+                {"cid": "madeira", "family": "volume"},
+                {"cid": "*", "family": "massa"},
+                {"cid": "*", "family": "volume"},
+            ]
+        ),
+    )
+    app, cache = _bind_simplecache()
+    with app.app_context():
+        cache.clear()
+        idx = seam._pevs_family_by_commodity()
+    assert idx["castanha"] == {"massa"}
+    assert idx["madeira"] == {"volume"}
+    assert idx["*"] == {"massa", "volume"}
+
+
+# ── curation writers: header capture from the request context ──────────────────
+
+
+def test_record_code_level_forwards_headers_to_writer(monkeypatch):
+    seam = _seam()
+    from embrapa_commodities.serving import curation
+
+    captured = {}
+
+    def fake_writer(source, code, level, headers, change_id=None):
+        captured.update(source=source, code=code, level=level, headers=headers, change_id=change_id)
+        return {"ok": True}
+
+    monkeypatch.setattr(curation, "record_code_industrialization", fake_writer)
+    # No request context → headers default to {}.
+    out = seam.record_code_level("mdic_comex", "0801", "processada", change_id="abc")
+    assert out == {"ok": True}
+    assert captured["source"] == "mdic_comex" and captured["level"] == "processada"
+    assert captured["headers"] == {} and captured["change_id"] == "abc"
+
+
+def test_record_flow_market_forwards_headers_to_writer(monkeypatch):
+    seam = _seam()
+    from embrapa_commodities.serving import curation
+
+    captured = {}
+
+    def fake_writer(customs_code, flow_code, market, headers, change_id=None):
+        captured.update(
+            customs_code=customs_code, flow_code=flow_code, market=market, change_id=change_id
+        )
+        return {"ok": True}
+
+    monkeypatch.setattr(curation, "record_flow_market", fake_writer)
+    out = seam.record_flow_market("C04", "M", "processamento", change_id="k1")
+    assert out == {"ok": True}
+    assert captured["customs_code"] == "C04" and captured["market"] == "processamento"
+    assert captured["change_id"] == "k1"

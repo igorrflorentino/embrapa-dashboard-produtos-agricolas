@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Ingestion Cloud Run JOB image — runs `embrapa ingest all` to completion.
 #
-# This is the BATCH ingestion job, NOT the dashboard Service image (that one
-# arrives with the Claude Design System handoff). It has no HTTP server; it runs
-# the CLI and exits. Build context = repo ROOT (needs pyproject.toml, uv.lock,
+# This is the BATCH ingestion job, NOT the dashboard Service image (that one is
+# deploy/webapi/Dockerfile — the React SPA + Flask REST service). It has no HTTP
+# server; it runs the CLI and exits. Build context = repo ROOT (needs pyproject.toml, uv.lock,
 # src/, README.md):
 #   Cloud Build: gcloud builds submit --config deploy/ingestion/cloudbuild.yaml \
 #                  --substitutions _IMAGE=<region>-docker.pkg.dev/<proj>/<repo>/embrapa-ingest-all:<tag> .

@@ -24,5 +24,11 @@ dbt/target
 dbt/logs
 dbt/dbt_packages
 
+# Frontend host artifacts — the webapi image runs `npm ci` + `npm run build`
+# inside the node stage; shipping host node_modules (platform-mismatched
+# binaries) or a stale dist would overlay/poison that clean install.
+frontend/node_modules
+frontend/dist
+
 # Misc
 *.log

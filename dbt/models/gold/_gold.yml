@@ -10,9 +10,9 @@ models:
       (reference_year, state_acronym, city_code, product_code) — city_code is the
       natural geographic key (city_name is a display label lifted via any_value).
       Ad-hoc state/year/national aggregation is derived at query time via GROUP BY.
-      For the Dash dashboard's Pushdown Computing, the `serving/` layer materializes
-      pre-aggregated marts at the chart grains — they derive from this Gold table,
-      not replace it.
+      For the dashboard's Pushdown Computing (React SPA + Flask webapi BFF), the
+      `serving/` layer materializes pre-aggregated marts at the chart grains —
+      they derive from this Gold table, not replace it.
       Physical table (not a view) so BI Engine can cache it.
 
       Value columns: val_yearfx_{brl,usd,eur} (nominal at year-of-record FX),
@@ -163,9 +163,11 @@ models:
       Gold table for MDIC Comex Stat — the single comprehensive `flows` table
       for this source (naming: gold_<source>_<form>; `flows` = origin→destination
       trade). One row per (flow, reference_year, reference_month, ncm_code,
-      country_code, state_acronym); the Silver source grain (also split by
-      transport route / customs office / statistical unit) is summed up here.
-      Any coarser aggregation is derived at query time via GROUP BY.
+      country_code, state_acronym, transport_route_code) — transport route is
+      part of the grain (it backs the frontend `via` filter); the Silver source
+      grain (also split by customs office / statistical unit) is summed up here.
+      Any coarser aggregation (including across routes) is derived at query time
+      via GROUP BY.
 
       Value columns: val_yearfx_{usd,brl,eur} (nominal at month-of-record FX,
       from the source US$ FOB), val_real_ipca_{brl,usd,eur} /
@@ -304,7 +306,7 @@ models:
         description: "HS code in scope (0801 nuts or 44 wood/charcoal)."
         tests: [not_null]
       - name: cmd_description
-        description: "English HS description (seed comtrade_hs). NULL if outside the seeded scope."
+        description: "Portuguese HS description (seed comtrade_hs). NULL if outside the seeded scope."
       - name: hs_chapter
         description: "First 2 digits of cmd_code."
         tests: [not_null]
@@ -327,7 +329,7 @@ models:
       - name: partner_iso_a3
         description: "Partner ISO alpha-3 (seed comtrade_country)."
       - name: partner_is_group
-        description: "True when the partner is an aggregate area (e.g. 'Other Asia, nes'), not a single country."
+        description: "True when the partner is an aggregate area (e.g. 'Outros da Ásia, nep'), not a single country."
       - name: family
         description: "Physical-unit family of qty_native: massa|volume|energia|contagem|area|desconhecida. NEVER sum qty_base across families. net_weight_kg is a separate always-massa measure."
         tests:

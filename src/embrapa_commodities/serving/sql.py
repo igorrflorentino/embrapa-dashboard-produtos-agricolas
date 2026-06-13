@@ -80,7 +80,10 @@ def _year_bounds(
 # therefore MUST be validated against this allowlist. Every builder passes an
 # internal literal today; this guarantees a future caller cannot interpolate a
 # user-derived identifier (defense-in-depth — there is no current injection path).
-ALLOWED_FILTER_COLUMNS = frozenset({"product_code", "ncm_code", "cmd_code"})
+# ``state_acronym`` is the UF-of-origin column the COMEX trade marts expose, used
+# by the optional UF filter on the flow/partner readers (the filter VALUES stay
+# bound — only this identifier is interpolated).
+ALLOWED_FILTER_COLUMNS = frozenset({"product_code", "ncm_code", "cmd_code", "state_acronym"})
 
 # Dimension columns the trade builders interpolate into SELECT / GROUP BY (origin,
 # destination, partner — which differ by source: UF/country for COMEX,
@@ -97,6 +100,7 @@ ALLOWED_DIMENSION_COLUMNS = frozenset(
         "reporter_iso_a3",
         "partner_code",
         "partner_name",
+        "partner_iso_a3",
     }
 )
 
@@ -130,6 +134,25 @@ def _in_array(
 
 def _where(conditions: list[str]) -> str:
     return f"where {' and '.join(conditions)}" if conditions else ""
+
+
+def _latest_year_condition(table: str, conditions: list[str]) -> str:
+    """A predicate pinning ``reference_year`` to the MAX year under the SAME filters.
+
+    The single-snapshot by-UF readers (``production_by_uf`` / ``comex_by_uf``) back
+    a choropleth the UI labels as the latest year and compares against a latest-year
+    national KPI — so they must aggregate ONE year, not cumulate the whole
+    ``[year_start, year_end]`` window (which inflated every UF tile by the number of
+    covered years). "Latest" honours the active period filter: the correlated
+    subquery re-applies the same ``conditions`` (year bounds + product/code filters),
+    so a user-scoped 2020-2022 request pins to 2022, not the table-wide max.
+
+    The filter VALUES are still bound once (the outer query and the subquery share
+    the SAME ``params`` list) — only the table identifier (already validated upstream)
+    is interpolated.
+    """
+    inner = _where(conditions)
+    return f"reference_year = (select max(reference_year) from `{table}` {inner})"
 
 
 def _flow(
@@ -177,20 +200,43 @@ def production_by_uf(
     year_end: int | None = None,
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    latest_year_only: bool = True,
 ) -> tuple[str, list]:
-    """Production aggregated by UF from ``serving_pevs_annual`` (backs ufData)."""
+    """Production aggregated by UF from ``serving_pevs_annual`` (backs ufData).
+
+    By default scoped to the LATEST year within the active ``[year_start, year_end]``
+    window (``latest_year_only=True``), NOT cumulated over the whole window: the
+    choropleth this backs is labelled — and compared against a latest-year national
+    KPI — as a single year, so summing every covered year inflated each UF by the
+    number of covered years. ``ufYearly`` (``production_by_uf_yearly``) keeps the
+    full per-year history. ``latest_year_only=False`` restores the window-cumulative
+    sum, which the export-coefficient by-UF reader needs (it compares production and
+    export accumulated over the SAME common-year window).
+
+    Quantities are split by ``family`` so they are only ever summed WITHIN a unit
+    family (the same rule the marts enforce): ``q_mass`` sums ``qty_base`` (t) of
+    the 'massa' family, ``q_vol`` sums ``qty_base`` (m³) of 'volume'. qty_base —
+    not qty_native — is the only summable quantity across a family's mixed-unit
+    codes. The serializer scales them to mil t / mi m³.
+    """
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, "product_code", "product_codes", product_codes)
+    if latest_year_only:
+        # Pin to the latest year under the same filters (correlated subquery reuses
+        # the same bound params) — appended last so the subquery's WHERE excludes it.
+        conditions.append(_latest_year_condition(table, conditions))
     sql = f"""
         select
             state_acronym,
             any_value(state_name)   as state_name,
             any_value(region)       as region,
             any_value(region_abbrev) as region_abbrev,
-            sum({value_column})     as total_value
+            sum({value_column})     as total_value,
+            sum(case when family = 'massa'  then qty_base end) as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol
         from `{table}`
         {_where(conditions)}
         group by state_acronym
@@ -199,10 +245,52 @@ def production_by_uf(
     return sql, params
 
 
+def production_by_uf_yearly(
+    table: str,
+    *,
+    year_start: int | None = None,
+    year_end: int | None = None,
+    product_codes: Sequence[str] = (),
+    value_column: str = "val_real_ipca_brl",
+) -> tuple[str, list]:
+    """Production by (UF, year) from ``serving_pevs_annual`` (backs the ano × UF heatmap).
+
+    The year-grained companion to :func:`production_by_uf`: it adds
+    ``reference_year`` to the grain so the geography heatmap renders REAL per-UF
+    history instead of fabricating it from the national curve. Quantities are
+    split by ``family`` (``q_mass`` = ``qty_base`` t of 'massa', ``q_vol`` = m³ of
+    'volume') so they are only ever summed WITHIN a unit family — the same rule
+    :func:`production_by_uf` follows.
+    """
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
+    conditions: list[str] = []
+    params: list = []
+    _year_bounds(conditions, params, year_start, year_end)
+    _in_array(conditions, params, "product_code", "product_codes", product_codes)
+    sql = f"""
+        select
+            state_acronym,
+            reference_year,
+            any_value(state_name)    as state_name,
+            any_value(region)        as region,
+            any_value(region_abbrev) as region_abbrev,
+            sum({value_column})      as total_value,
+            sum(case when family = 'massa'  then qty_base end) as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol
+        from `{table}`
+        {_where(conditions)}
+        group by state_acronym, reference_year
+        order by state_acronym, reference_year
+    """
+    return sql, params
+
+
 def productivity(
     table: str,
     *,
     product_code: str,
+    year_start: int | None = None,
+    year_end: int | None = None,
 ) -> tuple[str, list]:
     """Production (t) + planted/harvested area (ha) by (year, UF) for ONE crop,
     from a PAM-shaped mart (``serving_pam_annual``; backs ViewProductivity).
@@ -210,8 +298,11 @@ def productivity(
     Yield (kg/ha) is a RATIO — not summable — so it is deliberately NOT aggregated
     here; the seam recomputes it as ``production_kg / area_harvested_ha`` at each
     grain it needs (national per year, per UF for the latest year). ``product_code``
-    is bound as a parameter (one crop at a time, picked by the view's selector)."""
+    is bound as a parameter (one crop at a time, picked by the view's selector).
+    ``year_start``/``year_end`` apply the view's active period filter."""
+    conditions: list[str] = ["product_code = @product_code"]
     params: list = [bigquery.ScalarQueryParameter("product_code", "STRING", product_code)]
+    _year_bounds(conditions, params, year_start, year_end)
     sql = f"""
         select
             reference_year,
@@ -223,7 +314,7 @@ def productivity(
             sum(area_planted_ha)         as area_planted_ha,
             sum(area_harvested_ha)       as area_harvested_ha
         from `{table}`
-        where product_code = @product_code
+        {_where(conditions)}
         group by reference_year, state_acronym
         order by reference_year, state_acronym
     """
@@ -258,22 +349,24 @@ def comex_seasonality(
     return sql, params
 
 
-def current_classifications(table: str) -> tuple[str, list]:
-    """Live current classification per commodity from ``dim_commodity_scd2``.
+def months_present_per_year(table: str) -> tuple[str, list]:
+    """Distinct ``reference_month`` count per ``reference_year`` from a monthly mart
+    (``serving_comex_seasonality``; backs the partial-latest-year signal).
 
-    The result of this query is the ONLY serving cache that a curation write
-    invalidates (the marts are unaffected by a reclassification). The UI LEFT
-    JOINs the serving marts to this set on ``commodity_id`` at render time.
+    A monthly-sourced banco's most recent year is often INCOMPLETE (e.g. COMEX
+    publishes through the current month), so a headline YoY that compares a partial
+    latest year against a full prior year over-reads as a crash/boom. The seam turns
+    this (year → months) map into ``monthsInLatestYear`` / ``latestYearComplete`` /
+    ``latestCompleteYear`` in source-meta so the frontend can compute YoY against the
+    last COMPLETE year (or label the partial one). Cheap year×month aggregate, cached.
     """
     sql = f"""
         select
-            commodity_id,
-            processing_stage,
-            edited_by,
-            valid_from
+            reference_year,
+            count(distinct reference_month) as n_months
         from `{table}`
-        where is_current
-        order by commodity_id
+        group by reference_year
+        order by reference_year
     """
     return sql, []
 
@@ -282,10 +375,10 @@ def current_code_industrialization(table: str) -> tuple[str, list]:
     """Live current industrialization level per (source, code) from
     ``dim_code_industrialization_scd2``.
 
-    The finer-grained companion to :func:`current_classifications`. The UI LEFT
+    The result of this query is the ONLY serving cache that a curation write
+    invalidates (the marts are unaffected by a reclassification). The UI LEFT
     JOINs the Gold code universe (DISTINCT source/code) to this set on
-    (source, code); an unmatched code is "a classificar". Invalidated on a
-    per-code curation write, same as the commodity-level classification cache.
+    (source, code); an unmatched code is "a classificar".
     """
     sql = f"""
         select
@@ -316,8 +409,18 @@ def trade_overview(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
 ) -> tuple[str, list]:
-    """Annual trade value + weight from a trade annual mart (backs overviewTS)."""
+    """Annual trade value + weight from a trade annual mart (backs overviewTS).
+
+    ``value_column`` picks the currency×correction measure — the trade marts now
+    carry the full {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR} set (the
+    real year-FX / deflated values, NULL pre-1994), so a BRL/EUR display serves the
+    REAL column instead of the frontend cross-converting USD via a mock FX rate. The
+    output alias stays ``total_value_usd`` (the seam renames it to ``total_value``)
+    so the serializer is currency-agnostic regardless of which column is summed.
+    """
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
@@ -326,7 +429,7 @@ def trade_overview(
     sql = f"""
         select
             reference_year,
-            sum(val_yearfx_usd) as total_value_usd,
+            sum({value_column}) as total_value_usd,
             sum(net_weight_kg)  as total_weight_kg,
             sum(source_rows)    as source_rows
         from `{table}`
@@ -344,8 +447,70 @@ def comex_by_uf(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
+    latest_year_only: bool = True,
 ) -> tuple[str, list]:
-    """COMEX value + weight by UF from ``serving_comex_annual`` (backs ufData for COMEX)."""
+    """COMEX value + weight by UF from ``serving_comex_annual`` (backs ufData for COMEX).
+
+    By default scoped to the LATEST year within the active ``[year_start, year_end]``
+    window (``latest_year_only=True``), NOT cumulated over the whole window — same
+    reasoning as :func:`production_by_uf`: the choropleth is a single labelled year
+    compared against a latest-year national KPI. ``latest_year_only=False`` restores
+    the window-cumulative sum the export-coefficient by-UF reader needs.
+
+    ``q_mass``/``q_vol`` sum ``qty_base`` (t / m³) per ``family`` — the family-split,
+    summable quantity (the same basis the snapshot overview uses), so the COMEX
+    geography map can render real mass/volume. ``total_weight_kg`` (raw kg) is kept
+    for export_coefficient, which works in kg. ``value_column`` picks the
+    currency×correction measure (BRL/USD/EUR — the real columns the mart now carries);
+    the alias stays ``total_value_usd`` (the seam renames it ``total_value``).
+    """
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
+    conditions: list[str] = []
+    params: list = []
+    _year_bounds(conditions, params, year_start, year_end)
+    _in_array(conditions, params, "ncm_code", "ncm_codes", ncm_codes)
+    _flow(conditions, params, flow)
+    if latest_year_only:
+        # Pin to the latest year under the same filters (correlated subquery reuses
+        # the same bound params) — appended last so the subquery's WHERE excludes it.
+        conditions.append(_latest_year_condition(table, conditions))
+    sql = f"""
+        select
+            state_acronym,
+            any_value(state_name)    as state_name,
+            any_value(region)        as region,
+            any_value(region_abbrev) as region_abbrev,
+            sum({value_column})      as total_value_usd,
+            sum(net_weight_kg)       as total_weight_kg,
+            sum(case when family = 'massa'  then qty_base end) as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol
+        from `{table}`
+        {_where(conditions)}
+        group by state_acronym
+        order by total_value_usd desc
+    """
+    return sql, params
+
+
+def comex_by_uf_yearly(
+    table: str,
+    *,
+    year_start: int | None = None,
+    year_end: int | None = None,
+    ncm_codes: Sequence[str] = (),
+    flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
+) -> tuple[str, list]:
+    """COMEX value by (UF, year) from ``serving_comex_annual`` (backs the ano × UF heatmap).
+
+    The year-grained companion to :func:`comex_by_uf`: same per-family ``qty_base``
+    split, with ``reference_year`` added to the grain so the COMEX geography heatmap
+    renders real per-UF history. ``total_value_usd`` (renamed by the seam to
+    ``total_value``) is the choropleth/heatmap measure. ``value_column`` picks the
+    currency×correction measure (BRL/USD/EUR — the real columns the mart now carries).
+    """
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
@@ -354,15 +519,17 @@ def comex_by_uf(
     sql = f"""
         select
             state_acronym,
+            reference_year,
             any_value(state_name)    as state_name,
             any_value(region)        as region,
             any_value(region_abbrev) as region_abbrev,
-            sum(val_yearfx_usd)      as total_value_usd,
-            sum(net_weight_kg)       as total_weight_kg
+            sum({value_column})      as total_value_usd,
+            sum(case when family = 'massa'  then qty_base end) as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol
         from `{table}`
         {_where(conditions)}
-        group by state_acronym
-        order by total_value_usd desc
+        group by state_acronym, reference_year
+        order by state_acronym, reference_year
     """
     return sql, params
 
@@ -376,11 +543,16 @@ def trade_by_partner(
     year_start: int | None = None,
     year_end: int | None = None,
     codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
     """Partner ranking with export/import split (backs partnerData).
 
     COMEX: partner = country_*; COMTRADE: partner = partner_*. The World partner is
     already dropped upstream (Silver), so no extra filter is needed for COMTRADE.
+
+    ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
+    COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
+    origin is a reporter country, not a Brazilian UF). Empty/absent = no filter.
     """
     partner_code_column = _validate_column(
         partner_code_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
@@ -392,6 +564,7 @@ def trade_by_partner(
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     sql = f"""
         select
             {partner_code_column}                                  as partner_code,
@@ -419,11 +592,16 @@ def trade_flows(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     flow: str | None = None,
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
     """Origin->destination links for the Sankey (backs flowData).
 
     COMEX: origin = UF (state), dest = country. COMTRADE: origin = reporter,
     dest = partner. ``value_usd`` is raw ``val_yearfx_usd``.
+
+    ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
+    COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
+    origin is a reporter country, not a Brazilian UF). Empty/absent = no filter.
     """
     origin_code_column = _validate_column(
         origin_code_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
@@ -442,6 +620,7 @@ def trade_flows(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     sql = f"""
         select
             {origin_code_column}             as origin_code,
@@ -482,20 +661,55 @@ def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, l
     procedures — summing it would double-count). Optional ``codes`` filters to one
     commodity's HS codes (cmdCode). Bronze is all-STRING → ``safe_cast`` the
     measure + year. A bigger scan than a serving mart but cached + secondary;
-    promote to a serving mart (preserving customsCode) when this gets hot."""
-    conditions = ["customsCode != 'C00'", "customsCode is not null"]
+    promote to a serving mart (preserving customsCode) when this gets hot.
+
+    Bronze is append-only with at-least-once load semantics, so this query must
+    apply the same cleaning ``silver_comtrade_flows`` does (it bypasses Silver):
+    keep only the latest ingestion batch per (refYear, reporterCode) — without it
+    the summed value inflates with every re-ingestion — then dedup on the natural
+    key, collapsing the duplicate-qtyUnitCode variants that carry an identical
+    ``primaryValue``; and drop the World partner aggregate and legacy HS4 rows
+    (both double-count)."""
+    conditions = [
+        "customsCode != 'C00'",
+        "customsCode is not null",
+        "partnerCode != '0'",  # World aggregate — summing it double-counts partners
+        "length(cmdCode) = 6",  # HS6 leaves only — a legacy HS4 row double-counts
+    ]
     params: list = []
     if codes:
         conditions.append("cmdCode IN UNNEST(@cmd_codes)")
         params.append(bigquery.ArrayQueryParameter("cmd_codes", "STRING", list(codes)))
     sql = f"""
+        with latest_batch as (
+            -- Each Bronze load stamps a (year × reporter-batch) chunk with ONE
+            -- ingestion_timestamp; a re-published reporter-year REPLACES the
+            -- previous generation (same two-stage dedup as silver_comtrade_flows).
+            select *
+            from `{table}`
+            qualify ingestion_timestamp
+                = max(ingestion_timestamp) over (partition by refYear, reporterCode)
+        ),
+        deduplicated as (
+            select customsCode, flowCode, refYear, primaryValue
+            from latest_batch
+            {_where(conditions)}
+            qualify row_number() over (
+                partition by
+                    refYear, reporterCode, partnerCode, partner2Code,
+                    cmdCode, flowCode, customsCode, mosCode, motCode
+                -- Same key + ordering as silver_comtrade_flows: NOT partitioned
+                -- by qtyUnitCode (its variants duplicate the value) — recency
+                -- first, real-unit-over-'-1' as the tiebreaker.
+                order by ingestion_timestamp desc, (qtyUnitCode = '-1')
+            ) = 1
+        )
         select
             customsCode                         as customs_code,
             flowCode                            as flow_code,
             safe_cast(refYear as int64)         as reference_year,
             sum(safe_cast(primaryValue as float64)) as value_usd
-        from `{table}`
-        {_where(conditions)}
+        from deduplicated
         group by customs_code, flow_code, reference_year
         order by reference_year
     """
@@ -595,10 +809,13 @@ def product_timeseries(
     year_end: int | None = None,
     codes: Sequence[str] = (),
 ) -> tuple[str, list]:
-    """Annual per-product series — value + native quantity (backs productTS).
+    """Annual per-product series — value + quantities (backs productTS).
 
-    ``total_qty_native`` is the statistical quantity in ``unit_native`` (the
-    snapshot scales it per the contract); ``family`` rides along for the UI.
+    ``total_qty_native`` is the statistical quantity in ``unit_native``;
+    ``total_qty_base`` is the family base unit (t for massa, m³ for volume) and
+    is the ONE the snapshot scales for display — native units differ per code
+    (kg vs t NCMs in COMEX), so only the base quantity is summable/scalable.
+    ``family`` rides along for the UI.
     """
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
@@ -612,6 +829,7 @@ def product_timeseries(
             reference_year,
             sum({value_column}) as total_value,
             sum(qty_native)     as total_qty_native,
+            sum(qty_base)       as total_qty_base,
             any_value(family)   as family
         from `{table}`
         {_where(conditions)}
@@ -661,10 +879,11 @@ def cross_annual(
     """Annual single-measure series for the cross-source view (backs crossSeries points).
 
     Raw magnitude (the snapshot scales ÷1e9 / ÷1e6). ``codes`` optionally narrows to
-    a commodity (per-source code) for market share. ``reporter_*`` restricts to one
-    reporting country (Brazil) for the per-country COMTRADE metrics; ``world_exp``
-    omits it to sum over every reporter. (``exp_price`` is derived UI-side as
-    value ÷ weight, so it has no builder.)
+    a commodity (per-source code) for market share. ``reporter_*`` pins a geo column
+    (reporter_iso_a3 OR partner_iso_a3) to one country (Brazil) for the per-country
+    COMTRADE metrics — exp/imp_value filter the reporter, partner_exp the partner;
+    ``world_exp`` omits it to sum over every reporter. (``exp_price`` is derived
+    UI-side as value ÷ weight, so it has no builder.)
     """
     measure_column = _validate_column(measure_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []

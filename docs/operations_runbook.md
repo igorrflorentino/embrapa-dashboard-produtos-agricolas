@@ -37,12 +37,73 @@ Notes:
 - Changes take effect within the classification cache TTL
   (`CACHE_CLASSIFICATION_TIMEOUT`, ~30s) — no instant invalidation needed.
 - Emails are matched case-insensitively (lower + trim).
-- The table auto-creates on first use (`serving.curation.ensure_curators_table`);
-  the runtime SA needs read access to the dataset (the prod web SA `sa-web-dashboard-prod`
-  already has WRITER on `research_inputs`).
+- The table auto-creates on the **first curation write attempt**: the curation
+  POST authorization path (`routes._authorize_curator`) calls
+  `serving.curation.ensure_curators_table` (idempotent), so it exists for the
+  Console INSERT above the first time anyone tries to save an edit. The runtime SA
+  needs write access to the dataset to create it — the prod web SA
+  `sa-web-dashboard-prod` already has WRITER on `research_inputs`. (If you prefer
+  to create it up front, before any write, run the INSERT against the dataset and
+  it self-heals, or call the helper directly.)
 - Curation writes also accept an optional client `change_id` (idempotency key):
   a retried/double-clicked save reusing the same key is a no-op, not a duplicate
   audit row.
+
+## IAP author verification — set `IAP_AUDIENCE` in prod
+
+Curation writes attribute every edit to a person (`edited_by`). That author can
+come from two places, and **which one is active depends on `IAP_AUDIENCE`**:
+
+- **`IAP_AUDIENCE` set** (production): the author is read from the **signed
+  `X-Goog-IAP-JWT-Assertion`**, cryptographically verified against this
+  audience. A direct request to the backend cannot forge the audit author, and
+  an ingress misconfiguration (e.g. an accidentally public service) fails
+  closed.
+- **`IAP_AUDIENCE` unset**: the JWT check is **skipped** — the app **fails
+  open** to the plaintext `X-Goog-Authenticated-User-Email` header, which any
+  caller that can reach the service directly can spoof. This mode exists for
+  local dev only (paired with `CURATION_DEV_AUTHOR`).
+
+Operator steps (one-time per deployment):
+
+1. Get the audience string: Console → Security → Identity-Aware Proxy → ⋮ on
+   the resource → "Get JWT audience code". Behind a load balancer it has the
+   form `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`.
+2. Set `IAP_AUDIENCE=<that string>` in the `.env` used for deploys —
+   `deploy/webapi/deploy.sh` forwards it to the Cloud Run Service — and run
+   `make webapi-deploy`.
+3. Verify: a curation save in prod records the IAP identity; with a wrong
+   audience the write is rejected rather than silently mis-attributed.
+
+Details: `src/embrapa_commodities/serving/iap.py` and
+[`docs/auth_architecture.md`](auth_architecture.md).
+
+## Activating curation in prod (one-time) and keeping it built
+
+The SCD2 curation view (`dim_code_industrialization_scd2`) is gated by
+`var('enable_curation', false)` so a fresh project builds green before the
+curation log tables exist. Activating curation in prod is therefore two steps:
+
+1. **One-time prod build with the var** (creates the view in the prod dataset;
+   needs the curation log tables to exist first — `make ensure-curation`
+   provisions them, though the per-code and flow-market logs also auto-create on
+   first write):
+
+   ```bash
+   cd dbt && uv run dbt build --target prod --vars 'enable_curation: true'
+   ```
+
+2. **Flip the repo variable `DBT_ENABLE_CURATION` to `true`** (GitHub →
+   Settings → Secrets and variables → Actions → Variables). The
+   `dbt-build-prod` workflow adds `--vars 'enable_curation: true'` to every
+   push-triggered, scheduled, and manual build when this variable is `true` —
+   without the flip, merged changes to the SCD2 view (and its schema tests)
+   are silently skipped by the automated builds and the prod view drifts from
+   `main`.
+
+Local prod builds after activation should also carry the var (e.g. the
+`make reconcile` chained build runs plain `dbt build --target prod` — re-run
+the command from step 1 afterwards if a curation-view change is pending).
 
 ## Backing up prod Gold from a local / dev machine
 

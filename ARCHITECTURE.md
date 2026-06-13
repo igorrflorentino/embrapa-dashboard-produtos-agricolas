@@ -2,7 +2,7 @@
 
 > "Under the hood" technical document: folder structure, stack decisions, data flow, and diagrams.
 
-> 📊 **Historical and scientific analysis tool** (Embrapa researchers) — it is not a business-metrics or real-time product; data is processed in batch. Gold is consumed through **two parallel, first-class paths**: (1) **Looker Studio** directly on the Gold table, available now; (2) **dedicated Dash + HTML/CSS dashboard deployed to Cloud Run**, currently being rebuilt with the Claude Design System (the previous Dash UI was removed on 2026-05-29 for a clean handoff). The backend described below is independent of the visualization and already feeds both.
+> 📊 **Historical and scientific analysis tool** (Embrapa researchers) — it is not a business-metrics or real-time product; data is processed in batch. Gold is consumed through **two parallel, first-class paths**: (1) **Looker Studio** directly on the Gold table, available now; (2) the **dedicated React SPA + Flask REST API (`webapi`) + Plotly.js dashboard, live on Cloud Run behind IAP** — built in the 2026-06 Dash→React migration, which replaced the previous Dash UI entirely (removed on 2026-05-29; don't look for `dashboard/`). The backend described below is independent of the visualization and already feeds both.
 
 ---
 
@@ -11,12 +11,12 @@
 The project implements a **Medallion architecture** (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
 
 ```
- ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
- │ IBGE SIDRA │ │  BCB SGS   │ │  BCB SGS   │ │ MDIC COMEX │ │ UN Comtrade  │
- │  (PEVS)    │ │(Inflation) │ │    (FX)    │ │ (bulk CSV) │ │ (API keyed)  │
- └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬───────┘
-       │              │              │              │               │
-       └──────┬───────┴──────────────┴──────────────┴───────────────┘
+ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
+ │ IBGE SIDRA │ │ IBGE SIDRA │ │  BCB SGS   │ │  BCB SGS   │ │ MDIC COMEX │ │ UN Comtrade  │
+ │  (PEVS)    │ │   (PAM)    │ │(Inflation) │ │    (FX)    │ │ (bulk CSV) │ │ (API keyed)  │
+ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬───────┘
+       │              │              │              │              │               │
+       └──────┬───────┴──────────────┴──────────────┴──────────────┴───────────────┘
               ▼
  ┌─────────────────────────────────────────────────────┐
  │  Python  (src/embrapa_commodities) — two-phase      │
@@ -35,10 +35,10 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
  ┌─────────────────────────────────────────────────────┐
  │  Consumption (two parallel paths)                   │
  │  • Looker Studio (direct on the Gold table)         │
- │  • Dashboard Dash @ Cloud Run — stateless           │
- │    filters → @param SQL on serving + flask-caching  │
+ │  • React SPA + Flask REST (webapi) @ Cloud Run,     │
+ │    behind IAP — stateless: filters → @param SQL on  │
+ │    serving + flask-caching · Plotly.js charts       │
  │    curation: append-only log + SCD Type 2           │
- │    (UI under reconstruction · Claude Design System) │
  └─────────────────────────────────────────────────────┘
 ```
 
@@ -61,10 +61,12 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 | Pre-commit | gitleaks, ruff, file-hygiene hooks | Credential security + code quality |
 | Tests | pytest, responses, pytest-cov | HTTP mocks, coverage, custom markers |
 | Configuration | pydantic-settings + `.env` | Typed validation, zero hardcoding |
-| Consumption / Visualization | Looker Studio · Dash @ Cloud Run | Two parallel paths over the same Gold tables (see Consumption section) |
+| Consumption / Visualization | Looker Studio · React SPA + Flask REST (`webapi`) @ Cloud Run | Two parallel paths over the same Gold tables (see Consumption section) |
+| Frontend | React + Vite + Plotly.js (`frontend/`) | Design System prototype reused verbatim; API-backed data layer; Plotly for the analytical charts (zoom/hover/pan) |
+| REST API / SPA host | Flask app factory + gunicorn (`webapi` extra) | Serves the built SPA **and** `/api` from one origin behind IAP |
 | Dashboard data access | `google-cloud-bigquery` + `flask-caching` | Pushdown Computing: UI filters → `@param` SQL on `serving`, cached results |
 
-> The **dedicated visualization** layer (Dash + HTML/CSS, deployed to Cloud Run via Gunicorn) is being rebuilt in the Claude Design System in a separate flow — it is a real target, not abandoned. Looker Studio is the second consumption path and remains available in parallel. When the new frontend arrives via handoff, the UI/deploy stack (Dockerfile, Cloud Run, read-only SA) will be reintroduced and this table updated.
+> The **dedicated visualization** layer shipped in the 2026-06 Dash→React migration and is **live on Cloud Run** (private + IAP, 3-stage node-build→python image in [`deploy/webapi/`](deploy/webapi/), `make webapi-deploy`). Looker Studio is the second consumption path and remains available in parallel. Spec/history of the migration: [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
 
 ---
 
@@ -98,12 +100,22 @@ embrapa-dashboard-commodities/
 │   │   ├── sql.py                    # Parameterized SQL (@param) + anti-injection allowlist
 │   │   ├── gateway.py                # Cached fetch_* (flask-caching) over the marts
 │   │   ├── cache.py                  # flask-caching instance (SimpleCache/Redis)
-│   │   ├── iap.py                    # Author via IAP header → edited_by
+│   │   ├── iap.py                    # Author via IAP (signed JWT when IAP_AUDIENCE set) → edited_by
 │   │   └── curation.py               # Append-only SCD2 writer + cache invalidation
 │   │
-│   ├── ibge/                         # Pipeline IBGE PEVS
+│   ├── webapi/                       # ⭐ Flask REST API + SPA host (one origin/IAP)
+│   │   ├── app.py                    # App factory; serves the built SPA + /api; /healthz
+│   │   ├── routes.py                 # /api blueprint (snapshot, cross/*, curation writers)
+│   │   ├── seam.py                   # Composes the gateway readers per view
+│   │   ├── serializers.py            # Shapes seam output to the SPA's contracts.js
+│   │   ├── auth.py                   # Curation author via serving/iap.py
+│   │   ├── format.py                 # pt-BR formatting + monetary column naming
+│   │   └── registries.py             # Banco/metric/view registries (ex-Dash package)
+│   │
+│   ├── ibge/                         # IBGE SIDRA pipelines (PEVS + PAM)
 │   │   ├── client.py                 # HTTP client SIDRA API
-│   │   └── pipeline.py               # Bronze orchestration
+│   │   ├── pipeline.py               # PEVS Bronze orchestration (table 289)
+│   │   └── pam_pipeline.py           # PAM Bronze orchestration (table 5457)
 │   │
 │   ├── bcb/                          # Central Bank pipelines
 │   │   ├── client.py                 # SGS API HTTP client
@@ -129,6 +141,7 @@ embrapa-dashboard-commodities/
 │   │   ├── silver/
 │   │   │   ├── _silver.yml           # Silver schema + tests
 │   │   │   ├── silver_ibge_pevs.sql  # Typed PEVS + dedup (incremental)
+│   │   │   ├── silver_ibge_pam.sql   # Typed PAM + dedup (incremental)
 │   │   │   ├── silver_bcb_inflation.sql  # IPCA chain index
 │   │   │   ├── silver_bcb_currency.sql   # BCB FX (daily USD/EUR PTAX)
 │   │   │   ├── silver_currency.sql       # BCB FX, normalized for Gold
@@ -137,6 +150,7 @@ embrapa-dashboard-commodities/
 │   │   ├── gold/
 │   │   │   ├── _gold.yml             # Gold schema + tests
 │   │   │   ├── gold_pevs_production.sql  # Gold IBGE PEVS (form: production)
+│   │   │   ├── gold_pam_production.sql   # Gold IBGE PAM (form: production; área × rendimento)
 │   │   │   ├── gold_comex_flows.sql      # Gold COMEX (form: flows, Brazil)
 │   │   │   ├── gold_comtrade_flows.sql   # Gold COMTRADE (form: flows, global bilateral)
 │   │   │   ├── gold_commodity_crosswalk.sql  # Cross-source bridge (source,code)→commodity
@@ -146,10 +160,11 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _core.yml
 │   │   │   ├── dim_date.sql          # Calendar (month grain, pt-BR labels)
 │   │   │   ├── dim_geo_br.sql        # 27 UFs → name/region/abbrev (N·NE·CO·SE·S)
-│   │   │   └── dim_commodity_scd2.sql  # Curation SCD Type 2 (view; gated)
-│   │   └── serving/                  # ⭐ Pre-aggregated marts for the Dash dashboard
+│   │   │   └── dim_code_industrialization_scd2.sql  # Per-code curation SCD2 (view; gated)
+│   │   └── serving/                  # ⭐ Pre-aggregated marts for the webapi dashboard
 │   │       ├── _serving.yml
 │   │       ├── serving_pevs_annual.sql
+│   │       ├── serving_pam_annual.sql
 │   │       ├── serving_comex_annual.sql
 │   │       ├── serving_comex_seasonality.sql
 │   │       ├── serving_comtrade_annual.sql
@@ -175,11 +190,27 @@ embrapa-dashboard-commodities/
 │   │   ├── unit_family_conversions.csv  # Unit families and conversions (mass/volume)
 │   └── tests/                        # Custom dbt tests
 │
+├── frontend/                         # ⭐ React SPA (Vite) — the dashboard UI
+│   ├── src/proto/                    # Design System prototype, reused verbatim
+│   ├── src/data/                     # API-backed data layer (dataStore, producers, resource)
+│   ├── src/charts/                   # Plotly.js chart components (zoom/hover/pan)
+│   ├── vite.config.js                # `npm run dev` (:5173, proxies /api → Flask :8000)
+│   └── package.json                  # `npm run build` → dist (baked into the webapi image)
+│
+├── deploy/                           # ⭐ Cloud Run deploy artifacts (operator-run)
+│   ├── webapi/                       # Dashboard SERVICE: 3-stage Dockerfile (node build →
+│   │                                 #   python deps → runtime), cloudbuild.yaml, deploy.sh
+│   │                                 #   (`make webapi-deploy`; private + IAP)
+│   ├── ingestion/                    # Ingestion JOB: Dockerfile, deploy.sh, schedule*.sh
+│   │                                 #   (nightly / monthly reconcile / monthly Comtrade), alert.sh
+│   └── iam/                          # grant_least_privilege.sh (`make iam-grant`)
+│
 ├── tests/                            # Python tests (pytest)
 │   ├── test_cli.py                   # CLI tests
 │   ├── test_config.py                # Configuration tests
 │   ├── test_ibge_client.py           # IBGE client tests (mocked HTTP)
 │   ├── test_ibge_pipeline.py         # IBGE pipeline tests
+│   ├── test_pam_pipeline.py          # IBGE PAM pipeline tests
 │   ├── test_bcb_client.py            # BCB client tests
 │   ├── test_bcb_series.py            # Generic SGS pipeline tests
 │   ├── test_bcb_inflation_pipeline.py
@@ -191,6 +222,10 @@ embrapa-dashboard-commodities/
 │   ├── test_comtrade_pipeline.py     # COMTRADE pipeline tests (chunked/resumable)
 │   ├── test_core_http.py             # Shared HTTP primitives tests
 │   ├── test_core_raw.py              # Raw-zone tests (land/read/provenance/marker)
+│   ├── test_serving.py               # Serving BFF tests (sql/gateway/cache/curation)
+│   ├── test_webapi_routes.py         # Flask route tests (health, curation auth)
+│   ├── test_webapi_seam.py           # Seam tests (gateway composition)
+│   ├── test_webapi_serializers.py    # Contract-shaping tests
 │   ├── test_gcp_bigquery.py
 │   ├── test_gcp_storage.py
 │   ├── test_backup.py
@@ -213,16 +248,20 @@ embrapa-dashboard-commodities/
 │   ├── auth_architecture.md          # Authentication architecture (Chain of Trust)
 │   ├── cost_safety.md                # Budget alert + custom quota
 │   ├── frontend_data_contract.md     # Gold → frontend data contract
+│   ├── gold_data_model.md            # Gold ER diagram + join guide
 │   ├── iam_setup.md                  # IAM and Service Accounts setup
 │   ├── looker_studio_setup.md        # Looker Studio → Gold connection
 │   ├── migration_history.md          # Historical migration notes
+│   ├── operations_runbook.md         # Occasional prod ops (curators, IAP, backups)
 │   ├── ownership_transfer.md         # Company handoff checklist
 │   ├── setup.md                      # Complete setup guide
 │   └── testing.md                    # Testing strategy and guide
 │
 ├── .github/workflows/                # CI/CD
-│   ├── ci.yml                        # PR gate: lint + test + dbt parse
-│   └── dbt-build-prod.yml            # Automated prod build on push to main
+│   ├── ci.yml                        # PR gate: lint + pytest + dbt parse + Vitest + SQLFluff
+│   ├── dbt-build-prod.yml            # Prod build: push to main + daily schedule + manual
+│   ├── dbt-source-freshness.yml      # Daily Bronze staleness check
+│   └── gitleaks.yml                  # Server-side secret scanning on every push/PR
 │
 ├── .claude/                          # Claude Code configuration
 │   ├── settings.json
@@ -239,12 +278,13 @@ embrapa-dashboard-commodities/
 ├── .pre-commit-config.yaml           # Pre-commit hooks
 ├── .python-version                   # Python pin (3.12.11)
 ├── .gitignore                        # Git exclusions
+├── .dockerignore                     # Build-context hygiene for the deploy/ images
 ├── setup.sh / setup.bat / setup.ps1  # Per-platform automated setup
 ├── test.sh / test.bat                # Testing shortcuts
 └── init_dev_env.sh                   # Sandbox initialization
 ```
 
-> Deleted on 2026-05-29 along with the UI: `src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`.
+> The old Dash UI was deleted on 2026-05-29 (`src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`) and **replaced** in the 2026-06 React migration by `frontend/`, `src/embrapa_commodities/webapi/` and `deploy/webapi/` above — see [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
 
 ---
 
@@ -283,11 +323,12 @@ as a per-run stamped object (append-only trail).
 ### 3. Gold (dbt, `materialized=table`)
 
 - IBGE PEVS table: `gold_pevs_production` — one row per `(reference_year, state_acronym, city_name, product_code)`.
+- IBGE PAM table: `gold_pam_production` — annual crop production (SIDRA table 5457), same `production` form and monetary conventions as PEVS, plus the área plantada/colhida and rendimento médio measures that back the *Produtividade* (área × rendimento) view.
 - MDIC COMEX table: `gold_comex_flows` — one row per `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym, transport_route_code)` (the transport route `via` is part of the grain; `via_name` via the `comex_via` seed). The 4 currency conventions are applied over `VL_FOB` (US$): `val_yearfx_*` at the registration month's FX, and `val_real_*` converting US$→BRL at the month's FX, deflating by the BCB chain and reconverting at the current FX (**monthly** deflation, not annual, because the grain is monthly).
 - UN Comtrade table: `gold_comtrade_flows` — **global** bilateral trade, one row per `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Same 4 conventions over `primaryValue` (US$), but **annual** deflation (year-average FX, year-end inflation index — like PEVS) because the grain is annual. Bilateral geography: `reporter` + `partner` (both M49 → name/ISO3). No double-counting (World dropped in Silver), so `SUM` over partners is the true bilateral total.
 - **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the `commodity_crosswalk` seed (prefix-based links) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
 - **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `implStatus`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
-- **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS only) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the Dash dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-dash-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+- **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Four currency conventions (applicable to any monetary Gold table):
   - `val_yearfx_*` — nominal value converted at the year-average FX. NULL for foreign currencies pre-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — value deflated by the IPCA / IGP-M / IGP-DI chain, projected to today. **Use this column for cross-year comparisons.**
@@ -298,7 +339,7 @@ as a per-run stamped object (append-only trail).
 Two parallel paths, both reading the same Gold tables — they are not exclusive and can coexist:
 
 - **Looker Studio** (no-code): direct connection to the Gold tables (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Good for standardized reports and quick exploration without a deploy. Available now.
-- **Dedicated dashboard (Dash) on Cloud Run — stateless, Pushdown Computing**: a tailored frontend for researchers (UI being rebuilt with the Claude Design System). It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. It translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-dash-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) already lives in [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); the Dockerfile/Cloud Run and the UI components arrive with the Design System handoff.
+- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](../src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); the SPA in [`frontend/`](../frontend/) (React/Vite prototype + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
 
 ---
 
@@ -317,9 +358,11 @@ Does not live in `core/`: source-specific logic (IBGE's per-UF parallelism, BCB'
 
 ---
 
-## Serving Layer — Pushdown Computing (Dash dashboard)
+<a id="serving-layer--pushdown-computing-dash-dashboard"></a>
 
-> **Architectural pivot (2026-06).** The Dash dashboard does **not** load whole
+## Serving Layer — Pushdown Computing (webapi dashboard)
+
+> **Architectural pivot (2026-06).** The dashboard backend does **not** load whole
 > Gold tables into memory (Pandas) behind a global `threading.Lock()` — a design
 > dropped due to OOM risk and concurrency failures. Cloud Run is
 > **stateless**: the UI translates each filter into **parameterized SQL** (`@param`)
@@ -336,6 +379,7 @@ materialized pre-aggregation, partitioned by year and clustered by the filters.
 | Mart (`serving`) | Grain | Feeds |
 |---|---|---|
 | `serving_pevs_annual` | year × UF × produto × família | overviewTS · productTS · ufData (PEVS) |
+| `serving_pam_annual` | year × UF × produto × família | overview · produtividade (área × rendimento) (PAM) |
 | `serving_comex_annual` | year × flow × NCM × UF × country | overview · produto · UF · partner · flow (COMEX) |
 | `serving_comex_seasonality` | year × month × flow × NCM | monthlyData / sazonalidade |
 | `serving_comtrade_annual` | year × flow × cmd × reporter × partner | partner · flow · market-share (COMTRADE) |
@@ -345,16 +389,18 @@ materialized pre-aggregation, partitioned by year and clustered by the filters.
 labels, quarter/semester) and `dim_geo_br` (27 UFs → name / region / abbreviation
 N·NE·CO·SE·S) are the **single source** of the serving joins. They live in the Gold dataset
 (they are *build* inputs baked into the marts, not read live by the UI). The marts
-carry `commodity_id` (via `gold_commodity_crosswalk`) for the live LEFT JOIN
-with the curation dimension.
+carry `commodity_id` (via `gold_commodity_crosswalk`) so a row can be linked to
+its cross-source commodity.
 
 **Own dataset + least privilege.** The marts live in the `serving` dataset
 (`BQ_SERVING_DATASET`), separate from Gold, so that the dashboard's SA
 (`sa-web-dashboard-prod`) is scoped **only** to the serving surface.
 
 **Data-access layer (Python).** [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/)
-is the **UI-agnostic** BFF that Dash imports — **no pages/charts** (those arrive
-with the Design System handoff):
+is the **UI-agnostic** BFF that the `webapi` Flask app imports — **no
+pages/charts** (those live in `frontend/`; `webapi/seam.py` composes these
+readers per view and `webapi/serializers.py` shapes them to the SPA's
+`contracts.js`):
 
 - `sql.py` — builders for **parameterized** SQL (`@param`); the measure column
   (which cannot be a bind param) goes through an **allowlist** against injection.
@@ -366,7 +412,10 @@ with the Design System handoff):
   that bounds the staleness across instances — the one that edits invalidates immediately, the
   others converge within ≤30s. `CACHE_TYPE=RedisCache` (Memorystore) is **optional**,
   only for instant cross-instance consistency under high traffic.
-- `iap.py` — extracts the author from the **IAP** header (`edited_by`).
+- `iap.py` — extracts the curation author (`edited_by`) from IAP: the **signed
+  `X-Goog-IAP-JWT-Assertion`** when `IAP_AUDIENCE` is set (production — see
+  [docs/operations_runbook.md](docs/operations_runbook.md)), else the plaintext
+  header / `CURATION_DEV_AUTHOR` (local dev).
 - `curation.py` — the append-only curation writer (below).
 
 **Cache policy.** Marts change **only** in the overnight dbt rebuild → cache by
@@ -380,35 +429,44 @@ allows scaling to several instances **without Redis**.
 
 ## Dynamic Curation — append-only log + SCD Type 2
 
-Researchers reclassify commodities (processing stage: `in_natura`,
-`beneficiado`, `semi_processado`, `industrializado`, …) through the curation panel.
-The flow **never overwrites Gold**:
+The Curadoria panel curates at **two grains**, each backed by its own append-only
+log in `research_inputs` (written by `serving.curation`, never by dbt). The flow
+**never overwrites Gold**:
 
-1. **Write ("Save" button).** `serving.curation.record_processing_stage` appends
-   **one immutable row** to `research_inputs.commodity_processing_stage_log` (a
-   parameterized `INSERT` DML — consistent for immediate read). The author comes from the
-   **IAP** header `X-Goog-Authenticated-User-Email` into the `edited_by` column — every
-   edit is attributable to a person, never to the Service Account. Then the
-   classification cache is invalidated. The table is **auto-created**
-   (`ensure_curation_log_table`, the house pattern).
-2. **History (SCD Type 2).** The `dim_commodity_scd2` view (`dbt/models/core/`)
-   derives, per commodity, `valid_from` / `valid_to` / `is_current` via
-   `lead(edited_at)` over the log. It is a **view**, not a table: a new `INSERT`
-   appears to the UI **immediately**, with no dbt rebuild. It is gated by
-   `--vars 'enable_curation: true'` (enable it once the log exists, so the default
-   build stays green until then).
-3. **Read (UI).** The dashboard performs a **live LEFT JOIN** between the **static
-   Serving View** (heavy, pre-aggregated mart, with `commodity_id`) and the
-   **live** `dim_commodity_scd2` (light), filtering `is_current` for "now" — or
-   `valid_from <= as_of < valid_to` to reconstruct how the commodity was
-   classified at a past date (traceability).
+- **Per-CODE industrialization** (`record_code_industrialization` →
+  `research_inputs.code_industrialization_log`) — the primary grain. Each
+  "Aplicar" classifies one Gold code (NCM / PEVS product / HS6) as
+  `bruta | processada | misturado`; the value-added analysis splits COMEX exports
+  by the current level.
+- **(Customs procedure × flow) → market nature** (`record_flow_market` →
+  `research_inputs.flow_market_log`) — classifies a (customs_code, flow_code) pair
+  as `consumo | processamento`; backs the market-nature analysis.
+
+Each write follows the same pattern:
+
+1. **Write ("Aplicar" button).** The writer appends **one immutable row** via a
+   parameterized `INSERT` DML (consistent for immediate read). The author comes
+   from the **IAP** header `X-Goog-Authenticated-User-Email` into the `edited_by`
+   column — every edit is attributable to a person, never to the Service Account.
+   Then the relevant classification cache is invalidated. The log tables are
+   **auto-created** on first write (the house pattern).
+2. **History (SCD Type 2).** The `dim_code_industrialization_scd2` view
+   (`dbt/models/core/`) derives, per `(source, code)`, `valid_from` / `valid_to` /
+   `is_current` via `lead(edited_at)` over the log. It is a **view**, not a table:
+   a new `INSERT` appears to the UI **immediately**, with no dbt rebuild. It is
+   gated by `--vars 'enable_curation: true'` (enable it once the log exists, so the
+   default build stays green until then). (The flow-market log is read directly by
+   the BFF — `fetch_current_flow_market` — with no SCD2 view.)
+3. **Read (UI).** The dashboard reads the **live** current classification through
+   the short-TTL cached gateway readers, filtering `is_current` for "now" (or a
+   point-in-time `valid_from <= as_of < valid_to` reconstruction for traceability).
 
 ```
-"Save"   ─► INSERT append-only ─► research_inputs.commodity_processing_stage_log
+"Aplicar"  ─► INSERT append-only ─► research_inputs.code_industrialization_log
                                               │  (lead() → valid_from/valid_to/is_current)
                                               ▼
-   Serving mart (static)       ──live LEFT JOIN──►  dim_commodity_scd2 (view)
-   by commodity_id                                   is_current = true
+                                   dim_code_industrialization_scd2 (view, gated)
+                                              is_current = true
 ```
 
 ---
@@ -459,7 +517,7 @@ A **Service Account Impersonation** model (OAuth 2.0) with no distributed keyfil
 - **`sa-data-pipeline-prod`**: ingestion pipelines (write GCS + BQ)
 - **`sa-ai-agent-admin-prod`**: AI agents (BQ editor + GCS)
 
-> The `sa-web-dashboard-prod` SA is the **runtime of the stateless dashboard on Cloud Run**. With Pushdown Computing it is scoped to **least privilege**: `roles/bigquery.dataViewer` **only on the `serving` dataset** (marts + `dim_commodity_scd2`) — not on all of Gold — plus `roles/bigquery.jobUser` (project-level) to run the queries, and `roles/bigquery.dataEditor` **only on the `research_inputs` dataset** for the append-only curation `INSERT`. The dashboard sits **behind IAP** as a **hard deploy requirement** — the Service is published with `--ingress internal-and-cloud-load-balancing` + `--no-allow-unauthenticated` behind a Load Balancer with IAP enabled, so that the `X-Goog-Authenticated-User-Email` header (the source of the auditable `edited_by`) cannot be forged. Details and the rationale for each flag in [`docs/auth_architecture.md` § Dashboard ingress](docs/auth_architecture.md#dashboard-ingress--iap-behind-a-load-balancer-hard-requirement). It is dormant while the UI is rebuilt in the Claude Design System. **Looker Studio does not use this SA** — it consumes Gold via the end user's OAuth (an independent consumption path).
+> The `sa-web-dashboard-prod` SA is the **runtime of the stateless dashboard on Cloud Run**. With Pushdown Computing it is scoped to **least privilege**: `roles/bigquery.dataViewer` **only on the `serving` dataset** (marts + `dim_code_industrialization_scd2`) — not on all of Gold — plus `roles/bigquery.jobUser` (project-level) to run the queries, and `roles/bigquery.dataEditor` **only on the `research_inputs` dataset** for the append-only curation `INSERT`. The dashboard sits **behind IAP** as a **hard deploy requirement** — the Service is published with `--ingress internal-and-cloud-load-balancing` + `--no-allow-unauthenticated` behind a Load Balancer with IAP enabled, so that the `X-Goog-Authenticated-User-Email` header (the source of the auditable `edited_by`) cannot be forged. Details and the rationale for each flag in [`docs/auth_architecture.md` § Dashboard ingress](docs/auth_architecture.md#dashboard-ingress--iap-behind-a-load-balancer-hard-requirement). It is the **live runtime SA of the deployed webapi Service** (`deploy/webapi/deploy.sh` deploys as this SA). **Looker Studio does not use this SA** — it consumes Gold via the end user's OAuth (an independent consumption path).
 
 Full details in [`docs/auth_architecture.md`](docs/auth_architecture.md) and [`docs/iam_setup.md`](docs/iam_setup.md).
 
@@ -469,14 +527,19 @@ Full details in [`docs/auth_architecture.md`](docs/auth_architecture.md) and [`d
 
 ### GitHub Actions (`ci.yml`)
 
-Runs on every PR to `main`:
-1. `make lint` — Ruff check + format
-2. `make test` — pytest (no GCP credentials)
-3. `dbt deps` + `dbt parse` — Jinja + ref/source validation without a warehouse
+Runs on every PR to `main` (three parallel jobs):
+1. `ci` — `make lint` (Ruff check + format), `make test` (pytest, no GCP credentials), `dbt deps` + `dbt parse` (Jinja + ref/source validation without a warehouse), non-blocking `pip-audit`.
+2. `frontend` — ESLint + Vitest over `frontend/` (Node-only, no GCP), non-blocking `npm audit`.
+3. `sqlfluff` — SQL lint via the dbt templater (needs a real `dbt compile`, so it authenticates via keyless WIF; skipped on fork PRs).
 
 ### dbt build prod (`dbt-build-prod.yml`)
 
-A push to `main` that touches `dbt/**` or `config.py` triggers a prod Silver/Gold build via Workload Identity Federation. Gold snapshots remain manual (`make dbt-build-prod-with-backup` locally, before release boundaries).
+A push to `main` that touches `dbt/**` or `config.py` triggers a prod Silver/Gold build via Workload Identity Federation; a **daily schedule** (11:30 UTC) also rebuilds prod so ingested Bronze reaches Silver/Gold/serving without a code push. Once curation is activated in prod, the repo variable `DBT_ENABLE_CURATION=true` makes every automated build carry `--vars 'enable_curation: true'` (see [docs/operations_runbook.md](docs/operations_runbook.md)). Gold snapshots remain manual (`make dbt-build-prod-with-backup` locally, before release boundaries).
+
+### Other workflows
+
+- `dbt-source-freshness.yml` — daily Bronze staleness check against the dbt freshness thresholds.
+- `gitleaks.yml` — server-side secret scanning on every push/PR (full history).
 
 ---
 
@@ -485,7 +548,7 @@ A push to `main` that touches `dbt/**` or `config.py` triggers a prod Silver/Gol
 The `embrapa ingest all` CLI is packaged as a **Cloud Run Job** — **not** a
 Service. The distinction is deliberate:
 
-| | **Job** (ingestion) | **Service** (Dash dashboard) |
+| | **Job** (ingestion) | **Service** (webapi dashboard) |
 |---|---|---|
 | Nature | batch, ephemeral — runs to completion and stops | stateless, always-on, scales to zero |
 | HTTP port | no | yes (Gunicorn) |
@@ -507,10 +570,13 @@ typical failures of a public source:
 - A total failure emits an event (the basis for the ROADMAP's failure notification).
 
 > **Artifacts** in [`deploy/ingestion/`](deploy/ingestion/): `Dockerfile` (the Job's
-> image — distinct from the dashboard *Service*'s Dockerfile), `cloudbuild.yaml`,
-> `deploy.sh` (build + create/update the Job by reading the `.env`) and `schedule.sh` (create/
-> update the Scheduler trigger). Shortcuts: `make ingest-job-deploy` and
-> `make ingest-job-schedule`. The actual deploy (running the scripts in the GCP project) is
+> image — distinct from the dashboard *Service*'s Dockerfile in `deploy/webapi/`),
+> `cloudbuild.yaml`, `deploy.sh` (build + create/update the Job by reading the `.env`),
+> `schedule.sh` (nightly trigger), `schedule_reconcile.sh` (monthly deep-refresh),
+> `schedule_comtrade.sh` (monthly UN Comtrade backfill) and `alert.sh` (failure alert).
+> Shortcuts: `make ingest-job-deploy`, `make ingest-job-schedule`,
+> `make ingest-job-reconcile-schedule`, `make ingest-job-comtrade-schedule`,
+> `make ingest-job-alert`. The actual deploy (running the scripts in the GCP project) is
 > an operator step — the backend they invoke (`embrapa ingest all`) is already
 > ready and is the same path tested locally.
 

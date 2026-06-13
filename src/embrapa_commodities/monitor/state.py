@@ -170,6 +170,13 @@ class MonitorState:
         self.errors: int = 0
         # state_acronym → {"status", "rows", "duration_s", "started_at", "last_seen"}
         self.states: dict[str, dict[str, Any]] = {}
+        # Only IBGE-style pipelines (PEVS/PAM) emit state_* events — COMEX/
+        # COMTRADE/BCB chunks have no per-UF sweep. Sticky across chunks so the
+        # renderer can decide whether the "Chunk states x/27" bar applies at all.
+        self.saw_state_events: bool = False
+        # Whether any event has carried a row count yet — lets the renderer show
+        # "rows ?" instead of a misleading 0 for pipelines that never report rows.
+        self.rows_seen: bool = False
         self.recent: deque[tuple[str, str, str]] = deque(maxlen=RECENT_EVENTS)
         self.last_event_at: float | None = None
         # ── ETA fuel ──────────────────────────────────────────────────────
@@ -207,6 +214,7 @@ class MonitorState:
         self.states = {}
 
     def _on_state_start(self, ev: dict[str, Any], ts: float) -> None:
+        self.saw_state_events = True
         uf = ev.get("state", "?")
         self.states[uf] = {
             "status": "running",
@@ -217,6 +225,7 @@ class MonitorState:
         }
 
     def _on_state_end(self, ev: dict[str, Any], ts: float) -> None:
+        self.saw_state_events = True
         uf = ev.get("state", "?")
         self.states.setdefault(uf, {"started_at": ts})
         self.states[uf].update(
@@ -230,6 +239,7 @@ class MonitorState:
             self.state_durations.append(float(d))
 
     def _on_state_error(self, ev: dict[str, Any], ts: float) -> None:
+        self.saw_state_events = True
         uf = ev.get("state", "?")
         self.states.setdefault(uf, {"started_at": ts})
         err = ev.get("error", "?")
@@ -246,10 +256,15 @@ class MonitorState:
 
     def _on_ingest_loaded(self, ev: dict[str, Any], ts: float) -> None:
         self.rows_total += int(ev.get("rows", 0) or 0)
+        self.rows_seen = True
 
     def _on_chunk_end(self, ev: dict[str, Any], ts: float) -> None:
         self.chunks_done += 1
-        self.rows_total += int(ev.get("rows", 0) or 0)
+        # Not every producer reports rows on chunk_end (ChunkTracker.finish
+        # doesn't) — only count + mark rows as known when the field is present.
+        if "rows" in ev:
+            self.rows_total += int(ev.get("rows", 0) or 0)
+            self.rows_seen = True
         d = ev.get("duration_s")
         if isinstance(d, int | float):
             self.chunk_durations.append(float(d))
@@ -324,9 +339,10 @@ def _summarize_state_error(ev: dict[str, Any]) -> str:
 
 
 def _summarize_retry(ev: dict[str, Any]) -> str:
+    # IBGE retries carry "state" (a UF); COMEX/COMTRADE/BCB carry "series".
+    target = ev.get("state") or ev.get("series") or "?"
     return (
-        f"retry {ev.get('state', '?')} attempt={ev.get('attempt', '?')} "
-        f"reason={str(ev.get('reason', '?'))[:50]}"
+        f"retry {target} attempt={ev.get('attempt', '?')} reason={str(ev.get('reason', '?'))[:50]}"
     )
 
 

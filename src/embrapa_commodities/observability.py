@@ -6,6 +6,13 @@ CLI and by anyone grepping for incidents.
 
 Design rules:
     * Events are append-only and ordered. The monitor relies on ordering.
+    * One plain (non-rotating) file per run. The monitor tails by byte offset,
+      so mid-run rotation would rename the live file from under the tailer and
+      silently freeze it (offset past the fresh file's EOF) — see
+      ``monitor.render._tail_jsonl``. Growth is bounded per run, not per file:
+      events are short single lines (~200 B), so even the largest observed
+      backfill (COMTRADE, 252 reporters × retry/truncated events) stays well
+      under ~100 MB; old run files are cheap to prune from ``$EMBRAPA_LOG_DIR``.
     * Each event has ``ts`` (UTC ISO-8601) and ``event`` (slug). Other fields
       are event-specific — never re-key existing ones across versions.
     * Logging here is independent of the existing root logger so JSON never
@@ -18,13 +25,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 DEFAULT_LOG_DIR = Path.home() / ".embrapa" / "logs"
-_MAX_BYTES = 10 * 1024 * 1024  # 10 MB before rotation
-_BACKUP_COUNT = 5  # keep 5 rotations → ~60 MB ceiling per run
+
+# run_id slug produced by init_run — fixed-width UTC timestamp.
+_RUN_ID_PATTERN = r"\d{8}T\d{6}Z"
 
 _event_logger: logging.Logger | None = None
 _current_run_id: str | None = None
@@ -52,17 +60,15 @@ def init_run(pipeline: str) -> tuple[str, Path]:
     logger.setLevel(logging.INFO)
     for handler in list(logger.handlers):
         # close() before removeHandler() — removeHandler only detaches; the
-        # RotatingFileHandler keeps its file open until GC otherwise. Re-init
+        # FileHandler keeps its file open until GC otherwise. Re-init
         # of the same pipeline name in one process (tests, future multi-run
         # flows) would leak a file handle per call without this.
         handler.close()
         logger.removeHandler(handler)
-    handler = RotatingFileHandler(
-        _current_log_path,
-        maxBytes=_MAX_BYTES,
-        backupCount=_BACKUP_COUNT,
-        encoding="utf-8",
-    )
+    # Plain FileHandler on purpose — NOT RotatingFileHandler. Rotation renames
+    # the live file and replaces it with an empty one, which breaks the
+    # monitor's append-only byte-offset tail (see module docstring).
+    handler = logging.FileHandler(_current_log_path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
     logger.propagate = False  # don't leak JSON into the root rich console
@@ -80,12 +86,21 @@ def emit(event: str, **fields: object) -> None:
 
 
 def latest_log_path(pipeline: str | None = None) -> Path | None:
-    """Most recently modified log file, optionally filtered by pipeline prefix."""
+    """Most recently modified log file, optionally filtered by exact pipeline name.
+
+    The filter anchors the run_id slug after the pipeline name — pipeline names
+    themselves contain hyphens (``ibge-batch``, ``ibge-pam``, ``bcb-currency``),
+    so a bare prefix glob for ``ibge`` would also match ``ibge-batch-*`` /
+    ``ibge-pam-*`` logs and silently attach the monitor to the wrong run.
+    """
     directory = log_dir()
     if not directory.exists():
         return None
-    pattern = f"{pipeline}-*.jsonl" if pipeline else "*.jsonl"
-    candidates = list(directory.glob(pattern))
+    if pipeline:
+        name_re = re.compile(rf"{re.escape(pipeline)}-{_RUN_ID_PATTERN}\.jsonl")
+        candidates = [p for p in directory.glob(f"{pipeline}-*.jsonl") if name_re.fullmatch(p.name)]
+    else:
+        candidates = list(directory.glob("*.jsonl"))
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)

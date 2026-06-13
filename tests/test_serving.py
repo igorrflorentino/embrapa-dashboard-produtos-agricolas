@@ -15,6 +15,54 @@ from google.cloud import bigquery
 from embrapa_commodities.config import Settings
 from embrapa_commodities.serving import iap, sql
 
+
+def _isolated_settings(**over) -> Settings:
+    """Construct a Settings hermetically — never read the developer's .env.
+
+    Settings has ``model_config env_file=".env"`` and the documented dev setup
+    (``cp .env.example .env``) drops a real .env at repo root, so any field not
+    passed here would otherwise be read from it. Several assertions in this file
+    depend on default values (the literal serving/gold dataset names, the comtrade
+    reporter ISO, the mart-vs-classification TTL ordering), so a dev who set e.g.
+    ``BQ_SERVING_DATASET`` or ``CACHE_DEFAULT_TIMEOUT`` in .env would otherwise see
+    spurious failures (or worse, spurious passes masking a regression). Pinning
+    ``_env_file=None`` makes the defaults authoritative.
+    """
+    over.setdefault("gcp_project_id", "p")
+    return Settings(_env_file=None, **over)  # type: ignore[call-arg]
+
+
+@pytest.fixture(autouse=True)
+def _restore_classification_ttls():
+    """Restore the gateway readers' writable ``cache_timeout`` after each test.
+
+    ``init_cache`` / ``_bind_classification_ttl`` mutate the ``cache_timeout``
+    attribute of three module-level memoized singletons (the curation reads + the
+    curator allowlist). The TTL-binding tests call ``init_cache`` with a non-default
+    value, so without teardown they leave the singleton pinned to that value,
+    leaking into every later test (e.g. ``test_classification_cache_uses_short_ttl``
+    would see a stray TTL). Snapshot before, restore after — independent of import
+    order or which test ran. Skipped when flask-caching is absent (gateway won't
+    import).
+    """
+    try:
+        from embrapa_commodities.serving import gateway
+    except Exception:
+        yield
+        return
+    names = (
+        "fetch_current_code_industrialization",
+        "fetch_current_flow_market",
+        "fetch_curators",
+    )
+    saved = {n: getattr(gateway, n).cache_timeout for n in names}
+    try:
+        yield
+    finally:
+        for n, value in saved.items():
+            getattr(gateway, n).cache_timeout = value
+
+
 # ── iap: author email parsing ─────────────────────────────────────────────────
 
 
@@ -209,9 +257,13 @@ def test_filter_column_allowlist_blocks_injection():
     assert len(conditions) == 1
 
 
-def test_current_classifications_filters_is_current():
-    query, params = sql.current_classifications("p.serving.dim_commodity_scd2")
-    assert "where is_current" in query.lower()
+def test_months_present_per_year_counts_distinct_months():
+    """The partial-latest-year signal source: distinct months per year from the
+    monthly mart (a year with < 12 months is partial)."""
+    query, params = sql.months_present_per_year("p.serving.serving_comex_seasonality")
+    low = query.lower()
+    assert "count(distinct reference_month) as n_months" in low
+    assert "group by reference_year" in low
     assert params == []
 
 
@@ -224,7 +276,7 @@ def test_current_code_industrialization_filters_is_current():
 
 
 def test_table_ref_builds_fqn():
-    settings = Settings(gcp_project_id="my-proj", bq_serving_dataset="serving")
+    settings = _isolated_settings(gcp_project_id="my-proj", bq_serving_dataset="serving")
     assert (
         sql.table_ref(settings, "bq_serving_dataset", "serving_pevs_annual")
         == "my-proj.serving.serving_pevs_annual"
@@ -245,6 +297,116 @@ def test_production_by_uf_groups_by_state():
     by_name = {p.name: p for p in params}
     assert by_name["year_start"].value == 2010
     assert by_name["product_codes"].values == ["3405"]
+
+
+def test_production_by_uf_scopes_to_latest_year_by_default():
+    """ufData's choropleth is a single labelled year compared to a latest-year KPI,
+    so the by-UF reader must pin to the MAX year under the same filters — never
+    cumulate the whole [year_start, year_end] window (the all-years inflation bug)."""
+    query, params = sql.production_by_uf(
+        "p.serving.serving_pevs_annual",
+        year_start=2020,
+        year_end=2022,
+        product_codes=("3405",),
+    )
+    low = query.lower()
+    # The latest-year predicate is a correlated subquery re-applying the SAME filters.
+    assert "reference_year = (select max(reference_year)" in low
+    assert low.count("reference_year >= @year_start") == 2  # outer + subquery
+    assert low.count("product_code in unnest(@product_codes)") == 2
+    # The filter VALUES are bound ONCE even though referenced twice in the SQL.
+    by_name = [p.name for p in params]
+    assert by_name.count("year_start") == 1 and by_name.count("product_codes") == 1
+
+
+def test_production_by_uf_latest_year_tiles_sum_to_national_latest(monkeypatch):
+    """Behavioral lock for the all-years inflation bug (FINDING #1): under a
+    MULTI-YEAR fixture, the latest-year-scoped by-UF reader's tiles must sum to the
+    national LATEST-year total — never to the all-years cumulative (which inflated
+    each UF by the number of covered years). Simulates the builder's latest-year
+    predicate with pandas (no BigQuery), so a regression to all-years SUM is caught.
+    """
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_commodities.serving import gateway
+
+    # 3 years × 2 UFs. All-years cumulative PA = 100+136+1873; the bug summed those.
+    rows = [
+        {"reference_year": 1986, "state_acronym": "PA", "value": 100.0},
+        {"reference_year": 1986, "state_acronym": "SP", "value": 10.0},
+        {"reference_year": 2000, "state_acronym": "PA", "value": 136.0},
+        {"reference_year": 2000, "state_acronym": "SP", "value": 20.0},
+        {"reference_year": 2024, "state_acronym": "PA", "value": 1873.0},
+        {"reference_year": 2024, "state_acronym": "SP", "value": 1739.0},
+    ]
+    full = pd.DataFrame(rows)
+
+    def fake_run(query, params):
+        low = query.lower()
+        if "select max(reference_year)" in low:
+            # Latest-year-scoped reader → only the max year's per-UF rows.
+            latest = full[full["reference_year"] == full["reference_year"].max()]
+            return (
+                latest.groupby("state_acronym")["value"]
+                .sum()
+                .reset_index()
+                .rename(columns={"value": "total_value"})
+            )
+        # National per-year overview (groups by year over the whole window).
+        return (
+            full.groupby("reference_year")["value"]
+            .sum()
+            .reset_index()
+            .rename(columns={"value": "total_value"})
+        )
+
+    monkeypatch.setattr(gateway, "run_query", fake_run)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        uf = gateway.fetch_production_by_uf(year_start=1986, year_end=2024)
+        overview = gateway.fetch_production_overview(year_start=1986, year_end=2024)
+
+    national_latest = float(
+        overview.loc[overview["reference_year"].idxmax(), "total_value"]
+    )  # 2024 national = 1873 + 1739 = 3612
+    uf_tile_sum = float(uf["total_value"].sum())
+    assert national_latest == 3612.0
+    assert uf_tile_sum == national_latest  # tiles sum to the latest-year national
+
+
+def test_production_by_uf_cumulative_when_latest_year_only_false():
+    """The export-coefficient by-UF reader opts out: it needs the window-cumulative
+    sum (production vs export accumulated over the same common-year window)."""
+    query, _ = sql.production_by_uf(
+        "p.serving.serving_pevs_annual", year_start=1997, year_end=2000, latest_year_only=False
+    )
+    assert "select max(reference_year)" not in query.lower()
+    assert "group by state_acronym" in query
+
+
+def test_comex_by_uf_scopes_to_latest_year_by_default():
+    """Same latest-year scoping as production_by_uf for the COMEX choropleth."""
+    query, params = sql.comex_by_uf(
+        "p.serving.serving_comex_annual", year_start=2018, year_end=2024, ncm_codes=("08012100",)
+    )
+    low = query.lower()
+    assert "reference_year = (select max(reference_year)" in low
+    assert low.count("ncm_code in unnest(@ncm_codes)") == 2
+    assert [p.name for p in params].count("ncm_codes") == 1
+
+
+def test_comex_by_uf_cumulative_when_latest_year_only_false():
+    query, _ = sql.comex_by_uf(
+        "p.serving.serving_comex_annual",
+        ncm_codes=("08012100",),
+        flow="export",
+        latest_year_only=False,
+    )
+    assert "select max(reference_year)" not in query.lower()
 
 
 def test_comex_seasonality_filters_flow_and_ncm():
@@ -306,6 +468,55 @@ def test_comex_by_uf_groups_by_state_with_weight():
     assert {p.name: p for p in params}["flow"].value == "import"
 
 
+def test_trade_overview_serves_real_brl_column_when_requested():
+    """A BRL display selects the REAL year-FX BRL column the trade mart now carries —
+    NOT val_yearfx_usd (the frontend used to cross-convert USD via a mock rate)."""
+    query, _ = sql.trade_overview(
+        "p.serving.serving_comex_annual",
+        code_column="ncm_code",
+        value_column="val_yearfx_brl",
+    )
+    assert "sum(val_yearfx_brl)" in query
+    assert "sum(val_yearfx_usd)" not in query
+    # The output alias stays total_value_usd so the seam's rename stays uniform.
+    assert "as total_value_usd" in query
+
+
+def test_comex_by_uf_serves_real_eur_column_when_requested():
+    """A EUR display selects the REAL deflated EUR column (weight stays raw kg)."""
+    query, _ = sql.comex_by_uf(
+        "p.serving.serving_comex_annual",
+        ncm_codes=("08012100",),
+        value_column="val_real_ipca_eur",
+    )
+    assert "sum(val_real_ipca_eur)" in query
+    assert "sum(val_yearfx_usd)" not in query
+    assert "sum(net_weight_kg)" in query  # weight is currency-independent
+
+
+def test_comex_by_uf_yearly_serves_real_brl_column_when_requested():
+    query, _ = sql.comex_by_uf_yearly(
+        "p.serving.serving_comex_annual",
+        ncm_codes=("08012100",),
+        value_column="val_real_ipca_brl",
+    )
+    assert "sum(val_real_ipca_brl)" in query
+    assert "sum(val_yearfx_usd)" not in query
+
+
+def test_trade_value_column_allowlist_blocks_injection():
+    """The trade value_column is interpolated as an identifier, so an off-allowlist
+    value (e.g. an injection attempt) must raise rather than reach the SQL."""
+    import pytest
+
+    with pytest.raises(ValueError, match="value_column"):
+        sql.trade_overview(
+            "p.serving.serving_comex_annual",
+            code_column="ncm_code",
+            value_column="val_yearfx_usd; drop table serving_comex_annual",
+        )
+
+
 def test_trade_by_partner_splits_export_and_import():
     query, params = sql.trade_by_partner(
         "p.serving.serving_comex_annual",
@@ -336,6 +547,60 @@ def test_trade_flows_groups_by_origin_and_dest():
     assert "any_value(reporter_name)" in query
     assert "any_value(partner_name)" in query
     assert "sum(val_yearfx_usd)" in query
+
+
+def test_trade_flows_narrows_to_origin_ufs_when_uf_codes_given():
+    # COMEX origin = state_acronym: a UF filter must add an IN UNNEST predicate
+    # bound as a param (never f-string interpolated).
+    query, params = sql.trade_flows(
+        "p.serving.serving_comex_annual",
+        origin_code_column="state_acronym",
+        origin_name_column="state_name",
+        dest_code_column="country_code",
+        dest_name_column="country_name",
+        code_column="ncm_code",
+        uf_codes=("PA", "SP"),
+    )
+    assert "state_acronym in unnest(@uf_codes)" in query.lower()
+    by_name = {p.name: p for p in params}
+    assert by_name["uf_codes"].values == ["PA", "SP"]
+
+
+def test_trade_flows_no_uf_codes_adds_no_uf_predicate():
+    # Empty/absent UF list = no filter (the existing convention) — no @uf_codes.
+    query, params = sql.trade_flows(
+        "p.serving.serving_comex_annual",
+        origin_code_column="state_acronym",
+        origin_name_column="state_name",
+        dest_code_column="country_code",
+        dest_name_column="country_name",
+        code_column="ncm_code",
+    )
+    assert "uf_codes" not in query.lower()
+    assert not any(p.name == "uf_codes" for p in params)
+
+
+def test_trade_by_partner_narrows_to_origin_ufs_when_uf_codes_given():
+    query, params = sql.trade_by_partner(
+        "p.serving.serving_comex_annual",
+        partner_code_column="country_code",
+        partner_name_column="country_name",
+        code_column="ncm_code",
+        uf_codes=("PA",),
+    )
+    assert "state_acronym in unnest(@uf_codes)" in query.lower()
+    assert {p.name: p for p in params}["uf_codes"].values == ["PA"]
+
+
+def test_trade_by_partner_no_uf_codes_adds_no_uf_predicate():
+    query, params = sql.trade_by_partner(
+        "p.serving.serving_comex_annual",
+        partner_code_column="country_code",
+        partner_name_column="country_name",
+        code_column="ncm_code",
+    )
+    assert "uf_codes" not in query.lower()
+    assert not any(p.name == "uf_codes" for p in params)
 
 
 def test_quality_by_source_filters_source():
@@ -400,6 +665,9 @@ def test_product_timeseries_sums_value_and_native_quantity():
     assert "group by product_code, reference_year" in query
     assert "sum(val_real_ipca_brl)" in query
     assert "sum(qty_native)" in query
+    # qty_base (t / m³) rides along: it is the ONE quantity the snapshot scales
+    # for display — trade sources mix kg- and t-native codes inside 'massa'.
+    assert "sum(qty_base)       as total_qty_base" in query
     assert "any_value(family)" in query
     assert "product_code in unnest(@codes)" in query.lower()
     by_name = {p.name: p for p in params}
@@ -477,71 +745,7 @@ def test_cross_annual_world_total_omits_reporter_filter():
 
 
 def _settings() -> Settings:
-    return Settings(gcp_project_id="test-project")
-
-
-def test_record_processing_stage_inserts_parameterized_row_with_author(monkeypatch):
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-
-    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
-    settings = _settings()
-    client = mock.Mock()
-    client.query.return_value.result.return_value = None
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-
-    record = curation.record_processing_stage(
-        "castanha_do_para",
-        "beneficiado",
-        headers,
-        note="reviewed 2026",
-        settings=settings,
-        client=client,
-        invalidate_cache=False,
-    )
-
-    assert record["edited_by"] == "alice@embrapa.br"
-    assert record["commodity_id"] == "castanha_do_para"
-    sql_text = client.query.call_args.args[0].lower()
-    assert "insert into" in sql_text
-    assert "current_timestamp()" in sql_text  # server-side stamp, not client clock
-    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
-    assert params["commodity_id"] == "castanha_do_para"
-    assert params["processing_stage"] == "beneficiado"
-    assert params["edited_by"] == "alice@embrapa.br"
-    assert params["note"] == "reviewed 2026"
-
-
-def test_record_processing_stage_rejects_empty_inputs():
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError):
-        curation.record_processing_stage(
-            "", "beneficiado", headers, settings=_settings(), client=mock.Mock()
-        )
-
-
-def test_ensure_curation_log_table_creates_with_explicit_schema(monkeypatch):
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-
-    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    client = mock.Mock()
-    fqn = curation.ensure_curation_log_table(settings=_settings(), client=client)
-
-    assert fqn.endswith(".commodity_processing_stage_log")
-    table_arg = client.create_table.call_args.args[0]
-    assert {f.name for f in table_arg.schema} == {
-        "commodity_id",
-        "processing_stage",
-        "note",
-        "edited_by",
-        "edited_at",
-        "change_id",
-    }
-    assert client.create_table.call_args.kwargs["exists_ok"] is True
+    return _isolated_settings(gcp_project_id="test-project")
 
 
 def test_record_code_industrialization_inserts_parameterized_row_with_author(monkeypatch):
@@ -765,15 +969,15 @@ def test_memoize_avoids_repeated_bigquery_roundtrip(monkeypatch):
 
     def fake_run(query, params):
         calls["n"] += 1
-        return [("castanha_do_para", "beneficiado")]
+        return [("mdic_comex", "08013200", "processada")]
 
     monkeypatch.setattr(gateway, "run_query", fake_run)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
 
     with app.app_context():
         cache.clear()
-        gateway.fetch_current_classifications()
-        gateway.fetch_current_classifications()  # served from cache
+        gateway.fetch_current_code_industrialization()
+        gateway.fetch_current_code_industrialization()  # served from cache
 
     assert calls["n"] == 1
 
@@ -787,7 +991,7 @@ def test_classification_cache_uses_short_ttl_for_multiinstance():
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway
 
-    mart_ttl = Settings(gcp_project_id="p").cache_default_timeout
+    mart_ttl = _isolated_settings().cache_default_timeout
     assert gateway.DEFAULT_CLASSIFICATION_TTL <= 60
     assert mart_ttl > gateway.DEFAULT_CLASSIFICATION_TTL
 
@@ -806,13 +1010,34 @@ def test_init_cache_binds_classification_ttl_from_settings():
     from embrapa_commodities.serving import gateway
     from embrapa_commodities.serving.cache import init_cache
 
-    settings = Settings(gcp_project_id="p", cache_classification_timeout=17)
+    settings = _isolated_settings(cache_classification_timeout=17)
     app = Flask(__name__)
     init_cache(app, settings)
 
-    effective = gateway.fetch_current_classifications.cache_timeout
+    effective = gateway.fetch_current_code_industrialization.cache_timeout
     assert effective == 17
     assert effective == settings.cache_classification_timeout
+
+
+def test_init_cache_binds_classification_ttl_to_curator_allowlist():
+    """The curator-allowlist read honors CACHE_CLASSIFICATION_TIMEOUT too.
+
+    fetch_curators gates POST /api/curation/* authorization, so lowering the TTL to
+    revoke a removed curator faster must actually take effect — it must not stay
+    pinned at the decoration-time DEFAULT_CLASSIFICATION_TTL.
+    """
+    pytest.importorskip("flask_caching")
+    from flask import Flask
+
+    from embrapa_commodities.serving import gateway
+    from embrapa_commodities.serving.cache import init_cache
+
+    settings = _isolated_settings(cache_classification_timeout=7)
+    app = Flask(__name__)
+    init_cache(app, settings)
+
+    assert gateway.fetch_curators.cache_timeout == 7
+    assert gateway.fetch_curators.cache_timeout == settings.cache_classification_timeout
 
 
 # ── gateway: mart readers exercise SQL + params + allowlist ───────────────────
@@ -841,7 +1066,7 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -870,7 +1095,7 @@ def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -881,6 +1106,77 @@ def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
     assert "group by state_acronym" in recorded["query"]
     assert "sum(val_yearfx_usd)" in recorded["query"]
     assert recorded["params"]["year_start"].value == 2015
+
+
+def test_fetch_production_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
+    """fetch_production_by_uf defaults to the latest-year scoping; latest_year_only
+    =False threads through to the cumulative builder (export-coefficient path)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_production_by_uf(year_start=2020, year_end=2022)  # default → latest
+        assert "select max(reference_year)" in recorded["query"].lower()
+        cache.clear()
+        gateway.fetch_production_by_uf(year_start=2020, year_end=2022, latest_year_only=False)
+        assert "select max(reference_year)" not in recorded["query"].lower()
+
+
+def test_fetch_comex_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comex_by_uf(ncm_codes=("0801",))  # default → latest
+        assert "select max(reference_year)" in recorded["query"].lower()
+        cache.clear()
+        gateway.fetch_comex_by_uf(ncm_codes=("0801",), latest_year_only=False)
+        assert "select max(reference_year)" not in recorded["query"].lower()
+
+
+def test_fetch_comex_months_per_year_queries_seasonality_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_comex_months_per_year()
+
+    assert out == "df"
+    assert "p.serving.serving_comex_seasonality" in recorded["query"]
+    assert "count(distinct reference_month)" in recorded["query"].lower()
 
 
 def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
@@ -895,7 +1191,7 @@ def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -920,7 +1216,7 @@ def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -946,7 +1242,7 @@ def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -971,7 +1267,7 @@ def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -994,7 +1290,7 @@ def test_fetch_products_dispatches_to_source_mart(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1017,7 +1313,7 @@ def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1042,7 +1338,7 @@ def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1058,7 +1354,7 @@ def test_fetch_products_unknown_source_raises(monkeypatch):
     from embrapa_commodities.serving import gateway
 
     monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1079,7 +1375,7 @@ def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1104,7 +1400,7 @@ def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", recorder)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1119,7 +1415,7 @@ def test_fetch_cross_series_unknown_metric_raises(monkeypatch):
     from embrapa_commodities.serving import gateway
 
     monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1137,7 +1433,7 @@ def test_gateway_rejects_invalid_value_column(monkeypatch, fetch_name):
     monkeypatch.setattr(
         gateway, "run_query", lambda *a, **k: pytest.fail("must reject before querying")
     )
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -1157,7 +1453,7 @@ def test_run_query_executes_with_parameterized_job_config(monkeypatch):
     fake_client.query.return_value.result.return_value.to_dataframe.return_value = "DF"
     monkeypatch.setattr(gateway, "_client", lambda: fake_client)
     monkeypatch.setattr(
-        gateway, "get_settings", lambda: Settings(gcp_project_id="p", bq_max_bytes_billed=4242)
+        gateway, "get_settings", lambda: _isolated_settings(bq_max_bytes_billed=4242)
     )
 
     params = [bigquery.ScalarQueryParameter("year_start", "INT64", 2000)]
@@ -1185,7 +1481,7 @@ def test_init_cache_selects_simplecache_by_default():
     from embrapa_commodities.serving.cache import init_cache
 
     app = Flask(__name__)
-    init_cache(app, Settings(gcp_project_id="p"))
+    init_cache(app, _isolated_settings())
     # app.extensions["cache"] maps the Cache instance -> its bound backend object.
     backend = next(iter(app.extensions["cache"].values()))
     assert type(backend).__name__ == "SimpleCache"
@@ -1209,8 +1505,7 @@ def test_init_cache_selects_redis_when_configured(monkeypatch):
     # The TTL-binding step pokes gateway; make it a harmless no-op here.
     monkeypatch.setattr(cache_mod, "_bind_classification_ttl", lambda t: None)
 
-    settings = Settings(
-        gcp_project_id="p",
+    settings = _isolated_settings(
         cache_type="RedisCache",
         cache_redis_url="redis://cache:6379/0",
     )
@@ -1223,8 +1518,8 @@ def test_init_cache_selects_redis_when_configured(monkeypatch):
 # ── curation: cache invalidation on save (the "scales without Redis" pillar) ──
 
 
-def test_save_invalidates_classification_cache(monkeypatch):
-    """record_processing_stage(invalidate_cache=True) must force the next read to re-query.
+def test_save_invalidates_code_industrialization_cache(monkeypatch):
+    """record_code_industrialization(invalidate_cache=True) forces the next read to re-query.
 
     This is the core of "scales to N Cloud Run instances without Redis": the
     writing instance drops its cached classification so the edit is immediately
@@ -1239,10 +1534,10 @@ def test_save_invalidates_classification_cache(monkeypatch):
 
     def fake_run(query, params):
         calls["n"] += 1
-        return [("castanha_do_para", "beneficiado")]
+        return [("mdic_comex", "08013200", "processada")]
 
     monkeypatch.setattr(gateway, "run_query", fake_run)
-    monkeypatch.setattr(gateway, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
 
     bq_client = mock.Mock()
@@ -1251,24 +1546,25 @@ def test_save_invalidates_classification_cache(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        gateway.fetch_current_classifications()  # warms cache → 1 query
-        gateway.fetch_current_classifications()  # cached → still 1
+        gateway.fetch_current_code_industrialization()  # warms cache → 1 query
+        gateway.fetch_current_code_industrialization()  # cached → still 1
         assert calls["n"] == 1
 
-        curation.record_processing_stage(
-            "castanha_do_para",
-            "beneficiado",
+        curation.record_code_industrialization(
+            "mdic_comex",
+            "08013200",
+            "processada",
             headers,
-            settings=Settings(gcp_project_id="p"),
+            settings=_isolated_settings(),
             client=bq_client,
             invalidate_cache=True,
         )
 
-        gateway.fetch_current_classifications()  # cache dropped → re-queries
+        gateway.fetch_current_code_industrialization()  # cache dropped → re-queries
         assert calls["n"] == 2
 
 
-def test_invalidate_classification_cache_is_safe_when_unbound(monkeypatch):
+def test_invalidate_code_industrialization_cache_is_safe_when_unbound(monkeypatch):
     """With no Flask app bound, invalidation is a no-op (covers the except branch)."""
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
@@ -1278,7 +1574,7 @@ def test_invalidate_classification_cache_is_safe_when_unbound(monkeypatch):
     # the best-effort guard swallows it without propagating.
     monkeypatch.setattr(curation, "cache", Cache())
     try:
-        curation.invalidate_classification_cache()  # must not raise
+        curation.invalidate_code_industrialization_cache()  # must not raise
     finally:
         # Leave the module-level singleton as the test found it.
         assert cache is not None
@@ -1287,14 +1583,15 @@ def test_invalidate_classification_cache_is_safe_when_unbound(monkeypatch):
 # ── curation: free-text size guards (open vocabulary, bounded length) ─────────
 
 
-def test_record_processing_stage_rejects_overlong_stage():
+def test_record_code_industrialization_rejects_overlong_level():
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError, match="processing_stage exceeds"):
-        curation.record_processing_stage(
-            "castanha_do_para",
+    with pytest.raises(ValueError, match="industrialization_level exceeds"):
+        curation.record_code_industrialization(
+            "mdic_comex",
+            "08013200",
             "x" * (curation.MAX_STAGE_LEN + 1),
             headers,
             settings=_settings(),
@@ -1302,15 +1599,16 @@ def test_record_processing_stage_rejects_overlong_stage():
         )
 
 
-def test_record_processing_stage_rejects_overlong_note():
+def test_record_code_industrialization_rejects_overlong_note():
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="note exceeds"):
-        curation.record_processing_stage(
-            "castanha_do_para",
-            "beneficiado",
+        curation.record_code_industrialization(
+            "mdic_comex",
+            "08013200",
+            "processada",
             headers,
             note="n" * (curation.MAX_NOTE_LEN + 1),
             settings=_settings(),
@@ -1318,8 +1616,8 @@ def test_record_processing_stage_rejects_overlong_note():
         )
 
 
-def test_record_processing_stage_accepts_free_text_stage(monkeypatch):
-    """A novel, non-allowlisted stage label is accepted (open vocabulary by design)."""
+def test_record_code_industrialization_accepts_free_text_level(monkeypatch):
+    """A novel, non-allowlisted level label is accepted (open vocabulary by design)."""
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
@@ -1328,15 +1626,16 @@ def test_record_processing_stage_accepts_free_text_stage(monkeypatch):
     client.query.return_value.result.return_value = None
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
-    record = curation.record_processing_stage(
-        "castanha_do_para",
-        "estágio-experimental-inédito",  # not in any allowlist — must be allowed
+    record = curation.record_code_industrialization(
+        "mdic_comex",
+        "08013200",
+        "nível-experimental-inédito",  # not in any allowlist — must be allowed
         headers,
         settings=_settings(),
         client=client,
         invalidate_cache=False,
     )
-    assert record["processing_stage"] == "estágio-experimental-inédito"
+    assert record["industrialization_level"] == "nível-experimental-inédito"
 
 
 # ── market-nature: customsCode × flowCode value + curated-purpose log ──────────
@@ -1350,6 +1649,29 @@ def test_comtrade_cpc_value_excludes_c00_aggregate_and_casts():
     assert "safe_cast(refyear as int64)" in low
     assert "group by customs_code, flow_code, reference_year" in low
     assert params == []  # no commodity filter → no params
+
+
+def test_comtrade_cpc_value_dedups_append_only_bronze():
+    """The cpc read bypasses Silver, so it must mirror silver_comtrade_flows'
+    cleaning: latest ingestion batch per (refYear, reporterCode) — without it the
+    summed value inflates with every re-ingestion — then row-level dedup on the
+    natural key with the qtyUnitCode collapse, plus the World/HS4 exclusions."""
+    query, _ = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw")
+    flat = " ".join(query.lower().split())  # collapse whitespace for matching
+    # Stage 1: a re-published reporter-year replaces the previous generation.
+    assert "max(ingestion_timestamp) over (partition by refyear, reportercode)" in flat
+    # Stage 2: row-level dedup — NOT partitioned by qtyUnitCode (its duplicate
+    # variants carry an identical primaryValue), recency first, '-1' last.
+    assert "row_number() over" in flat
+    natural_key = (
+        "partition by refyear, reportercode, partnercode, partner2code, "
+        "cmdcode, flowcode, customscode, moscode, motcode"
+    )
+    assert natural_key in flat
+    assert "order by ingestion_timestamp desc, (qtyunitcode = '-1')" in flat
+    # Same exclusions as Silver: World partner aggregate + legacy HS4 rows.
+    assert "partnercode != '0'" in flat
+    assert "length(cmdcode) = 6" in flat
 
 
 def test_comtrade_cpc_value_filters_cmd_codes_when_scoped():

@@ -16,6 +16,18 @@ function ufTiles() {
   return idx;
 }
 
+/** True iff `uf` is one of the 27 canonical Brazilian states (present in the
+ *  UF tile registry). COMEX trade origins carry non-state pseudo-codes
+ *  (ND/EX/ZN/CB/RE/MC…) that are NOT in the registry — used to keep the
+ *  "UFs cobertas" tally to real states only (FINDING #4 fallback when the
+ *  backend's per-row `real` flag is absent). */
+export function isCanonicalUf(uf) {
+  if (!uf) return false;
+  return (window.UF_DATA || []).some((u) => u.uf === uf);
+}
+// Expose for the reused views, which call window.* helpers at render time.
+if (typeof window !== 'undefined') window.isCanonicalUf = isCanonicalUf;
+
 /** Join UF tile coords (col/row/region/name) onto any uf-keyed rows. The
  *  BrazilTileMap positions each tile by col/row, which /api omits (the views own
  *  the UF_DATA registry) — so any per-UF series headed to the tile map must be

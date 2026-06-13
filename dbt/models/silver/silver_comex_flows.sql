@@ -15,18 +15,43 @@
 
     Grain: the FULL source grain — one row per
     (flow, year, month, NCM, country, UF, transport route, customs office,
-    statistical unit). Gold aggregates this up to month×NCM×country×UF. We keep
-    the source grain in Silver so no detail is lost and the dedupe key matches
-    a single Bronze row exactly (Bronze is append-only; delta re-ingests any
-    (flow, year) whose source file changed — detected by an ETag/Last-Modified
-    freshness check, not just the running year — so the same source row can
-    reappear with a newer ingestion_timestamp; qualify keeps the latest).
+    statistical unit). Gold aggregates this up to month×NCM×country×UF×route.
+    We keep the source grain in Silver so no detail is lost.
+
+    Dedup is TWO-staged, because the source semantic is whole-file replacement:
+    MDIC publishes one file per (flow, year) and the delta re-ingests the WHOLE
+    file when its ETag changes, appending every row to append-only Bronze with
+    ONE shared ingestion_timestamp per load (comex/pipeline.bronze_one stamps
+    the frame once).
+      1. latest_batch — keep only the rows of the most recent ingestion batch
+         per (flow, CO_ANO). A restated file thus REPLACES the previous one:
+         rows MDIC deleted from the new file (retracted flows) disappear here.
+         Row-level latest-wins alone could never drop them (a deleted row has
+         no newer Bronze version) and they would persist into Gold forever.
+      2. deduplicated — row-level latest-wins on the natural key inside the
+         surviving batch (belt-and-braces; a single file load carries at most
+         one row per key).
+    Residual limitation: a file republished EMPTY (or removed) lands no new
+    Bronze rows, so the previous generation keeps serving — Bronze cannot
+    represent deletion-to-nothing without a sentinel.
+    NOTE: this batch-scoped dedup shipped 2026-06 (audit fix). materialized=
+    table → every dbt build fully rebuilds, so the first build after this
+    change purges any phantom rows (were this model incremental, one
+    --full-refresh would be required).
 -#}
 
-with deduplicated as (
+with latest_batch as (
 
     select *
     from {{ source('bronze_comex', 'comex_flows_raw') }}
+    qualify ingestion_timestamp = max(ingestion_timestamp) over (partition by flow, CO_ANO)
+
+),
+
+deduplicated as (
+
+    select *
+    from latest_batch
     qualify row_number() over (
         partition by
             flow, CO_ANO, CO_MES, CO_NCM, CO_PAIS, SG_UF_NCM, CO_VIA, CO_URF, CO_UNID

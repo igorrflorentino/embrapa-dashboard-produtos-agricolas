@@ -20,6 +20,11 @@ function ViewGeography({ families, conventions, summary, database }) {
   const volUnitLabel   = window.volumeAxisLabel(conv);// "m³" or "L"
 
   const filtered = window.applyFilters(summary || {}, database);
+  // The per-UF maps/bars are scoped to the latest UF year IN the window, which can
+  // fall short of yearEnd (future/partial endDate). Label them with the data's OWN
+  // year so the caption never diverges from what's plotted (FINDING #1).
+  const mapYear     = filtered.ufLatestYear != null ? filtered.ufLatestYear : filtered.yearEnd;
+  const mapYearTag  = filtered.ufYearPartial ? `${mapYear} (parcial)` : `${mapYear}`;
 
   const [dim, setDim]     = useGeoState('value');
   const [scope, setScope] = useGeoState('uf');
@@ -28,11 +33,24 @@ function ViewGeography({ families, conventions, summary, database }) {
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
 
+  // A quantity dimension is only offered when the per-UF rows actually CARRY it —
+  // gating on the basket family alone (the old behaviour) offered a toggle that
+  // rendered an all-zero map for a banco whose per-UF reader returns no quantity.
+  // We require both the family AND at least one non-zero per-UF value.
+  const hasUfQty = (key) =>
+    Array.isArray(filtered.ufData) && filtered.ufData.some(u => (u[key] || 0) > 0);
+  const massAvail = massFamily && hasUfQty('q_mass');
+  const volAvail  = volFamily  && hasUfQty('q_vol');
+  // The family is in the basket but the per-UF grain has no quantity → tell the
+  // researcher honestly instead of silently dropping the toggle or showing zeros.
+  const massUnavailNote = massFamily && !massAvail;
+  const volUnavailNote  = volFamily  && !volAvail;
+
   // Dimensions with active unit label
   const dims = [
     { id: 'value',  label: 'Valor',              key: 'value',  unit: valueUnitLabel, mul: valueMul, available: true },
-    { id: 'mass',   label: 'Quantidade (massa)', key: 'q_mass', unit: massUnitLabel,  mul: massMul,  available: massFamily },
-    { id: 'volume', label: 'Quantidade (volume)',key: 'q_vol',  unit: volUnitLabel,   mul: volMul,   available: volFamily },
+    { id: 'mass',   label: 'Quantidade (massa)', key: 'q_mass', unit: massUnitLabel,  mul: massMul,  available: massAvail },
+    { id: 'volume', label: 'Quantidade (volume)',key: 'q_vol',  unit: volUnitLabel,   mul: volMul,   available: volAvail },
   ].filter(d => d.available);
 
   // If the active dimension is no longer available (e.g. the basket changed
@@ -40,7 +58,7 @@ function ViewGeography({ families, conventions, summary, database }) {
   // Done in an effect — never call setState during render.
   useGeoEffect(() => {
     if (!dims.find(d => d.id === dim)) setDim(dims[0].id);
-  }, [dim, massFamily, volFamily]);
+  }, [dim, massAvail, volAvail]);
   const activeDim = dims.find(d => d.id === dim) || dims[0];
   const valueKey  = activeDim.key;
   const unit      = activeDim.unit;
@@ -60,21 +78,47 @@ function ViewGeography({ families, conventions, summary, database }) {
     [valueKey, mul, filtered]
   );
 
-  // Heatmap: year × UF
+  // Heatmap: ano × UF — REAL per-(UF, year) Gold history from the snapshot's
+  // ufYearly (the serving marts are at the reference_year × uf grain). The old
+  // code FABRICATED each UF's curve as ufTotal × (national year value ÷ max),
+  // giving every state the identical national trajectory — invented evolution
+  // presented as real history. We now read the real rows, honor the year window +
+  // state set (the UFs present in filtered.ufData) and use the ACTIVE dimension's
+  // metric/scale. We do NOT re-apply a basket productShare here: there is no per-
+  // product × UF×year grain, and uniformly scaling every real cell by selected/all
+  // would re-inject the same fabrication F1.5 removed from the maps. When a basket
+  // is active the view shows an honest pt-BR note (notFilteredByBasket) that the
+  // territorial split reflects all products.
   const heatRows = useGeoMemo(() => {
-    const ts = filtered.ts;
-    if (!ts.length) return [];
-    const tsMax = Math.max(...ts.map(d => d.v), 1);
-    return scaledUFs
+    const snap = (window.dataStore && window.dataStore.get)
+      ? window.dataStore.get(database) : null;
+    const yearly = (snap && Array.isArray(snap.ufYearly)) ? snap.ufYearly : [];
+    if (!yearly.length) return [];
+    // Only the UFs that survived the state filter (filtered.ufData is already
+    // state-filtered), ranked by the active dimension's total — keep the top 12.
+    const keepUf = new Set(scaledUFs.map(u => u.uf));
+    const order = scaledUFs
       .slice()
       .sort((a, b) => b[valueKey] - a[valueKey])
       .slice(0, 12)
-      .map(u => ({
-        id: u.uf,
-        label: `${u.uf} · ${u.name}`,
-        values: ts.map(t => ({ y: t.y, v: Math.round(u[valueKey] * (t.v / tsMax) * 100) / 100 })),
+      .map(u => u.uf);
+    const byUf = {};
+    yearly.forEach(r => {
+      if (!keepUf.has(r.uf)) return;
+      if (r.year < filtered.yearStart || r.year > filtered.yearEnd) return;
+      const row = byUf[r.uf] || (byUf[r.uf] = { id: r.uf, name: r.name, values: [] });
+      // mul applies the active dimension's display scale (value/mass/vol); the
+      // cell value is the REAL per-(UF, year) figure, never basket-rescaled.
+      row.values.push({ y: r.year, v: (r[valueKey] || 0) * mul });
+    });
+    return order
+      .filter(uf => byUf[uf])
+      .map(uf => ({
+        id: uf,
+        label: `${uf} · ${byUf[uf].name || uf}`,
+        values: byUf[uf].values.slice().sort((a, b) => a.y - b.y),
       }));
-  }, [valueKey, scaledUFs]);
+  }, [valueKey, mul, scaledUFs, filtered, database]);
 
   const top10ufs = scaledUFs.slice().sort((a, b) => b[valueKey] - a[valueKey]).slice(0, 10);
 
@@ -106,6 +150,28 @@ function ViewGeography({ families, conventions, summary, database }) {
     <>
       <window.UnitFamilyBanner families={families} />
 
+      {filtered.notFilteredByBasket && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            A distribuição territorial reflete <strong>todos os produtos</strong> do banco —
+            a cesta selecionada não recorta o mapa por UF/região (não há grão produto × UF nesta
+            agregação). Para a distribuição de um produto específico, use a perspectiva
+            <strong> Perfil do produto</strong>.
+          </p>
+        </div>
+      )}
+      {(massUnavailNote || volUnavailNote) && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            {massUnavailNote && volUnavailNote
+              ? 'As quantidades por UF (massa e volume) ainda não estão disponíveis nesta fonte — apenas o valor é exibido no mapa.'
+              : massUnavailNote
+                ? 'A quantidade por UF (massa) ainda não está disponível nesta fonte — apenas o valor é exibido no mapa.'
+                : 'A quantidade por UF (volume) ainda não está disponível nesta fonte — apenas o valor é exibido no mapa.'}
+          </p>
+        </div>
+      )}
+
       <div className="geo-controls">
         <div className="geo-control-grp">
           <span className="overline">Métrica</span>
@@ -131,7 +197,7 @@ function ViewGeography({ families, conventions, summary, database }) {
 
       <div className="card">
         <window.SectionHeader
-          overline={`Mapa de calor · ${activeDim.label} · ${displayUnit} · ${filtered.yearEnd}`}
+          overline={`Mapa de calor · ${activeDim.label} · ${displayUnit} · ${mapYearTag}`}
           title={
             scope === 'region' ? 'Distribuição por região' :
             scope === 'uf'     ? 'Distribuição por UF' :
@@ -150,6 +216,13 @@ function ViewGeography({ families, conventions, summary, database }) {
             {ufViz === 'map'
               ? <window.BrazilChoropleth data={ufScaled.data} valueKey={valueKey} label={displayUnit} />
               : <window.BrazilTileMap data={ufScaled.data} valueKey={valueKey} label={displayUnit} />}
+            {filtered.ufYearPartial && (
+              <p className="caption" style={{ padding: '8px 4px 0' }}>
+                <strong>{mapYear} (parcial):</strong> o último ano com dados por UF disponíveis fica
+                antes do fim do período selecionado ({filtered.yearEnd}). O mapa mostra {mapYear},
+                o ano mais recente com cobertura territorial.
+              </p>
+            )}
           </>
         )}
         {scope === 'municipio' && (
@@ -186,14 +259,14 @@ function ViewGeography({ families, conventions, summary, database }) {
         <div className="card">
           <window.SectionHeader
             overline={`Top 10 · ${activeDim.label}`}
-            title={`Maiores estados produtores · ${filtered.yearEnd}`}
+            title={`Maiores estados produtores · ${mapYearTag}`}
             action={<span className="caption">{activeDim.label} ({top10Scaled.label})</span>}
           />
           <window.BarChart data={top10Scaled.data} valueKey={valueKey} color="var(--viz-2)" height={320} />
         </div>
         <div className="card">
           <window.SectionHeader
-            overline={`${activeDim.label} · ${filtered.yearEnd}`}
+            overline={`${activeDim.label} · ${mapYearTag}`}
             title="Soma por região"
             action={<span className="caption">{regScaled.data.length} macrorregiões · {regScaled.label}</span>}
           />

@@ -11,10 +11,11 @@
 -- (naming: gold_<source>_<form>; `flows` = origin→destination trade).
 --
 -- Grain: one row per (flow, reference_year, reference_month, ncm_code,
--- country_code, state_acronym). The Silver source grain (which also splits by
--- transport route / customs office / statistical unit) is summed up to this
--- grain here. Any coarser aggregation (annual, national, by-chapter) is derived
--- at query time via GROUP BY — ONE comprehensive table per source.
+-- country_code, state_acronym, transport_route_code) — transport route is PART
+-- of the grain (it backs the frontend `via` filter). The Silver source grain
+-- (which also splits by customs office / statistical unit) is summed up to this
+-- grain here. Any coarser aggregation (annual, national, by-chapter, by-route)
+-- is derived at query time via GROUP BY — ONE comprehensive table per source.
 --
 -- Monetary conventions (mirror gold_pevs_production, but the source value
 -- VL_FOB is nominal **US$** at the month of record — the opposite direction
@@ -33,7 +34,25 @@
 --  non-Brazilian / special UF codes (EX, ND, ZN, …) → NULL state_name/region.
 -- ────────────────────────────────────────────────────────────────────────────
 
-with base_flows as (
+with unit_ranked as (
+
+    select
+        *,
+        -- Dominant statistical unit of each Gold cell: the unit on the row with
+        -- the largest reported quantity (ties broken by code, deterministically).
+        -- Same ordering as the array_agg label picks below, so the labels and
+        -- the unit-restricted quantity sums always describe the SAME unit.
+        first_value(stat_unit_code) over (
+            partition by
+                flow, reference_year, reference_month, ncm_code, country_code,
+                state_acronym, transport_route_code
+            order by qty_native desc nulls last, stat_unit_code
+        ) as dominant_stat_unit_code
+    from {{ ref('silver_comex_flows') }}
+
+),
+
+base_flows as (
 
     select
         flow,
@@ -53,15 +72,22 @@ with base_flows as (
         array_agg(unit_native_symbol order by qty_native desc nulls last, stat_unit_code limit 1)[offset(0)]  as unit_native_symbol,
         array_agg(family order by qty_native desc nulls last, stat_unit_code limit 1)[offset(0)]              as family,
         array_agg(base_unit order by qty_native desc nulls last, stat_unit_code limit 1)[offset(0)]           as base_unit,
-        sum(qty_native)                           as qty_native,
-        sum(qty_base)                             as qty_base,
+        -- Unit-safe sums: quantities are summed ONLY over rows reported under
+        -- the cell's dominant statistical unit. A cell mixing units (e.g. an
+        -- MDIC unit reclassification creating a transition month) would
+        -- otherwise add m³ + t under a single label — and qty_base across
+        -- families, which the project rule forbids. The non-dominant slice is
+        -- excluded from the qty sums (values/weights below stay unit-agnostic
+        -- and sum over ALL rows).
+        sum(case when stat_unit_code = dominant_stat_unit_code then qty_native end) as qty_native,
+        sum(case when stat_unit_code = dominant_stat_unit_code then qty_base end)   as qty_base,
         sum(net_weight_kg)                        as net_weight_kg,
         sum(val_fob_usd)                          as val_fob_usd,
         sum(freight_usd)                          as freight_usd,
         sum(insurance_usd)                        as insurance_usd,
         count(*)                                  as source_rows,
         max(ingestion_timestamp)                  as last_refresh
-    from {{ ref('silver_comex_flows') }}
+    from unit_ranked
     group by
         flow, reference_year, reference_month, ncm_code, country_code,
         state_acronym, transport_route_code
@@ -187,7 +213,9 @@ select
     -- (kg, m³, liter, count, …). It is normalised to a per-family base unit:
     --   family       — massa | volume | energia | contagem | area | desconhecida
     --   unit_native  — the source statistical-unit label (for display/audit)
-    --   qty_native   — the value in unit_native
+    --   qty_native   — the value in unit_native (summed over the dominant-unit
+    --                  rows only — see base_flows; mixed-unit cells never sum
+    --                  incompatible units under one label)
     --   qty_base     — qty_native converted to base_unit (t / m³ / MWh / un / ha)
     --   base_unit    — the family's base unit
     -- NEVER sum qty_base across families: any SUM(qty_base) must GROUP BY family

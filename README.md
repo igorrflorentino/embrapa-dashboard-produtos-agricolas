@@ -10,12 +10,13 @@ Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scienti
 
 > 📊 **Two consumption paths, in parallel.** The Gold tables are served by two first-class frontends, both reading the same data:
 > 1. **Looker Studio** — direct no-code connection to the Gold table; available today.
-> 2. **Dedicated dashboard (Dash) on Google Cloud Run — stateless, Pushdown Computing** — translates each UI filter into **parameterized SQL** (`@param`) over a **`serving`** layer of pre-aggregated marts, with **flask-caching** on the results (without loading Gold into memory); curation via an **append-only log + SCD Type 2**. The UI is **being rebuilt with the [Claude Design System](https://claude.ai/)** (removed on 2026-05-29 for a clean handoff); the *data-access layer* already lives in `src/embrapa_commodities/serving/`.
+> 2. **Dedicated dashboard (React SPA + Flask REST API + Plotly.js) on Google Cloud Run, behind IAP — stateless, Pushdown Computing** — the Flask backend (`src/embrapa_commodities/webapi/`, serving the built SPA and `/api` from one origin) translates each UI filter into **parameterized SQL** (`@param`) over a **`serving`** layer of pre-aggregated marts, with **flask-caching** on the results (without loading Gold into memory); curation via an **append-only log + SCD Type 2**. Live since the 2026-06 Dash→React migration (the previous Dash UI was removed on 2026-05-29 and replaced entirely); the data-access layer lives in `src/embrapa_commodities/serving/`, the frontend in `frontend/`, the deploy in `deploy/webapi/` (`make webapi-deploy`).
 >
 > The backend (Medallion pipeline + dbt + `embrapa` CLI) is independent of the visualization layer and already feeds both paths. Neither one is exclusive — they can coexist.
 
 ```
 IBGE PEVS API    ─┐
+IBGE PAM API     ─┤
 BCB Inflation    ─┤
 BCB Currency     ─┼─► Python (src/embrapa_commodities) — two-phase
 MDIC COMEX CSV   ─┤   extract → GCS raw/ (verbatim) → filter → BigQuery Bronze
@@ -24,17 +25,19 @@ UN Comtrade API  ─┘                                           │
                               dbt-bigquery ──► Silver (typed + chained IPCA)
                                                               │
                                                               ▼
-            gold_pevs_production · gold_comex_flows · gold_comtrade_flows (physical tables)
+                  gold_pevs_production · gold_pam_production · gold_comex_flows
+                            · gold_comtrade_flows (physical tables)
                                                               │
                                        dbt core/ + serving/ ──► conformed dims + marts
                                                               │   pre-aggregated (Pushdown Computing)
                                           ┌───────────────────┴───────────────────┐
                                           ▼                                        ▼
-                                   Looker Studio                    Dashboard Dash @ Cloud Run
+                                   Looker Studio              React SPA + Flask REST @ Cloud Run (IAP)
                                   (direct on Gold)             (stateless · SQL @param + flask-caching)
 ```
 
-> **Sources today:** IBGE PEVS (`gold_pevs_production`, production), MDIC COMEX
+> **Sources today:** IBGE PEVS (`gold_pevs_production`, production), IBGE PAM
+> (`gold_pam_production`, annual crop production — área × rendimento), MDIC COMEX
 > (`gold_comex_flows`, Brazilian foreign trade export+import) and UN Comtrade
 > (`gold_comtrade_flows`, **global** bilateral trade reporter→partner), all
 > enriched with FX/inflation from the BCB. The `gold_<source>_<form>` design is
@@ -42,9 +45,9 @@ UN Comtrade API  ─┘                                           │
 
 ## Stack
 
-Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · GitHub Actions
+Python 3.12 · `uv` · `dbt-bigquery` · BigQuery · GCS · GitHub Actions · React + Vite + Plotly.js (frontend)
 
-**Consumption (parallel):** Looker Studio (direct on Gold) · Dash dashboard @ Cloud Run — *stateless, Pushdown Computing* (SQL `@param` on the `serving` layer + `flask-caching`; UI under reconstruction)
+**Consumption (parallel):** Looker Studio (direct on Gold) · React SPA + Flask REST API (`webapi`) @ Cloud Run, behind IAP — *stateless, Pushdown Computing* (SQL `@param` on the `serving` layer + `flask-caching`); live since the 2026-06 Dash→React migration
 
 Full table with technical rationale in [`ARCHITECTURE.md`](ARCHITECTURE.md#technology-stack).
 
@@ -107,13 +110,19 @@ make dbt-build
 ## CLI
 
 ```text
-embrapa ingest ibge | bcb-inflation | bcb-currency | comex | comtrade | all
+embrapa ingest ibge | ibge-pam | bcb-inflation | bcb-currency | comex | comtrade | all
 embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-derives Bronze from raw without re-downloading
+embrapa ingest ibge-batch [--chunk-years 5]        # chunked IBGE historical backfill (deadline-safe for large year windows)
+embrapa ingest ibge-pam [--full]                   # IBGE PAM (SIDRA table 5457, annual crops); excluded from `ingest all`
 embrapa ingest comex [--full]                      # COMEX re-downloads only when the ETag changes; --full ignores the check
 embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumable by daily quota. Outside `ingest all` (key/quota-gated)
+embrapa ingest reconcile                            # monthly deep-refresh: full re-ingest of every nightly source (catches OLD-year revisions)
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
 embrapa discover bcb-series     <code>            # e.g.: 433
+embrapa doctor                                      # environment health check (.env, ADC, BQ/GCS, source APIs, backup freshness)
+embrapa backup-gold                                 # snapshot prod Gold tables to gs://${GCS_BUCKET}/backups/run=<ts>/
+embrapa monitor [--pipeline <name>]                 # live progress of a running ingest (tails the JSONL event log)
 embrapa dbt <args>                                  # e.g.: dbt run --select gold
 ```
 
@@ -216,6 +225,7 @@ See [docs/ownership_transfer.md](docs/ownership_transfer.md). Nothing is hardcod
 | [docs/looker_studio_setup.md](docs/looker_studio_setup.md) | Looker Studio → Gold connection |
 | [docs/gold_data_model.md](docs/gold_data_model.md) | Gold ER diagram + join guide (tables, dims, marts) |
 | [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Gold → frontend snapshot data contract (handoff) |
+| [docs/operations_runbook.md](docs/operations_runbook.md) | Occasional prod ops: curators, IAP audience, curation activation, Gold backups |
 | [docs/migration_history.md](docs/migration_history.md) | Migration history |
 | [scripts/README.md](scripts/README.md) | Auxiliary scripts documentation |
 

@@ -9,6 +9,10 @@ function jsonRes(body, { ok = true, status = 200 } = {}) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) });
 }
 
+// Flush pending microtasks (the fetch → decorate → cache chain resolves over a
+// few .then ticks); macro-task tick covers any setTimeout-deferred work.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
 // load() also fires a /api/source-meta fetch (live provenance) alongside the
 // snapshot; these tests assert on the SNAPSHOT query cadence, so count only those.
 const snapCalls = (f) => f.mock.calls.filter((c) => String(c[0]).includes('/snapshot')).length;
@@ -75,6 +79,41 @@ describe('dataStore', () => {
     expect(lastUrl).toContain('currency=USD');
   });
 
+  it('setConventions ALONE re-triggers the load for an already-loaded banco', async () => {
+    // F1.1 regression: a deep-linked ?cur/?corr applied AFTER the first load must
+    // not wedge the view on the skeleton. setConventions switches to a new cache
+    // key that nothing has loaded; useBancoData only issues load() on [bancoId],
+    // so the store must proactively re-run the fetch itself — without any explicit
+    // load() call from the view — and the banco must be 'ready' under the new conv.
+    const f = vi.fn(() => jsonRes(validSnap()));
+    const ds = await loadStore(f);
+
+    await ds.load('ibge_pevs'); // BRL|IPCA → 1 snapshot fetch
+    expect(snapCalls(f)).toBe(1);
+
+    ds.setConventions({ currency: 'USD', correction: 'Nominal' }); // must re-fetch
+    // setConventions kicks load() synchronously; let the fetch chain settle.
+    await settle();
+
+    expect(snapCalls(f)).toBe(2); // re-fetched WITHOUT a view-issued load()
+    expect(ds.status('ibge_pevs')).toBe('ready'); // resolved under USD|Nominal
+    const lastUrl = f.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes('/snapshot'))
+      .pop();
+    expect(lastUrl).toContain('currency=USD');
+    expect(lastUrl).toContain('correction=Nominal');
+  });
+
+  it('setConventions with an unchanged convention is a no-op (no re-fetch)', async () => {
+    const f = vi.fn(() => jsonRes(validSnap()));
+    const ds = await loadStore(f);
+    await ds.load('ibge_pevs');
+    ds.setConventions({ currency: 'BRL', correction: 'IPCA' }); // same as active
+    await settle();
+    expect(snapCalls(f)).toBe(1);
+  });
+
   it('rejects a drifted snapshot shape as status=error (no silent empty view)', async () => {
     // products is fine but productTS arrived as an array (a contract drift) —
     // every producer would read it and render blank; instead, fail loudly.
@@ -118,5 +157,62 @@ describe('dataStore', () => {
 
     await ds.loadMeta('ibge_pevs'); // already resolved → no second fetch
     expect(metaCalls(f)).toBe(1);
+  });
+
+  it('dedupes concurrent /source-meta fetches to a single request (FINDING #8)', async () => {
+    // load() kicks fetchSourceMeta AND a view (ViewHealth/ViewAbout) can call
+    // loadMeta() before it resolves; React StrictMode double-invokes effects too.
+    // fetchSourceMeta only populates sourceMeta[id] AFTER the request lands, so
+    // without an in-flight guard each caller would fire a DUPLICATE request. The
+    // in-flight promise must collapse all concurrent callers to ONE network call.
+    const sm = { table: 'gold_pevs_production', yearStart: 1986, yearEnd: 2024 };
+    const f = vi.fn((url) => jsonRes(String(url).includes('/source-meta') ? sm : validSnap()));
+    const ds = await loadStore(f);
+
+    // Fire load() and loadMeta() in the SAME tick (both kick source-meta).
+    const p1 = ds.load('ibge_pevs');
+    const p2 = ds.loadMeta('ibge_pevs');
+    await Promise.all([p1, p2]);
+    await settle();
+
+    expect(metaCalls(f)).toBe(1); // a single /source-meta request, not two
+  });
+
+  it('surfaces the latest-year completeness signal on meta() (FINDING #3)', async () => {
+    // The serialized /source-meta now carries monthsInLatestYear / latestYearComplete
+    // / latestCompleteYear so the Overview can anchor its YoY on the last COMPLETE
+    // year for a partial-latest-year banco (COMEX). meta().latest exposes them.
+    const sm = {
+      table: 'gold_comex_flows',
+      yearStart: 1997,
+      yearEnd: 2026,
+      monthsInLatestYear: 5,
+      latestYearComplete: false,
+      latestCompleteYear: 2025,
+    };
+    const f = vi.fn((url) => jsonRes(String(url).includes('/source-meta') ? sm : validSnap()));
+    const ds = await loadStore(f);
+
+    await ds.loadMeta('mdic_comex');
+    const m = ds.meta('mdic_comex');
+    expect(m.latest).toMatchObject({
+      monthsInLatestYear: 5,
+      yearComplete: false,
+      completeYear: 2025,
+    });
+  });
+
+  it('treats an absent completeness signal as complete (annual bancos)', async () => {
+    // An annual banco (PEVS/PAM/COMTRADE) — or an older backend — omits the
+    // completeness fields. meta().latest must default to yearComplete:true so the
+    // Overview YoY is NEVER spuriously suppressed on an always-complete annual year.
+    const sm = { table: 'gold_pevs_production', yearStart: 1986, yearEnd: 2024 };
+    const f = vi.fn((url) => jsonRes(String(url).includes('/source-meta') ? sm : validSnap()));
+    const ds = await loadStore(f);
+
+    await ds.loadMeta('ibge_pevs');
+    const m = ds.meta('ibge_pevs');
+    expect(m.latest.yearComplete).toBe(true);
+    expect(m.latest.completeYear).toBe(null);
   });
 });

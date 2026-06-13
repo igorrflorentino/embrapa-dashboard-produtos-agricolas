@@ -1,15 +1,16 @@
 # Frontend data contract — Gold → snapshot mapping
 
-**Audience:** the agent that reimplements the dashboard's data-access layer (the
-Dash/Python BFF) at handoff time. **Purpose:** spell out, field by field, how the
-frontend's in-memory snapshot shapes (from the frontend brief, `dataStore.js` /
-`previewData.js` / `crossSource.js`) are produced from the **Gold** tables — so the
-BFF is a thin mapping and the UI lights up without rework.
+**Audience:** anyone maintaining the dashboard's data-access layer (the Flask BFF
+in `src/embrapa_commodities/serving/` + `webapi/`). **Purpose:** spell out, field
+by field, how the frontend's in-memory snapshot shapes (from the frontend brief,
+`dataStore.js` / `previewData.js` / `crossSource.js`) are produced from the
+**Gold** tables — so the BFF is a thin mapping and the UI lights up without rework.
 
-> This is a **data contract**. **Update (2026-06 Pushdown pivot):** the BFF /
-> data-access layer now EXISTS — `src/embrapa_commodities/serving/` queries the
-> pre-aggregated `serving` marts (`dbt/models/serving/`) instead of loading Gold
-> in memory; the Dash **UI** still arrives with the design-system handoff. What the
+> This is a **data contract**. **Update (2026-06 Dash→React migration):** both
+> halves now EXIST — the BFF / data-access layer (`src/embrapa_commodities/serving/`
+> queries the pre-aggregated `serving` marts in `dbt/models/serving/` instead of
+> loading Gold in memory) **and** the React SPA + Flask REST UI (`frontend/` +
+> `src/embrapa_commodities/webapi/`), live on Cloud Run behind IAP. What the
 > backend guarantees is below: column names, **magnitudes**, units, and the few
 > transforms (family vocab, region code, `world_exp`) the BFF must apply.
 
@@ -123,8 +124,8 @@ One annual series per product, keyed by the same `code` as `products`.
 - `id` = `data_quality_flag` (see §7 for the exact id set — **not** the brief's
   example `ESTIMATED`/`OUTLIER`).
 - `count` = row count; `share` = count ÷ total (Σ ≈ 1).
-- `label`, `color` = mapped by the Dash template from `id` (keep the palette in the
-  frontend; backend ships only `id`+`count`).
+- `label`, `color` = mapped by the React frontend from `id` (keep the palette in
+  the frontend; backend ships only `id`+`count`).
 
 ---
 

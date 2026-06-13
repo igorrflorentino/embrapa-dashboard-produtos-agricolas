@@ -47,8 +47,9 @@
 // @property {Object.<string,{y:number,v:number,q:number,family:string}[]>} productTS  Per-product annual series, keyed by code. v=value (canonical), q=quantity.
 // @property {{y:number,v:number,q:number,q_mass:number,q_vol?:number}[]} overviewTS  Annual aggregate (v in bi; q_* per family — NEVER summed across families).
 // @property {{uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} ufData  Per-UF tile-map rows. ONLY for bancos providing `geo` (empty otherwise).
+// @property {{year:number,uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} [ufYearly]  Per-(UF, year) Gold history backing the geography 'ano × UF' heatmap. ONLY for geo bancos with a per-year-by-UF mart (null otherwise). col/row decorated client-side.
 // @property {{id:string,label:string,color:string,count:number,share:number}[]} quality  Quality-flag distribution (shared taxonomy).
-// @property {{y:number,ok:number,missing_value:number,missing_quantity:number,estimated:number,outlier:number,boundary:number}[]} [qualityTs]  Quality over coverage years.
+// @property {{y:number,ok:number,missing_value:number,missing_quantity:number,missing_weight?:number,incomplete?:number}[]} [qualityTs]  Quality over coverage years (real Gold flags: OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE; COMEX adds MISSING_WEIGHT).
 // @property {Object[]} [qualityByProduct]  Per-product flag shares (keys = flag ids).
 // @property {Object[]} [qualityByUf]       Per-UF not_ok share (tile-map shaped).
 // @property {Object[]} [topMunis]          Municipality table (may be empty).
@@ -89,7 +90,7 @@
 // @property {{code:string,name:string}[]} crops
 // @property {{yieldKgHa:number,areaHa:number,prodT:number,yieldCagr:number}} national
 // @property {{y:number,yieldKgHa:number,areaHa:number,prodT:number}[]} series   prodT = yieldKgHa × areaHa ÷ 1000.
-// @property {{uf:string,name:string,region:string,col:number,row:number,yieldKgHa:number,areaHa:number,prodT:number}[]} byUF
+// @property {{uf:string,name:string,region:string,col:number,row:number,yieldKgHa:number,areaHa:number,prodT:number}[]} byUF   col/row decorated client-side (decorateUfRows).
 //
 // ── Cross-source builders (crossSource.js) ───────────────────────────────
 //
@@ -167,7 +168,7 @@
 // @property {boolean}  preview
 // @property {number[]} years
 // @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevel
-// @property {{y:number,brutaV:number,procV:number,procShare:number,premium:number,priceB:number,priceP:number}[]} series
+// @property {{y:number,brutaV:number,procV:number,procShare:number,premium:number}[]} series   premium = price_processada ÷ price_bruta (the per-kg prices themselves are NOT emitted).
 //
 // @typedef {Object} MarketNatureAnalysis  window.marketNatureAnalysis()
 // @property {boolean}  preview
@@ -297,30 +298,30 @@
       bancos.forEach(b => {
         if (spec.appliesTo && !spec.appliesTo(b)) return;
         let obj;
-        try { obj = spec.produce(b); } catch (e) { problems.push(`${name}(${b.id}) lançou: ${e.message}`); return; }
+        try { obj = spec.produce(b); } catch (e) { problems.push(`${name}(${b.id}) threw: ${e.message}`); return; }
         if (obj == null) return;                       // not served here — skip
         const miss = missingKeys(obj, spec.required);
         const extra = spec.extra ? spec.extra(obj, b) : [];
         if (miss.length || extra.length) {
-          problems.push(`${name}(${b.id}) [${spec.typedef}] → ${[...miss.map(k => 'falta `' + k + '`'), ...extra].join(', ')}`);
+          problems.push(`${name}(${b.id}) [${spec.typedef}] → ${[...miss.map(k => 'missing `' + k + '`'), ...extra].join(', ')}`);
         }
       });
     });
 
     Object.entries(C.global).forEach(([name, spec]) => {
       let obj;
-      try { obj = spec.produce(); } catch (e) { problems.push(`${name} lançou: ${e.message}`); return; }
+      try { obj = spec.produce(); } catch (e) { problems.push(`${name} threw: ${e.message}`); return; }
       if (obj == null) return;
       const miss = missingKeys(obj, spec.required);
-      if (miss.length) problems.push(`${name} [${spec.typedef}] → ${miss.map(k => 'falta `' + k + '`').join(', ')}`);
+      if (miss.length) problems.push(`${name} [${spec.typedef}] → ${miss.map(k => 'missing `' + k + '`').join(', ')}`);
     });
 
     if (problems.length) {
       console.warn(
-        '[contrato] shape drift detectado em ' + problems.length + ' produtor(es):\n  ' +
+        '[contract] shape drift detected in ' + problems.length + ' producer(s):\n  ' +
         problems.join('\n  ') +
-        '\n→ alinhe o builder com contracts.js (SNAPSHOT_CONTRACTS + @typedef correspondente), ' +
-        'a fonte única do shape.'
+        '\n→ align the builder with contracts.js (SNAPSHOT_CONTRACTS + matching @typedef), ' +
+        'the single source of shape.'
       );
     }
   };

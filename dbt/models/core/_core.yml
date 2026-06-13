@@ -57,48 +57,26 @@ models:
               arguments:
                 values: ["N", "NE", "CO", "SE", "S"]
 
-  - name: dim_commodity_scd2
-    description: |
-      Slowly Changing Dimension (Type 2) derived from the researchers'
-      append-only curation log (research_inputs.commodity_processing_stage_log).
-      valid_from / valid_to / is_current computed with LEAD() over edits per
-      commodity. Materialized as a VIEW in the SERVING dataset so a fresh
-      curation INSERT is visible to the dashboard immediately. The UI LEFT JOINs
-      the static serving marts to this dim on commodity_id (filter is_current).
-      Disabled by default — enable once the log table is provisioned:
-      `dbt build --vars 'enable_curation: true'`.
-    columns:
-      - name: commodity_id
-        description: "Curated commodity slug; links to gold_commodity_crosswalk.commodity_id."
-        tests:
-          - not_null
-          # At most ONE current version per commodity.
-          - unique:
-              config:
-                where: "is_current"
-      - name: version
-        description: "1-based edit sequence within a commodity (row_number over edited_at)."
-        tests: [not_null]
-      - name: processing_stage
-        description: "Researcher-assigned classification (in_natura, beneficiado, …)."
-        tests: [not_null]
-      - name: valid_from
-        description: "Timestamp this classification took effect (= edited_at)."
-        tests: [not_null]
-      - name: is_current
-        description: "True when valid_to IS NULL (the live classification)."
-        tests: [not_null]
-
   - name: dim_code_industrialization_scd2
     description: |
       Type-2 SCD derived from research_inputs.code_industrialization_log — the
-      per-CODE companion to dim_commodity_scd2, one grain finer. Classifies each
-      Gold code (NCM/PEVS/HS6) as bruta|processada|misturado; the value-added
-      analysis splits COMEX exports by this level. valid_from / valid_to /
-      is_current via LEAD() over edits per (source, code). VIEW in the SERVING
-      dataset so a fresh curation INSERT is live immediately. Disabled by default —
+      per-CODE curation grain. Classifies each Gold code (NCM/PEVS/HS6) as
+      bruta|processada|misturado; the value-added analysis splits COMEX exports
+      by this level. valid_from / valid_to / is_current via LEAD() over edits per
+      (source, code). VIEW in the SERVING dataset so a fresh curation INSERT is
+      live immediately. Disabled by default —
       `dbt build --vars 'enable_curation: true'`. The SCD2 window guarantees at
       most one is_current row per (source, code).
+    tests:
+      # At most ONE current classification per (source, code) — the SCD2
+      # invariant asserted above. Disabled with the model unless enable_curation.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source
+              - code
+          config:
+            where: "is_current"
     columns:
       - name: source
         description: "Banco id the code belongs to (mdic_comex, ibge_pevs, un_comtrade)."

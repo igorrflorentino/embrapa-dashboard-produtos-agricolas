@@ -38,7 +38,8 @@ models:
     core:
       +materialized: table
       +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
-    # Serving layer — pre-aggregated marts for the Dash app's Pushdown Computing.
+    # Serving layer — pre-aggregated marts for the dashboard's Pushdown Computing
+    # (React SPA + Flask webapi BFF).
     # Materialized as TABLES (not views): a view over Gold would re-scan the full
     # fact every query and save nothing; pre-aggregated tables are the GB→MB cut.
     # Its own dataset so the dashboard's read-only SA can be scoped to JUST the

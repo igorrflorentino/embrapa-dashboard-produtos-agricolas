@@ -21,7 +21,7 @@ from google.cloud import bigquery, storage
 
 from embrapa_commodities import observability
 from embrapa_commodities.config import Settings, get_credentials
-from embrapa_commodities.core import land_raw, list_raw, read_raw
+from embrapa_commodities.core import land_raw, list_raw, raw_provenance, read_raw
 from embrapa_commodities.gcp.bigquery import (
     ensure_dataset,
     latest_reference_year,
@@ -94,8 +94,12 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
             duration_s=round(time.monotonic() - started, 2),
         )
         logger.warning(
-            "IBGE ingest skipped: SIDRA returned no rows for %d-%d. "
-            "Lower IBGE_END_YEAR in .env to the latest published year.",
+            "IBGE ingest skipped: SIDRA returned no rows for %d-%d — usually "
+            "IBGE_END_YEAR is ahead of the latest published PEVS year, an "
+            "expected state that resolves itself once IBGE publishes the new "
+            "year. Do NOT pin IBGE_END_YEAR to the latest published year: once "
+            "Bronze reaches it, the nightly delta skips entirely and stops "
+            "absorbing PEVS revisions of recent years (END must float ahead).",
             settings.ibge_start_year,
             settings.ibge_end_year,
         )
@@ -121,6 +125,44 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
     return basename
 
 
+def _order_by_fetched_at(
+    basenames: list[str],
+    *,
+    storage_client: storage.Client,
+    settings: Settings,
+    source: str,
+    dataset: str,
+) -> list[str]:
+    """Order raw basenames by their stored ``fetched_at`` provenance, oldest first.
+
+    IBGE/PAM basenames encode products + year-window only — NOT extraction time —
+    so ``list_raw``'s lexical order need not match fetch recency (unlike BCB,
+    whose basenames are run-stamped). The replay stamps each object with a fresh
+    ``ingestion_timestamp`` and Silver dedupes by ``ingestion_timestamp desc``,
+    so whichever object is appended LAST wins the natural key: replaying a stale
+    overlapping window after a newer one would silently resurrect old readings
+    into Silver/Gold. ``fetched_at`` is the ISO-8601 UTC stamp ``land_raw``
+    writes on every raw object; objects missing it (pre-provenance archives)
+    sort first so any stamped extract outranks them. Lexical basename is the
+    deterministic tie-break.
+    """
+
+    def sort_key(basename: str) -> tuple[str, str]:
+        stored = (
+            raw_provenance(
+                storage_client,
+                settings=settings,
+                source=source,
+                dataset=dataset,
+                basename=basename,
+            )
+            or {}
+        )
+        return (str(stored.get("fetched_at", "")), basename)
+
+    return sorted(basenames, key=sort_key)
+
+
 def bronze_from_raw(
     settings: Settings,
     basenames: list[str],
@@ -131,8 +173,10 @@ def bronze_from_raw(
     """Phase 2: read each raw SIDRA archive, stamp ingestion_timestamp, append to Bronze.
 
     Multiple ``basenames`` (``--from-raw`` replaying the delta trail) are appended
-    in order; Silver dedupes on the natural key, so overlapping windows collapse
-    to the latest reading.
+    in the order given — the caller orders them oldest-fetch-first (see
+    ``_order_by_fetched_at``) so Silver's dedup on the natural key by
+    ``ingestion_timestamp desc`` collapses overlapping windows to the newest
+    *extract*, not to whichever basename happened to sort last.
     """
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     destination = f"{dataset_id}.{settings.bq_bronze_ibge_table}"
@@ -233,6 +277,14 @@ def run(
         if not basenames:
             logger.warning("IBGE --from-raw: no raw archived for dataset %s.", RAW_DATASET)
             return ""
+        # Replay oldest-fetch-first so the newest extract wins Silver dedup.
+        basenames = _order_by_fetched_at(
+            basenames,
+            storage_client=storage_client,
+            settings=settings,
+            source="ibge",
+            dataset=RAW_DATASET,
+        )
     else:
         if not full:
             delta_settings = _delta_start_year(settings, bq_client)

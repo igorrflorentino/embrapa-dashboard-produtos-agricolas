@@ -10,6 +10,25 @@
   flex-direction: column;
   min-height: 100vh;
   background: var(--bg-page);
+  /* Graceful degradation below the desktop width (FINDING #6). The header + content
+     reflow responsively first (media queries below ~1080/980/880px collapse the
+     mode-switch labels, the inline product name, then the util-action labels), so
+     the chrome keeps shrinking to fit instead of tearing. Only once everything has
+     collapsed do we hit this floor — a stable minimum that scrolls HORIZONTALLY as a
+     last resort rather than letting the sticky topbar tear or the sidebar/content
+     overlap. The topbar is a block child of .shell, so it fills this width and its
+     green band always spans the full horizontal scroll extent (no torn background).
+     At >=1024px the floor is non-binding, so desktop is pixel-identical; the floor
+     itself (760px) sits below the last responsive breakpoint so those reflows run. */
+  min-width: 760px;
+}
+/* Header graceful degradation, last stage: below 880px collapse the util-action
+   labels ("Citar painel"/"Compartilhar") to their icons (the title tooltip keeps the
+   text accessible) so the topbar reflows to fit narrow widths before the .shell floor
+   forces a horizontal scrollbar. >=880px keeps the labels, so desktop is unchanged. */
+@media (max-width: 880px) {
+  .util-action span { display: none; }
+  .util-action { padding: 0 9px; }
 }
 
 /* ---------- Topbar ---------- */

@@ -32,13 +32,30 @@ _SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 _FAMILY_JS = {"massa": "mass", "volume": "volume"}
 
 # data_quality_flag id → the qualityTs contract key (contracts.js qualityTs).
+# These are the REAL Gold flags emitted by macros/data_quality_flag.sql
+# (OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE for PEVS/PAM/COMTRADE) plus the
+# COMEX-only MISSING_WEIGHT (gold_comex_flows.sql inline CASE). The earlier
+# ESTIMATED/OUTLIER/BOUNDARY_HISTORIC keys were the prototype's synthetic
+# taxonomy — Gold never emits them, so they silently dropped INCOMPLETE and
+# (for COMEX) MISSING_WEIGHT out of the quality charts.
 _FLAG_KEY = {
     "OK": "ok",
     "MISSING_VALUE": "missing_value",
     "MISSING_QUANTITY": "missing_quantity",
-    "ESTIMATED": "estimated",
-    "OUTLIER": "outlier",
-    "BOUNDARY_HISTORIC": "boundary",
+    "MISSING_WEIGHT": "missing_weight",
+    "INCOMPLETE": "incomplete",
+}
+
+# data_quality_flag id → pt-BR display label (the end user reads the donut/legend).
+# The frontend's QUALITY_FLAGS registry lacks INCOMPLETE/MISSING_WEIGHT, so without
+# a server-supplied label decorate.js falls back to the raw English id — a pt-BR
+# rule violation. Emitting the label here keeps the chart Portuguese end-to-end.
+_FLAG_LABEL_PT = {
+    "OK": "OK",
+    "MISSING_VALUE": "Valor ausente",
+    "MISSING_QUANTITY": "Quantidade ausente",
+    "MISSING_WEIGHT": "Peso ausente",
+    "INCOMPLETE": "Incompleto",
 }
 
 
@@ -69,6 +86,7 @@ def serialize_snapshot(snap: dict) -> dict:
         "productTS": _product_ts(snap.get("product_ts")),
         "overviewTS": _overview_ts(snap.get("overview_ts")),
         "ufData": _uf_data(snap.get("uf_data")),
+        "ufYearly": _uf_yearly(snap.get("uf_yearly")),
         "quality": _quality(snap.get("quality")),
         "qualityTs": _quality_ts(snap.get("quality_ts")),
         "qualityByProduct": _quality_by_product(snap.get("quality_by_product")),
@@ -134,6 +152,13 @@ def serialize_source_meta(meta: dict | None) -> dict:
         "ufsTotal": _int_or_none(meta.get("ufs_total")),
         "lastRefresh": iso,
         "lastRefreshLabel": _refresh_label(last),
+        # Latest-year completeness (FINDING #3): lets the frontend compute an honest
+        # YoY for monthly-sourced bancos whose latest year is still partial — instead
+        # of reading a partial-2026-vs-full-2025 drop as a real crash. For annual
+        # bancos latestYearComplete is True and monthsInLatestYear is None.
+        "monthsInLatestYear": _int_or_none(meta.get("months_in_latest_year")),
+        "latestYearComplete": bool(meta.get("latest_year_complete", True)),
+        "latestCompleteYear": _int_or_none(meta.get("latest_complete_year")),
     }
 
 
@@ -156,15 +181,17 @@ def _quality_by_product(df: pd.DataFrame | None, top: int = 20) -> list[dict]:
     for code, slot in ranked[:top]:
         total = sum(slot["counts"].values()) or 1.0
         row = {"code": code, "name": slot["name"]}
-        for flag in _FLAG_KEY:  # the 6 flag ids — absent flags read 0
+        for flag in _FLAG_KEY:  # the real Gold flag ids — absent flags read 0
             row[flag] = slot["counts"].get(flag, 0.0) / total
         out.append(row)
     return out
 
 
 def _quality_ts(df: pd.DataFrame | None) -> list[dict]:
-    """year×flag counts → [{y, ok, missing_value, …, boundary}] as per-year shares
-    (fractions 0-1; the views ×100 for %). Flags absent in a year read 0."""
+    """year×flag counts → [{y, ok, missing_value, …, incomplete}] as per-year shares
+    (fractions 0-1; the views ×100 for %). Keys are the REAL Gold flags; any flag
+    not in _FLAG_KEY still counts toward `total` (so an unexpected new flag lowers
+    the known shares rather than vanishing silently). Flags absent in a year read 0."""
     if _empty(df):
         return []
     by_year: dict[int, dict[str, float]] = {}
@@ -175,15 +202,9 @@ def _quality_ts(df: pd.DataFrame | None) -> list[dict]:
     for y in sorted(by_year):
         flags = by_year[y]
         total = sum(flags.values()) or 1.0
-        row = {
-            "y": y,
-            "ok": 0.0,
-            "missing_value": 0.0,
-            "missing_quantity": 0.0,
-            "estimated": 0.0,
-            "outlier": 0.0,
-            "boundary": 0.0,
-        }
+        row: dict[str, Any] = {"y": y}
+        for key in _FLAG_KEY.values():  # every contract key reads 0 if absent
+            row[key] = 0.0
         for flag, n in flags.items():
             key = _FLAG_KEY.get(flag)
             if key:
@@ -218,7 +239,9 @@ def _product_ts(df: pd.DataFrame | None) -> dict:
             {
                 "y": int(r.reference_year),
                 "v": _num(r.total_value) / 1e6,
-                "q": _num(r.total_qty_native) / q_scale,
+                # qty_base (t / m³), NOT qty_native: trade codes are mostly
+                # kg-native, so scaling native as if tonnes would be ~1000× off.
+                "q": _num(r.total_qty_base) / q_scale,
                 "family": _fam(r.family),
             }
         )
@@ -245,9 +268,9 @@ def _overview_ts(df: pd.DataFrame | None) -> list[dict]:
 
 
 def _uf_data(df: pd.DataFrame | None) -> list[dict]:
-    # Per-UF quantity is a known gap: production_by_uf returns only total_value
-    # (can't sum qty across families). value (the choropleth measure) is real;
-    # q_mass/q_vol = 0 until a family-aware per-UF reader exists. col/row added
+    # value (the choropleth measure) → millions; q_mass/q_vol come from the by-UF
+    # reader's per-family qty_base sums (massa → t, volume → m³), scaled the same
+    # way as overviewTS: q_mass ÷1e3 → mil t, q_vol ÷1e6 → mi m³. col/row added
     # client-side from UF_DATA.
     if _empty(df):
         return []
@@ -257,8 +280,43 @@ def _uf_data(df: pd.DataFrame | None) -> list[dict]:
             "name": r.state_name,
             "region": r.region_abbrev,
             "value": _num(r.total_value) / 1e6,
-            "q_mass": 0.0,
-            "q_vol": 0.0,
+            "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
+            "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            # True for a real Brazilian UF, False for a COMEX special trade pseudo-code
+            # (EX/ND/ZN/MN/RE…). These have no state_name from the UF lookup (same
+            # discriminator gold_source_metadata.ufs_total uses), so the frontend can
+            # count real UFs (27) instead of inflating the tally with pseudo-codes
+            # (FINDING #4). PEVS/PAM rows are always real.
+            "real": _is_real_uf(r),
+        }
+        for r in df.itertuples()
+    ]
+
+
+def _is_real_uf(row: Any) -> bool:
+    """A real Brazilian UF iff it has a non-empty ``state_name`` (COMEX pseudo-codes
+    like EX/ND/ZN have none — the same rule gold_source_metadata.ufs_total applies)."""
+    name = getattr(row, "state_name", None)
+    return isinstance(name, str) and bool(name.strip())
+
+
+def _uf_yearly(df: pd.DataFrame | None) -> list[dict]:
+    # Per-(UF, year) rows backing the geography 'ano × UF' heatmap — REAL Gold
+    # history, never the national curve rescaled per UF. Same per-family scaling as
+    # ufData/overviewTS: value ÷1e6 → millions, q_mass ÷1e3 → mil t, q_vol ÷1e6 →
+    # mi m³. ``name``/``region`` ride along so the heatmap can label each row; col/row
+    # come client-side from UF_DATA (decorate.js). ~27 UFs × covered years (small).
+    if _empty(df):
+        return []
+    return [
+        {
+            "year": int(r.reference_year),
+            "uf": r.state_acronym,
+            "name": r.state_name,
+            "region": r.region_abbrev,
+            "value": _num(r.total_value) / 1e6,
+            "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
+            "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
         }
         for r in df.itertuples()
     ]
@@ -302,12 +360,15 @@ def serialize_productivity(payload: dict | None) -> dict | None:
         return None
     df = payload.get("rows")
     base = {
+        "preview": False,
         "crop": {"code": payload.get("active", ""), "name": payload.get("active_name", "")},
         "crops": payload.get("crops", []),
         "yieldUnit": "kg/ha",
         "areaUnit": "ha",
         "series": [],
-        "national": {"yieldCagr": 0.0},
+        # ProductivityData.national is {yieldKgHa, areaHa, prodT, yieldCagr} — the
+        # latest-year national totals + the CAGR over the covered span.
+        "national": {"yieldKgHa": 0.0, "areaHa": 0.0, "prodT": 0.0, "yieldCagr": 0.0},
         "byUF": [],
     }
     if _empty(df):
@@ -330,15 +391,27 @@ def serialize_productivity(payload: dict | None) -> dict | None:
         for r in nat.itertuples()
     ]
 
-    # Yield CAGR over the covered span (first → last national yield).
+    # National totals = the latest year's summed production + area (matches the
+    # latest-year grain of byUF); yield recomputed from those totals.
     series = base["series"]
+    if series:
+        latest_nat = series[-1]
+        base["national"].update(
+            yieldKgHa=latest_nat["yieldKgHa"],
+            areaHa=latest_nat["areaHa"],
+            prodT=latest_nat["prodT"],
+        )
+
+    # Yield CAGR over the covered span (first → last national yield).
     if len(series) >= 2:
         first, last = series[0]["yieldKgHa"], series[-1]["yieldKgHa"]
         span = series[-1]["y"] - series[0]["y"]
         if first > 0 and span > 0:
             base["national"]["yieldCagr"] = ((last / first) ** (1.0 / span) - 1.0) * 100.0
 
-    # Per-UF productivity for the LATEST year (the map + ranking grain).
+    # Per-UF productivity for the LATEST year (the map + ranking grain). Carry
+    # areaHa/prodT too (ProductivityData.byUF declares them) so the view/export can
+    # read them — yield alone is not summable, but area and production are.
     latest_year = int(df["reference_year"].max())
     latest = df[df["reference_year"] == latest_year]
     base["byUF"] = [
@@ -347,6 +420,8 @@ def serialize_productivity(payload: dict | None) -> dict | None:
             "name": r.state_name,
             "region": r.region_abbrev,
             "yieldKgHa": _yield(r.production_t, r.area_harvested_ha),
+            "areaHa": _num(r.area_harvested_ha),
+            "prodT": _num(r.production_t),
         }
         for r in latest.itertuples()
     ]
@@ -354,12 +429,19 @@ def serialize_productivity(payload: dict | None) -> dict | None:
 
 
 def _quality(df: pd.DataFrame | None) -> list[dict]:
-    # label/color added client-side from QUALITY_FLAGS. `share` is the mart's
-    # 0-1 fraction (fmtPct ×100 expects that).
+    # color is added client-side from QUALITY_FLAGS; `label` is emitted here in
+    # pt-BR because the frontend taxonomy lacks INCOMPLETE/MISSING_WEIGHT and would
+    # otherwise fall back to the raw English id (a pt-BR rule violation). `share`
+    # is the mart's 0-1 fraction (fmtPct ×100 expects that).
     if _empty(df):
         return []
     return [
-        {"id": r.data_quality_flag, "count": int(_num(r.n_rows)), "share": _num(r.share)}
+        {
+            "id": r.data_quality_flag,
+            "label": _FLAG_LABEL_PT.get(r.data_quality_flag, r.data_quality_flag),
+            "count": int(_num(r.n_rows)),
+            "share": _num(r.share),
+        }
         for r in df.itertuples()
     ]
 
@@ -477,7 +559,11 @@ def serialize_monthly(df: pd.DataFrame | None) -> dict:
     """seam.monthly_data() → MonthlyData. year→12 monthly values + the 12-month avg."""
     base = {"preview": False, "unit": "US$", "months": list(range(1, 13))}
     if _empty(df):
-        return {**base, "years": [], "matrix": {}, "monthlyAvg": [], "series": []}
+        # Always 12 values, even with no data: ViewSeasonality computes peak/low/
+        # amplitude over monthlyAvg and would crash on an empty list (indexOf max of
+        # [] = -1 → monthlyAvg[-1] = undefined → fmt throws). 12 zeros match the
+        # loading shell producers.js ships, so the empty state renders honestly.
+        return {**base, "years": [], "matrix": {}, "monthlyAvg": [0.0] * 12, "series": []}
     # Seed absent months as None (not 0.0) so the 12-month average can tell a
     # genuine 0-export month from a month with no data row. The emitted `matrix`
     # still uses 0.0 for absent months (the contract is 12 numbers per year).

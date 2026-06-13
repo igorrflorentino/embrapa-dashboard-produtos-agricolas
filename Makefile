@@ -1,7 +1,7 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         ingest-ibge-historical reconcile ingest-job-deploy ingest-job-schedule \
         ingest-job-reconcile-schedule ingest-job-comtrade-schedule ingest-job-alert iam-grant \
-        dashboard-run dashboard-deploy \
+        webapi-run webapi-deploy \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
         dbt-test dbt-source-freshness dbt-clean lint sqlfluff test clean \
@@ -86,8 +86,8 @@ dbt-build-prod-with-backup: dbt-build-prod backup-gold    ## Recommended prod pa
 serving-sync:    ## Install the dashboard data-access extra (flask + flask-caching)
 	uv sync --extra serving
 
-ensure-curation:    ## Create the append-only curation log table (research_inputs.*)
-	$(PY) python -c "from embrapa_commodities.serving.curation import ensure_curation_log_table as e; print('curation log ready:', e())"
+ensure-curation:    ## Create the append-only curation log tables (research_inputs.*)
+	$(PY) python -c "from embrapa_commodities.serving.curation import ensure_code_industrialization_log_table as c, ensure_flow_market_log_table as f, ensure_curators_table as a; print('code log ready:', c()); print('flow-market log ready:', f()); print('curators table ready:', a())"
 
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
 	cd $(DBT_DIR) && $(PY) dbt build --vars 'enable_curation: true'

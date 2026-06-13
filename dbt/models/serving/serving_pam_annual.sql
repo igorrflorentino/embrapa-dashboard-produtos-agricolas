@@ -49,15 +49,50 @@ with pam as (
         sum(val_real_ipca_brl)          as val_real_ipca_brl,
         sum(val_real_ipca_usd)          as val_real_ipca_usd,
         sum(val_real_ipca_eur)          as val_real_ipca_eur,
+        -- IGP-M / IGP-DI deflation is carried in BRL and EUR only. The USD-deflated
+        -- combos (val_real_{igpm,igpdi}_usd) are intentionally NOT served: the BFF
+        -- allowlist (serving/sql.ALLOWED_VALUE_COLUMNS) omits them, so the serving
+        -- layer can never SELECT them — materializing them here would be dead bytes.
         sum(val_real_igpm_brl)          as val_real_igpm_brl,
         sum(val_real_igpm_eur)          as val_real_igpm_eur,
         sum(val_real_igpdi_brl)         as val_real_igpdi_brl,
         sum(val_real_igpdi_eur)         as val_real_igpdi_eur,
-        count(distinct city_name)       as n_cities,
+        -- city_code, not city_name: the name is a display label and two
+        -- municipalities can share one (Gold groups by city_code for the same
+        -- reason), so counting names could silently undercount.
+        count(distinct city_code)       as n_cities,
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
     from {{ ref('gold_pam_production') }}
     group by reference_year, state_acronym, product_code, family
+
+),
+
+pam_codes as (
+
+    select distinct product_code
+    from pam
+
+),
+
+-- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
+-- source='pam' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE
+-- facts, and its accepted_values tests reject 'pam' — so the seed's prefix
+-- expansion is replicated here, directly against the PAM codes in this mart.
+-- Seeding (source='pam') rows in commodity_crosswalk is then enough to light
+-- up commodity_id/commodity_name (the seed's accepted_values test on `source`
+-- must learn 'pam' alongside the first such row). With no pam rows seeded yet,
+-- both columns come out NULL (the dashboard handles NULL commodity).
+pam_xwalk as (
+
+    select distinct
+        x.commodity_id,
+        x.commodity_name,
+        c.product_code as code
+    from pam_codes c
+    join {{ ref('commodity_crosswalk') }} x
+        on x.source = 'pam'
+        and c.product_code like x.code_prefix || '%'
 
 )
 
@@ -95,7 +130,5 @@ select
 from pam p
 left join {{ ref('dim_geo_br') }} g
     on g.state_acronym = p.state_acronym
--- source='pam' has no crosswalk rows yet → commodity_id/name come out NULL
--- (the dashboard handles NULL commodity); it lights up if 'pam' rows are seeded.
-left join {{ ref('gold_commodity_crosswalk') }} x
-    on x.source = 'pam' and x.code = p.product_code
+left join pam_xwalk x
+    on x.code = p.product_code

@@ -8,10 +8,9 @@
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only
--- per-CODE industrialization log. The companion to dim_commodity_scd2, one grain
--- finer: that view classifies a whole commodity's processing_stage; this one
--- classifies each raw Gold CODE (NCM / PEVS product / HS6) as bruta | processada
--- | misturado — the level the value-added analysis needs to split COMEX exports.
+-- per-CODE industrialization log. Classifies each raw Gold CODE (NCM / PEVS
+-- product / HS6) as bruta | processada | misturado — the level the value-added
+-- analysis needs to split COMEX exports.
 --
 -- Each "Aplicar" in the Curadoria panel appends ONE immutable row to
 -- research_inputs.code_industrialization_log (written by the Python data-access

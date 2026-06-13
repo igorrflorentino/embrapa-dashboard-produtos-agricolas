@@ -4,7 +4,7 @@
 // now with zoom/pan/hover. Handles any number of series and any mix of units.
 //   series: [{ label, color, unit, bancoShort, data: [{ y, v }] }]
 
-import { Plot, baseLayout, resolveColor, vizPalette, withAlpha } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, withAlpha } from './_base';
 
 function StackedPanels({ series = [], panelHeight = 120 }) {
   // Guard empty/degenerate input — never throw.
@@ -37,6 +37,9 @@ function StackedPanels({ series = [], panelHeight = 120 }) {
   });
 
   // Per-panel y axis: compact title carries the series label + source short.
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+  // (FINDING #9) — each panel ticks against its OWN series max. Falls back to `~s`
+  // when a panel has no usable positive max.
   const yaxes = {};
   series.forEach((s, si) => {
     const axisKey = si === 0 ? 'yaxis' : `yaxis${si + 1}`;
@@ -44,7 +47,7 @@ function StackedPanels({ series = [], panelHeight = 120 }) {
     yaxes[axisKey] = {
       title: { text: titleBits, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',
-      tickformat: '~s',
+      ...ptBrLinearAxis(seriesMax(s.data || [], (d) => d.v)),
       automargin: true,
     };
   });

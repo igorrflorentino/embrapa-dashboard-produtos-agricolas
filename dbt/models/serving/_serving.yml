@@ -6,10 +6,11 @@ models:
       Pre-aggregated PEVS mart (Pushdown Computing serving layer). Gold rolled
       from year×UF×city×product up to year×UF×product×family — the municipality
       grain dropped — so the dashboard scans MB, not GB. Backs overviewTS /
-      productTS / ufData. Carries commodity_id for the live dim_commodity_scd2 join.
-      Monetary measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
-      (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
-      carried alongside BRL/USD).
+      productTS / ufData. Carries the cross-source commodity_id (from the crosswalk).
+      Monetary measures: nominal + real IPCA in all three currencies (BRL/USD/EUR);
+      real IGP-M / IGP-DI in BRL and EUR only. The IGP-M/IGP-DI × USD combos are
+      deliberately NOT materialized — the serving allowlist (sql.ALLOWED_VALUE_COLUMNS)
+      omits them, so the BFF can never SELECT them.
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -39,9 +40,10 @@ models:
       Gold rolled from year×UF×city×product up to year×UF×product×family. Backs
       overviewTS / productTS / ufData for the ibge_pam banco (quantity + value
       today; área/rendimento are a planned expansion off the same Gold). Monetary
-      measures span {nominal, real IPCA/IGP-M/IGP-DI} × {BRL, USD, EUR}
-      (val_yearfx_eur / val_real_ipca_eur / val_real_igpm_eur / val_real_igpdi_eur
-      carried alongside BRL/USD).
+      measures: nominal + real IPCA in all three currencies (BRL/USD/EUR); real
+      IGP-M / IGP-DI in BRL and EUR only. The IGP-M/IGP-DI × USD combos are
+      deliberately NOT materialized — the serving allowlist (sql.ALLOWED_VALUE_COLUMNS)
+      omits them, so the BFF can never SELECT them.
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -66,7 +68,14 @@ models:
       Pre-aggregated COMEX mart, annual. Month and transport route (via)
       collapsed out of the Gold grain down to year×flow×NCM×UF×country. Backs
       overviewTS / productTS / ufData / partnerData / flowData. Raw US$/kg
-      magnitudes (the BFF scales to display units).
+      magnitudes (the BFF scales to display units). Monetary measures: the REAL
+      year-FX / deflated values Gold computes — nominal + real IPCA in all three
+      currencies (val_yearfx_{brl,usd,eur} + val_real_ipca_{brl,usd,eur}), real
+      IGP-M / IGP-DI in BRL and EUR only (val_real_{igpm,igpdi}_{brl,eur}),
+      triangulated through BRL, NULL pre-1994 — so a BRL/EUR display serves the
+      real column instead of the frontend cross-converting USD via a frozen mock
+      rate. The IGP-M/IGP-DI × USD combos are deliberately NOT materialized (the
+      serving allowlist omits them, so the BFF can never SELECT them).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -119,7 +128,15 @@ models:
       Pre-aggregated COMTRADE mart (global bilateral). Same grain as Gold —
       the win is column pruning + clustering + crosswalk conformance. Backs
       partnerData / flowData / market-share. world_exp derived by SUM over
-      reporters at query time (World partner already dropped in Silver).
+      reporters at query time (World partner already dropped in Silver). Monetary
+      measures: the REAL year-FX / deflated values Gold computes — nominal + real
+      IPCA in all three currencies (val_yearfx_{brl,usd,eur} +
+      val_real_ipca_{brl,usd,eur}), real IGP-M / IGP-DI in BRL and EUR only
+      (val_real_{igpm,igpdi}_{brl,eur}), triangulated through BRL, NULL pre-1994 —
+      so a BRL/EUR display serves the real column instead of the frontend
+      cross-converting USD via a frozen mock rate. The IGP-M/IGP-DI × USD combos
+      are deliberately NOT materialized (the serving allowlist omits them, so the
+      BFF can never SELECT them).
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

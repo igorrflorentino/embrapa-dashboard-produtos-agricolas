@@ -155,9 +155,11 @@ jobs:
   # runs model SQL) and lints with the real bigquery dialect.
   #
   # Fork PRs cannot mint the OIDC token (no id-token: write for untrusted forks),
-  # so they are skipped — a skipped required check still passes branch protection,
-  # and this is a private team repo so forks don't arise in practice. Setup is the
-  # same one-time WIF wiring dbt-build-prod.yml documents (no new SA/secret).
+  # so they are skipped — a skipped required check still passes branch protection.
+  # This is a PUBLIC personal repo (same posture gitleaks.yml relies on), so fork
+  # PRs CAN arise: their SQL lands unlinted unless a maintainer re-pushes the
+  # branch to this repo (or runs `make sqlfluff` locally) before merging. Setup is
+  # the same one-time WIF wiring dbt-build-prod.yml documents (no new SA/secret).
   sqlfluff:
     name: SQLFluff (dbt templater, BigQuery)
     # Run on pushes to main and on PRs from THIS repo (not forks, which can't auth).

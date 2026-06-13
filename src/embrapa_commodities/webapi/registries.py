@@ -1,9 +1,14 @@
-"""Registries — the single source of truth for bancos, perspectives, and filters.
+"""Registries — Python reference data for bancos, perspectives, and filters.
 
-A faithful Python port of the design system's ``bancos.js`` / ``views.js`` /
-``filtersSchema.js``. The UI (sidebar, perspective mega-menu, routing, capability
-gating) all derive from these tables, exactly as the prototype does — adding a
-banco or a perspective is an entry here, not new control flow.
+A Python port of the design system's ``bancos.js`` / ``views.js`` /
+``filtersSchema.js``. Only ``Banco`` / ``banco_by_id`` are consumed today (by the
+seam, to resolve a banco's capabilities, value column, and dimensions). The UI's
+sidebar, perspective mega-menu, routing and capability gating derive from the
+FRONTEND copies (``frontend/src/proto/{bancos,views,filtersSchema}.js``), which are
+the live source of truth — the ``View``/``FILTER_SCHEMAS``/maturity helpers below
+are reference/parity data, NOT a control surface. Keep entries aligned with the
+frontend so the next reader is not misled, but the frontend is authoritative for
+anything the UI renders.
 
 Status model (three axes, kept distinct):
   * ``maturity`` — dataset lifecycle (planejado · desenvolvimento · beta ·
@@ -12,10 +17,11 @@ Status model (three axes, kept distinct):
   * ``visible`` — backend-controlled visibility (hides a banco everywhere).
   * usage (active/inactive) — derived at render time, never stored.
 
-This repo has three live Gold sources (PEVS, COMEX, COMTRADE). IBGE PAM and
-SEFAZ NFe have no Gold tables here, so they stay ``planejado`` placeholders
-(the design system's supported "launch without all bancos" path) — a lead
-decision recorded with the user.
+This repo has four live Gold sources: PEVS, COMEX, COMTRADE (estável/beta) and
+IBGE PAM (beta — ``gold_pam_production``, wired end-to-end incl. the produtividade
+view, #105). Only SEFAZ NFe has no Gold table here, so it stays a ``planejado``
+placeholder (the design system's supported "launch without all bancos" path) — a
+lead decision recorded with the user.
 """
 
 from __future__ import annotations
@@ -190,6 +196,13 @@ _COMEX_METRICS = (
         "years": [1997, 2024],
     },
 )
+# COMTRADE coverage is intentionally capped at 2022–2023 (the ingestion dev
+# window — see project memory "COMTRADE dev window"): Bronze holds only those two
+# years today, so [2022, 2023] is the honest backend truth that the cross-source
+# comparable-window math (SeriesResult.coverage) must reflect. The frontend
+# bancos.js advertises a wider 1988→presente range as the *planned* coverage; the
+# two intentionally differ until the historical backfill lands. Do NOT widen these
+# to match the frontend — that would overstate what Gold actually contains.
 _COMTRADE_METRICS = (
     {
         "id": "exp_value",
@@ -224,8 +237,9 @@ _UF_DIMS = {
 }
 
 # ── Banco registry ───────────────────────────────────────────────────────────
-# PEVS / COMEX / COMTRADE are live (verified prod marts). PAM / SEFAZ have no
-# Gold here → planejado placeholders (lead decision: keep all 5, render "Em breve").
+# PEVS / COMEX / COMTRADE / PAM are live (verified prod marts; PAM = beta over
+# gold_pam_production). Only SEFAZ NFe has no Gold here → planejado placeholder
+# (lead decision: keep all 5, render "Em breve").
 BANCOS: list[Banco] = [
     Banco(
         id="ibge_pevs",
@@ -411,9 +425,12 @@ class ViewGroup:
     views: tuple[View, ...]
 
 
-# M1 builds the PEVS-shaped generic perspectives as 'live'. Trade-only views
-# (flow/partner/monthly), productivity, and every cross-source / curated view
-# stay 'soon' until M2/M3 — the router renders them as "Em breve".
+# Status mirrors the frontend views.js: 'live' = a component exists and renders
+# (real data OR an honest data-blocked placeholder); 'soon' = not built. All the
+# generic, trade, productivity (#105), cross-source and curated views are now live;
+# only cross_chain / cross_lag render honest in-product placeholders because they
+# need sources this repo lacks (SEFAZ inter-UF flows, monthly PEVS) — they are
+# 'live' here to match the frontend (the component ships), not because the data is.
 VIEW_GROUPS: list[ViewGroup] = [
     ViewGroup(
         "aggregate",
@@ -464,8 +481,9 @@ VIEW_GROUPS: list[ViewGroup] = [
             View(
                 "productivity",
                 "Produtividade",
-                "soon",
+                "live",
                 requires=("yield",),
+                exportable=True,
                 self_data=True,
                 desc="Rendimento (kg/ha) e área colhida por lavoura. Disponível para bancos "
                 "de produção agrícola (IBGE PAM).",
@@ -584,18 +602,21 @@ VIEW_GROUPS: list[ViewGroup] = [
                 desc="A mesma exportação vista por MDIC, Comtrade e parceiros.",
             ),
             View(
+                # Component ships but the data is blocked (needs SEFAZ inter-UF flows
+                # + monthly PEVS this repo lacks) → renders an honest placeholder.
                 "cross_chain",
                 "Balanço da cadeia",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="balanço físico (massa)",
                 sources=("ibge_pevs", "sefaz_nf", "mdic_comex", "un_comtrade"),
                 desc="Balanço de oferta reconciliado em massa, da produção ao mercado mundial.",
             ),
             View(
+                # Data-blocked (needs monthly PEVS) → honest placeholder, like cross_chain.
                 "cross_lag",
                 "Defasagem safra → embarque",
-                "soon",
+                "live",
                 cross_banco=True,
                 align="mês (intra-anual)",
                 sources=("ibge_pevs", "mdic_comex"),

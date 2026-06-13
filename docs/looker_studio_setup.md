@@ -50,7 +50,7 @@ There is **a single physical Gold table per source** — for IBGE PEVS it is
 `gold_pevs_production` (~95 thousand rows, one per year × UF × municipality × product).
 Aggregations by state/year or Brazil-total are derived within Looker
 Studio itself (calculated fields / GROUP BY on the source). Pre-aggregated marts exist in the
-`serving/` layer (for the Dash dashboard / Pushdown Computing), but Looker
+`serving/` layer (for the React SPA dashboard / Pushdown Computing), but Looker
 consumes Gold directly.
 
 | Table | Rows (approx.) | Grain |

@@ -18,6 +18,7 @@ from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from embrapa_commodities.config import get_settings
+from embrapa_commodities.serving.curation import ensure_curators_table
 from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
@@ -26,6 +27,17 @@ from .auth import current_author
 logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__)
+
+
+@api.errorhandler(ValueError)
+def _api_value_error(exc):
+    """Client-input validation errors → HTTP 400 (not 500). The serving writers
+    raise ValueError for caller-supplied input that fails validation (e.g. an
+    over-length classification level / market that the curation writer caps). That
+    is a client fault, so it must not page operators as a server 500 nor be lost in
+    the generic handler. The message is pt-BR (the end user reads it)."""
+    logger.info("Invalid curation input on %s: %s", request.path, exc)
+    return jsonify(error="Dados inválidos: verifique o tamanho e o preenchimento dos campos."), 400
 
 
 @api.errorhandler(Exception)
@@ -37,6 +49,24 @@ def _api_error(exc):
         return jsonify(error=exc.description, code=exc.code), exc.code
     logger.exception("Unhandled error on %s", request.path)
     return jsonify(error="internal server error"), 500
+
+
+def _ensure_curators_table() -> None:
+    """Self-heal the Console-managed curator allowlist table (best-effort).
+
+    The allowlist read (``seam.curator_emails``) treats a missing table as "no
+    allowlist configured" (open mode), so an operator following the runbook's
+    documented INSERT to add the first curator would otherwise hit "table not
+    found". Create it idempotently on the first authorization check — mirroring how
+    the append-only log writers self-heal their own tables — so the runbook's
+    "auto-creates on first use" promise actually holds. Best-effort: a transient
+    BQ/permission fault must not block an otherwise-authorized write, and an empty
+    table is still open mode, so swallowing the error preserves current behaviour.
+    """
+    try:
+        ensure_curators_table()
+    except Exception:  # pragma: no cover - BQ unavailable / perms; never block the write
+        logger.warning("Could not ensure curators allowlist table", exc_info=True)
 
 
 def _authorize_curator():
@@ -55,6 +85,9 @@ def _authorize_curator():
         return None, (jsonify(error=str(exc)), 403)
     except PermissionError as exc:  # MissingAuthorError (+ any other) → no identity
         return None, (jsonify(error=str(exc)), 401)
+    # Auto-create the allowlist table on first use so the runbook's Console INSERT
+    # path is real (the read below then finds an empty table → open mode).
+    _ensure_curators_table()
     allowed = set(get_settings().curation_allowed_emails_list) | seam.curator_emails()
     if allowed and author.lower() not in allowed:
         return None, (jsonify(error=f"{author} is not an authorized curator"), 403)
@@ -123,35 +156,84 @@ def productivity():
 
     `crop` picks the active crop (defaults to the first when absent). Yield (kg/ha)
     is recomputed server-side from production ÷ harvested area on the PAM mart;
-    `null` when the banco lacks the `yield` capability."""
+    `null` when the banco lacks the `yield` capability. ``y0``/``y1`` scope the
+    year window to the view's active period filter (the product basket does NOT
+    apply — the crop selector is this view's own product dimension)."""
     banco = request.args.get("banco", "")
     crop = request.args.get("crop") or None
-    payload = seam.productivity(banco, crop, None)
+    y0, y1 = request.args.get("y0"), request.args.get("y1")
+    summary = {"startDate": y0, "endDate": y1} if (y0 or y1) else None
+    payload = seam.productivity(banco, crop, summary)
     return jsonify(serializers.serialize_productivity(payload))
 
 
 # ── trade adapters (flow / partner / monthly) — COMEX/COMTRADE ─────────────────
 
 
+def _csv_param(raw: str | None) -> list[str]:
+    """Split a comma-joined query param into a list, dropping blanks.
+
+    ``None`` (param absent) and ``''`` (cleared / all) both yield an empty list —
+    i.e. no filter on that dimension."""
+    if not raw:
+        return []
+    return [c for c in raw.split(",") if c]
+
+
+def _filter_summary() -> dict | None:
+    """Parse the active-filter query params into the seam's summary shape.
+
+    The reused views pass the FilterMenu selection through the producers as URL
+    params: ``codes`` (comma-joined product codes → basket), ``states``
+    (comma-joined UF acronyms → states, the origin-UF filter the COMEX trade
+    readers honour) and ``y0``/``y1`` (the year window). The seam reads ``basket`` +
+    ``states`` + ``startDate``/``endDate``; year strings are sliced to the leading 4
+    digits there, so a bare year suffices. Returns ``None`` when no filter param is
+    present (the unfiltered default).
+    """
+    basket = _csv_param(request.args.get("codes"))
+    states = _csv_param(request.args.get("states"))
+    y0, y1 = request.args.get("y0"), request.args.get("y1")
+    summary = {
+        key: value
+        for key, value in (
+            ("basket", basket),
+            ("states", states),
+            ("startDate", y0),
+            ("endDate", y1),
+        )
+        if value
+    }
+    return summary or None
+
+
 @api.get("/flow")
 def flow():
-    """Origin→destination links for the Sankey (None when the banco lacks `flow`)."""
+    """Origin→destination links for the Sankey (None when the banco lacks `flow`).
+
+    ``codes``/``states``/``y0``/``y1`` scope the basket + origin-UF + year window to
+    match the view's active filters (the seam threads them into the gateway flow
+    reader; ``states`` narrows the COMEX origin only — COMTRADE's origin is a
+    reporter country, so the frontend surfaces it as not-applicable there)."""
     banco = request.args.get("banco", "")
-    return jsonify(serializers.serialize_flow(seam.flow_data(banco, None)))
+    return jsonify(serializers.serialize_flow(seam.flow_data(banco, _filter_summary())))
 
 
 @api.get("/partners")
 def partners():
-    """Partner ranking with export/import split."""
+    """Partner ranking with export/import split (basket + origin-UF + year window
+    via ``codes``/``states``/``y0``/``y1``; ``states`` applies to COMEX only)."""
     banco = request.args.get("banco", "")
-    return jsonify(serializers.serialize_partner(seam.partner_data(banco, None)))
+    return jsonify(serializers.serialize_partner(seam.partner_data(banco, _filter_summary())))
 
 
 @api.get("/monthly")
 def monthly():
-    """Monthly seasonality (COMEX only)."""
+    """Monthly seasonality, COMEX only (basket + year window via
+    ``codes``/``y0``/``y1``). The seasonality mart collapses UF away, so the UF
+    (``states``) filter does not apply here — the frontend surfaces that honestly."""
     banco = request.args.get("banco", "")
-    return jsonify(serializers.serialize_monthly(seam.monthly_data(banco, None)))
+    return jsonify(serializers.serialize_monthly(seam.monthly_data(banco, _filter_summary())))
 
 
 # ── cross-source comparable series ─────────────────────────────────────────────

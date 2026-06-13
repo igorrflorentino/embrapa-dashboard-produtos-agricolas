@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -67,6 +68,28 @@ def test_latest_log_path_filters_by_pipeline(isolated_log_dir: Path) -> None:
     assert observability.latest_log_path() == bcb_path
 
 
+def test_latest_log_path_does_not_prefix_collide_on_hyphenated_pipelines(
+    isolated_log_dir: Path,
+) -> None:
+    """`--pipeline ibge` must NOT match ibge-batch / ibge-pam logs.
+
+    Pipeline names themselves contain hyphens, so a bare `ibge-*.jsonl` glob
+    would attach the monitor to whichever of ibge / ibge-batch / ibge-pam ran
+    most recently. The filter anchors the run_id slug after the name instead.
+    """
+    _, ibge_path = observability.init_run("ibge")
+    # Make the plain-ibge log the OLDEST so the buggy prefix glob would pick
+    # one of the hyphenated siblings below instead.
+    os.utime(ibge_path, (ibge_path.stat().st_atime, ibge_path.stat().st_mtime - 200))
+    _, pam_path = observability.init_run("ibge-pam")
+    os.utime(pam_path, (pam_path.stat().st_atime, pam_path.stat().st_mtime - 100))
+    _, batch_path = observability.init_run("ibge-batch")
+
+    assert observability.latest_log_path("ibge") == ibge_path
+    assert observability.latest_log_path("ibge-pam") == pam_path
+    assert observability.latest_log_path("ibge-batch") == batch_path
+
+
 def test_list_log_paths_sorted_newest_first(isolated_log_dir: Path) -> None:
     _, first = observability.init_run("ibge")
     # Force a measurable mtime gap.
@@ -87,7 +110,7 @@ def test_log_dir_respects_env_var(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 def test_init_run_closes_previous_handler_on_reinit(isolated_log_dir: Path) -> None:
     """Re-initialising the same pipeline name must CLOSE the stale handler, not
     just detach it. logging caches loggers by name, so without close() each
-    re-init would leak an open RotatingFileHandler file. A unique pipeline name
+    re-init would leak an open FileHandler file. A unique pipeline name
     keeps this isolated from the logger cache other tests populate."""
     observability.init_run("leak-test")
     assert observability._event_logger is not None
@@ -98,4 +121,18 @@ def test_init_run_closes_previous_handler_on_reinit(isolated_log_dir: Path) -> N
     # Same name → init_run finds the cached logger's handler and must close it.
     observability.init_run("leak-test")
 
-    assert first_stream.closed, "stale RotatingFileHandler file must be closed, not leaked"
+    assert first_stream.closed, "stale FileHandler file must be closed, not leaked"
+
+
+def test_init_run_uses_non_rotating_handler(isolated_log_dir: Path) -> None:
+    """The event log must never rotate mid-run.
+
+    The monitor tails the file by byte offset (`_tail_jsonl`); a
+    RotatingFileHandler rollover renames the live file and replaces it with an
+    empty one, silently freezing the tail until the new file outgrows the
+    stale offset. The handler therefore must be a PLAIN FileHandler.
+    """
+    observability.init_run("rotation-test")
+    assert observability._event_logger is not None
+    handler = observability._event_logger.handlers[0]
+    assert type(handler) is logging.FileHandler

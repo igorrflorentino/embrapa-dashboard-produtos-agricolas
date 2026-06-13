@@ -1,9 +1,9 @@
 """``flask-caching`` instance shared by the serving data-access layer.
 
 The ``cache`` object is created unbound at import time so query functions can be
-decorated with ``@cache.memoize()`` before a Flask server exists. The dashboard
-calls :func:`init_cache` once, passing its Flask ``server`` (Dash's underlying
-WSGI app), to bind and configure it.
+decorated with ``@cache.memoize()`` before a Flask server exists. The webapi app
+factory calls :func:`init_cache` once, passing its Flask app, to bind and
+configure it.
 
 Cache backend — multi-instance Cloud Run on ``SimpleCache`` (the default) works,
 for free:
@@ -78,12 +78,16 @@ def _bind_classification_ttl(timeout: int) -> None:
     Imported lazily (gateway imports this module) to dodge a circular import.
     flask-caching reads ``decorated_fn.cache_timeout`` on every call, so updating
     it here overrides the decoration-time default with the authoritative value.
-    ALL THREE curation reads (commodity-level, per-code, and flow-market) must use
-    the short classification TTL — that short window is what bounds cross-instance
-    staleness on per-process SimpleCache — so rebind all three, not just the first.
+    All the curation reads (per-code, flow-market, AND the curator allowlist) must
+    use the short classification TTL — that short window is what bounds
+    cross-instance staleness on per-process SimpleCache. The curator allowlist
+    gates POST /api/curation/* authorization, so its read must also honor the
+    configured value: an operator who lowers CACHE_CLASSIFICATION_TIMEOUT to revoke
+    a removed curator faster would otherwise see no effect (the allowlist would stay
+    pinned at the decoration-time default). Rebind all three.
     """
     from embrapa_commodities.serving import gateway
 
-    gateway.fetch_current_classifications.cache_timeout = timeout
     gateway.fetch_current_code_industrialization.cache_timeout = timeout
     gateway.fetch_current_flow_market.cache_timeout = timeout
+    gateway.fetch_curators.cache_timeout = timeout

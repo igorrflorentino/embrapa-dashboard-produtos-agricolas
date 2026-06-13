@@ -58,8 +58,12 @@ JOB_NAME="${JOB_NAME:-embrapa-ingest-all}"
 
 SCHED_NAME="${COMTRADE_SCHEDULE_NAME:-$(get_env COMTRADE_SCHEDULE_NAME)}"
 SCHED_NAME="${SCHED_NAME:-${JOB_NAME}-comtrade-monthly}"
-# Monthly, 15th at 04:00 — mid-month, away from the 1st-of-month reconcile (03:00)
-# and the nightly (05:00), so the heavy quota-limited run never overlaps them.
+# Monthly, 15th at 04:00 BRT — mid-month, away from the 1st-of-month reconcile
+# (03:00). NOTE: with the default 6h task timeout below, a long run is STILL in
+# flight during the 05:00 BRT nightly `ingest all` and the 08:30 BRT scheduled
+# prod dbt build. That concurrency is safe — different Bronze tables, and dbt
+# only reads Bronze — but a partially ingested Comtrade year can reach
+# Silver/Gold one build early; the next daily build converges it.
 CRON="${COMTRADE_SCHEDULE_CRON:-$(get_env COMTRADE_SCHEDULE_CRON)}"
 CRON="${CRON:-0 4 15 * *}"
 SCHED_TZ="${COMTRADE_SCHEDULE_TZ:-$(get_env COMTRADE_SCHEDULE_TZ)}"

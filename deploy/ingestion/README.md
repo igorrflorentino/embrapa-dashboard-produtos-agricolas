@@ -6,10 +6,11 @@ feeds Silver → Gold → the `serving` marts.
 
 > **Job, not Service.** This is the *batch ingestion* image — it runs the CLI to
 > completion and exits, with no HTTP port. It is **not** the dashboard, which is
-> a long-running Cloud Run *Service* and arrives with the Claude Design System
-> handoff. Don't confuse this `Dockerfile` with the (still-pending) dashboard one.
+> a long-running Cloud Run *Service* (the React SPA + Flask REST app, live on
+> Cloud Run — `deploy/webapi/`). Don't confuse this `Dockerfile` with the
+> dashboard one.
 
-| | **Job** (this dir) | **Service** (dashboard, later) |
+| | **Job** (this dir) | **Service** (dashboard, `deploy/webapi/`) |
 |---|---|---|
 | Nature | batch, ephemeral | always-on, scales to zero |
 | HTTP port | none | yes (Gunicorn) |
@@ -71,7 +72,8 @@ keys `embrapa ingest all` actually reads: `GCP_PROJECT_ID`, `GCS_*`,
 vars `IBGE_*` / `BCB_*` / `COMEX_*`. Everything else in `.env` is **not** shipped
 to the Job: the secret `COMTRADE_API_KEY` and `GCP_IMPERSONATION_SA`, all other
 `COMTRADE_*` (COMTRADE is key-gated and excluded from `all`), the serving/cache
-vars (`BQ_SERVING_DATASET`, `BQ_RESEARCH_INPUTS_DATASET`, `BQ_CURATION_LOG_TABLE`,
+vars (`BQ_SERVING_DATASET`, `BQ_RESEARCH_INPUTS_DATASET`,
+`BQ_CODE_INDUSTRIALIZATION_LOG_TABLE`,
 `CACHE_*`), the dbt-only `BQ_SILVER_DATASET` / `BQ_GOLD_DATASET`, the `BACKUP_*`
 knobs, and the deploy-time `INGEST_*` / `INGEST_SCHEDULE_*` vars (read by these
 scripts, never by the app). The job runs **as** the ingestion SA, so it

@@ -8,7 +8,7 @@
 // axis, the SECOND to the RIGHT. Series sharing a unit share an axis. The view
 // caps dual-axis mode at 2 distinct units, so we only ever wire two axes.
 
-import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
 
 function DualAxisLineChart({ series = [], height = 200 }) {
   // Discover the distinct units in encounter order (max 2 → left/right).
@@ -37,6 +37,12 @@ function DualAxisLineChart({ series = [], height = 200 }) {
     };
   });
 
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+  // (FINDING #9). Each axis covers only its own unit's series (a ratio/share axis
+  // and an absolute-value axis must not share a magnitude). Falls back to `~s` when
+  // an axis has no usable positive max.
+  const maxForUnit = (u) =>
+    seriesMax(series.filter((s) => s.unit === u).flatMap((s) => s.data || []), (d) => d.v);
   const layout = baseLayout({
     margin: { l: 56, r: 60, t: 18, b: 30 },
     showlegend: true,
@@ -44,13 +50,13 @@ function DualAxisLineChart({ series = [], height = 200 }) {
     xaxis: { dtick: 'auto', tickformat: 'd' },
     yaxis: {
       title: { text: leftUnit || '', font: { size: 11 }, standoff: 8 },
-      tickformat: '~s',
+      ...ptBrLinearAxis(maxForUnit(leftUnit)),
     },
     // Only wire the right axis when a second unit exists; it overlays the left.
     ...(rightUnit !== undefined && {
       yaxis2: {
         title: { text: rightUnit || '', font: { size: 11 }, standoff: 8 },
-        tickformat: '~s',
+        ...ptBrLinearAxis(maxForUnit(rightUnit)),
         overlaying: 'y',
         side: 'right',
         showgrid: false,

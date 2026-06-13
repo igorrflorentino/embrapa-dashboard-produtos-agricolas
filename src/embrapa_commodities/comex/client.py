@@ -115,15 +115,38 @@ class ComexTransientError(ComexRequestError, SourceTransientError):
     """Transient (retryable) error: 5xx/408/429 or a slow-byte download hang."""
 
 
-def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
-    """Tenacity ``before_sleep`` hook: surface download retries in ``embrapa monitor``.
+def _head_retry_url(args: tuple, kwargs: dict) -> str:
+    """Rebuild the probed file URL for a ``head_source(base_url, flow, year)`` retry.
 
-    Mirrors the BCB client — the retried function is :func:`_download_to_disk`,
-    so the (url, dest) context comes straight off ``retry_state.args``.
+    ``args[0]`` is only the *base* URL, so the file URL must be rebuilt from
+    ``(flow, year)`` or every freshness probe would be misattributed to the base
+    path's last segment (one bogus ``ncm`` series)."""
+    base_url = args[0] if len(args) > 0 else kwargs.get("base_url", "?")
+    flow = args[1] if len(args) > 1 else kwargs.get("flow", "?")
+    year = args[2] if len(args) > 2 else kwargs.get("year", "?")
+    try:
+        return file_url(str(base_url), str(flow), year)
+    except KeyError:  # unknown flow — fall back to the base URL
+        return str(base_url)
+
+
+def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
+    """Tenacity ``before_sleep`` hook: surface retries in ``embrapa monitor``.
+
+    Wired to two retried functions with different signatures:
+    :func:`_download_to_disk(url, dest)` and :func:`head_source(base_url, flow,
+    year)`.
     """
     exc = retry_state.outcome.exception() if retry_state.outcome else None
-    args = retry_state.args
-    url = args[0] if args else retry_state.kwargs.get("url", "?")
+    args = retry_state.args or ()
+    kwargs = retry_state.kwargs or {}
+    is_head = getattr(getattr(retry_state, "fn", None), "__name__", "") == "head_source"
+    if is_head:
+        op = "HEAD"
+        url = _head_retry_url(args, kwargs)
+    else:
+        op = "download"
+        url = args[0] if args else kwargs.get("url", "?")
     observability.emit(
         "retry",
         series=str(url).rsplit("/", 1)[-1],  # the EXP_2023.csv basename
@@ -132,7 +155,8 @@ def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
         reason=str(exc)[:200] if exc else "?",
     )
     logger.warning(
-        "Retrying Comex download url=%s attempt=%d: %s",
+        "Retrying Comex %s url=%s attempt=%d: %s",
+        op,
         url,
         retry_state.attempt_number,
         exc,

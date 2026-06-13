@@ -4,7 +4,7 @@
 // hover and a per-series legend (the point of the Plotly migration).
 //   series: [{ name, color, data: [{ y, [valueKey] }] }]
 
-import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
 
 function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200 }) {
   const palette = vizPalette();
@@ -20,13 +20,17 @@ function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200 
     hovertemplate: '<b>%{x}</b>  %{y:,.2f}<extra>%{fullData.name}</extra>',
   }));
 
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G") so every value axis matches the
+  // dashboard's labels and is consistent across cards (FINDING #9) — max over all
+  // series. Falls back to `~s` when there is no usable positive max.
+  const ymax = seriesMax(series.flatMap((s) => s.data || []), (d) => d[valueKey]);
   const layout = baseLayout({
     margin: { l: 56, r: 12, t: 18, b: 28 },
     showlegend: true,
     legend: { orientation: 'h', y: 1.12, x: 0, font: { size: 11 } },
     yaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
-      tickformat: '~s',
+      ...ptBrLinearAxis(ymax),
     },
     xaxis: { dtick: 'auto', tickformat: 'd' },
   });

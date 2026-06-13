@@ -190,18 +190,18 @@ class Settings(BaseSettings):
     backup_gold_prefix: str = Field(default="gold_")
 
     # ─── Serving layer / dashboard data access ────────────────────────────────
-    # Pre-aggregated marts + the SCD2 curation view the stateless Dash app reads
-    # via Pushdown Computing. Un-prefixed name (dbt's generate_schema_name adds
-    # the dev prefix: dev → dbt_dev_serving, prod → serving). Point the deployed
-    # dashboard at "serving"; a developer testing against dev data sets it to
+    # Pre-aggregated marts + the SCD2 curation view the dashboard BFF (the Flask
+    # webapi serving the React SPA) reads via Pushdown Computing. Un-prefixed
+    # name (dbt's generate_schema_name adds the dev prefix: dev →
+    # dbt_dev_serving, prod → serving). Point the deployed dashboard at
+    # "serving"; a developer testing against dev data sets it to
     # "dbt_dev_serving".
     bq_serving_dataset: str = Field(default="serving")
     # Append-only researcher curation inputs (written by the dashboard, not dbt).
     bq_research_inputs_dataset: str = Field(default="research_inputs")
-    bq_curation_log_table: str = Field(default="commodity_processing_stage_log")
-    # Per-CODE industrialization log — the finer-grained companion to the commodity
-    # processing-stage log. Backs dim_code_industrialization_scd2 + the value-added
-    # analysis (COMEX exports split by the curated bruta/processada level).
+    # Per-CODE industrialization log — the primary curation grain. Backs
+    # dim_code_industrialization_scd2 + the value-added analysis (COMEX exports
+    # split by the curated bruta/processada level).
     bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
     # Append-only log of the (customs procedure × flow) → economic-purpose market
     # curation (consumo/processamento). Backs the market-nature analysis.
