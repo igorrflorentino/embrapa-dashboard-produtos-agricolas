@@ -130,7 +130,7 @@
 // @typedef {Object} TradeMirror         window.tradeMirror(productCode)
 // @property {boolean} preview
 // @property {string}  unit
-// @property {{y:number,mdic:number,comtrade:number,partners:number}[]} series
+// @property {{y:number,mdic:number,comtrade:number}[]} series   The SAME BR exports seen by MDIC (SECEX) and UN Comtrade (reporter = Brazil); the partner-reported mirror is NOT produced by the seam — do not read d.partners (that field belongs to PartnerConcentration, not here).
 // @property {{y:number,v:number}[]} discrepancy
 //
 // ── Cross chain — EXTENDED contracts (crossChain.js) ─────────────────────
@@ -169,6 +169,7 @@
 // @property {number[]} years
 // @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevel
 // @property {{y:number,brutaV:number,procV:number,procShare:number,premium:number}[]} series   premium = price_processada ÷ price_bruta (the per-kg prices themselves are NOT emitted).
+// @property {number}   nCodes   Count of classified COMEX codes included in the analysis (the "Códigos na análise" KPI).
 //
 // @typedef {Object} MarketNatureAnalysis  window.marketNatureAnalysis()
 // @property {boolean}  preview
