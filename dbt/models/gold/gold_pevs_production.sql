@@ -125,6 +125,13 @@ fx_year as (
         avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
+        -- 1994 changeover (Plano Real, 1994-07-01): PTAX before that date is
+        -- CR$/unit (Cruzeiro Real, ~450-2750 per US$); from it, R$/unit (~0.85).
+        -- A whole-1994 average would mix the two scales and corrupt the 1994
+        -- val_yearfx_* by ~3 orders of magnitude, so 1994 averages only the R$
+        -- half. Pre-1994 years keep their old-currency averages — the
+        -- `reference_year >= 1994` guard below nulls those columns anyway.
+        and (reference_year != 1994 or reference_date >= date(1994, 7, 1))
     group by reference_year
 
 ),
@@ -216,6 +223,7 @@ select
     -- "what the value was, restated in today's R$ symbols". Foreign-FX
     -- columns are NULL pre-1994: the FX rate of the year is in the currency-
     -- of-the-year (Cz$/USD etc.), which would mix scales and confuse readers.
+    -- 1994 itself is valid: fx_year averages only the R$ half (>= 1994-07-01).
     -- Use val_real_* for cross-year comparisons.
     val_raw                                                  as val_yearfx_brl,
     case when reference_year >= 1994

@@ -1,57 +1,96 @@
-// MetricConventions.test.js — base-aware currency scaling (cross-contract #5).
+// MetricConventions.test.js — server-native value scaling (no client-side FX).
 //
-// convFactor is base-UNAWARE (assumes BRL-canonical values); convFactorFor adds
-// the banco's own base currency so a USD-native trade banco (COMEX/Comtrade)
-// converts correctly when the display switches away from its default. These
-// tests pin the byte-identical defaults AND the previously-broken BRL switch.
+// The scientific core: currency × correction select the REAL deflated value column
+// SERVER-side (val_*_brl / val_*_usd / val_*_eur, real BCB PTAX), so a live banco's
+// snapshot ARRIVES in the requested display currency for EVERY source — production
+// (PEVS/PAM, BRL-native) AND trade (COMEX/Comtrade, US$-native customs). There is no
+// client-side conversion of real data: both convFactor and convFactorFor are 1, and
+// CURRENCY_FX is a symbol-only label table with NO numeric FX rate. These tests pin
+// that there is no mock-FX cross-conversion path left — the regression these files
+// used to encode (USD trade values multiplied by a frozen 1/0.205 rate to fake R$).
 //
 // Importing the proto module for side effects installs window.convFactor/
 // convFactorFor/CURRENCY_FX under jsdom (the module only assigns on window).
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import './MetricConventions.jsx';
 
-describe('convFactorFor (base-aware value multiplier)', () => {
-  beforeAll(() => {
-    // Guard against drift: these rates are the values the helper pivots through.
-    expect(window.CURRENCY_FX.USD.rate).toBe(0.205);
-    expect(window.CURRENCY_FX.EUR.rate).toBe(0.187);
+describe('CURRENCY_FX is a symbol-only table (no fake FX rate)', () => {
+  it('carries display symbols for every offered currency', () => {
+    expect(window.CURRENCY_FX.BRL.symbol).toBe('R$');
+    expect(window.CURRENCY_FX.USD.symbol).toBe('US$');
+    expect(window.CURRENCY_FX.EUR.symbol).toBe('€');
   });
 
-  // ---- Defaults must be byte-identical to the pre-fix convFactor path -------
-  it('BRL base delegates to convFactor verbatim (PEVS/SEFAZ path unchanged)', () => {
+  it('carries NO numeric FX rate (the mock 0.205/0.187 path is gone)', () => {
+    for (const ccy of ['BRL', 'USD', 'EUR']) {
+      // A fake rate is exactly the wrong-number path this fix removed — assert it
+      // does not exist, so a future edit cannot quietly reintroduce mock FX.
+      expect(window.CURRENCY_FX[ccy].rate).toBeUndefined();
+    }
+  });
+});
+
+describe('convFactor / convFactorFor never convert server-backed values', () => {
+  // The snapshot value already arrives in the requested currency for every banco,
+  // so the display factor is ALWAYS 1 — never a mock multiplier on real data.
+  it('convFactor is 1 for every server-native currency', () => {
     for (const currency of ['BRL', 'USD', 'EUR']) {
-      const conv = { currency };
-      expect(window.convFactorFor('BRL', conv)).toBe(window.convFactor(conv));
+      expect(window.convFactor({ currency })).toBe(1);
     }
   });
 
-  it('USD-native default display (USD) is identity — same as today (factor 1)', () => {
-    expect(window.convFactorFor('USD', { currency: 'USD' })).toBe(1);
-    expect(window.convFactor({ currency: 'USD' })).toBe(1); // pre-fix default path
+  it('convFactorFor is 1 regardless of the banco base (trade is NOT cross-converted)', () => {
+    // The previously-broken case: a USD-native trade banco displayed in R$/€. It used
+    // to multiply by 1/0.205 (mock FX); now the BFF serves the real BRL/EUR column,
+    // so the factor must be exactly 1 — no double conversion of real data.
+    for (const base of ['BRL', 'USD', 'EUR', undefined, null]) {
+      for (const currency of ['BRL', 'USD', 'EUR']) {
+        expect(window.convFactorFor(base, { currency })).toBe(1);
+      }
+    }
   });
 
-  it('missing base defaults to BRL (back-compat)', () => {
-    expect(window.convFactorFor(undefined, { currency: 'BRL' })).toBe(1);
-    expect(window.convFactorFor(null, { currency: 'USD' })).toBe(1); // server-native USD col
-  });
-
-  // ---- The bug: USD-native banco switched to a non-default display ----------
-  it('USD base → BRL display converts USD→BRL (the previously-broken case)', () => {
-    // Pre-fix this was convFactor("BRL") = 1, leaving a US$ magnitude under R$.
+  it('a US$-native trade value is NOT rescaled when shown in R$ (no mock 1/0.205)', () => {
+    // 100 (already in the requested R$ from the server) stays 100 — not ~487.8.
     const f = window.convFactorFor('USD', { currency: 'BRL' });
-    expect(f).toBeCloseTo(1 / 0.205, 10);
-    // A US$100 UF value renders as ~R$487.80 instead of the wrong R$100.
-    expect(100 * f).toBeCloseTo(487.804878, 4);
+    expect(f).toBe(1);
+    expect(100 * f).toBe(100);
+  });
+});
+
+describe('clampConvention guards the unservable USD × IGP-M/IGP-DI combos', () => {
+  // The serving marts carry IGP-M/IGP-DI deflation in BRL/EUR only — there is no
+  // val_real_{igpm,igpdi}_usd in the allowlist. Requesting USD × IGP-M/IGP-DI would
+  // make the BFF fall back to a real R$ figure shown under a US$ symbol (wrong-symbol
+  // display). The strip disables those buttons; clampConvention is the shared rule the
+  // deep-link decoder + banco-switch default reuse so no path can slip the combo past.
+  it.each(['IGP-M', 'IGP-DI'])('snaps USD × %s back to IPCA', (correction) => {
+    const out = window.clampConvention({ currency: 'USD', correction });
+    expect(out.currency).toBe('USD');
+    expect(out.correction).toBe('IPCA');
   });
 
-  it('USD base → EUR display converts USD→EUR via the BRL pivot', () => {
-    const f = window.convFactorFor('USD', { currency: 'EUR' });
-    expect(f).toBeCloseTo(0.187 / 0.205, 10);
+  it('leaves every servable combo untouched (and returns the same object reference)', () => {
+    // USD keeps Nominal/IPCA; BRL/EUR keep ALL four corrections (their _usd/_eur
+    // deflated columns exist). The identity return matters: main.jsx relies on it to
+    // avoid a needless conventions re-render on a no-op clamp.
+    const servable = [
+      { currency: 'USD', correction: 'Nominal' },
+      { currency: 'USD', correction: 'IPCA' },
+      { currency: 'BRL', correction: 'IGP-M' },
+      { currency: 'BRL', correction: 'IGP-DI' },
+      { currency: 'EUR', correction: 'IGP-M' },
+      { currency: 'EUR', correction: 'IGP-DI' },
+    ];
+    for (const conv of servable) {
+      expect(window.clampConvention(conv)).toBe(conv); // unchanged, same reference
+    }
   });
 
-  it('USD base → USD display stays exactly 1 (no rounding drift)', () => {
-    expect(window.convFactorFor('USD', { currency: 'USD' })).toBe(1);
+  it('tolerates a null/undefined convention without throwing', () => {
+    expect(window.clampConvention(null)).toBeNull();
+    expect(window.clampConvention(undefined)).toBeUndefined();
   });
 });

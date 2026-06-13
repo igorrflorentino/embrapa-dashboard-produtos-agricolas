@@ -16,6 +16,11 @@ function ViewFlows({ summary, conventions, database }) {
       {data.preview && <window.PreviewBanner banco={banco}
         capabilityNote="Fluxos exigem pares origem → destino, ainda não disponíveis nesta fonte." />}
 
+      {/* Honest note when a filter the flow grain cannot honour is active (e.g. the
+          origin-UF filter on a country-origin banco like Comtrade). The data layer
+          already withholds the param; this surfaces WHY the charts are unchanged. */}
+      <window.NotApplicableNote note={data.notApplicable} />
+
       <div className="kpi-row">
         <window.KpiCardSpark label="Fluxo total" value={fmt(totalOut)} sub={`${data.links.length} rotas mapeadas`} />
         <window.KpiCardSpark label={`Maior origem · ${data.originLabel}`} value={topOrigin?.label || '—'} sub={fmt(topOrigin?.value || 0)} />
@@ -27,7 +32,7 @@ function ViewFlows({ summary, conventions, database }) {
         <window.SectionHeader
           overline={`Diagrama de fluxo · ${data.originLabel} → ${data.destLabel}`}
           title="Para onde a produção vai"
-          action={<span className="caption">{data.unit} · valores ilustrativos</span>}
+          action={<span className="caption">{data.unit}{data.preview ? ' · valores ilustrativos' : ''}</span>}
         />
         <window.SankeyChart nodes={data.nodes} links={data.links} unit={data.unit} height={380} />
       </div>

@@ -21,15 +21,17 @@ from embrapa_commodities.config import Settings
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(
+def settings(settings_factory) -> Settings:
+    # _env_file=None (via settings_factory) keeps the start/end year and series
+    # from being overridden by the developer's repo-root .env (hermetic window).
+    return settings_factory(
         gcp_project_id="test-project",
         gcs_bucket="test-bucket",
         bcb_start_year=2020,
         bcb_end_year=2020,
         bcb_inflation_series="433:IPCA",
         bcb_currency_series="3694:USD",
-    )  # type: ignore[call-arg]
+    )
 
 
 class _RawRoundTrip:

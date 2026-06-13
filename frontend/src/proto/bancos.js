@@ -270,10 +270,13 @@ window.BANCOS = [
     source: 'UN Statistics Division',
     table:  'gold_comtrade_flows',
     maturity: 'beta',
-    // Connected & loaded, but the UN Comtrade API rate limits make the full
-    // historical backfill impossible to finish in one pass — the deep history
-    // (pre-2010) is still being ingested in throttled batches.
-    maturityNote: 'Backfill histórico (1988–2010) parcial — limite de requisições da API UN Comtrade.',
+    // Connected & loaded, but the ingestion window is intentionally capped at
+    // 2022–2023 today (the dev window — see project memory "COMTRADE dev window").
+    // Bronze/Gold hold only those two years, so the registry must NOT overstate
+    // coverage: the cross-source comparable-window math reads THIS registry and
+    // would otherwise intersect to a window Gold does not contain. The historical
+    // backfill (older years) lands after the frontend handoff is verified.
+    maturityNote: 'Cobertura inicial 2022–2023; backfill histórico (anos anteriores) em andamento — limite de requisições da API UN Comtrade.',
     maturityDate: '4º trimestre/2026',
     // Country → country flows. Product (HS6), flow, partner, quality.
     // Geography is country-level only (no Brazilian UF/município).
@@ -288,24 +291,24 @@ window.BANCOS = [
       product: { codeLabel: 'Código HS6' },
     },
     metrics: [
-      { id: 'exp_value', label: 'Valor exportado (BR)', family: 'currency', unit: 'US$', agg: 'Exportações brasileiras declaradas à ONU', years: [1988, 2024] },
-      { id: 'imp_value', label: 'Valor importado (BR)', family: 'currency', unit: 'US$', agg: 'Importações brasileiras declaradas à ONU', years: [1988, 2024] },
-      { id: 'world_exp', label: 'Exportação mundial',    family: 'currency', unit: 'US$', agg: 'Total mundial do produto (todos reporters)', years: [1988, 2024] },
+      { id: 'exp_value', label: 'Valor exportado (BR)', family: 'currency', unit: 'US$', agg: 'Exportações brasileiras declaradas à ONU', years: [2022, 2023] },
+      { id: 'imp_value', label: 'Valor importado (BR)', family: 'currency', unit: 'US$', agg: 'Importações brasileiras declaradas à ONU', years: [2022, 2023] },
+      { id: 'world_exp', label: 'Exportação mundial',    family: 'currency', unit: 'US$', agg: 'Total mundial do produto (todos reporters)', years: [2022, 2023] },
     ],
     // Provenance (live). Representative snapshot generated from the explicit
     // contract shape (02_SNAPSHOT_CONTRACTS.md), HS 0801 nut-trade demo
     // parameters, until the real Gold is wired.
     // Country-level only → no UF dimension (ufsTotal = 0).
     prov: {
-      lastCrop:     'Comtrade 2024',
-      lastCropDate: 'rev. 2025T1',
+      lastCrop:     'Comtrade 2023',
+      lastCropDate: 'rev. 2024T1',
       refresh:      '29 mai 2026 · 05:10 BRT',
       totalRows:    642_180,
       productsTotal: 5,
       ufsTotal:      0,
-      yearStart:     1988,
-      yearEnd:       2024,
-      yearsTotal:    37,
+      yearStart:     2022,
+      yearEnd:       2023,
+      yearsTotal:    2,
     },
     plannedScope: [
       { col: 'reporter · partner',          desc: 'Países envolvidos no fluxo declarado.' },
@@ -315,8 +318,8 @@ window.BANCOS = [
       { col: 'data_quality',                desc: 'Bandeira (final · preliminar · estimado · mirror).' },
     ],
     cobertura: {
-      years:      '1988 → presente',
-      atualizacao:'anual + revisões trimestrais',
+      years:      '2022 → 2023 (janela inicial)',
+      atualizacao:'anual + revisões',
       granularidade: 'HS6 × par de países × ano',
     },
   },
@@ -470,8 +473,8 @@ window.auditBancoCoverage = (mapLabel, hasEntry, opts) => {
     .map(b => b.id);
   if (missing.length) {
     console.warn(
-      `[cobertura] ${mapLabel}: banco(s) visível(is) sem entrada → ${missing.join(', ')}. ` +
-      `Adicione a entrada correspondente (ver CLAUDE.md · "plugar um banco de um domínio novo").`
+      `[coverage] ${mapLabel}: visible banco(s) with no entry → ${missing.join(', ')}. ` +
+      `Add the matching entry (see CLAUDE.md · "plug in a banco from a new domain").`
     );
   }
 };

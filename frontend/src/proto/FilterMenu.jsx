@@ -539,8 +539,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       const ed = v.endDate   || `${yearEnd}-12`;
       setStartDate(sd); setEndDate(ed);
       setQuickRange((sd === `${yearStart}-01` && ed === `${yearEnd}-12`) ? 'all' : null);
-      setValueMin(v.valueMin ?? null);
-      setValueMax(v.valueMax ?? null);
+      // Value-range filter is disabled (no backend row-level path yet) — force the
+      // limits to null even if a bookmarked URL restored a value, so the chip never
+      // claims an active filter that changes nothing.
+      setValueMin(null);
+      setValueMax(null);
     }
     wasOpen.current = open;
   }, [open]);
@@ -685,7 +688,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 <span className="fm-summary">
                   {isLive
                     ? <><strong>{summary.prodTxt}</strong> · {summary.period} · {summary.geoTxt}</>
-                    : <>Pré-visualização · este banco será habilitado em <strong>{bancoMeta?.plannedRelease || 'breve'}</strong></>}
+                    : <>Pré-visualização · este banco será habilitado em <strong>{bancoMeta?.maturityDate || 'breve'}</strong></>}
                 </span>
               </div>
               <button className="fm-close" onClick={close} aria-label="Fechar">
@@ -795,19 +798,25 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
 
               <div className="fm-divider" aria-hidden="true"></div>
 
-              {/* FAIXA DE VALOR (filtro por linha) */}
-              <div className="fm-col">
+              {/* FAIXA DE VALOR (filtro por linha) — DESABILITADO.
+                  O recorte por valor de linha exige uma contagem/filtragem por
+                  linha no backend (/api/snapshot recebe apenas banco+moeda+
+                  correção). Enquanto não existe esse caminho, o controle fica
+                  desabilitado com uma nota honesta, em vez de exibir um chip
+                  "ativo" que não altera nenhum gráfico, KPI ou exportação. */}
+              <div className="fm-col fm-col-disabled" aria-disabled="true">
                 <div className="fm-col-head">
                   <span className="fm-section-label">Faixa de valor por linha</span>
-                  <span className="fm-section-meta">
-                    {valColumn}
-                  </span>
+                  <span className="fm-section-meta">indisponível</span>
                 </div>
 
                 <p className="fm-col-help">
-                  Inclua apenas linhas cujo valor monetário esteja dentro da faixa.
-                  Os limites são aplicados sobre o valor em <strong>{sym}</strong>;
-                  a moeda e correção de exibição são definidas em <strong>Convenções métricas</strong>.
+                  O recorte por valor monetário de cada linha ainda não está
+                  disponível — o backend não expõe contagem/filtragem por linha de
+                  valor. Para não induzir conclusões equivocadas, o controle está
+                  desabilitado. Use o período e a cesta de produtos para recortar a
+                  seleção; a moeda e correção de exibição ficam em
+                  <strong> Convenções métricas</strong>.
                 </p>
 
                 <div className="fm-sub">
@@ -815,57 +824,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   <div className="fm-range-row">
                     <div className="fm-range-field">
                       <label htmlFor="fm-vmin">Mínimo ({sym})</label>
-                      <input
-                        id="fm-vmin"
-                        type="number"
-                        inputMode="numeric"
-                        min="0"
-                        step="1000"
-                        placeholder="sem limite"
-                        value={valueMin == null ? '' : valueMin}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setValueMin(v === '' ? null : Math.max(0, Number(v)));
-                        }}
-                      />
+                      <input id="fm-vmin" type="number" placeholder="indisponível" value="" disabled />
                     </div>
                     <div className="fm-arrow">{I.arrow}</div>
                     <div className="fm-range-field">
                       <label htmlFor="fm-vmax">Máximo ({sym})</label>
-                      <input
-                        id="fm-vmax"
-                        type="number"
-                        inputMode="numeric"
-                        min="0"
-                        step="1000"
-                        placeholder="sem limite"
-                        value={valueMax == null ? '' : valueMax}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setValueMax(v === '' ? null : Math.max(0, Number(v)));
-                        }}
-                      />
+                      <input id="fm-vmax" type="number" placeholder="indisponível" value="" disabled />
                     </div>
-                  </div>
-                </div>
-
-                <div className="fm-sub">
-                  <span className="fm-sub-label">Atalhos · valor mínimo</span>
-                  <div className="fm-quick">
-                    {(window.VALUE_PRESETS || []).map(p => ({
-                      ...p,
-                      label: p.suffix ? `≥ ${sym} ${p.suffix}` : 'Sem limite',
-                    })).map(p => {
-                      const on = valueMin === p.min && valueMax === p.max;
-                      return (
-                        <button key={p.id}
-                                type="button"
-                                className={on ? 'on' : ''}
-                                onClick={() => { setValueMin(p.min); setValueMax(p.max); }}>
-                          {p.label}
-                        </button>
-                      );
-                    })}
                   </div>
                 </div>
               </div>
@@ -1086,8 +1051,8 @@ function FilterPreview({ schema, banco, onClose }) {
         <span>
           Este banco ainda não foi liberado no backend. Abaixo estão as
           dimensões que estarão disponíveis para filtragem assim que a
-          tabela <code>{window.bancoTable(banco)}</code> for publicada
-          {banco?.plannedRelease ? ` (previsão ${banco.plannedRelease})` : ''}.
+          tabela <code>{window.bancoTable(banco?.id)}</code> for publicada
+          {banco?.maturityDate ? ` (previsão ${banco.maturityDate})` : ''}.
         </span>
       </div>
 
@@ -1119,7 +1084,7 @@ function FilterPreview({ schema, banco, onClose }) {
 
       <footer className="fm-foot">
         <div className="fm-foot-info">
-          {dims.length} dimensões previstas · scoped a <strong>{window.bancoTable(banco)}</strong>
+          {dims.length} dimensões previstas · scoped a <strong>{window.bancoTable(banco?.id)}</strong>
         </div>
         <button className="btn-primary" onClick={onClose}>Entendi</button>
       </footer>

@@ -47,6 +47,11 @@ function ViewProductivity({ summary, conventions, database }) {
 
   return (
     <>
+      {/* Honest note when the FilterMenu product basket is active: this view picks
+          its own crop (selector below), so the basket cannot narrow it — the data
+          layer withholds it and surfaces WHY here instead of ignoring it silently. */}
+      <window.NotApplicableNote note={data.notApplicable} />
+
       {/* Crop selector */}
       <div className="pp-selector">
         <span className="pp-selector-label">Lavoura em análise</span>

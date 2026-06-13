@@ -27,9 +27,22 @@ export function ufColorScale(data, valueKey, ramp = RAMP, nodata = NODATA) {
 }
 
 /** A maplibre data-driven `match` expression on the `uf` feature property, or a
- *  constant fallback color when there's nothing to color. */
+ *  constant fallback color when there's nothing to color.
+ *
+ *  Hardened (FINDING #5): only well-formed [string uf → string color] pairs are
+ *  emitted. A `null`/`undefined`/non-string label or color injected into a
+ *  maplibre `match` makes the expression compiler dereference `.length` on a
+ *  missing operand and throw "Cannot read properties of undefined (reading
+ *  'length')" — which blanks the map without tripping the WebGL fallback. Any
+ *  bad pair is dropped; if nothing valid remains we return the constant fallback
+ *  so maplibre always receives a valid paint value. */
 export function fillColorExpression(byUf, fallback = NODATA) {
-  const entries = Object.entries(byUf);
-  if (!entries.length) return fallback;
-  return ['match', ['get', 'uf'], ...entries.flat(), fallback];
+  const pairs = [];
+  for (const [uf, color] of Object.entries(byUf || {})) {
+    if (typeof uf === 'string' && uf && typeof color === 'string' && color) {
+      pairs.push(uf, color);
+    }
+  }
+  if (!pairs.length) return fallback;
+  return ['match', ['get', 'uf'], ...pairs, fallback];
 }

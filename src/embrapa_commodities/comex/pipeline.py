@@ -363,13 +363,7 @@ def run(
     source-level handler can collect them; with a consumer, ``run`` returns
     normally and the caller decides the exit code from the outcomes it saw.
     """
-    creds = get_credentials(settings)
-    bq_client = bq_client or bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
-    storage_client = storage_client or storage.Client(
-        project=settings.gcp_project_id, credentials=creds
-    )
+    bq_client, storage_client = _resolve_clients(settings, bq_client, storage_client)
     table_fqn = ensure_destination(settings, bq_client)
 
     last_destination = ""
@@ -378,19 +372,17 @@ def run(
         chunk_id = _basename(flow, year)
         if on_chunk_start is not None:
             on_chunk_start(chunk_id)
-        try:
-            outcome = process_chunk(
-                settings,
-                flow,
-                year,
-                storage_client=storage_client,
-                bq_client=bq_client,
-                table_fqn=table_fqn,
-                from_raw=from_raw,
-                force=full,
-            )
-        except Exception as exc:
-            outcome = ChunkOutcome(chunk_id, "failed", detail=str(exc))
+        outcome = _run_one_chunk(
+            settings,
+            flow,
+            year,
+            chunk_id,
+            storage_client=storage_client,
+            bq_client=bq_client,
+            table_fqn=table_fqn,
+            from_raw=from_raw,
+            force=full,
+        )
         if outcome.status == "failed":
             failures.append((chunk_id, outcome.detail[:200]))
         elif outcome.destination:
@@ -401,3 +393,48 @@ def run(
     if failures and on_chunk is None:
         raise IngestPartialFailure(failures)
     return last_destination
+
+
+def _resolve_clients(
+    settings: Settings,
+    bq_client: bigquery.Client | None,
+    storage_client: storage.Client | None,
+) -> tuple[bigquery.Client, storage.Client]:
+    """Build the BigQuery + GCS clients from impersonated creds, unless injected."""
+    creds = get_credentials(settings)
+    bq_client = bq_client or bigquery.Client(
+        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
+    )
+    storage_client = storage_client or storage.Client(
+        project=settings.gcp_project_id, credentials=creds
+    )
+    return bq_client, storage_client
+
+
+def _run_one_chunk(
+    settings: Settings,
+    flow: str,
+    year: int,
+    chunk_id: str,
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client,
+    table_fqn: str,
+    from_raw: bool,
+    force: bool,
+) -> ChunkOutcome:
+    """Process one (flow, year) chunk, turning a transient error into a ``failed``
+    outcome so the loop can continue on to the next chunk."""
+    try:
+        return process_chunk(
+            settings,
+            flow,
+            year,
+            storage_client=storage_client,
+            bq_client=bq_client,
+            table_fqn=table_fqn,
+            from_raw=from_raw,
+            force=force,
+        )
+    except Exception as exc:
+        return ChunkOutcome(chunk_id, "failed", detail=str(exc))

@@ -148,7 +148,9 @@ def _build_progress(state: MonitorState, now: float) -> Progress:
         expand=True,
     )
 
-    # Row 1: chunks.
+    # Row 1: chunks. Rows are "?" until some event carries a count — COMEX/
+    # COMTRADE chunk_end events have no rows field, so 0 would be a lie there.
+    rows_str = f"{state.rows_total:,}" if state.rows_seen else "?"
     chunks_total = max(state.chunks_total or 1, state.chunks_done + state.chunks_failed)
     progress.add_task(
         "chunks",
@@ -156,15 +158,17 @@ def _build_progress(state: MonitorState, now: float) -> Progress:
         completed=state.chunks_done + state.chunks_failed,
         label="[bold]Chunks[/bold]",
         extra=(
-            f"[dim]rows[/dim] [bold]{state.rows_total:,}[/bold]  "
+            f"[dim]rows[/dim] [bold]{rows_str}[/bold]  "
             f"[dim]retries[/dim] [bold]{state.retries}[/bold]  "
             f"[dim]errors[/dim] [bold red]{state.errors}[/bold red]"
         ),
         eta=_fmt_eta(_pipeline_eta(state)),
     )
 
-    # Row 2: states in current chunk (only meaningful if a chunk is running).
-    if state.active_chunk:
+    # Row 2: states in current chunk. Only rendered for pipelines that actually
+    # emit state_* events (IBGE PEVS/PAM sweep the 27 UFs per chunk) — COMEX/
+    # COMTRADE/BCB chunks never do, so the row would sit frozen at 0/27 there.
+    if state.active_chunk and state.saw_state_events:
         finished = _states_finished_in_chunk(state)
         running = _states_running_in_chunk(state)
         progress.add_task(

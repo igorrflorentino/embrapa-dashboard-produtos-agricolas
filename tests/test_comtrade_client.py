@@ -13,11 +13,19 @@ import re
 import pandas as pd
 import pytest
 import responses
+import tenacity
 
 from embrapa_commodities.comtrade import client
 
 BASE_URL = "https://comtradeapi.un.org/data/v1/get"
 API_KEY = "secret-key-123"
+
+
+@pytest.fixture(autouse=True)
+def _no_throttle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Zero the keyed-call throttle so the suite never sleeps between calls."""
+    monkeypatch.setattr(client, "INTER_CALL_DELAY_S", 0.0)
+
 
 # A trimmed two-row API payload (only some of the ~50 fields present, to exercise
 # the reindex that fills missing BRONZE_COLUMNS with NA).
@@ -70,7 +78,26 @@ def test_list_reporters_excludes_groups() -> None:
 def test_list_reporters_raises_transient_on_5xx() -> None:
     responses.add(responses.GET, client.REPORTERS_REF_URL, status=503)
     with pytest.raises(client.ComtradeTransientError):
-        client.list_reporters()
+        client.list_reporters.__wrapped__()  # type: ignore[attr-defined]
+
+
+def test_reference_fetches_are_wrapped_in_retry_policy() -> None:
+    """The docstrings promise transient reference hiccups are retried — pin the
+    wiring so a momentary 5xx/429 on a reference can't crash the whole run
+    before any chunk executes (resolve_reporters runs ahead of the chunk loop)."""
+    assert client.list_reporters.retry.before_sleep is client._emit_retry  # type: ignore[attr-defined]
+    assert client.list_hs6_codes.retry.before_sleep is client._emit_retry  # type: ignore[attr-defined]
+
+
+@responses.activate
+def test_list_reporters_retries_transient_blip_then_succeeds() -> None:
+    """One momentary 503 on the Reporters reference must be retried, not crash."""
+    responses.add(responses.GET, client.REPORTERS_REF_URL, status=503)
+    responses.add(responses.GET, client.REPORTERS_REF_URL, json=REPORTERS_PAYLOAD, status=200)
+    # retry_with(wait=0) keeps the test instant without mutating the shared policy.
+    codes = client.list_reporters.retry_with(wait=tenacity.wait_fixed(0))()  # type: ignore[attr-defined]
+    assert codes == ["76", "842", "841"]
+    assert len(responses.calls) == 2
 
 
 # ─── list_hs6_codes ──────────────────────────────────────────────────────────
@@ -102,7 +129,7 @@ def test_list_hs6_codes_raises_transient_on_empty_reference() -> None:
     # request wrong-granularity aggregates); treat as a retryable fetch failure.
     responses.add(responses.GET, client.HS_REF_URL, json={"results": []}, status=200)
     with pytest.raises(client.ComtradeTransientError):
-        client.list_hs6_codes(["0801", "44"])
+        client.list_hs6_codes.__wrapped__(["0801", "44"])  # type: ignore[attr-defined]
 
 
 @responses.activate
@@ -194,9 +221,9 @@ def test_fetch_chunk_raises_permanent_on_400() -> None:
 
 @responses.activate
 def test_fetch_chunk_raises_quota_error_on_429() -> None:
-    """A keyed-call 429 means the daily quota is spent → ComtradeQuotaError, and it
-    is deliberately NOT a transient/retryable error (the pipeline stops on it and
-    the user re-runs later to resume)."""
+    """A keyed-call 429 with no Retry-After means the daily quota is spent →
+    ComtradeQuotaError, and it is deliberately NOT a transient/retryable error
+    (the pipeline stops on it and the user re-runs later to resume)."""
     responses.add(responses.GET, re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"), status=429)
     with pytest.raises(client.ComtradeQuotaError) as exc:
         client.fetch_chunk.__wrapped__(  # type: ignore[attr-defined]
@@ -204,6 +231,105 @@ def test_fetch_chunk_raises_quota_error_on_429() -> None:
         )
     assert not isinstance(exc.value, client.ComtradeTransientError)  # not retried
     assert "re-run to resume" in str(exc.value)
+
+
+@responses.activate
+def test_fetch_chunk_429_with_short_retry_after_is_transient_rate_limit() -> None:
+    """APIM also answers 429 for its per-second burst limiter (short Retry-After).
+    That is NOT daily-quota exhaustion: it must be transient/retryable so an
+    unattended run backs off instead of aborting with a bogus 'quota exhausted'."""
+    responses.add(
+        responses.GET,
+        re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"),
+        status=429,
+        headers={"Retry-After": "2"},
+    )
+    with pytest.raises(client.ComtradeTransientError) as exc:
+        client.fetch_chunk.__wrapped__(  # type: ignore[attr-defined]
+            BASE_URL, API_KEY, reporters=["76"], years=[2022], cmd_codes=["0801"], flows=["X"]
+        )
+    assert "rate limited" in str(exc.value)
+
+
+@responses.activate
+def test_fetch_chunk_429_with_long_retry_after_is_quota() -> None:
+    """A Retry-After on the scale of hours is the daily quota replenishing —
+    classified as quota exhaustion (stop the run), not a retryable rate limit."""
+    responses.add(
+        responses.GET,
+        re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"),
+        status=429,
+        headers={"Retry-After": "43200"},
+    )
+    with pytest.raises(client.ComtradeQuotaError):
+        client.fetch_chunk.__wrapped__(  # type: ignore[attr-defined]
+            BASE_URL, API_KEY, reporters=["76"], years=[2022], cmd_codes=["0801"], flows=["X"]
+        )
+
+
+@responses.activate
+def test_fetch_chunk_canonicalizes_floatified_integer_codes() -> None:
+    """A JSON null anywhere in an integer-coded column floatifies the whole column
+    (motCode 0 → '0.0', qtyUnitCode -1 → '-1.0'); Silver's exact-string filters
+    (motCode = '0', the qtyUnitCode = '-1' dedup preference) would then silently
+    drop every row of the response. Codes must land as plain integer strings."""
+    payload = {
+        "data": [
+            {
+                "refYear": 2022,
+                "reporterCode": 76,
+                "motCode": 0,
+                "mosCode": 0,
+                "partner2Code": 0,
+                "qtyUnitCode": -1,
+                "customsCode": "C00",
+                "primaryValue": 10.5,
+            },
+            {
+                "refYear": 2022,
+                "reporterCode": 76,
+                "motCode": None,
+                "mosCode": None,
+                "partner2Code": None,
+                "qtyUnitCode": None,
+                "customsCode": "C00",
+                "primaryValue": 1.25,
+            },
+        ]
+    }
+    responses.add(
+        responses.GET, re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"), json=payload, status=200
+    )
+    df = client.fetch_chunk(
+        BASE_URL, API_KEY, reporters=["76"], years=[2022], cmd_codes=["0801"], flows=["X"]
+    )
+    assert df["motCode"].iloc[0] == "0"  # not '0.0'
+    assert df["mosCode"].iloc[0] == "0"
+    assert df["partner2Code"].iloc[0] == "0"
+    assert df["qtyUnitCode"].iloc[0] == "-1"  # not '-1.0'
+    assert pd.isna(df["motCode"].iloc[1])  # a genuine null stays NA
+    assert df["customsCode"].iloc[0] == "C00"  # alphanumeric codes untouched
+    assert df["primaryValue"].iloc[0] == "10.5"  # measures keep decimals
+
+
+# ─── client-side throttle between keyed calls ─────────────────────────────────
+def test_throttle_spaces_consecutive_keyed_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(client, "INTER_CALL_DELAY_S", 5.0)
+    monkeypatch.setattr(client.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(client, "_last_keyed_call_monotonic", client.time.monotonic())
+    client._throttle_keyed_call()
+    assert len(sleeps) == 1
+    assert 0 < sleeps[0] <= 5.0
+
+
+def test_throttle_disabled_when_delay_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(client, "INTER_CALL_DELAY_S", 0.0)
+    monkeypatch.setattr(client.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(client, "_last_keyed_call_monotonic", client.time.monotonic())
+    client._throttle_keyed_call()
+    assert sleeps == []
 
 
 # ─── fetch_chunk_adaptive (recursive split on the per-call cap) ───────────────

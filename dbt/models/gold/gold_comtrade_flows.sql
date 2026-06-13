@@ -39,6 +39,9 @@
 --
 -- NULL semantics: missing year FX (EUR pre-1999) → NULL that
 -- currency's columns; missing year inflation index → NULL the real_* columns;
+-- reference_year < 1994 → NULL val_yearfx_{brl,eur} and all val_real_* (the
+-- PTAX series of those years is in old currencies — same guard as the PEVS/PAM
+-- golds; val_yearfx_usd, the source value, is always kept);
 -- chapter-44 rows with no reported quantity → NULL qty_native/qty_base/weight.
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -120,6 +123,11 @@ fx_year as (
         avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
+        -- 1994 changeover (Plano Real, 1994-07-01): PTAX before that date is
+        -- CR$/unit, after it R$/unit. Average only the R$ half for 1994 so a
+        -- historical backfill reaching 1994 gets a correct BRL conversion
+        -- (mirrors gold_pevs_production). Pre-1994 years are guarded below.
+        and (reference_year != 1994 or reference_date >= date(1994, 7, 1))
     group by reference_year
 
 ),
@@ -150,12 +158,22 @@ enriched as (
         fxl.brl_per_usd_current,
         fxl.brl_per_eur_current,
 
-        -- Nominal BRL at the year-average FX (US$ → R$ of that year).
-        b.primary_value_usd * fy.brl_per_usd_avg                                              as val_nominal_brl,
+        -- Nominal BRL at the year-average FX (US$ → R$ of that year). Pre-1994
+        -- the PTAX series is denominated in the old currencies (Cz$/NCz$/Cr$/CR$),
+        -- so a "BRL" product would be off by 10^3-10^9 — NULL it (and the real_*
+        -- columns built on it), mirroring gold_pevs_production's year-FX guard.
+        case when b.reference_year >= 1994
+            then b.primary_value_usd * fy.brl_per_usd_avg end                                 as val_nominal_brl,
         -- Real BRL today: nominal BRL projected forward via each inflation chain.
-        (b.primary_value_usd * fy.brl_per_usd_avg) * safe_divide(il.ipca_current,  iy.ipca_year_end)   as val_real_ipca_brl,
-        (b.primary_value_usd * fy.brl_per_usd_avg) * safe_divide(il.igpm_current,  iy.igpm_year_end)   as val_real_igpm_brl,
-        (b.primary_value_usd * fy.brl_per_usd_avg) * safe_divide(il.igpdi_current, iy.igpdi_year_end)  as val_real_igpdi_brl
+        case when b.reference_year >= 1994
+            then (b.primary_value_usd * fy.brl_per_usd_avg)
+                * safe_divide(il.ipca_current, iy.ipca_year_end) end                          as val_real_ipca_brl,
+        case when b.reference_year >= 1994
+            then (b.primary_value_usd * fy.brl_per_usd_avg)
+                * safe_divide(il.igpm_current, iy.igpm_year_end) end                          as val_real_igpm_brl,
+        case when b.reference_year >= 1994
+            then (b.primary_value_usd * fy.brl_per_usd_avg)
+                * safe_divide(il.igpdi_current, iy.igpdi_year_end) end                        as val_real_igpdi_brl
 
     from base_flows b
     left join fx_year            fy  on b.reference_year = fy.reference_year

@@ -354,10 +354,19 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // 3 products / ~95 mil rows); the live snapshot is the source of truth.
   const _fAll = window.applyFilters ? window.applyFilters({}, database) : null;
   const _shares = (_f && _f._shares) || {};
-  // UFs that survive the state filter AND still carry production.
+  // UFs that survive the state filter AND still carry production — REAL Brazilian
+  // states only. A trade banco's ufData includes non-state pseudo-origins
+  // (ND/EX/ZN…) that must not inflate the "UFs cobertas" tally past 27 (the live
+  // audit caught COMEX showing 32/27). Prefer the backend's per-row `real` flag,
+  // else canonical-registry membership (FINDING #4).
+  const _isRealUf = (u) => (u.real != null ? u.real : (window.isCanonicalUf ? window.isCanonicalUf(u.uf) : true));
   const ufsCovered = _f
-    ? _f.ufData.filter(u => u.value > 0).length
+    ? _f.ufData.filter(u => _isRealUf(u) && u.value > 0).length
     : (window.UF_DATA || []).filter(u => u.value > 0).length;
+  // Denominator: real UFs in the banco's universe, capped at the canonical 27.
+  const ufsTotalReal = _f
+    ? Math.min(27, _f.ufDataFull.filter(_isRealUf).length || 27)
+    : 27;
   // Years inside the active period window.
   const yearsCovered = _f ? _f.ts.length : prov.yearsTotal;
   // Approximate selection counts from current filters. basket == null means
@@ -441,7 +450,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">UFs cobertas</span>
-              <span className="meta-val tnum">{ufsCovered} / {metaProv.ufsTotal}</span>
+              <span className="meta-val tnum">{ufsCovered} / {ufsTotalReal}</span>
             </div>
             <div className="meta-row">
               <span className="meta-label">Anos cobertos</span>

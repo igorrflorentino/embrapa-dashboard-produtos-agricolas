@@ -37,5 +37,32 @@ describe('fillColorExpression', () => {
 
   it('returns the constant fallback when there is nothing to color', () => {
     expect(fillColorExpression({}, '#fff')).toBe('#fff');
+    expect(fillColorExpression(null, '#fff')).toBe('#fff');
+  });
+
+  it('drops malformed pairs so maplibre never reads .length on undefined (FINDING #5)', () => {
+    // A null/undefined/non-string color injected into a maplibre `match` makes the
+    // expression compiler deref `.length` on a missing operand and throw, blanking
+    // the choropleth without the WebGL fallback. Bad pairs must be filtered out.
+    const expr = fillColorExpression(
+      { SP: '#aaa', PA: undefined, RJ: null, MG: 42, AC: '#ccc' },
+      '#fff',
+    );
+    expect(expr[0]).toBe('match');
+    // Only the two well-formed pairs survive (SP, AC) + the fallback.
+    expect(expr).toContain('SP');
+    expect(expr).toContain('#aaa');
+    expect(expr).toContain('AC');
+    expect(expr).toContain('#ccc');
+    expect(expr).not.toContain('PA');
+    expect(expr).not.toContain('RJ');
+    expect(expr).not.toContain('MG');
+    // No undefined/null leaked into the expression operands.
+    expect(expr.every((x) => x != null)).toBe(true);
+    expect(expr[expr.length - 1]).toBe('#fff');
+  });
+
+  it('falls back to the constant when every pair is malformed', () => {
+    expect(fillColorExpression({ PA: undefined, RJ: null }, '#fff')).toBe('#fff');
   });
 });

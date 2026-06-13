@@ -34,7 +34,7 @@ function wirePlotlyEvents(el) {
   el.__emit = (evt, payload) => (el.__listeners[evt] || []).forEach((f) => f(payload));
 }
 
-import { Plot } from './_base.jsx';
+import { Plot, ptBrLinearAxis, ptBrMagnitude, ptBrValueTicks, seriesMax } from './_base.jsx';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -99,5 +99,68 @@ describe('Plot click handler rebinding', () => {
     // The latest handler fires; the stale one is NOT called again.
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ptBrMagnitude / ptBrValueTicks (FINDING #9)', () => {
+  // The value axis must read pt-BR magnitude words ("15 bi") to match the
+  // dashboard's "R$ bi/mi/mil" labels, never the SI letters ("15G") d3-format's
+  // `~s` emits — that mismatch made the SAME R$ series read "15G" on one card and
+  // "150"(bi) on another.
+  it('labels magnitudes in pt-BR words, not SI letters', () => {
+    expect(ptBrMagnitude(15e9)).toBe('15 bi');
+    expect(ptBrMagnitude(3.4e6)).toBe('3,4 mi');
+    expect(ptBrMagnitude(5000)).toBe('5 mil');
+    expect(ptBrMagnitude(150)).toBe('150');
+    // No SI letters leak through.
+    expect(ptBrMagnitude(15e9)).not.toMatch(/[GMk]/);
+  });
+
+  it('builds nice ascending ticks with pt-BR labels over [0, max]', () => {
+    const t = ptBrValueTicks(15e9);
+    expect(t.tickvals[0]).toBe(0);
+    // Strictly ascending.
+    for (let i = 1; i < t.tickvals.length; i++) {
+      expect(t.tickvals[i]).toBeGreaterThan(t.tickvals[i - 1]);
+    }
+    // Top tick covers the data max, labelled in "bi".
+    expect(t.tickvals[t.tickvals.length - 1]).toBeGreaterThanOrEqual(15e9);
+    expect(t.ticktext.some((s) => s.includes('bi'))).toBe(true);
+    expect(t.ticktext.join(' ')).not.toMatch(/[GMk]/);
+  });
+
+  it('returns null for a non-positive / unusable max (let Plotly auto-tick)', () => {
+    expect(ptBrValueTicks(0)).toBe(null);
+    expect(ptBrValueTicks(-5)).toBe(null);
+    expect(ptBrValueTicks(NaN)).toBe(null);
+  });
+});
+
+describe('ptBrLinearAxis / seriesMax (FINDING #9 — shared across charts)', () => {
+  // The single value-axis contract every chart spreads. For an absolute-magnitude
+  // series it emits FIXED pt-BR array ticks (no SI letter can leak); for an
+  // unusable max it falls back to Plotly's `~s` so loading/empty axes still tick.
+  it('emits pt-BR array ticks (never `~s`) for an absolute-magnitude max', () => {
+    const ax = ptBrLinearAxis(15e9);
+    expect(ax.tickmode).toBe('array');
+    expect(ax.tickformat).toBeUndefined(); // no SI fallback when array ticks apply
+    expect(ax.ticktext.some((s) => s.includes('bi'))).toBe(true);
+    expect(ax.ticktext.join(' ')).not.toMatch(/[GMk]/);
+  });
+
+  it('falls back to the SI `~s` tickformat for a non-positive / unusable max', () => {
+    for (const bad of [0, -5, NaN, undefined]) {
+      const ax = ptBrLinearAxis(bad);
+      expect(ax).toEqual({ tickformat: '~s' });
+    }
+  });
+
+  it('seriesMax reads the max absolute value from numbers or rows', () => {
+    expect(seriesMax([1, 9, 4])).toBe(9);
+    expect(seriesMax([{ v: 2 }, { v: 7 }, { v: 3 }], (d) => d.v)).toBe(7);
+    // Non-finite / negative are ignored; empty → 0 (→ ptBrLinearAxis falls back).
+    expect(seriesMax([{ v: NaN }, { v: -5 }], (d) => d.v)).toBe(0);
+    expect(seriesMax([])).toBe(0);
+    expect(seriesMax(null)).toBe(0);
   });
 });

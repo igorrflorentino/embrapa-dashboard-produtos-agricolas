@@ -3,7 +3,7 @@
 // <window.StackedArea/> unchanged — now with zoom/pan/hover + a name legend.
 //   series: [{ code?, name, color, data: [{ y, [valueKey] }] }]
 
-import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, vizPalette } from './_base';
 
 function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) {
   const palette = vizPalette();
@@ -23,6 +23,17 @@ function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) 
     };
   });
 
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+  // (FINDING #9). The axis is STACKED, so its max is the per-year SUM across series
+  // (not any single series' peak). Falls back to `~s` when there is no usable max.
+  const stackTotals = {};
+  (series || []).forEach((sr) => {
+    (sr.data || []).forEach((d) => {
+      const v = Number(d[valueKey]);
+      if (Number.isFinite(v)) stackTotals[d.y] = (stackTotals[d.y] || 0) + v;
+    });
+  });
+  const ymax = Math.max(0, ...Object.values(stackTotals));
   const layout = baseLayout({
     showlegend: true,
     legend: { orientation: 'h', y: -0.18, x: 0, font: { size: 11 } },
@@ -30,7 +41,7 @@ function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) 
     yaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',
-      tickformat: '~s',
+      ...ptBrLinearAxis(ymax),
     },
     xaxis: { dtick: 'auto', tickformat: 'd' },
   });

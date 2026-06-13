@@ -19,6 +19,7 @@ import requests
 from google.cloud import bigquery, storage
 from google.cloud.exceptions import NotFound
 
+from embrapa_commodities.backup import BACKUP_PREFIX, SUCCESS_MARKER
 from embrapa_commodities.bcb.client import SGS_URL
 from embrapa_commodities.config import Settings, get_credentials, get_settings
 from embrapa_commodities.discover import SIDRA_METADATA_URL
@@ -38,14 +39,26 @@ class CheckResult:
 
 
 def _check_env(settings: Settings) -> CheckResult:
-    """The .env parsed and the BCB code mappings are well-formed."""
+    """The .env parsed and every per-source code mapping is well-formed.
+
+    Touches all the lazily-parsed Settings properties (PEVS, PAM, BCB, COMEX,
+    COMTRADE) — each raises ``ValueError`` on malformed input, and a mapping
+    that only explodes mid-ingest is exactly what doctor exists to pre-empt.
+    """
     try:
         infl = settings.inflation_series_map
         curr = settings.currency_series_map
         products = settings.product_codes
+        pam_codes = settings.pam_product_codes_list
+        comex_flows = settings.comex_flows_list
+        comex_codes = {**settings.comex_ncm_map, **settings.comex_chapter_map}
+        comtrade_flows = settings.comtrade_flows_list
+        comtrade_codes = settings.comtrade_cmd_map
         detail = (
             f"products={','.join(products)}  inflation={list(infl.keys())}  "
-            f"currency={list(curr.keys())}"
+            f"currency={list(curr.keys())}  pam={len(pam_codes)} codes  "
+            f"comex={'/'.join(comex_flows)} {len(comex_codes)} codes  "
+            f"comtrade={'/'.join(comtrade_flows)} {len(comtrade_codes)} codes"
         )
         return CheckResult(".env parsed", True, detail)
     except Exception as exc:
@@ -176,23 +189,48 @@ def _check_comex(settings: Settings) -> CheckResult:
     """The Comex Stat file host serves a recent year's export file.
 
     A HEAD against ``EXP_<end_year>.csv`` verifies reachability without pulling
-    the (100+ MB) body. Note: this host is blocked on Claude Code on the web —
-    it only passes from a network with the MDIC domain reachable.
+    the (100+ MB) body. Early in the year MDIC has not yet published the
+    end-year file — the ingest pipeline classifies that 404 as an expected
+    skip (see ``comex.pipeline``), so the probe falls back to the previous
+    year's file instead of flagging a healthy environment as broken. Note:
+    this host is blocked on Claude Code on the web — it only passes from a
+    network with the MDIC domain reachable.
     """
     from embrapa_commodities.comex.client import FILE_PREFIX, _ca_bundle
 
     flow = settings.comex_flows_list[0] if settings.comex_flows_list else "export"
     prefix = FILE_PREFIX.get(flow, "EXP")
-    url = f"{settings.comex_csv_base_url.rstrip('/')}/{prefix}_{settings.comex_end_year}.csv"
-    try:
+    end_year = settings.comex_end_year
+
+    def _head(year: int) -> None:
+        url = f"{settings.comex_csv_base_url.rstrip('/')}/{prefix}_{year}.csv"
         # The host omits its TLS intermediate — reuse the client's certifi+vendored
         # CA bundle so the probe verifies the same way the real download does.
         response = requests.head(
             url, timeout=PROBE_TIMEOUT_S, allow_redirects=True, verify=_ca_bundle()
         )
         response.raise_for_status()
+
+    try:
+        _head(end_year)
+        return CheckResult("COMEX reachable", True, f"{prefix}_{end_year}.csv 200 OK")
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else None
+        if status != 404:
+            return CheckResult("COMEX reachable", False, str(exc)[:120])
+    except Exception as exc:
+        return CheckResult("COMEX reachable", False, str(exc)[:120])
+
+    # 404 on the end-year file: expected when MDIC hasn't published it yet
+    # (the same condition the ingest treats as a healthy skip). The host is
+    # only broken if the previous year's file is unreachable too.
+    try:
+        _head(end_year - 1)
         return CheckResult(
-            "COMEX reachable", True, f"{prefix}_{settings.comex_end_year}.csv 200 OK"
+            "COMEX reachable",
+            True,
+            f"{prefix}_{end_year - 1}.csv 200 OK "
+            f"({prefix}_{end_year}.csv not published yet — expected)",
         )
     except Exception as exc:
         return CheckResult("COMEX reachable", False, str(exc)[:120])
@@ -259,7 +297,7 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
 
 
 # ★ Extension point: each (dataset_attr, table) is an object the dashboard BFF
-# reads. _check_serving_marts iterates over this list. dim_commodity_scd2
+# reads. _check_serving_marts iterates over this list. dim_code_industrialization_scd2
 # (the SCD2 curation view) is DELIBERATELY excluded: it is gated by
 # `enable_curation` (make dbt-build-curation), so its absence is expected in a
 # standard build and would raise a false alarm here.
@@ -281,8 +319,10 @@ def _check_serving_marts(settings: Settings) -> CheckResult:
     readers query these marts (+ ``gold_source_metadata`` for provenance). Informational
     like ``_check_bronze_tables`` — a fresh project has none until ``make dbt-build-prod``
     builds them, so a missing mart is reported (with the fix) rather than failing doctor.
-    ``num_rows`` is populated for the materialized marts and ``None`` for the
-    ``gold_source_metadata`` view (existence-only there).
+    The emptiness check applies only to materialized marts: ``tables.get`` reports
+    ``numRows: 0`` for VIEWs (e.g. ``gold_source_metadata``) regardless of their
+    contents, so views are existence-only here to avoid a permanent false "empty"
+    alarm.
     """
     try:
         client = bigquery.Client(
@@ -290,20 +330,7 @@ def _check_serving_marts(settings: Settings) -> CheckResult:
             location=settings.bq_location,
             credentials=get_credentials(settings),
         )
-        present: list[str] = []
-        missing: list[str] = []
-        empty: list[str] = []
-        for dataset_attr, table in SERVING_TARGETS:
-            dataset = getattr(settings, dataset_attr)
-            fqn = f"{settings.gcp_project_id}.{dataset}.{table}"
-            try:
-                tbl = client.get_table(fqn)
-            except NotFound:
-                missing.append(table)
-                continue
-            present.append(table)
-            if tbl.num_rows == 0:  # 0 only for an empty materialized mart; None for views
-                empty.append(table)
+        present, missing, empty = _classify_serving_marts(client, settings)
         parts: list[str] = []
         if missing:
             parts.append(f"missing={missing} (run `make dbt-build-prod`)")
@@ -318,19 +345,87 @@ def _check_serving_marts(settings: Settings) -> CheckResult:
         return CheckResult("Serving marts", False, str(exc)[:120])
 
 
+def _classify_serving_marts(client, settings: Settings) -> tuple[list[str], list[str], list[str]]:
+    """Sort each SERVING_TARGETS table into (present, missing, empty).
+
+    A VIEW is existence-only (``tables.get`` reports numRows=0 for views even when
+    their query yields rows); only a materialized mart with numRows==0 is "empty".
+    """
+    present: list[str] = []
+    missing: list[str] = []
+    empty: list[str] = []
+    for dataset_attr, table in SERVING_TARGETS:
+        dataset = getattr(settings, dataset_attr)
+        fqn = f"{settings.gcp_project_id}.{dataset}.{table}"
+        try:
+            tbl = client.get_table(fqn)
+        except NotFound:
+            missing.append(table)
+            continue
+        present.append(table)
+        if tbl.table_type == "VIEW":
+            continue
+        if tbl.num_rows == 0:  # 0 means an actually-empty materialized mart
+            empty.append(table)
+    return present, missing, empty
+
+
 # `embrapa backup-gold` lays down prefixes shaped `backups/run=YYYYMMDDTHHMMSSZ/...`.
 # The trailing slash is important — without it `list_blobs(delimiter="/")` would
 # return individual blob names instead of the `run=*/` directory prefixes.
-_BACKUP_PREFIX = "backups/"
+_BACKUP_PREFIX = f"{BACKUP_PREFIX}/"
 _BACKUP_RUN_RE = re.compile(r"^backups/run=(\d{8}T\d{6}Z)/$")
 
 
-def _check_backup_freshness(settings: Settings) -> CheckResult:
-    """Warn when the most recent Gold snapshot is older than BACKUP_STALENESS_DAYS.
+def _list_backup_runs(client, settings: Settings) -> list[tuple[datetime, str]]:
+    """All ``run=<ts>/`` prefixes under the backup root, parsed to (timestamp, prefix)."""
+    # delimiter="/" turns this into a directory listing: blobs.prefixes yields the
+    # run=*/ prefixes themselves, not the individual parquet parts beneath them.
+    blobs = client.list_blobs(settings.gcs_bucket, prefix=_BACKUP_PREFIX, delimiter="/")
+    # Iterating the page iterator is what populates `prefixes` — the
+    # google-cloud-storage client only fetches them lazily.
+    _ = list(blobs)
+    runs: list[tuple[datetime, str]] = []
+    for prefix in getattr(blobs, "prefixes", []) or []:
+        match = _BACKUP_RUN_RE.match(prefix)
+        if not match:
+            continue
+        try:
+            ts = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        runs.append((ts, prefix))
+    return runs
 
-    Fails (ok=False) when no snapshot exists at all — that means the operator
-    has never run ``make dbt-build-prod-with-backup`` (or its CLI equivalent),
-    which is a real gap for any project past its first prod build.
+
+def _latest_complete_run(client, settings: Settings, runs: list[tuple[datetime, str]]):
+    """Newest run carrying the ``_SUCCESS`` marker, and how many newer ones lacked it.
+
+    Returns ``(latest_ts_or_None, incomplete_skipped)``. Partial/failed runs (no
+    marker) are skipped — a crashed half-backup must not satisfy freshness.
+    """
+    bucket = client.bucket(settings.gcs_bucket)
+    incomplete_skipped = 0
+    for ts, prefix in sorted(runs, reverse=True):  # newest first
+        if bucket.blob(f"{prefix}{SUCCESS_MARKER}").exists():
+            return ts, incomplete_skipped
+        incomplete_skipped += 1
+    return None, incomplete_skipped
+
+
+def _check_backup_freshness(settings: Settings) -> CheckResult:
+    """Warn when the most recent COMPLETE Gold snapshot is older than BACKUP_STALENESS_DAYS.
+
+    Only snapshots sealed with the ``_SUCCESS`` manifest (written by
+    ``backup.run`` after the last extract) count: a crashed half-backup leaves a
+    ``run=<ts>/`` prefix without the marker and must not satisfy freshness —
+    the operator would believe the cold-storage rollback path is intact while
+    most Gold tables are missing from it.
+
+    Fails (ok=False) when no complete snapshot exists at all — that means the
+    operator has never (successfully) run ``make dbt-build-prod-with-backup``
+    (or its CLI equivalent), which is a real gap for any project past its
+    first prod build.
 
     Stale (older than threshold) is reported with ok=True + a ⚠ marker so it
     doesn't flip `doctor` to exit-1 — matching the soft-warning pattern in
@@ -339,27 +434,8 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
     try:
         creds = get_credentials(settings)
         client = storage.Client(project=settings.gcp_project_id, credentials=creds)
-        # delimiter="/" turns this into a directory listing: blobs.prefixes
-        # yields the run=*/ prefixes themselves, not the individual parquet
-        # parts beneath them. Far cheaper than enumerating every shard.
-        blobs = client.list_blobs(settings.gcs_bucket, prefix=_BACKUP_PREFIX, delimiter="/")
-        # Iterating the page iterator is what populates `prefixes` — the
-        # google-cloud-storage client only fetches them lazily.
-        _ = list(blobs)
-        run_prefixes = list(getattr(blobs, "prefixes", []) or [])
-
-        timestamps: list[datetime] = []
-        for prefix in run_prefixes:
-            match = _BACKUP_RUN_RE.match(prefix)
-            if not match:
-                continue
-            try:
-                ts = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
-            except ValueError:
-                continue
-            timestamps.append(ts)
-
-        if not timestamps:
+        runs = _list_backup_runs(client, settings)
+        if not runs:
             return CheckResult(
                 "Gold backup freshness",
                 False,
@@ -367,7 +443,21 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
                 "(run `make dbt-build-prod-with-backup`)",
             )
 
-        latest = max(timestamps)
+        latest, incomplete_skipped = _latest_complete_run(client, settings, runs)
+        if latest is None:
+            return CheckResult(
+                "Gold backup freshness",
+                False,
+                f"{len(runs)} snapshot(s) under gs://{settings.gcs_bucket}/{_BACKUP_PREFIX} "
+                f"but none has the {SUCCESS_MARKER} marker — all partial/failed "
+                "(run `make dbt-build-prod-with-backup`)",
+            )
+
+        skipped_note = (
+            f"; ⚠ skipped {incomplete_skipped} newer incomplete run(s)"
+            if incomplete_skipped
+            else ""
+        )
         age_days = (datetime.now(UTC) - latest).days
         latest_str = latest.strftime("%Y-%m-%d %H:%M UTC")
         threshold = settings.backup_staleness_days
@@ -375,12 +465,13 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
             return CheckResult(
                 "Gold backup freshness",
                 True,  # warn, not fail — matches _check_bronze_tables semantics
-                f"⚠ stale: latest={latest_str} ({age_days}d ago > {threshold}d threshold)",
+                f"⚠ stale: latest={latest_str} ({age_days}d ago > {threshold}d threshold)"
+                f"{skipped_note}",
             )
         return CheckResult(
             "Gold backup freshness",
             True,
-            f"latest={latest_str} ({age_days}d ago, threshold={threshold}d)",
+            f"latest={latest_str} ({age_days}d ago, threshold={threshold}d){skipped_note}",
         )
     except Exception as exc:
         return CheckResult("Gold backup freshness", False, str(exc)[:120])

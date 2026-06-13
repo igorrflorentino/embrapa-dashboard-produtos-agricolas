@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ uf|name, [valueKey] }]  ·  labeled by d.uf||d.name, value at bar tip.
 
-import { Plot, baseLayout, resolveColor } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax } from './_base';
 
 function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '', valueKey = 'value' }) {
   const c = resolveColor(color);
@@ -33,7 +33,9 @@ function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '',
     xaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',
-      tickformat: '~s',
+      // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+      // (FINDING #9). Falls back to `~s` when there is no usable positive max.
+      ...ptBrLinearAxis(seriesMax(vals)),
     },
     // Keep the rows in the order given (first row on top, like the SVG).
     yaxis: { autorange: 'reversed', automargin: true },

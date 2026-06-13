@@ -21,7 +21,7 @@ function ViewChainBalance({ view }) {
   return (
     <>
       {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="Produção é real (IBGE); a divisão entre interno (SEFAZ), exportado (MDIC) e o mercado mundial (Comtrade) entra como demonstração até essas fontes serem ligadas." />}
+        capabilityNote="Todo o balanço é demonstração: a divisão entre interno (SEFAZ), exportado (MDIC) e o mercado mundial (Comtrade) precisa dessas fontes ligadas, e a produção de referência só entra como número real quando o fluxo inter-UF (SEFAZ) existir para fechar a conservação física. Os valores exibidos são ilustrativos." />}
 
       <div className="ch-toolbar">
         <window.CrossProductPicker value={product} onChange={setProduct} />

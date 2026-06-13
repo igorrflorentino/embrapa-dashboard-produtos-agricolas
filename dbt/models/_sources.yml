@@ -99,27 +99,21 @@ sources:
     description: >
       Researcher curation inputs — append-only logs written by the dashboard's
       curation panel (the Python data-access layer), NOT by the ingestion
-      pipeline or dbt. The dashboard's "Salvar" appends an immutable row per
-      manual edit; dim_commodity_scd2 derives the Type-2 history from it. The
-      table is auto-created by `serving.curation.ensure_curation_log_table()`
-      (house auto-create pattern), so it may be absent on a fresh project —
-      dim_commodity_scd2 is gated behind `--vars 'enable_curation: true'`.
+      pipeline or dbt. The dashboard's "Aplicar" appends an immutable row per
+      manual edit; dim_code_industrialization_scd2 derives the Type-2 history
+      from it. The table is auto-created by
+      `serving.curation.ensure_code_industrialization_log_table()` (house
+      auto-create pattern), so it may be absent on a fresh project —
+      dim_code_industrialization_scd2 is gated behind
+      `--vars 'enable_curation: true'`.
     database: "{{ target.project }}"
     schema: "{{ env_var('BQ_RESEARCH_INPUTS_DATASET', 'research_inputs') }}"
     tables:
-      - name: commodity_processing_stage_log
-        identifier: "{{ env_var('BQ_CURATION_LOG_TABLE', 'commodity_processing_stage_log') }}"
-        description: >
-          Append-only SCD2 source. One row per manual classification edit:
-          commodity_id, processing_stage, note, edited_by (IAP email),
-          edited_at (TIMESTAMP), change_id (surrogate).
-        config:
-          loaded_at_field: edited_at
       - name: code_industrialization_log
         identifier: "{{ env_var('BQ_CODE_INDUSTRIALIZATION_LOG_TABLE', 'code_industrialization_log') }}"
         description: >
-          Append-only SCD2 source, one grain finer than the processing-stage log:
-          one row per manual per-CODE edit. Columns: source (banco id), code
+          Append-only SCD2 source at the per-CODE grain: one row per manual
+          per-CODE edit. Columns: source (banco id), code
           (NCM/PEVS/HS6), industrialization_level (bruta|processada|misturado),
           note, edited_by (IAP email), edited_at (TIMESTAMP), change_id.
           dim_code_industrialization_scd2 derives the Type-2 history; the

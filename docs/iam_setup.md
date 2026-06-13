@@ -122,7 +122,7 @@ reads the pre-aggregated `serving` marts and appends curation rows to
 `research_inputs`. It must **not** be able to read the whole Gold dataset, nor
 write anywhere except the curation log. So grant:
 
-- `roles/bigquery.dataViewer` **scoped to the `serving` dataset** (read marts + `dim_commodity_scd2`),
+- `roles/bigquery.dataViewer` **scoped to the `serving` dataset** (read marts + `dim_code_industrialization_scd2`),
 - `roles/bigquery.dataEditor` **scoped to the `research_inputs` dataset** (the append-only `INSERT`),
 - `roles/bigquery.jobUser` **at project level** (required to *run* a query job — this role grants no data access on its own).
 

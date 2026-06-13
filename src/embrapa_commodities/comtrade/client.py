@@ -14,6 +14,8 @@ header — never in the URL or any log/error message — so it stays secret.
 from __future__ import annotations
 
 import logging
+import os
+import time
 
 import pandas as pd
 
@@ -60,6 +62,27 @@ BRONZE_COLUMNS: list[str] = [
     "primaryValue",
 ]
 
+# Integer-coded API dimensions among :data:`BRONZE_COLUMNS`. pandas floatifies a
+# whole column when any row of the JSON response carries a null in it, so the
+# ``astype("string")`` Bronze coercion would land ``motCode 0`` as ``'0.0'`` and
+# ``qtyUnitCode -1`` as ``'-1.0'`` — values Silver's exact-string filters
+# (``motCode = '0'``, the ``qtyUnitCode = '-1'`` dedup preference, …) silently
+# fail to match. These columns are canonicalized back to plain integer strings
+# before the Bronze write (see :func:`fetch_chunk`). ``cmdCode``/``customsCode``/
+# ``flowCode`` are genuinely alphanumeric and the measures may carry decimals,
+# so they are excluded.
+INT_CODE_COLUMNS: list[str] = [
+    "refYear",
+    "period",
+    "reporterCode",
+    "partnerCode",
+    "partner2Code",
+    "mosCode",
+    "motCode",
+    "qtyUnitCode",
+    "altQtyUnitCode",
+]
+
 
 class ComtradeRequestError(Exception):
     """Non-200 response from the UN Comtrade API (base class)."""
@@ -77,6 +100,12 @@ class ComtradeQuotaError(ComtradeRequestError):
     the resumable two-phase raw zone means the right move is to stop and re-run
     later, which picks up exactly the un-archived chunks. The pipeline catches
     this to break its chunk loop early ("quota exhausted — re-run to resume").
+
+    APIM answers 429 for *two* distinct conditions: the per-second/burst rate
+    limit and the daily quota. Only the latter maps here — a keyed 429 carrying
+    a short ``Retry-After`` (≤ :data:`RATE_LIMIT_RETRY_AFTER_MAX_S`) is the burst
+    limiter and is raised as :class:`ComtradeTransientError` instead, so the
+    retry policy backs off and re-attempts (see :func:`fetch_chunk`).
 
     Scoped to keyed *data* calls (:func:`fetch_chunk`); a 429 on the public,
     key-less reference files (:func:`list_reporters` / :func:`list_hs6_codes`) is
@@ -110,10 +139,60 @@ def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
     logger.warning("Retrying Comtrade call attempt=%d: %s", retry_state.attempt_number, exc)
 
 
+# A keyed 429 with ``Retry-After`` at or under this many seconds is APIM's
+# per-second/burst rate limiter (transient — back off and retry); above it (or
+# with no header at all) it is treated as the daily quota (stop the run). The
+# daily quota replenishes on a scale of hours, so the two regimes are far apart.
+RATE_LIMIT_RETRY_AFTER_MAX_S: float = 120.0
+
+# Minimum spacing between consecutive keyed data calls (client-side throttle).
+# The chunk loop and the adaptive splitter otherwise fire calls back-to-back —
+# past-year chunks with little data return in milliseconds — easily tripping
+# APIM's per-second burst limit. Operator knob: the COMTRADE_INTER_CALL_DELAY_S
+# env var (seconds; 0 disables). Read once at import; tests override the module
+# attribute directly.
+INTER_CALL_DELAY_S: float = float(os.environ.get("COMTRADE_INTER_CALL_DELAY_S", "1.0"))
+
+_last_keyed_call_monotonic: float = 0.0
+
+
+def _throttle_keyed_call() -> None:
+    """Sleep just enough to keep :data:`INTER_CALL_DELAY_S` between keyed calls."""
+    global _last_keyed_call_monotonic
+    if INTER_CALL_DELAY_S > 0:
+        wait_s = INTER_CALL_DELAY_S - (time.monotonic() - _last_keyed_call_monotonic)
+        if wait_s > 0:
+            time.sleep(wait_s)
+    _last_keyed_call_monotonic = time.monotonic()
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header in its delta-seconds form (what APIM sends).
+
+    Returns ``None`` when the header is absent or unparseable (the HTTP-date
+    form is not used by the Comtrade gateway) — the caller then falls back to
+    the conservative daily-quota classification.
+    """
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+@core_http.http_retry_policy(
+    transient_exc=ComtradeTransientError,
+    deadline_s=PER_CALL_DEADLINE_S,
+    max_attempts=4,
+    before_sleep=_emit_retry,
+)
 def list_reporters() -> list[str]:
     """All real reporter M49 codes (excluding group aggregates), from the public
     Reporters reference (no key needed). The keyed endpoint needs explicit codes
-    since it rejects ``reporterCode=all``."""
+    since it rejects ``reporterCode=all``. Transient hiccups (5xx/408/429, a
+    slow-byte hang) are retried under the shared policy — a momentary blip on
+    this reference must not crash the whole run before any chunk executes."""
     response = core_http.get_drained(
         REPORTERS_REF_URL,
         total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
@@ -129,13 +208,21 @@ def list_reporters() -> list[str]:
     return [str(r["reporterCode"]) for r in results if not r.get("isGroup")]
 
 
+@core_http.http_retry_policy(
+    transient_exc=ComtradeTransientError,
+    deadline_s=PER_CALL_DEADLINE_S,
+    max_attempts=4,
+    before_sleep=_emit_retry,
+)
 def list_hs6_codes(scope_codes: list[str]) -> list[str]:
     """Every 6-digit HS leaf under the given scope codes (e.g. ``['0801', '44']``
     → all ``0801xx`` + ``44xxxx`` subheadings), from the public HS reference.
 
     Comtrade returns data only at the *requested* code level — asking for ``0801``
     yields the HS4 aggregate, not its children — so to ingest at HS6 the pipeline
-    must enumerate the leaves. Returns them sorted.
+    must enumerate the leaves. Returns them sorted. Transient fetch failures
+    (5xx/408/429, an empty reference body) are retried under the shared policy;
+    the no-leaves configuration error below is permanent and is not.
 
     Raises rather than falling back to the (HS4) scope codes: an empty reference is
     treated as a transient fetch failure, and a non-empty reference with no HS6
@@ -193,6 +280,9 @@ def fetch_chunk(
     ``partnerCode`` is omitted on purpose → every partner (the bilateral matrix,
     incl. ``0`` = World). The key goes in the header only.
     """
+    # Client-side throttle: keep a minimum gap between keyed calls so bursts of
+    # fast (small/past-year) chunks don't trip APIM's per-second rate limit.
+    _throttle_keyed_call()
     params = {
         "reporterCode": ",".join(reporters),
         "period": ",".join(str(y) for y in years),
@@ -214,6 +304,14 @@ def fetch_chunk(
         if response.status_code != 200:
             msg = f"HTTP {response.status_code} for {context}"
             if response.status_code == 429:
+                # APIM answers 429 for both the per-second burst limiter and the
+                # daily quota; a short Retry-After disambiguates the former —
+                # transient, so the shared policy backs off and re-attempts.
+                retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
+                if retry_after is not None and retry_after <= RATE_LIMIT_RETRY_AFTER_MAX_S:
+                    raise ComtradeTransientError(
+                        f"rate limited (Retry-After={retry_after:g}s): {msg}"
+                    )
                 # Daily keyed-call quota — stop, don't retry (see ComtradeQuotaError).
                 raise ComtradeQuotaError(f"quota exhausted ({msg}) — re-run to resume")
             if response.status_code in core_http.RETRYABLE_STATUS_CODES:
@@ -227,7 +325,13 @@ def fetch_chunk(
     frame = pd.DataFrame(rows)
     # Keep the curated columns, all as strings (Bronze convention); missing
     # columns (a sparse response) are added as NA via reindex.
-    return frame.reindex(columns=BRONZE_COLUMNS).astype("string")
+    frame = frame.reindex(columns=BRONZE_COLUMNS).astype("string")
+    # Canonicalize the integer-coded dimensions (see INT_CODE_COLUMNS): a JSON
+    # null anywhere in such a column floatifies it, landing '0.0'/'-1.0' strings
+    # that Silver's exact-match filters would silently drop from Gold.
+    for col in INT_CODE_COLUMNS:
+        frame[col] = frame[col].str.replace(r"^(-?\d+)\.0$", r"\1", regex=True)
+    return frame
 
 
 def fetch_chunk_adaptive(

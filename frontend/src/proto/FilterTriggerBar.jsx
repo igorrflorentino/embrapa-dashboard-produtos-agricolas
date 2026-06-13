@@ -9,7 +9,7 @@ function FilterTriggerBar({ summary, onOpen, onExport, live = true, banco = null
         <span className="fm-tb-label">Filtros</span>
         <span className="fm-tb-preview-note">
           Disponíveis quando <strong>{banco ? banco.short : 'o banco'}</strong> for liberado
-          {banco?.plannedRelease ? ` · previsão ${banco.plannedRelease}` : ''}
+          {banco?.maturityDate ? ` · previsão ${banco.maturityDate}` : ''}
         </span>
         <span className="fm-spacer"></span>
         <button className="fm-edit-btn" onClick={onOpen}>

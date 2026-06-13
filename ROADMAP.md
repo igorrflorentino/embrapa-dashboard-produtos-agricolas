@@ -23,7 +23,7 @@ Focus: **stabilization, observability and basic automation**.
 > covers the no-code path in parallel. See [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumption.
 
 - [x] **Pushdown Computing** — **stateless** dashboard: UI filters → SQL `@param` on the `serving` layer, with `flask-caching` (TTL) on the results. Replaces the in-memory/Pandas design (OOM/concurrency risk). Backend (BFF) already in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/).
-- [x] **Dynamic curation (SCD Type 2)** — append-only log `commodity_processing_stage_log` + view `dim_commodity_scd2` (`lead()`); live LEFT JOIN in the UI; author via IAP header. Without overwriting Gold.
+- [x] **Dynamic curation (SCD Type 2)** — append-only log `code_industrialization_log` + view `dim_code_industrialization_scd2` (`lead()`); live current-classification read in the UI; author via IAP header. Without overwriting Gold.
 - [ ] Curation UI components + CSV/Excel export (arriving with the Design System handoff)
 - [ ] UX improvements based on researcher feedback
 

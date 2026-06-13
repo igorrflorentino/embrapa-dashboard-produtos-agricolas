@@ -224,3 +224,29 @@ def test_emit_retry_emits_event_with_file_basename(monkeypatch: pytest.MonkeyPat
     client._emit_retry(retry_state)
     assert events[0][1]["series"] == "EXP_2023.csv"
     assert events[0][1]["attempt"] == 2
+
+
+def test_head_source_wires_emit_retry_as_before_sleep() -> None:
+    assert client.head_source.retry.before_sleep is client._emit_retry  # type: ignore[attr-defined]
+
+
+def test_emit_retry_attributes_head_source_to_flow_year_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """head_source(base_url, flow, year) retries must be attributed to the actual
+    (flow, year) file — args[0] is only the BASE url, so naming its last path
+    segment would collapse every freshness probe into one bogus 'ncm' series."""
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        client.observability, "emit", lambda event, **kw: events.append((event, kw))
+    )
+    retry_state = SimpleNamespace(
+        fn=client.head_source.__wrapped__,  # type: ignore[attr-defined]
+        args=("https://host/ncm", "export", 2023),
+        kwargs={},
+        attempt_number=3,
+        outcome=SimpleNamespace(exception=lambda: client.ComexTransientError("HTTP 503")),
+    )
+    client._emit_retry(retry_state)
+    assert events[0][1]["series"] == "EXP_2023.csv"  # not 'ncm'
+    assert events[0][1]["attempt"] == 3

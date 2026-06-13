@@ -70,6 +70,13 @@
 #       GCP_WIF_PROVIDER                = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github-provider
 #       BQ_LOCATION                     = e.g. us-central1 (falls back to us-central1 if unset)
 #       GCP_DBT_BUILD_SERVICE_ACCOUNT   = sa-dbt-build-ci@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+#       DBT_ENABLE_CURATION             = "true" AFTER the one-time prod curation
+#                                         activation (docs/operations_runbook.md);
+#                                         unset/anything else = off. Adds
+#                                         --vars 'enable_curation: true' so the
+#                                         gated SCD2 curation views keep being
+#                                         rebuilt + tested by every push-triggered
+#                                         and scheduled build.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # MATERIALIZING TABLES FOR A STILL-OPEN PR:
@@ -203,12 +210,23 @@ jobs:
       # The full_refresh input is for cases where an incremental model
       # (silver_ibge_pevs) needs a re-anchor — e.g. after schema or
       # partition-key changes upstream.
+      #
+      # The DBT_ENABLE_CURATION repo variable (default off) gates the SCD2
+      # curation view (dim_code_industrialization_scd2,
+      # `enabled=var('enable_curation', false)`). Flip it to "true" after the
+      # one-time prod activation (docs/operations_runbook.md § Activating
+      # curation in prod) so merged changes to that view — and its schema
+      # tests — keep propagating on every automated build.
       - name: dbt build prod
         working-directory: dbt
         run: |
+          ARGS=(build --target prod)
           if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
             echo "::notice::Running with --full-refresh (incremental models will rebuild from scratch)"
-            uv run dbt build --target prod --full-refresh
-          else
-            uv run dbt build --target prod
+            ARGS+=(--full-refresh)
           fi
+          if [ "${{ vars.DBT_ENABLE_CURATION }}" = "true" ]; then
+            echo "::notice::DBT_ENABLE_CURATION=true — building the gated SCD2 curation views"
+            ARGS+=(--vars 'enable_curation: true')
+          fi
+          uv run dbt "${ARGS[@]}"

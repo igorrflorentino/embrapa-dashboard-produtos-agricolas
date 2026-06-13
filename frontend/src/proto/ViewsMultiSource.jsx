@@ -47,6 +47,30 @@ function ViewExportCoef({ view }) {
   const banco = window.crossPreviewBanco(view);
   const ranked = data.byUf.filter(u => u.production > 0).sort((a, b) => b.coefPct - a.coefPct);
   const top = ranked[0], bottom = ranked[ranked.length - 1];
+  // Real coverage window from the series itself — never the hardcoded "1997–2024".
+  const coefYears = (data.timeseries || []).map(d => d.y);
+  const coefWindow = coefYears.length ? `${coefYears[0]}–${coefYears[coefYears.length - 1]}` : '—';
+
+  // Volume/mixed baskets are not a mass-export share — the seam refuses with
+  // incompatible:true. Render an honest pt-BR note instead of "—%" KPIs + blank
+  // charts (the server's designed honesty was previously dropped on the floor).
+  if (data.incompatible) {
+    return (
+      <>
+        <CrossProductPicker value={product} onChange={setProduct} />
+        <div className="card subtle">
+          <window.SectionHeader overline="Orientação exportadora" title="Indicador indisponível para esta seleção" />
+          <p className="caption" style={{ padding: '16px 4px' }}>
+            O coeficiente de exportação compara <strong>massa produzida</strong> (IBGE, em mil t)
+            com <strong>peso exportado</strong> (MDIC, em kg) — uma razão só faz sentido para
+            commodities de família <strong>massa</strong>. A seleção atual inclui produto de
+            volume (m³) ou cesta mista, para a qual a razão não é interpretável. Escolha uma
+            commodity de massa para ver o indicador.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -68,7 +92,7 @@ function ViewExportCoef({ view }) {
 
       <div className="card">
         <window.SectionHeader overline="Coeficiente nacional no tempo" title="Evolução da orientação exportadora"
-          action={<span className="caption">1997–2024 · valores ilustrativos</span>} />
+          action={<span className="caption">{coefWindow} · IBGE × MDIC{data.preview ? ' · valores ilustrativos' : ''}</span>} />
         <window.LineChart data={data.timeseries} valueKey="v" label="%" color="var(--embrapa-green)" height={260} />
       </div>
 
@@ -135,6 +159,27 @@ function ViewPriceSpread({ view }) {
   const [product, setProduct] = useMSState(null);
   const data = window.priceSpread(product);
   const banco = window.crossPreviewBanco(view);
+
+  // Same mass-basis requirement as the export coefficient: the gate price is
+  // value ÷ mass, undefined for volume/mixed selections. The seam refuses with
+  // incompatible:true — surface it honestly instead of empty charts + "—" KPIs.
+  if (data.incompatible) {
+    return (
+      <>
+        <CrossProductPicker value={product} onChange={setProduct} />
+        <div className="card subtle">
+          <window.SectionHeader overline="Spread de preço" title="Indicador indisponível para esta seleção" />
+          <p className="caption" style={{ padding: '16px 4px' }}>
+            O preço na porteira deriva de <strong>valor ÷ massa</strong> (IBGE) e o preço FOB de
+            <strong> valor ÷ peso</strong> (MDIC), em US$/kg — só interpretáveis para commodities de
+            família <strong>massa</strong>. A seleção atual inclui produto de volume (m³) ou cesta
+            mista. Escolha uma commodity de massa para ver o spread.
+          </p>
+        </div>
+      </>
+    );
+  }
+
   const last = data.series[data.series.length - 1];
   const markupTs = data.series.map(d => ({ y: d.y, v: d.markup }));
   const lineSeries = [
@@ -205,7 +250,7 @@ function ViewMirror({ view }) {
 
       <div className="card">
         <window.SectionHeader overline="A mesma exportação, três fontes" title="MDIC × Comtrade × parceiros"
-          action={<span className="caption">US$ bi · valores ilustrativos</span>} />
+          action={<span className="caption">US$ bi · MDIC × UN Comtrade{data.preview ? ' · valores ilustrativos' : ''}</span>} />
         <window.MultiLineChart series={lineSeries} valueKey="v" label="US$ bi" height={300} />
         <div className="pc-legend">
           {lineSeries.map(s => (

@@ -1,16 +1,19 @@
-"""Append-only curation writer — the backend of the dashboard's "Save" button.
+"""Append-only curation writers — the backend of the dashboard's "Save" button.
 
-When a researcher reclassifies a commodity and clicks Save, this module appends
-ONE immutable row to ``research_inputs.commodity_processing_stage_log``. The Gold
-tables are never touched; the Type-2 history (valid_from / valid_to / is_current)
-is derived downstream by the ``dim_commodity_scd2`` dbt view.
+The dashboard curates at two grains, each backed by an append-only log here:
+  * per-CODE industrialization (``record_code_industrialization`` →
+    ``research_inputs.code_industrialization_log``), the editor's primary grain; and
+  * (customs procedure × flow) market-nature (``record_flow_market`` →
+    ``research_inputs.flow_market_log``).
+The Gold tables are never touched; the Type-2 history (valid_from / valid_to /
+is_current) is derived downstream by the SCD2 dbt views.
 
 Two side effects matter:
   1. The author is taken from the IAP-verified header (``edited_by``), never from
      the dashboard's service account — every edit is attributable to a person.
-  2. After the insert, the live-classification cache is invalidated so the next
-     read reflects the new stage immediately (the marts are untouched, so their
-     caches are left alone).
+  2. After the insert, the relevant live-classification cache is invalidated so
+     the next read reflects the new value immediately (the marts are untouched, so
+     their caches are left alone).
 """
 
 from __future__ import annotations
@@ -30,25 +33,16 @@ from embrapa_commodities.serving.iap import author_email_from_headers
 
 logger = logging.getLogger(__name__)
 
-# Free-text length caps. processing_stage / note are intentionally NOT allowlisted:
-# the research curation flow lets a researcher coin arbitrary stage labels and
-# notes (open vocabulary by design — an allowlist would break that UX). These caps
-# are a cheap guard against an absurdly large value (a runaway paste / malformed
-# client) bloating the immutable audit row, not a content restriction.
+# Free-text length caps. industrialization_level / note are intentionally NOT
+# allowlisted: the research curation flow lets a researcher coin arbitrary level
+# labels and notes (open vocabulary by design — an allowlist would break that UX).
+# These caps are a cheap guard against an absurdly large value (a runaway paste /
+# malformed client) bloating the immutable audit row, not a content restriction.
 MAX_STAGE_LEN = 200
 MAX_NOTE_LEN = 2000
 
-# Explicit schema — autodetect is never used (it drifts silently across runs).
-CURATION_LOG_SCHEMA = [
-    bigquery.SchemaField("commodity_id", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("processing_stage", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("note", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
-    bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
-]
-
-# The per-CODE industrialization log — one grain finer than the commodity log.
+# The per-CODE industrialization log — the active curation grain. Explicit schema —
+# autodetect is never used (it drifts silently across runs).
 CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
     bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("code", "STRING", mode="REQUIRED"),
@@ -108,43 +102,6 @@ def ensure_curators_table(
     return table_fqn
 
 
-def ensure_curation_log_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the append-only log dataset + table if missing; return its FQN.
-
-    Follows the house auto-create pattern (like the Bronze ensure_* helpers) so a
-    fresh project needs no manual DDL. Idempotent.
-    """
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curation_log_table)
-
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    table = bigquery.Table(table_fqn, schema=CURATION_LOG_SCHEMA)
-    # Append-only audit log — cluster by commodity_id so the SCD2 window scans a
-    # single commodity's edits cheaply.
-    table.clustering_fields = ["commodity_id"]
-    bq.create_table(table, exists_ok=True)
-    logger.info("Curation log ready at %s", table_fqn)
-    return table_fqn
-
-
-def _validate_edit_text(commodity_id: str, processing_stage: str, note: str | None) -> None:
-    """Validate edit inputs: required fields present and free text within size caps.
-
-    Stages/notes are open-vocabulary by design (no allowlist); these are only
-    sanity bounds so a runaway value can't bloat the immutable audit row.
-    """
-    if not commodity_id or not processing_stage:
-        raise ValueError("commodity_id and processing_stage are required.")
-    if len(processing_stage) > MAX_STAGE_LEN:
-        raise ValueError(f"processing_stage exceeds {MAX_STAGE_LEN} chars.")
-    if note is not None and len(note) > MAX_NOTE_LEN:
-        raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
-
-
 def _resolve_change_id(change_id: str | None) -> tuple[str, bool]:
     """Return ``(change_id, client_supplied)``. A non-empty client value is the
     IDEMPOTENCY KEY (a retried/double-clicked save reuses it); when absent we mint
@@ -167,124 +124,16 @@ def _change_id_seen(bq: bigquery.Client, table_fqn: str, change_id: str) -> bool
     return any(True for _ in job.result())
 
 
-def record_processing_stage(
-    commodity_id: str,
-    processing_stage: str,
-    headers: Mapping[str, str],
-    *,
-    note: str | None = None,
-    change_id: str | None = None,
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-    invalidate_cache: bool = True,
-) -> dict:
-    """Append one classification edit and invalidate the classification cache.
-
-    ``headers`` is the inbound request's headers (``flask.request.headers`` in a
-    Dash callback); the author email is read from the IAP header. ``change_id`` is
-    an optional client-supplied idempotency key — a retried/double-clicked save
-    reusing it is a no-op. Returns the row as written (for the UI to confirm).
-    Raises on empty inputs, an over-length stage/note, or a missing author with no
-    dev fallback.
-    """
-    cfg = settings or get_settings()
-    commodity_id = (commodity_id or "").strip()
-    processing_stage = (processing_stage or "").strip()
-    note = note.strip() if note else note
-    _validate_edit_text(commodity_id, processing_stage, note)
-
-    # When iap_audience is set (production), the author comes from the verified
-    # IAP JWT — the plaintext header is spoofable and must not decide edited_by.
-    # When unset (local dev), fall back to the plaintext header + dev author.
-    edited_by = author_email_from_headers(
-        headers,
-        dev_fallback=cfg.curation_dev_author,
-        audience=cfg.iap_audience,
-    )
-    change_id, supplied = _resolve_change_id(change_id)
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curation_log_table)
-    # Self-heal the log table on a fresh project (mirrors record_flow_market) — the
-    # writer must not assume the app factory created it, or the first edit 500s.
-    ensure_curation_log_table(cfg, bq)
-
-    if supplied and _change_id_seen(bq, table_fqn, change_id):
-        logger.info("Curation: duplicate change_id %s ignored (%s)", change_id, commodity_id)
-        return {
-            "commodity_id": commodity_id,
-            "processing_stage": processing_stage,
-            "note": note,
-            "edited_by": edited_by,
-            "change_id": change_id,
-            "deduped": True,
-        }
-
-    # Parameterized DML INSERT: immediately consistent (read-after-write for the
-    # SCD2 view) and injection-safe. edited_at is stamped server-side.
-    sql = f"""
-        insert into `{table_fqn}`
-            (commodity_id, processing_stage, note, edited_by, edited_at, change_id)
-        values
-            (@commodity_id, @processing_stage, @note, @edited_by, current_timestamp(), @change_id)
-    """
-    params = [
-        bigquery.ScalarQueryParameter("commodity_id", "STRING", commodity_id),
-        bigquery.ScalarQueryParameter("processing_stage", "STRING", processing_stage),
-        bigquery.ScalarQueryParameter("note", "STRING", note),
-        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
-        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
-    ]
-    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-    # INTENTIONAL: log the researcher's email at INFO on every save. This is the
-    # operational side of the audit trail (who reclassified what) — deliberate
-    # attribution of a human action, the same identity already persisted in the
-    # immutable edited_by column. Keep it; it is not incidental PII leakage.
-    logger.info("Curation: %s -> %s by %s", commodity_id, processing_stage, edited_by)
-
-    if invalidate_cache:
-        invalidate_classification_cache()
-
-    return {
-        "commodity_id": commodity_id,
-        "processing_stage": processing_stage,
-        "note": note,
-        "edited_by": edited_by,
-        "change_id": change_id,
-        "deduped": False,
-    }
-
-
-def invalidate_classification_cache() -> None:
-    """Drop the cached live-classification read so the next query is fresh.
-
-    Best-effort: a no-op if the cache is not bound to an app (e.g. a CLI-driven
-    write outside the Dash server). With the per-instance ``SimpleCache`` this
-    clears only the current process — making the edit instant on the writing
-    instance; other instances converge within the short classification TTL
-    (``CACHE_CLASSIFICATION_TIMEOUT``). That bound is what lets multi-instance
-    Cloud Run run on ``SimpleCache`` without ``RedisCache`` (see ``serving.cache``).
-    """
-    try:
-        # flask-caching's delete_memoized bumps a per-function VERSION sentinel
-        # rather than deleting each cached entry: the next read computes a fresh
-        # key and misses, so subsequent reads see new data immediately. The old
-        # entries are orphaned (unreferenced) and simply expire at their TTL —
-        # we accept that small, bounded residue (consistency restored at once;
-        # eviction within <= TTL) instead of re-architecting flask-caching.
-        cache.delete_memoized(gateway.fetch_current_classifications)
-    except Exception as exc:  # pragma: no cover - cache unbound / backend down
-        logger.warning("Could not invalidate classification cache: %s", exc)
-
-
-# ── Per-CODE industrialization log (the finer-grained companion) ──────────────
+# ── Per-CODE industrialization log (the active curation grain) ────────────────
 def ensure_code_industrialization_log_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> str:
     """Create the per-code industrialization log dataset + table if missing.
 
-    Same house auto-create pattern as :func:`ensure_curation_log_table`, clustered
-    by (source, code) so the SCD2 window scans one code's edits cheaply. Idempotent.
+    Follows the house auto-create pattern (like the Bronze ensure_* helpers) so a
+    fresh project needs no manual DDL, clustered by (source, code) so the SCD2
+    window scans one code's edits cheaply. Idempotent.
     """
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
@@ -302,9 +151,9 @@ def ensure_code_industrialization_log_table(
 def _validate_code_edit(source: str, code: str, level: str, note: str | None) -> None:
     """Validate a per-code edit: required keys present and free text within caps.
 
-    ``industrialization_level`` is open-vocabulary like ``processing_stage`` (the
-    UI offers bruta/processada/misturado, but an allowlist would break a future
-    finer scheme); the cap is only a sanity bound on the immutable audit row.
+    ``industrialization_level`` is open-vocabulary (the UI offers
+    bruta/processada/misturado, but an allowlist would break a future finer
+    scheme); the cap is only a sanity bound on the immutable audit row.
     """
     if not source or not code or not level:
         raise ValueError("source, code and industrialization_level are required.")
@@ -328,10 +177,13 @@ def record_code_industrialization(
 ) -> dict:
     """Append one per-code industrialization edit and invalidate its cache.
 
-    The per-code companion to :func:`record_processing_stage`: same IAP author
-    capture, parameterized DML, read-after-write consistency, and optional
-    ``change_id`` idempotency key, keyed by (source, code) →
-    industrialization_level. Returns the row as written.
+    ``headers`` is the inbound request's headers (``flask.request.headers`` in a
+    webapi route); the author email is read from the IAP-verified header (never the
+    service account). Parameterized DML gives read-after-write consistency for the
+    SCD2 view; ``change_id`` is an optional client-supplied idempotency key — a
+    retried/double-clicked save reusing it is a no-op. Keyed by (source, code) →
+    industrialization_level. Returns the row as written. Raises on empty inputs,
+    an over-length level/note, or a missing author with no dev fallback.
     """
     cfg = settings or get_settings()
     source = (source or "").strip()
@@ -401,9 +253,20 @@ def record_code_industrialization(
 
 
 def invalidate_code_industrialization_cache() -> None:
-    """Drop the cached per-code classification read (best-effort), same contract
-    as :func:`invalidate_classification_cache`."""
+    """Drop the cached per-code classification read so the next query is fresh.
+
+    Best-effort: a no-op if the cache is not bound to an app (e.g. a CLI-driven
+    write outside the webapi server). With the per-instance ``SimpleCache`` this
+    clears only the current process — making the edit instant on the writing
+    instance; other instances converge within the short classification TTL
+    (``CACHE_CLASSIFICATION_TIMEOUT``). That bound is what lets multi-instance
+    Cloud Run run on ``SimpleCache`` without ``RedisCache`` (see ``serving.cache``).
+    """
     try:
+        # flask-caching's delete_memoized bumps a per-function VERSION sentinel
+        # rather than deleting each cached entry: the next read computes a fresh
+        # key and misses, so subsequent reads see new data immediately. The old
+        # entries are orphaned (unreferenced) and simply expire at their TTL.
         cache.delete_memoized(gateway.fetch_current_code_industrialization)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
         logger.warning("Could not invalidate code-industrialization cache: %s", exc)
@@ -443,13 +306,7 @@ def record_flow_market(
     optional ``change_id`` idempotency key, mirroring
     :func:`record_code_industrialization`."""
     cfg = settings or get_settings()
-    customs_code = (customs_code or "").strip()
-    flow_code = (flow_code or "").strip()
-    market = (market or "").strip()
-    if not customs_code or not flow_code:
-        raise ValueError("customs_code and flow_code are required.")
-    if len(market) > MAX_STAGE_LEN:
-        raise ValueError(f"market exceeds {MAX_STAGE_LEN} chars.")
+    customs_code, flow_code, market = _validate_flow_market_edit(customs_code, flow_code, market)
 
     edited_by = author_email_from_headers(
         headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
@@ -466,14 +323,7 @@ def record_flow_market(
             customs_code,
             flow_code,
         )
-        return {
-            "customs_code": customs_code,
-            "flow_code": flow_code,
-            "market": market,
-            "edited_by": edited_by,
-            "change_id": change_id,
-            "deduped": True,
-        }
+        return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=True)
     sql = f"""
         insert into `{table_fqn}`
             (customs_code, flow_code, market, edited_by, edited_at, change_id)
@@ -493,13 +343,40 @@ def record_flow_market(
     if invalidate_cache:
         invalidate_flow_market_cache()
 
+    return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=False)
+
+
+def _validate_flow_market_edit(
+    customs_code: str, flow_code: str, market: str
+) -> tuple[str, str, str]:
+    """Strip + validate a flow-market edit, returning the normalized triple."""
+    customs_code = (customs_code or "").strip()
+    flow_code = (flow_code or "").strip()
+    market = (market or "").strip()
+    if not customs_code or not flow_code:
+        raise ValueError("customs_code and flow_code are required.")
+    if len(market) > MAX_STAGE_LEN:
+        raise ValueError(f"market exceeds {MAX_STAGE_LEN} chars.")
+    return customs_code, flow_code, market
+
+
+def _flow_market_row(
+    customs_code: str,
+    flow_code: str,
+    market: str,
+    edited_by: str,
+    change_id: str,
+    *,
+    deduped: bool,
+) -> dict:
+    """The written/echoed flow-market row dict (shared by the write + dedup paths)."""
     return {
         "customs_code": customs_code,
         "flow_code": flow_code,
         "market": market,
         "edited_by": edited_by,
         "change_id": change_id,
-        "deduped": False,
+        "deduped": deduped,
     }
 
 

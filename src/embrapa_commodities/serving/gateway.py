@@ -12,7 +12,7 @@ WITHOUT a shared Redis — see ``serving.cache``):
   * Mart reads (``fetch_production_*``, ``fetch_comex_seasonality``) use the
     default TTL — the marts change solely on the nightly dbt rebuild, so every
     instance independently converges to the same data within the TTL.
-  * ``fetch_current_classifications`` uses a SHORT TTL
+  * ``fetch_current_code_industrialization`` uses a SHORT TTL
     (``CACHE_CLASSIFICATION_TIMEOUT``, default 30s) AND is explicitly invalidated
     by the curation writer. The invalidation makes a curation edit instant on the
     writing instance; the short TTL bounds cross-instance staleness to that window
@@ -153,11 +153,39 @@ def fetch_production_by_uf(
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
     source: str = "ibge_pevs",
+    latest_year_only: bool = True,
 ):
-    """Production aggregated by UF for a PEVS-shaped source (backs ufData)."""
+    """Production aggregated by UF for a PEVS-shaped source (backs ufData).
+
+    ``latest_year_only`` (default True) pins the choropleth to the latest year in
+    the active window; the export-coefficient by-UF reader passes False for the
+    window-cumulative sum it needs.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
     sql, params = sqlbuild.production_by_uf(
+        table,
+        year_start=year_start,
+        year_end=year_end,
+        product_codes=tuple(product_codes),
+        value_column=value_column,
+        latest_year_only=latest_year_only,
+    )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_production_by_uf_yearly(
+    year_start: int | None = None,
+    year_end: int | None = None,
+    product_codes: Sequence[str] = (),
+    value_column: str = "val_real_ipca_brl",
+    source: str = "ibge_pevs",
+):
+    """Production by (UF, year) for a PEVS-shaped source (backs the ano × UF heatmap)."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
+    sql, params = sqlbuild.production_by_uf_yearly(
         table,
         year_start=year_start,
         year_end=year_end,
@@ -168,12 +196,20 @@ def fetch_production_by_uf(
 
 
 @cache.memoize()
-def fetch_productivity(product_code: str, source: str = "ibge_pam"):
+def fetch_productivity(
+    product_code: str,
+    source: str = "ibge_pam",
+    year_start: int | None = None,
+    year_end: int | None = None,
+):
     """Production + harvested/planted area by (year, UF) for one crop, from a
-    PAM-shaped mart (backs ViewProductivity). Yield is recomputed downstream."""
+    PAM-shaped mart (backs ViewProductivity). Yield is recomputed downstream.
+    ``year_start``/``year_end`` scope the window to the view's active period filter."""
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
-    sql, params = sqlbuild.productivity(table, product_code=product_code)
+    sql, params = sqlbuild.productivity(
+        table, product_code=product_code, year_start=year_start, year_end=year_end
+    )
     return run_query(sql, params)
 
 
@@ -198,13 +234,29 @@ def fetch_comex_seasonality(
 
 
 @cache.memoize()
+def fetch_comex_months_per_year():
+    """Distinct months present per year from the COMEX seasonality mart (backs the
+    partial-latest-year signal in source-meta). Cheap year×month aggregate, cached."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_seasonality")
+    sql, params = sqlbuild.months_present_per_year(table)
+    return run_query(sql, params)
+
+
+@cache.memoize()
 def fetch_comex_overview(
     year_start: int | None = None,
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
 ):
-    """Annual COMEX value + weight (backs overviewTS for COMEX)."""
+    """Annual COMEX value + weight (backs overviewTS for COMEX).
+
+    ``value_column`` picks the currency×correction measure (the seam resolves it
+    from the active conventions; default USD). The mart carries the full BRL/USD/EUR
+    matrix, so a BRL/EUR display serves the REAL column.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
     sql, params = sqlbuild.trade_overview(
@@ -214,6 +266,7 @@ def fetch_comex_overview(
         year_end=year_end,
         codes=tuple(ncm_codes),
         flow=flow,
+        value_column=value_column,
     )
     return run_query(sql, params)
 
@@ -224,8 +277,13 @@ def fetch_comtrade_overview(
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
     flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
 ):
-    """Annual COMTRADE value + weight (backs overviewTS for COMTRADE)."""
+    """Annual COMTRADE value + weight (backs overviewTS for COMTRADE).
+
+    ``value_column`` picks the currency×correction measure (default USD); the mart
+    carries the full BRL/USD/EUR matrix so BRL/EUR serves the REAL column.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
     sql, params = sqlbuild.trade_overview(
@@ -235,6 +293,7 @@ def fetch_comtrade_overview(
         year_end=year_end,
         codes=tuple(cmd_codes),
         flow=flow,
+        value_column=value_column,
     )
     return run_query(sql, params)
 
@@ -245,8 +304,18 @@ def fetch_comex_by_uf(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
+    latest_year_only: bool = True,
 ):
-    """COMEX value + weight aggregated by UF (backs ufData for COMEX)."""
+    """COMEX value + weight aggregated by UF (backs ufData for COMEX).
+
+    ``value_column`` picks the currency×correction measure (default USD; the mart
+    carries the full BRL/USD/EUR matrix). ``total_weight_kg`` (raw kg) is always
+    present for export_coefficient regardless of which value column is summed.
+    ``latest_year_only`` (default True) pins the choropleth to the latest year in
+    the active window; the export-coefficient by-UF reader passes False for the
+    window-cumulative sum it needs.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
     sql, params = sqlbuild.comex_by_uf(
@@ -255,6 +324,34 @@ def fetch_comex_by_uf(
         year_end=year_end,
         ncm_codes=tuple(ncm_codes),
         flow=flow,
+        value_column=value_column,
+        latest_year_only=latest_year_only,
+    )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_comex_by_uf_yearly(
+    year_start: int | None = None,
+    year_end: int | None = None,
+    ncm_codes: Sequence[str] = (),
+    flow: str | None = None,
+    value_column: str = "val_yearfx_usd",
+):
+    """COMEX value by (UF, year) (backs the ano × UF heatmap for COMEX).
+
+    ``value_column`` picks the currency×correction measure (default USD; the mart
+    carries the full BRL/USD/EUR matrix).
+    """
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
+    sql, params = sqlbuild.comex_by_uf_yearly(
+        table,
+        year_start=year_start,
+        year_end=year_end,
+        ncm_codes=tuple(ncm_codes),
+        flow=flow,
+        value_column=value_column,
     )
     return run_query(sql, params)
 
@@ -264,8 +361,13 @@ def fetch_comex_partners(
     year_start: int | None = None,
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
 ):
-    """COMEX partner (country) ranking with export/import split (backs partnerData)."""
+    """COMEX partner (country) ranking with export/import split (backs partnerData).
+
+    ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``); empty =
+    no UF filter. COMTRADE has no origin-UF column, so its partner reader omits it.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
     sql, params = sqlbuild.trade_by_partner(
@@ -276,6 +378,7 @@ def fetch_comex_partners(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(ncm_codes),
+        uf_codes=tuple(uf_codes),
     )
     return run_query(sql, params)
 
@@ -307,8 +410,13 @@ def fetch_comex_flows(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    uf_codes: Sequence[str] = (),
 ):
-    """COMEX origin(UF)->destination(country) links (backs flowData for COMEX)."""
+    """COMEX origin(UF)->destination(country) links (backs flowData for COMEX).
+
+    ``uf_codes`` optionally narrows the Sankey to those origin UFs
+    (``state_acronym``); empty = no UF filter.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
     sql, params = sqlbuild.trade_flows(
@@ -322,6 +430,7 @@ def fetch_comex_flows(
         year_end=year_end,
         codes=tuple(ncm_codes),
         flow=flow,
+        uf_codes=tuple(uf_codes),
     )
     return run_query(sql, params)
 
@@ -486,39 +595,50 @@ def fetch_source_metadata(source: str | None = None):
     return run_query(sql, params)
 
 
-# Cross-source metric -> (mart, measure column, flow, code column, brazil_only).
-# COMEX is Brazil's own customs (no reporter concept). COMTRADE is global: the
-# per-country metrics filter reporter = Brazil; world_exp sums over all reporters.
+# Cross-source metric -> (mart, measure column, flow, code column, brazil_column).
+# COMEX is Brazil's own customs (no reporter concept) → brazil_column None.
+# COMTRADE is global: the per-country metrics pin ONE side to Brazil:
+#   * exp_value/imp_value → reporter_iso_a3 = Brazil (Brazil's OWN declaration);
+#   * partner_exp → partner_iso_a3 = Brazil on IMPORT rows (every OTHER country's
+#     declaration of what it imported FROM Brazil — the trade-mirror's third line);
+#   * world_exp → no Brazil filter (sum over all reporters).
 # exp_price is NOT here — the UI derives it as exp_value / exp_weight.
 _CROSS_METRICS = {
-    "mdic_comex:exp_value": ("serving_comex_annual", "val_yearfx_usd", "export", "ncm_code", False),
-    "mdic_comex:imp_value": ("serving_comex_annual", "val_yearfx_usd", "import", "ncm_code", False),
-    "mdic_comex:exp_weight": ("serving_comex_annual", "net_weight_kg", "export", "ncm_code", False),
+    "mdic_comex:exp_value": ("serving_comex_annual", "val_yearfx_usd", "export", "ncm_code", None),
+    "mdic_comex:imp_value": ("serving_comex_annual", "val_yearfx_usd", "import", "ncm_code", None),
+    "mdic_comex:exp_weight": ("serving_comex_annual", "net_weight_kg", "export", "ncm_code", None),
     "un_comtrade:exp_value": (
         "serving_comtrade_annual",
         "val_yearfx_usd",
         "export",
         "cmd_code",
-        True,
+        "reporter_iso_a3",
     ),
     "un_comtrade:imp_value": (
         "serving_comtrade_annual",
         "val_yearfx_usd",
         "import",
         "cmd_code",
-        True,
+        "reporter_iso_a3",
+    ),
+    "un_comtrade:partner_exp": (
+        "serving_comtrade_annual",
+        "val_yearfx_usd",
+        "import",
+        "cmd_code",
+        "partner_iso_a3",
     ),
     "un_comtrade:world_exp": (
         "serving_comtrade_annual",
         "val_yearfx_usd",
         "export",
         "cmd_code",
-        False,
+        None,
     ),
 }
 
 
-def _cross_metric(metric: str) -> tuple[str, str, str, str, bool]:
+def _cross_metric(metric: str) -> tuple[str, str, str, str, str | None]:
     try:
         return _CROSS_METRICS[metric]
     except KeyError:
@@ -537,10 +657,11 @@ def fetch_cross_series(
     """Annual single-metric series for the cross-source view (backs crossSeries).
 
     ``codes`` optionally narrows to a commodity (per-source code) for market share.
-    Brazil's COMTRADE share is exp_value (reporter=Brazil) ÷ world_exp (all reporters).
-    ``exp_price`` is not served here — it is derived UI-side as exp_value / exp_weight.
+    Brazil's COMTRADE share is exp_value (reporter=Brazil) ÷ world_exp (all reporters);
+    partner_exp pins partner=Brazil instead (the mirror perspective). ``exp_price``
+    is not served here — it is derived UI-side as exp_value / exp_weight.
     """
-    table_name, measure, flow, code_column, brazil_only = _cross_metric(metric)
+    table_name, measure, flow, code_column, brazil_column = _cross_metric(metric)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
     sql, params = sqlbuild.cross_annual(
@@ -549,8 +670,8 @@ def fetch_cross_series(
         flow=flow,
         code_column=code_column,
         codes=tuple(codes),
-        reporter_column="reporter_iso_a3" if brazil_only else None,
-        reporter_value=settings.comtrade_brazil_iso if brazil_only else None,
+        reporter_column=brazil_column,
+        reporter_value=settings.comtrade_brazil_iso if brazil_column else None,
         year_start=year_start,
         year_end=year_end,
     )
@@ -558,28 +679,14 @@ def fetch_cross_series(
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_current_classifications():
-    """Live current classification per commodity (from the SCD2 view).
+def fetch_current_code_industrialization():
+    """Live current industrialization level per (source, code) from the SCD2 view.
 
     Short TTL (``Settings.cache_classification_timeout``, default 30s, bound by
     ``init_cache`` onto this function's writable ``cache_timeout``) + explicit
     invalidation on save: the writing instance sees the edit instantly, other
     instances converge within the TTL — so this scales across Cloud Run instances
     on per-process SimpleCache, no shared Redis required.
-    """
-    settings = get_settings()
-    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_commodity_scd2")
-    sql, params = sqlbuild.current_classifications(table)
-    return run_query(sql, params)
-
-
-@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_current_code_industrialization():
-    """Live current industrialization level per (source, code) from the SCD2 view.
-
-    The per-code companion to :func:`fetch_current_classifications`; same short
-    TTL + explicit invalidation on save, so it scales across Cloud Run instances
-    on per-process SimpleCache without shared Redis.
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_code_industrialization_scd2")

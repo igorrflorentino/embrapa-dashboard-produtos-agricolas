@@ -6,9 +6,10 @@
 #   • Web Dashboard SA  — READ 'serving' + APPEND 'research_inputs' + project jobUser
 #   • AI Agent Admin SA — project READ-ONLY + jobUser + WRITE confined to one sandbox
 #
-# Codifies docs/iam_setup.md §2.3 / §2.4. This is handoff-independent: it does NOT
-# deploy the dashboard Service (that arrives with the design-system handoff) — it
-# only provisions the SAs + their minimal grants so the eventual deploy is ready.
+# Codifies docs/iam_setup.md §2.3 / §2.4. This is deploy-independent: it does NOT
+# deploy the dashboard Service (that is deploy/webapi/ — the React SPA + Flask
+# REST service, live on Cloud Run) — it only provisions the SAs + their minimal
+# grants the running service relies on.
 #
 # IDEMPOTENT: re-running re-asserts the same access entries — it strips any prior
 # (SA, role) dataset entry before re-adding, so it never appends duplicates (the

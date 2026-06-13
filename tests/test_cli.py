@@ -94,6 +94,51 @@ def test_ingest_ibge_propagates_pipeline_error(
     assert isinstance(result.exception, RuntimeError)
 
 
+# ─── ingest ibge-pam ─────────────────────────────────────────────────────────
+def test_ingest_ibge_pam_dispatches_and_prints_destination(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """`ingest ibge-pam` dispatches to pam_pipeline.run with the delta defaults and
+    surfaces the loaded destination (the PEVS sibling — this is the PAM source)."""
+    pipeline_run = MagicMock(return_value="proj.bronze_ibge.sidra_t5457_raw")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.pam_pipeline, "run", pipeline_run)
+
+    result = runner.invoke(cli.app, ["ingest", "ibge-pam"])
+
+    assert result.exit_code == 0, result.output
+    pipeline_run.assert_called_once_with(settings, full=False, from_raw=False)
+    assert "IBGE PAM bronze loaded" in result.output
+    assert "proj.bronze_ibge.sidra_t5457_raw" in result.output
+
+
+def test_ingest_ibge_pam_full_flag_propagates(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    pipeline_run = MagicMock(return_value="proj.bronze_ibge.sidra_t5457_raw")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.pam_pipeline, "run", pipeline_run)
+
+    result = runner.invoke(cli.app, ["ingest", "ibge-pam", "--full"])
+
+    assert result.exit_code == 0, result.output
+    pipeline_run.assert_called_once_with(settings, full=True, from_raw=False)
+
+
+def test_ingest_ibge_pam_warns_when_pipeline_returns_empty(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """An empty return means SIDRA had nothing new — print a hint, not a crash."""
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli.pam_pipeline, "run", lambda s, full=False, from_raw=False: "")
+
+    result = runner.invoke(cli.app, ["ingest", "ibge-pam"])
+
+    assert result.exit_code == 0
+    assert "skipped" in result.output
+    assert "PAM_END_YEAR" in result.output
+
+
 # ─── ingest bcb-inflation ────────────────────────────────────────────────────
 def test_ingest_bcb_inflation_delta_by_default(
     monkeypatch: pytest.MonkeyPatch, settings: Settings

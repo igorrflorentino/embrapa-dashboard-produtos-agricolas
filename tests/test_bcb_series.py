@@ -143,6 +143,50 @@ def test_extract_canonical_columns_and_labels(spec, label, codes, labels, settin
     assert set(df[label]) == labels
 
 
+@pytest.mark.parametrize("spec, label, codes, labels", SPECS)
+def test_extract_full_raises_when_any_single_series_is_empty(
+    spec, label, codes, labels, settings
+) -> None:
+    """--full must not silently absorb one misconfigured/empty series just because
+    the others returned data: the run would report success while that series stays
+    permanently absent from Bronze (its Gold columns NULL with no error anywhere).
+    The raise must name the offending series."""
+    empty_code = sorted(codes)[0]
+
+    def fetch(code, start, end):
+        return pd.DataFrame() if code == empty_code else FAKE.copy()
+
+    bq = MagicMock()
+    with (
+        patch("embrapa_commodities.bcb.series.latest_reference_date"),
+        patch("embrapa_commodities.bcb.series.fetch_series", side_effect=fetch),
+        pytest.raises(RuntimeError, match=empty_code),
+    ):
+        bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=True)
+
+
+@pytest.mark.parametrize("spec, label, codes, labels", SPECS)
+def test_extract_delta_keeps_going_when_one_series_is_empty(
+    spec, label, codes, labels, settings
+) -> None:
+    """In delta mode a single empty series just means 'nothing new' for it — the
+    other series' rows still flow through."""
+    empty_code = sorted(codes)[0]
+
+    def fetch(code, start, end):
+        return pd.DataFrame() if code == empty_code else FAKE.copy()
+
+    bq = MagicMock()
+    with (
+        patch(
+            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)
+        ),
+        patch("embrapa_commodities.bcb.series.fetch_series", side_effect=fetch),
+    ):
+        df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
+    assert set(df["series_code"]) == codes - {empty_code}
+
+
 def test_extract_empty_series_config_raises(settings) -> None:
     settings.bcb_inflation_series = "  "
     bq = MagicMock()

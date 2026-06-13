@@ -31,7 +31,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 # --no-dev drops pytest/ruff; the `webapi` extra pulls flask + flask-caching +
 # gunicorn (NO dash/plotly — the charts are client-side Plotly.js in the SPA).
-# The seam (embrapa_commodities.dashboard.seam) is UI-framework-free and resolves
+# The seam (embrapa_commodities.webapi.seam) is UI-framework-free and resolves
 # without dash installed.
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src

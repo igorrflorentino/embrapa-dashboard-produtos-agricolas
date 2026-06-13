@@ -13,7 +13,16 @@ function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height 
   const W = COLS * (CELL_W + GAP);
   const H = ROWS * (CELL_H + GAP);
 
-  const vals = data.map((d) => d[valueKey] || 0);
+  // Only rows with valid tile coords render. A trade banco's per-UF rows can carry
+  // non-state pseudo-origins (ND/EX/ZN…) that have no col/row in the UF registry —
+  // positioning them at `undefined * cell` emitted NaN x/y SVG attributes (the
+  // console flooded with "Received NaN for the `x`/`y` attribute"). Drop them so
+  // the tile grid never produces NaN coordinates (FINDING #4/#5).
+  const rows = (Array.isArray(data) ? data : []).filter(
+    (d) => Number.isFinite(d.col) && Number.isFinite(d.row),
+  );
+
+  const vals = rows.map((d) => d[valueKey] || 0);
   const max = vals.length ? Math.max(...vals) : 0;
   const min = vals.length ? Math.min(...vals) : 0;
 
@@ -45,7 +54,7 @@ function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height 
   return (
     <div className="bmap-wrap">
       <svg viewBox={`0 0 ${W} ${H}`} className="bmap" preserveAspectRatio="xMidYMid meet">
-        {data.map((d) => {
+        {rows.map((d) => {
           const x = d.col * (CELL_W + GAP);
           const y = d.row * (CELL_H + GAP);
           const v = d[valueKey] || 0;

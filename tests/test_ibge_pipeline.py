@@ -373,6 +373,62 @@ def test_run_from_raw_replays_all_archived_objects(
     assert load.call_count == 2
 
 
+def test_run_from_raw_orders_replay_by_fetched_at_not_basename(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """Replay must follow fetch recency (the stored fetched_at provenance), not
+    lexical basename order: the newest extract is appended LAST so it wins
+    Silver's ingestion_timestamp-desc dedup. Lexical order would let a stale
+    overlapping archive resurrect old readings for the overlapping years."""
+    fetched_at = {
+        # Lexically FIRST, but the NEWEST extract (a recent --full re-pull).
+        "products_3405_1986_2026": {"fetched_at": "2026-06-01T00:00:00Z"},
+        # Lexically LAST, but an OLD ibge-batch backfill chunk.
+        "products_3405_1991_1995": {"fetched_at": "2024-01-01T00:00:00Z"},
+    }
+    with (
+        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
+        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch(
+            "embrapa_commodities.ibge.pipeline.list_raw",
+            return_value=sorted(fetched_at),  # list_raw returns lexical order
+        ),
+        patch(
+            "embrapa_commodities.ibge.pipeline.raw_provenance",
+            side_effect=lambda *_a, basename, **_kw: fetched_at[basename],
+        ),
+        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+    ):
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings, from_raw=True)
+
+    replayed = [call.kwargs["basename"] for call in read_raw.call_args_list]
+    assert replayed == ["products_3405_1991_1995", "products_3405_1986_2026"]
+
+
+def test_order_by_fetched_at_puts_unstamped_objects_first(settings: Settings) -> None:
+    """Objects without fetched_at (pre-provenance archives) sort first, so any
+    stamped (newer-infrastructure) extract outranks them in Silver dedup."""
+    provenance = {
+        "a_stamped": {"fetched_at": "2026-01-01T00:00:00Z"},
+        "b_unstamped": {},
+    }
+    with patch(
+        "embrapa_commodities.ibge.pipeline.raw_provenance",
+        side_effect=lambda *_a, basename, **_kw: provenance[basename],
+    ):
+        ordered = ibge_pipeline._order_by_fetched_at(
+            ["a_stamped", "b_unstamped"],
+            storage_client=MagicMock(),
+            settings=settings,
+            source="ibge",
+            dataset=ibge_pipeline.RAW_DATASET,
+        )
+    assert ordered == ["b_unstamped", "a_stamped"]
+
+
 # ─── year chunking (CLI-level helper, but tested here to keep ibge tests together) ───
 def test_chunk_loop_covers_full_range_inclusive() -> None:
     """The batch CLI's `range(start, end + 1, chunk_years)` must cover the whole window.

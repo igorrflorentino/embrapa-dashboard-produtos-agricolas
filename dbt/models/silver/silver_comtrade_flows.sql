@@ -39,15 +39,42 @@
     (quantity not collected). 0 is mapped to NULL so it reads as "no reading"
     (→ qty_base NULL, data_quality_flag MISSING_QUANTITY) rather than a real zero.
 
+    Dedup is TWO-staged, because re-downloads replace whole chunks: ingestion
+    lands one (year × reporter-batch) chunk per Bronze load, every row sharing
+    ONE ingestion_timestamp (comtrade/pipeline.bronze_one stamps the frame once).
+      1. latest_batch — keep only the rows of the most recent ingestion batch
+         per (refYear, reporterCode). A re-published reporter-year thus REPLACES
+         the previous generation: records the source retracted disappear here
+         (row-level latest-wins alone would keep them forever). reporterCode —
+         not the batch id — is the scope: a reporter-year is always fully
+         contained in ONE chunk even if the reporter batching changes between
+         runs. Residual limitation: a reporter-year republished EMPTY lands no
+         new Bronze rows, so the previous generation keeps serving.
+      2. deduplicated — row-level dedup on the natural key inside the surviving
+         batch (the duplicate-qtyUnitCode collapse below).
+    NOTE: this batch-scoped dedup shipped 2026-06 (audit fix). materialized=
+    table → every dbt build fully rebuilds, so the first build after this
+    change purges any phantom rows (were this model incremental, one
+    --full-refresh would be required).
+
     Stays materialized=table: the filtered scope (HS 0801 + chapter 44, all
     reporters × partners, annual) is small. Revisit with insert_overwrite if a
     full historical backfill over decades makes the rebuild costly.
 -#}
 
-with deduplicated as (
+with latest_batch as (
 
     select *
     from {{ source('bronze_comtrade', 'comtrade_flows_raw') }}
+    qualify ingestion_timestamp
+        = max(ingestion_timestamp) over (partition by refYear, reporterCode)
+
+),
+
+deduplicated as (
+
+    select *
+    from latest_batch
     where partnerCode != '0'                       -- drop the World aggregate
       and flowCode in ('X', 'M', 'RX', 'RM')       -- four primary regimes
       and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
@@ -60,12 +87,18 @@ with deduplicated as (
             refYear, reporterCode, partnerCode, partner2Code,
             cmdCode, flowCode, customsCode, mosCode, motCode
         -- NOT partitioned by qtyUnitCode: the same fully-aggregated trade is
-        -- sometimes returned under TWO qtyUnitCodes (e.g. '12' kg AND '-1'
+        -- sometimes returned under TWO qtyUnitCodes (e.g. '8' kg AND '-1'
         -- no-quantity) with an IDENTICAL primary value, so keeping both would
-        -- DOUBLE-COUNT the value in gold_comtrade_flows. Collapse to one row,
-        -- preferring a real measurement unit over the no-quantity '-1' variant
-        -- (so qty_native stays meaningful), then the latest ingestion.
-        order by (qtyUnitCode = '-1'), ingestion_timestamp desc
+        -- DOUBLE-COUNT the value in gold_comtrade_flows (#102). Ordering
+        -- rationale: recency FIRST (the project-wide dedup contract — a
+        -- corrected re-publication must win even when it arrives only under
+        -- the '-1' variant), unit preference as the TIEBREAKER. This cannot
+        -- re-break the #102 collapse: latest_batch already restricted the
+        -- partition to ONE ingestion generation, whose rows share a single
+        -- ingestion_timestamp, so the tiebreaker is what actually arbitrates
+        -- the duplicate unit variants — preferring a real measurement unit
+        -- over '-1' so qty_native stays meaningful.
+        order by ingestion_timestamp desc, (qtyUnitCode = '-1')
     ) = 1
 
 ),

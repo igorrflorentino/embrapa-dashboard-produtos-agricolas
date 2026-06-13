@@ -211,10 +211,10 @@ Role on sa-secret-reader-prod:
 
 ## Dashboard ingress — IAP behind a load balancer (HARD REQUIREMENT)
 
-> Applies to the Cloud Run **Service** (the Dash dashboard), not the ingestion
-> Job. The Service itself is built during the Claude Design System handoff, but
+> Applies to the Cloud Run **Service** (the React SPA + Flask REST dashboard,
+> `deploy/webapi/`), not the ingestion Job. The Service is live on Cloud Run, and
 > the ingress posture below is a **non-negotiable deploy-time requirement** the
-> operator must satisfy when that Service ships.
+> operator must satisfy on every deploy.
 
 The dashboard derives the audit field `edited_by` (who classified a commodity in
 the append-only curation log) **solely** from the IAP-injected request header

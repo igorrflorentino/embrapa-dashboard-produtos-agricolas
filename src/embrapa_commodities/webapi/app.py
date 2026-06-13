@@ -81,6 +81,16 @@ def create_app() -> Flask:
     def healthz():
         return jsonify(status="ok")
 
+    @app.route("/api", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    @app.route("/api/<path:_unmatched>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    def api_not_found(_unmatched: str = ""):
+        # Unknown /api path → machine-readable JSON 404, never the SPA's
+        # index.html with HTTP 200 (the SPA fetch layer checks r.ok then
+        # r.json(), so an HTML 200 burns its retry budget on parse errors).
+        # Werkzeug ranks the blueprint's static rules above this path-converter
+        # rule, so every registered /api endpoint still wins.
+        return jsonify(error="endpoint de API não encontrado", code=404), 404
+
     spa = _spa_dir()
     if spa is not None:
         logger.info("Serving SPA from %s", spa)

@@ -194,10 +194,16 @@ seeds:
   - name: comtrade_country
     description: |
       UN Comtrade M49 area dimension (from partnerAreas.json): m49_code → ISO-alpha3
-      + English name + is_group flag. Resolves BOTH reporter_code and partner_code
-      in gold_comtrade_flows. is_group marks aggregate areas (EU, "X, nes", …);
-      World (code 0) is dropped upstream in Silver. Regenerate with
-      `uv run python scripts/refresh_comtrade_country_seed.py`.
+      + Portuguese name + is_group flag. Resolves BOTH reporter_code and
+      partner_code in gold_comtrade_flows, which flow to the SPA verbatim — so the
+      names are pt-BR to match the sibling COMEX dimensions (project language rule:
+      any string the end user could read is Portuguese). "nes" → "nep" (não
+      especificado). is_group marks aggregate areas (UE, "X, nep", …); World
+      (code 0) is dropped upstream in Silver. The refresh script
+      (`uv run python scripts/refresh_comtrade_country_seed.py`) only rebuilds the
+      M49 → ISO scaffold from the English UN source: the country_name column is
+      curated pt-BR maintained HERE, so re-running the script must NOT overwrite
+      it back to English (re-translate any newly added codes by hand).
     config:
       column_types:
         m49_code: string
@@ -237,7 +243,10 @@ seeds:
       UN Comtrade HS commodity dimension (from HS.json), filtered to the Comtrade
       scope (0801* nuts + chapter 44 wood/charcoal): cmd_code → description +
       hs_level + standard_unit. Joined into gold_comtrade_flows on cmd_code.
-      Extend the filter if the product scope grows beyond these.
+      The `description` column is curated in Portuguese (it flows to the SPA via
+      cmd_description, so it follows the project language rule and matches the
+      pt-BR COMEX NCM descriptions). Extend the filter — re-translating new
+      descriptions — if the product scope grows beyond these.
     config:
       column_types:
         cmd_code: string

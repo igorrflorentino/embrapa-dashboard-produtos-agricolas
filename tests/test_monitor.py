@@ -263,6 +263,16 @@ def test_summarize_retry() -> None:
     assert "3" in result
 
 
+def test_summarize_retry_falls_back_to_series_for_comex_style_events() -> None:
+    """COMEX/COMTRADE retries carry 'series' (not 'state') — the summary must
+    show that target instead of 'retry ?'."""
+    result = _summarize(
+        _evt("retry", series="EXP_2024.csv", window="", attempt=2, reason="timeout")
+    )
+    assert "EXP_2024.csv" in result
+    assert "retry ?" not in result
+
+
 def test_summarize_pipeline_end() -> None:
     result = _summarize(_evt("pipeline_end", rows_total=50000, duration_s=300.0))
     assert "done" in result
@@ -379,6 +389,71 @@ def test_build_state_grid_arranges_cells_in_four_column_rows() -> None:
     grid = _build_state_grid(state, now=10.0)
     assert len(grid.columns) == 4
     assert grid.row_count == 7
+
+
+# ── _build_progress — chunk UI applicability per pipeline shape ──────────
+
+
+def test_build_progress_hides_chunk_states_bar_without_state_events() -> None:
+    """COMEX/COMTRADE/BCB never emit state_* events — the 'Chunk states 0/27'
+    bar must not render for them (it would sit frozen with ETA '?')."""
+    from embrapa_commodities.monitor.render import _build_progress
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="comex", run_id="r1", chunks_total=4))
+    state.apply(_evt("chunk_start", chunk_id="export-2024", chunk_n=1, chunk_total=4))
+
+    progress = _build_progress(state, now=1000.0)
+
+    assert len(progress.tasks) == 1  # chunks row only — no bogus states bar
+
+
+def test_build_progress_shows_chunk_states_bar_for_uf_sweeping_pipelines() -> None:
+    from embrapa_commodities.monitor.render import _build_progress
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
+    state.apply(_evt("chunk_start", chunk_id="2020-2022", chunk_n=1, chunk_total=2))
+    state.apply(_evt("state_start", state="SP"))
+
+    progress = _build_progress(state, now=1000.0)
+
+    assert len(progress.tasks) == 2
+
+
+def test_build_progress_keeps_states_bar_across_chunk_boundaries() -> None:
+    """saw_state_events is sticky: a fresh chunk resets the UF grid but the
+    bar must not flicker away for IBGE-style pipelines."""
+    from embrapa_commodities.monitor.render import _build_progress
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
+    state.apply(_evt("chunk_start", chunk_id="2020-2022", chunk_n=1, chunk_total=2))
+    state.apply(_evt("state_start", state="SP"))
+    state.apply(_evt("state_end", state="SP", rows=10, duration_s=1.0))
+    state.apply(_evt("chunk_end", chunk_id="2020-2022", rows=10, duration_s=2.0))
+    state.apply(_evt("chunk_start", chunk_id="2023-2024", chunk_n=2, chunk_total=2))
+
+    progress = _build_progress(state, now=1000.0)
+
+    assert len(progress.tasks) == 2
+
+
+def test_build_progress_shows_rows_unknown_until_reported() -> None:
+    """COMEX/COMTRADE chunk_end events carry no rows field — the header must
+    show 'rows ?' rather than a misleading 0."""
+    from embrapa_commodities.monitor.render import _build_progress
+
+    state = MonitorState()
+    state.apply(_evt("pipeline_start", pipeline="comex", run_id="r1", chunks_total=2))
+    state.apply(_evt("chunk_end", chunk_id="export-2024", duration_s=3.0))
+
+    progress = _build_progress(state, now=1000.0)
+    assert "[bold]?[/bold]" in progress.tasks[0].fields["extra"]
+
+    state.apply(_evt("ingest_loaded", rows=120))
+    progress = _build_progress(state, now=1000.0)
+    assert "120" in progress.tasks[0].fields["extra"]
 
 
 # ── _tail_jsonl — file tailing helper (P1 refactor coverage) ─────────────

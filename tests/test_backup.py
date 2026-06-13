@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,12 +12,14 @@ from embrapa_commodities.config import Settings
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(
+def settings(settings_factory) -> Settings:
+    # _env_file=None (via settings_factory) keeps bq_gold_dataset etc. from being
+    # overridden by the developer's repo-root .env, so the extract URIs stay fixed.
+    return settings_factory(
         gcp_project_id="test-project",
         gcs_bucket="test-bucket",
         bq_gold_dataset="gold",
-    )  # type: ignore[call-arg]
+    )
 
 
 def _fake_table(table_id: str, table_type: str = "TABLE") -> MagicMock:
@@ -101,6 +104,68 @@ def test_run_raises_when_dataset_is_empty(settings: Settings) -> None:
 
         with pytest.raises(RuntimeError, match="dbt-build-prod"):
             backup.run(settings)
+
+
+def test_run_writes_success_marker_after_all_extracts(settings: Settings) -> None:
+    """A complete snapshot ends with the `_SUCCESS` manifest under the run prefix.
+
+    Doctor's freshness check requires this marker — without it a snapshot does
+    not count as complete (see test_run_skips_marker_when_extract_fails).
+    """
+    with (
+        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.backup.storage.Client") as gcs_cls,
+        patch("embrapa_commodities.backup.ensure_bucket"),
+    ):
+        client = bq_cls.return_value
+        client.list_tables.return_value = [
+            _fake_table("gold_pevs_production"),
+            _fake_table("gold_comex_flows"),
+        ]
+        client.extract_table.return_value.result.return_value = None
+
+        run_id, _ = backup.run(settings)
+
+        bucket = gcs_cls.return_value.bucket
+        bucket.assert_called_once_with("test-bucket")
+        blob = bucket.return_value.blob
+        blob.assert_called_once_with(f"backups/run={run_id}/_SUCCESS")
+        upload = blob.return_value.upload_from_string
+        upload.assert_called_once()
+        manifest = json.loads(upload.call_args.args[0])
+
+    assert manifest["run_id"] == run_id
+    assert manifest["table_count"] == 2
+    assert manifest["tables"] == ["gold_comex_flows", "gold_pevs_production"]
+    assert "completed_at" in manifest
+
+
+def test_run_skips_marker_when_extract_fails(settings: Settings) -> None:
+    """A failed extract must abort BEFORE the `_SUCCESS` marker is written.
+
+    The marker is what lets doctor distinguish a complete snapshot from a
+    crashed half-backup — writing it on failure would defeat the check.
+    """
+    with (
+        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.backup.storage.Client") as gcs_cls,
+        patch("embrapa_commodities.backup.ensure_bucket"),
+    ):
+        client = bq_cls.return_value
+        client.list_tables.return_value = [
+            _fake_table("gold_pevs_production"),
+            _fake_table("gold_comex_flows"),
+        ]
+        # First extract OK, second blows up mid-run.
+        ok_job = MagicMock()
+        boom_job = MagicMock()
+        boom_job.result.side_effect = RuntimeError("extract failed")
+        client.extract_table.side_effect = [ok_job, boom_job]
+
+        with pytest.raises(RuntimeError, match="extract failed"):
+            backup.run(settings)
+
+        gcs_cls.return_value.bucket.return_value.blob.assert_not_called()
 
 
 def test_run_uses_parquet_snappy_format(settings: Settings) -> None:

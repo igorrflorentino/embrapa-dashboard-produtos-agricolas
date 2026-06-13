@@ -6,7 +6,7 @@
 //   months  : string[12]
 //   markers : [{ month, color }]
 
-import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
 
 function MonthlyOverlay({ series = [], months = [], markers = [], label = '' }) {
   const palette = vizPalette();
@@ -42,6 +42,10 @@ function MonthlyOverlay({ series = [], months = [], markers = [], label = '' }) 
     layer: 'below',
   }));
 
+  // pt-BR magnitude ticks ("15 bi" not the SI "15G"), consistent across cards
+  // (FINDING #9) — max over every profile's 12 monthly values. Falls back to `~s`
+  // when there is no usable positive max.
+  const ymax = seriesMax(series.flatMap((s) => s.data || []));
   const layout = baseLayout({
     margin: { l: 48, r: 14, t: 16, b: 28 },
     hovermode: 'x unified',
@@ -50,7 +54,7 @@ function MonthlyOverlay({ series = [], months = [], markers = [], label = '' }) 
     yaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',
-      tickformat: '~s',
+      ...ptBrLinearAxis(ymax),
     },
   });
 

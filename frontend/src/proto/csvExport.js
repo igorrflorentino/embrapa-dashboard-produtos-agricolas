@@ -62,15 +62,21 @@
       }
       case 'product_profile':
       case 'product_compare': {
-        // per-product annual series
-        const headers = ['ano', 'codigo', 'produto', `valor_${conv.currency}`, 'quantidade', 'familia'];
+        // per-product annual series. productTS.q is in mil t for mass but mi m³ for
+        // volume — scaling both by 1e3 (the old code) mixed t and mil m³ under one
+        // unitless "quantidade" header. Scale per family to its base unit (mass→t,
+        // volume→m³) and emit the unit explicitly so the column is unambiguous.
+        const headers = ['ano', 'codigo', 'produto', `valor_${conv.currency}`, 'quantidade', 'unidade', 'familia'];
         const rows = [];
         Object.entries(f.productTS).forEach(([code, series]) => {
           const fam = (PRODS.find(p => p.code === code) || {}).family;
+          const qMul = fam === 'volume' ? 1e6 : 1e3; // mil t→t, mi m³→m³
+          const qUnit = fam === 'volume' ? 'm³' : 't';
           series.forEach(d => rows.push([
             d.y, code, nameOf(code),
             Math.round(dispV(d.v * 1e6)),
-            Math.round(d.q * 1e3),
+            Math.round(d.q * qMul),
+            qUnit,
             fam,
           ]));
         });
@@ -107,12 +113,12 @@
     const banco = window.bancoById ? window.bancoById(ctx.database) : null;
     // Only live bancos hold real rows; soon bancos have nothing to export.
     if (!banco || banco.status !== 'live') {
-      console.warn('[csv] banco não disponível para exportação:', ctx.database);
+      console.warn('[csv] banco not available for export:', ctx.database);
       return;
     }
     const built = buildRows(ctx);
     if (!built || !built.rows.length) {
-      console.warn('[csv] nada a exportar para a view', ctx.view);
+      console.warn('[csv] nothing to export for view', ctx.view);
       return;
     }
     const period = (ctx.summary && ctx.summary.startDate)

@@ -20,7 +20,6 @@ erDiagram
     gold_commodity_crosswalk ||--o{ gold_comtrade_flows  : "source=comtrade · code=cmd_code"
     dim_geo_br               ||--o{ gold_pevs_production : "state_acronym"
     dim_geo_br               ||--o{ gold_comex_flows     : "state_acronym (UF of NCM)"
-    dim_commodity_scd2               |o--o{ gold_commodity_crosswalk : "commodity_id · is_current (LEFT JOIN, gated)"
     dim_code_industrialization_scd2  |o--o| gold_commodity_crosswalk : "(source, code) · is_current (gated)"
 
     gold_pevs_production {
@@ -75,13 +74,6 @@ erDiagram
         string   region                 "Norte / Nordeste / Centro-Oeste / Sudeste / Sul"
         string   region_abbrev          "N / NE / CO / SE / S (frontend ufData)"
     }
-    dim_commodity_scd2 {
-        string   commodity_id       PK "is_current → links crosswalk.commodity_id"
-        int      version
-        string   processing_stage       "in_natura / beneficiado / …"
-        timestamp valid_from
-        bool     is_current
-    }
     dim_code_industrialization_scd2 {
         string   source             PK
         string   code               PK
@@ -115,10 +107,9 @@ erDiagram
 - **Brazilian geography** → join `state_acronym` to `dim_geo_br` for
   `state_name` / `region` / `region_abbrev`. (COMTRADE is country↔country — no UF.)
 - **Curated industrialization level** (bruta/processada) → `dim_code_industrialization_scd2`
-  on `(source, code)` filtered to `is_current`. **Curated processing stage** →
-  `dim_commodity_scd2` on `commodity_id` filtered to `is_current`. Both are
-  VIEWs **gated** behind `dbt build --vars 'enable_curation: true'` (absent on a
-  fresh project — LEFT JOIN so rows survive without a classification).
+  on `(source, code)` filtered to `is_current`. A VIEW **gated** behind
+  `dbt build --vars 'enable_curation: true'` (absent on a fresh project — LEFT
+  JOIN so rows survive without a classification).
 - **Calendar labels** (pt-BR month names) → the serving marts join `dim_date` on
   the month; the Gold facts already carry `reference_date` inline.
 

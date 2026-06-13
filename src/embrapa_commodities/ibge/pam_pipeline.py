@@ -38,7 +38,7 @@ from embrapa_commodities.gcp.bigquery import (
     load_dataframe,
 )
 from embrapa_commodities.ibge.client import fetch_sidra_dataframe
-from embrapa_commodities.ibge.pipeline import _bronze_schema
+from embrapa_commodities.ibge.pipeline import _bronze_schema, _order_by_fetched_at
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +104,12 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
             duration_s=round(time.monotonic() - started, 2),
         )
         logger.warning(
-            "PAM ingest skipped: SIDRA returned no rows for %d-%d. "
-            "Lower PAM_END_YEAR in .env to the latest published year.",
+            "PAM ingest skipped: SIDRA returned no rows for %d-%d — usually "
+            "PAM_END_YEAR is ahead of the latest published PAM year, an "
+            "expected state that resolves itself once IBGE publishes the new "
+            "year. Do NOT pin PAM_END_YEAR to the latest published year: once "
+            "Bronze reaches it, the nightly delta skips entirely and stops "
+            "absorbing PAM revisions of recent years (END must float ahead).",
             settings.pam_start_year,
             settings.pam_end_year,
         )
@@ -141,8 +145,10 @@ def bronze_from_raw(
     """Phase 2: read each raw SIDRA archive, stamp ingestion_timestamp, append to Bronze.
 
     Multiple ``basenames`` (``--from-raw`` replaying the delta trail) are appended
-    in order; Silver dedupes on the natural key, so overlapping windows collapse
-    to the latest reading.
+    in the order given — the caller orders them oldest-fetch-first (see
+    ``ibge.pipeline._order_by_fetched_at``) so Silver's dedup on the natural key
+    by ``ingestion_timestamp desc`` collapses overlapping windows to the newest
+    *extract*, not to whichever basename happened to sort last.
     """
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_pam_dataset}"
     destination = f"{dataset_id}.{settings.bq_bronze_pam_table}"
@@ -241,6 +247,14 @@ def run(
         if not basenames:
             logger.warning("PAM --from-raw: no raw archived for dataset %s.", RAW_DATASET)
             return ""
+        # Replay oldest-fetch-first so the newest extract wins Silver dedup.
+        basenames = _order_by_fetched_at(
+            basenames,
+            storage_client=storage_client,
+            settings=settings,
+            source=SOURCE,
+            dataset=RAW_DATASET,
+        )
     else:
         if not full:
             delta_settings = _delta_start_year(settings, bq_client)

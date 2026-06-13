@@ -2,7 +2,7 @@
 
 Comprehensive testing for the development environment setup.
 
-> ⚠️ **Frontend under reconstruction.** This guide covers the backend (ingest + dbt + CLI). The UI-specific tests (Dash smoke test, visual check with Playwright) were removed on 2026-05-29 alongside the Dash layer. The new frontend, once delivered by the Claude Design System handoff, will bring its own testing strategy.
+> ℹ️ **Scope.** This guide covers the backend (ingest + dbt + CLI). The React SPA (`frontend/`) shipped in the 2026-06 Dash→React migration and brings its own test suite: Vitest, run by the `frontend` job in `.github/workflows/ci.yml` (`cd frontend && npm test`). The old Dash UI tests (Dash smoke test, Playwright visual check) were removed on 2026-05-29 alongside the Dash layer.
 
 ## Quick Test
 

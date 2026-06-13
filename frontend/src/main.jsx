@@ -7,6 +7,7 @@
 
 import './bootstrap-globals'; // window.React/ReactDOM — must be first
 import React, { useState, useEffect } from 'react';
+import { resolveChipCoverage } from './data/chipCoverage';
 import { subscribe as subscribeResource } from './data/resource';
 
 // ── registries + utils (reused verbatim) ──────────────────────────────────────
@@ -97,6 +98,10 @@ function readStateFromURL() {
   const cur = q.get('cur');
   if (cur && window.CURRENCY_FX && window.CURRENCY_FX[cur]) conv.currency = cur;
   if (q.get('corr')) conv.correction = q.get('corr');
+  // Clamp an unservable currency × correction combo (USD × IGP-M/IGP-DI has no US$
+  // deflated column, so it would render a real R$ value under a US$ symbol). The
+  // strip disables these; a bookmarked deep link must not bypass that gate.
+  if (window.clampConvention) Object.assign(conv, window.clampConvention(conv));
   if (q.get('mu') || q.get('vu')) {
     conv.units = { ...conv.units, mass: q.get('mu') || conv.units?.mass, volume: q.get('vu') || conv.units?.volume };
   }
@@ -146,18 +151,41 @@ function withChips(summary, database, conventions) {
   const sym = ((window.CURRENCY_FX || {})[conv.currency] || { symbol: 'R$' }).symbol;
   const flagsAll = window.QUALITY_FLAGS || [];
   const labelOf = (id) => (flagsAll.find((q) => q.id === id) || {}).label || id;
-  const total = f.productsTotal || (f.products || []).length;
+  // Banco-aware chip coverage when the snapshot hasn't loaded yet (FINDING #2).
+  // applyFilters falls back to the PEVS synthetic globals (12 products, 1986–2024)
+  // until the active banco's snapshot lands, so on first load / banco switch the
+  // chips would show the cross-source catalog count + the PEVS year span for EVERY
+  // banco (e.g. COMEX showed "Todos (12) · 1986–2024" instead of its real
+  // "Todos (5) · 1997–2026"). resolveChipCoverage reads the ACTIVE banco's own
+  // metadata (live /api/source-meta coverage, else the banco registry prov) in that
+  // window. The dataStore-subscribe effect re-renders this once either resolves.
+  const snapLoaded = !!(window.dataStore && window.dataStore.get && window.dataStore.get(database));
+  const meta = (!snapLoaded && window.dataStore && window.dataStore.meta)
+    ? window.dataStore.meta(database) : null;
+  const { total, yearStart, yearEnd } = resolveChipCoverage({
+    snapLoaded,
+    applied: f,
+    meta,
+    hasDateSel: !!(s.startDate || s.endDate),
+  });
   const basket = s.basket || null;
   const firstName =
     basket && basket.length === 1
       ? ((f.products || []).find((p) => p.code === basket[0]) || {}).name
       : null;
-  const ufTotal = (f.ufDataFull || []).length || 27;
-  const hasGeo = (f.ufDataFull || []).length > 0;
+  // Count REAL Brazilian UFs only (FINDING #4): a trade banco's ufDataFull
+  // includes non-state pseudo-origins (ND/EX/ZN…) that must not inflate the geo
+  // chip to "32 UFs". Prefer the backend's per-row `real` flag, falling back to
+  // the canonical 27-UF registry membership; cap at 27.
+  const ufDataFull = f.ufDataFull || [];
+  const isRealUf = (u) => (u.real != null ? u.real : (window.isCanonicalUf ? window.isCanonicalUf(u.uf) : true));
+  const realUfCount = ufDataFull.filter(isRealUf).length;
+  const ufTotal = Math.min(27, realUfCount || 27);
+  const hasGeo = ufDataFull.length > 0;
   return {
     ...s,
     products: window.chipFmt.products(basket ? basket.length : null, total, firstName),
-    period: window.chipFmt.period(f.yearStart, f.yearEnd),
+    period: window.chipFmt.period(yearStart, yearEnd),
     valueRange: window.chipFmt.valueRange(s.valueMin, s.valueMax, sym),
     geo: window.chipFmt.geoStates(s.states ? s.states.length : null, ufTotal, hasGeo),
     quality: window.chipFmt.quality(s.flags || null, flagsAll.length, labelOf),
@@ -243,10 +271,50 @@ function Dashboard() {
     if (window.dataStore?.setConventions) window.dataStore.setConventions(conventions);
   }, [conventions]);
 
+  // Banco switch (changeDatabase): the prototype's bancos.js/MetricConventions doc
+  // promised two resets the React port had dropped. Without them a banco switch
+  // left BOTH the previous banco's filter basket and display currency in place:
+  //   1. F1.3 — the stale basket intersects the new banco's product universe to
+  //      [] → every chart renders zero, while the trigger bar still shows the old
+  //      banco's chips. Reset the filter summary so the new banco starts unfiltered.
+  //   2. F1.4 — default the display currency to the banco's OWN base currency
+  //      (canonCurrencyFor: USD for the USD-native trade bancos, R$ for production).
+  //      This is now a sensible DEFAULT, not a correctness crutch: the BFF serves a
+  //      trade snapshot in whatever currency is requested (the real BRL/USD/EUR Gold
+  //      column), so switching back to R$ shows the REAL R$ figure — no longer the
+  //      raw USD under an R$ label. Correction/units/auto-scale carry over.
+  const databaseRef = React.useRef(database);
+  databaseRef.current = database;
+  const changeDatabase = React.useCallback((nextId) => {
+    if (nextId === databaseRef.current) return; // re-selection: no reset
+    setSummary({}); // F1.3: drop the previous banco's basket/period/value/geo
+    const base = window.canonCurrencyFor ? window.canonCurrencyFor(nextId) : 'BRL';
+    // Default to the banco's base currency, then clamp: a USD-base banco inherits the
+    // unservable USD × IGP-M/IGP-DI combo if the previous banco left that correction
+    // active, so snap the correction back to IPCA in the same update.
+    setConventions((c) => {
+      const next = c && c.currency === base ? c : { ...c, currency: base };
+      return window.clampConvention ? window.clampConvention(next) : next;
+    }); // F1.4
+    setDatabase(nextId);
+  }, []);
+
   // Sync-over-async gate (contract map §3.1): the cross/curation producers are
   // synchronous cache reads that kick off a fetch on a miss. Re-render the tree
   // when any resource resolves so the view's next sync read sees real data.
   useEffect(() => subscribeResource(() => forceTick((t) => t + 1)), []);
+
+  // Re-render when the dataStore changes (snapshot or /api/source-meta resolves)
+  // so the filter chips recompute from the ACTIVE banco's real values on first
+  // load / banco switch (FINDING #2) — withChips reads dataStore.meta() / get(),
+  // which only become truthy once those async fetches land. Without this, the
+  // chip would sit on the PEVS synthetic default until a filter-apply re-rendered.
+  useEffect(
+    () => (window.dataStore && window.dataStore.subscribe
+      ? window.dataStore.subscribe(() => forceTick((t) => t + 1))
+      : undefined),
+    [],
+  );
 
   // URL write-back: mirror the app state into the query string (replaceState, no
   // history clutter) so reload + copy-paste preserve view/banco/filters/
@@ -292,7 +360,7 @@ function Dashboard() {
       view={view}
       setView={setView}
       database={database}
-      setDatabase={setDatabase}
+      setDatabase={changeDatabase}
       infoPage={infoPage}
       setInfoPage={setInfoPage}
       summary={displaySummary}
@@ -315,6 +383,22 @@ function Dashboard() {
             view={view}
           />
         )}
+        {/* Convenções métricas strip: the ONLY UI path to change currency ×
+            correction × display units. It was imported for its window.* helpers
+            but never rendered, so the scientific currency/correction column
+            selection was unreachable except by hand-editing the URL (which then
+            hit the F1.1 deadlock). onChange feeds setConventions → the useEffect
+            bridge → dataStore.setConventions (the single {currency, correction}
+            setter), which now re-triggers the snapshot load. Live data views only. */}
+        {isDataView && banco.status === 'live' && window.MetricConventions && (
+          <window.MetricConventions
+            value={conventions || window.DEFAULT_CONVENTIONS}
+            onChange={setConventions}
+            families={window.familiesInBasket
+              ? window.familiesInBasket(summary.basket, database)
+              : undefined}
+          />
+        )}
         <ViewErrorBoundary resetKey={`${view}|${database}|${infoPage}`}>
           <window.MainScreen
             filters={summary}
@@ -323,7 +407,7 @@ function Dashboard() {
             infoPage={infoPage}
             basket={summary.basket}
             conventions={conventions}
-            setDatabase={setDatabase}
+            setDatabase={changeDatabase}
             crossState={crossState}
             setCrossState={setCrossState}
           />

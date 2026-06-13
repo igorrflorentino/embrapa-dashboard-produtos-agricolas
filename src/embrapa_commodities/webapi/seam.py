@@ -16,14 +16,13 @@ overviewTS, ufData, quality) for the three live bancos. Trade-only adapters
 
 from __future__ import annotations
 
-import functools
-
 import pandas as pd
 from google.api_core.exceptions import NotFound
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
+from embrapa_commodities.serving.cache import cache
 
 from . import format as fmt
 from .registries import Banco, banco_by_id
@@ -31,23 +30,54 @@ from .registries import Banco, banco_by_id
 # Banco id → the BFF source key (they already align by construction).
 _LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "mdic_comex", "un_comtrade"}
 
-# Trade bancos serve USD-nominal values (the trade marts only carry USD); the
-# currency/correction conventions apply fully only to PEVS (BRL-native, with the
-# real IPCA/IGP columns). This keeps M1 honest about what each mart holds.
+# Trade bancos are USD-NATIVE (customs values declared in US$ — FOB exports, CIF
+# imports for COMTRADE), but the serving marts now carry the SAME currency matrix
+# as PEVS (val_yearfx_{brl,usd,eur} + val_real_{ipca,igpm,igpdi}_{brl,usd,eur} —
+# the REAL year-FX / deflated values Gold computes), so a BRL/EUR display serves
+# the real column instead of the frontend cross-converting USD via a mock FX rate.
 _TRADE = {"mdic_comex", "un_comtrade"}
+
+
+def _trade_valuation_note(banco: Banco) -> str:
+    """The US$-source valuation basis a trade banco's value label must state.
+
+    COMTRADE sums both flows where exports are FOB and imports CIF; COMEX is FOB
+    for both. The note is appended to the convention label so a researcher reading
+    a BRL/EUR figure still knows it is the year-FX conversion of the customs US$.
+    """
+    if banco.id == "un_comtrade":
+        return "FOB exportação / CIF importação"
+    return "FOB"
 
 
 def effective_value_column(banco: Banco, conv: dict) -> tuple[str, str]:
     """Resolve (column, human_label) for the active convention, with fallback.
 
-    PEVS has the full {yearfx, real_ipca, real_igpm, real_igpdi} × {brl, usd}
-    matrix (minus a few combos); trade marts only have USD. We pick the requested
-    column when the mart has it, else fall back to the nearest available, so the
-    conventions strip never errors on an unmodelled combo (e.g. USD + IGP-M).
+    Every live mart now carries the full {yearfx, real_ipca, real_igpm, real_igpdi}
+    × {brl, usd, eur} matrix (minus the IGP-M/IGP-DI × USD combos the allowlist
+    deliberately omits). We pick the requested column when the mart has it, else
+    fall back to the nearest available, so the conventions strip never errors on an
+    unmodelled combo (e.g. USD + IGP-M).
+
+    For trade bancos the values are the year-FX conversion of US$ customs figures,
+    so the label keeps the FOB/CIF basis note — but the figure IS in the requested
+    currency (no client-side mock FX). The default request (empty conv) resolves to
+    BRL·IPCA via :func:`embrapa_commodities.webapi.format.monetary_column`; trade
+    callers that want the US$-native default pass ``{"currency": "USD",
+    "correction": "Nominal"}``.
     """
-    if banco.id in _TRADE:
-        return "val_yearfx_usd", "Valor (US$ FOB)"
     requested = fmt.monetary_column(conv.get("currency", "BRL"), conv.get("correction", "IPCA"))
+    if banco.id in _TRADE:
+        note = _trade_valuation_note(banco)
+        if requested in sqlbuild.ALLOWED_VALUE_COLUMNS:
+            return requested, f"{fmt.convention_value_label(conv)} · {note}"
+        # Fallback chain (same as PEVS): same correction in BRL, then real IPCA BRL —
+        # all REAL columns, never a mock conversion.
+        brl = fmt.monetary_column("BRL", conv.get("correction", "IPCA"))
+        if brl in sqlbuild.ALLOWED_VALUE_COLUMNS:
+            label = fmt.convention_value_label({**conv, "currency": "BRL"})
+            return brl, f"{label} (moeda indisponível no mart → R$) · {note}"
+        return "val_real_ipca_brl", f"Valor real (IPCA) — R$ · {note}"
     if requested in sqlbuild.ALLOWED_VALUE_COLUMNS:
         return requested, fmt.convention_value_label(conv)
     # Fallback chain: same correction in BRL, then real IPCA BRL.
@@ -83,6 +113,20 @@ def _basket(summary: dict | None) -> tuple[str, ...]:
     return tuple(codes) if codes else ()
 
 
+def _states(summary: dict | None) -> tuple[str, ...]:
+    """Origin-UF acronyms selected (empty tuple = no UF filter = all).
+
+    The frontend's filter summary carries the UF selection under ``states``
+    (``null``/absent = all · ``[]`` = none). Only the COMEX-origin readers can
+    honour it (their mart carries ``state_acronym``); other trade grains surface
+    it as not-applicable rather than silently dropping it.
+    """
+    if not summary:
+        return ()
+    states = summary.get("states")
+    return tuple(states) if states else ()
+
+
 def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     """Return the per-banco serving snapshot for the active conventions + filters.
 
@@ -96,6 +140,7 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             "product_ts": None,
             "overview_ts": None,
             "uf_data": None,
+            "uf_yearly": None,
             "quality": None,
             "value_column": None,
             "value_label": "",
@@ -109,8 +154,12 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     quality = gateway.fetch_quality_by_source(source=banco_id)
 
     if banco.id in _TRADE:
+        # value_col is the currency×correction column the conventions resolve to —
+        # now a REAL BRL/USD/EUR (or deflated) column the trade marts carry, so the
+        # snapshot value is served IN the requested currency instead of always USD
+        # (which the frontend used to cross-convert via a mock FX rate).
         product_ts = gateway.fetch_product_timeseries(
-            banco_id, year_start=y0, year_end=y1, codes=codes
+            banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col
         )
         overview_fn = (
             gateway.fetch_comex_overview
@@ -118,15 +167,28 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             else gateway.fetch_comtrade_overview
         )
         code_kw = "ncm_codes" if banco_id == "mdic_comex" else "cmd_codes"
-        overview_ts = overview_fn(year_start=y0, year_end=y1, **{code_kw: codes})
+        overview_ts = overview_fn(
+            year_start=y0, year_end=y1, value_column=value_col, **{code_kw: codes}
+        )
         uf_data = (
-            gateway.fetch_comex_by_uf(year_start=y0, year_end=y1, ncm_codes=codes)
+            gateway.fetch_comex_by_uf(
+                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col
+            )
+            if banco_id == "mdic_comex"
+            else None
+        )
+        uf_yearly = (
+            gateway.fetch_comex_by_uf_yearly(
+                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col
+            )
             if banco_id == "mdic_comex"
             else None
         )
         overview_ts = overview_ts.rename(columns={"total_value_usd": "total_value"})
         if uf_data is not None:
             uf_data = uf_data.rename(columns={"total_value_usd": "total_value"})
+        if uf_yearly is not None:
+            uf_yearly = uf_yearly.rename(columns={"total_value_usd": "total_value"})
     else:  # PEVS-shaped (ibge_pevs, ibge_pam): production marts, BRL-native value matrix
         product_ts = gateway.fetch_product_timeseries(
             banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col
@@ -137,12 +199,16 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         uf_data = gateway.fetch_production_by_uf(
             year_start=y0, year_end=y1, product_codes=codes, value_column=value_col, source=banco_id
         )
+        uf_yearly = gateway.fetch_production_by_uf_yearly(
+            year_start=y0, year_end=y1, product_codes=codes, value_column=value_col, source=banco_id
+        )
 
     return {
         "products": products,
         "product_ts": product_ts,
         "overview_ts": _with_overview_quantities(overview_ts, product_ts),
         "uf_data": uf_data,
+        "uf_yearly": uf_yearly,
         "quality": quality,
         "quality_ts": gateway.fetch_quality_timeseries(banco_id),
         "quality_by_product": gateway.fetch_quality_by_product(banco_id),
@@ -156,7 +222,10 @@ def _with_overview_quantities(overview_ts: pd.DataFrame, product_ts: pd.DataFram
 
     ``production_overview`` sums only the value; quantities (which must never be
     summed across families) are aggregated here from ``product_ts`` by family —
-    q_mass for the 'massa' family, q_vol for 'volume'.
+    q_mass for the 'massa' family, q_vol for 'volume'. Sums ``total_qty_base``
+    (t / m³), NOT the native quantity: trade sources mix kg- and t-native codes
+    inside the 'massa' family, so only the base unit is summable (for PEVS/PAM
+    native == base, so nothing changes there).
     """
     if overview_ts is None or overview_ts.empty:
         return overview_ts
@@ -166,7 +235,7 @@ def _with_overview_quantities(overview_ts: pd.DataFrame, product_ts: pd.DataFram
         out["q_vol"] = None
         return out
     by_fam = (
-        product_ts.groupby(["reference_year", "family"])["total_qty_native"]
+        product_ts.groupby(["reference_year", "family"])["total_qty_base"]
         .sum()
         .unstack(fill_value=0)
     )
@@ -176,14 +245,73 @@ def _with_overview_quantities(overview_ts: pd.DataFrame, product_ts: pd.DataFram
     return out.reset_index()
 
 
+# Monthly-sourced bancos whose latest year can be PARTIAL (a year with < 12 months
+# of published data). Only COMEX carries a month grain in serving; COMTRADE/PEVS/PAM
+# are annual, so their latest year is always complete by construction.
+_MONTHLY_SOURCES = {"mdic_comex"}
+
+
+def _latest_year_completeness(banco_id: str, year_end: int | None) -> dict:
+    """Whether ``year_end`` (the latest covered year) is COMPLETE, for YoY honesty.
+
+    A monthly-sourced banco (COMEX) publishes the current year month-by-month, so its
+    latest year is usually PARTIAL — a frontend YoY that compares it against a full
+    prior year over-reads as a crash/boom (audit finding: COMEX 2026 ≈ 39% of 2025
+    showed a spurious −41%). The frontend can't tell a year is partial from annual
+    totals alone, so we expose the signal here, derived from the monthly mart:
+
+      * ``monthsInLatestYear`` — distinct months present in ``year_end`` (None for an
+        annual banco, which has no month grain).
+      * ``latestYearComplete`` — True iff that year has all 12 months (always True for
+        an annual banco — its latest year is complete by construction).
+      * ``latestCompleteYear`` — the most recent FULLY-covered year (``year_end`` when
+        complete, else ``year_end - 1``), so the frontend can anchor YoY on it.
+
+    Annual bancos return the trivially-complete shape without any extra query.
+    """
+    if banco_id not in _MONTHLY_SOURCES or year_end is None:
+        return {
+            "months_in_latest_year": None,
+            "latest_year_complete": True,
+            "latest_complete_year": year_end,
+        }
+    df = gateway.fetch_comex_months_per_year()
+    months_by_year = (
+        {int(r.reference_year): int(r.n_months) for r in df.itertuples()}
+        if df is not None and not df.empty
+        else {}
+    )
+    n_months = months_by_year.get(int(year_end))
+    complete = n_months == 12
+    return {
+        "months_in_latest_year": n_months,
+        "latest_year_complete": complete,
+        # Fall back to the prior year only when the latest is genuinely partial AND
+        # we actually observed its month count (n_months is not None).
+        "latest_complete_year": year_end if complete else (year_end - 1),
+    }
+
+
 def source_meta(banco_id: str) -> dict:
-    """Provenance row for a banco (backs the page-hero meta), or {} if absent."""
+    """Provenance row for a banco (backs the page-hero meta), or {} if absent.
+
+    Augmented with the latest-year completeness signal (months_in_latest_year /
+    latest_year_complete / latest_complete_year) so the frontend can compute an
+    honest YoY for monthly-sourced bancos whose latest year is still partial.
+    """
     if banco_id not in _LIVE_SOURCES:
         return {}
     df = gateway.fetch_source_metadata(source=banco_id)
     if df is None or df.empty:
         return {}
-    return df.iloc[0].to_dict()
+    meta = df.iloc[0].to_dict()
+    year_end = meta.get("year_end")
+    try:
+        year_end = int(year_end) if year_end is not None else None
+    except (TypeError, ValueError):
+        year_end = None
+    meta.update(_latest_year_completeness(banco_id, year_end))
+    return meta
 
 
 def product_uf_ranking(
@@ -196,7 +324,9 @@ def product_uf_ranking(
     value_col, _ = effective_value_column(banco, conv)
     y0, y1 = _years_from_summary(summary)
     if banco_id == "mdic_comex":
-        return gateway.fetch_comex_by_uf(year_start=y0, year_end=y1, ncm_codes=(code,))
+        return gateway.fetch_comex_by_uf(
+            year_start=y0, year_end=y1, ncm_codes=(code,), value_column=value_col
+        )
     return gateway.fetch_production_by_uf(
         year_start=y0, year_end=y1, product_codes=(code,), value_column=value_col, source=banco_id
     )
@@ -214,29 +344,32 @@ def productivity(banco_id: str, crop: str | None, summary: dict | None = None) -
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "yield" not in banco.provides:
         return None
-    products = gateway.fetch_products(banco_id)
-    crops = (
-        [
-            {
-                "code": str(r.code),
-                "name": (r.name if isinstance(r.name, str) and r.name else str(r.code)),
-            }
-            for r in products.itertuples()
-        ]
-        if products is not None and not products.empty
-        else []
-    )
+    crops = _productivity_crops(gateway.fetch_products(banco_id))
     if not crops:
         return None
     codes = {c["code"] for c in crops}
     active = crop if (crop and crop in codes) else crops[0]["code"]
     active_name = next((c["name"] for c in crops if c["code"] == active), active)
+    y0, y1 = _years_from_summary(summary)
     return {
         "crops": crops,
         "active": active,
         "active_name": active_name,
-        "rows": gateway.fetch_productivity(active, source=banco_id),
+        "rows": gateway.fetch_productivity(active, source=banco_id, year_start=y0, year_end=y1),
     }
+
+
+def _productivity_crops(products: pd.DataFrame | None) -> list[dict]:
+    """Shape the products frame into [{code, name}] (name falls back to code)."""
+    if products is None or products.empty:
+        return []
+    return [
+        {
+            "code": str(r.code),
+            "name": (r.name if isinstance(r.name, str) and r.name else str(r.code)),
+        }
+        for r in products.itertuples()
+    ]
 
 
 # ── Trade adapters (flow / partner / monthly) — M2 ───────────────────────────
@@ -251,6 +384,9 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
 
     COMEX: UF de origem → país parceiro. COMTRADE: país reporter → país parceiro.
     Returns {links, origin_label, dest_label} or None when the banco lacks `flow`.
+    The active UF (``states``) filter narrows the COMEX origin; COMTRADE's origin is
+    a reporter country (no UF column), so the UF selection does not reach its reader
+    — the frontend producer surfaces that as an honest "não se aplica" note.
     """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "flow" not in banco.provides:
@@ -258,7 +394,12 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
     if banco_id == "mdic_comex":
-        links = gateway.fetch_comex_flows(year_start=y0, year_end=y1, ncm_codes=codes)
+        # Exports only: SG_UF_NCM is the UF *of the product*, so on import rows
+        # the real direction is country→UF — summing them into the directed
+        # 'UF de origem → país parceiro' links would inflate and mislabel them.
+        links = gateway.fetch_comex_flows(
+            year_start=y0, year_end=y1, ncm_codes=codes, flow="export", uf_codes=_states(summary)
+        )
     else:
         links = gateway.fetch_comtrade_flows(year_start=y0, year_end=y1, cmd_codes=codes)
     dims = banco.dimensions
@@ -270,19 +411,33 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
 
 
 def partner_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | None:
-    """Partner ranking with export/import split (backs Parceiros comerciais)."""
+    """Partner ranking with export/import split (backs Parceiros comerciais).
+
+    The active UF (``states``) filter narrows the COMEX partner ranking to those
+    origin UFs (``state_acronym``). COMTRADE has no origin-UF column (its origin is
+    a reporter country), so the UF selection does not reach its reader — the
+    frontend producer surfaces that as an honest "não se aplica" note.
+    """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "partner" not in banco.provides:
         return None
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
     if banco_id == "mdic_comex":
-        return gateway.fetch_comex_partners(year_start=y0, year_end=y1, ncm_codes=codes)
+        return gateway.fetch_comex_partners(
+            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary)
+        )
     return gateway.fetch_comtrade_partners(year_start=y0, year_end=y1, cmd_codes=codes)
 
 
 def monthly_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | None:
-    """Monthly seasonality value (backs Sazonalidade). COMEX only (monthly grain)."""
+    """Monthly seasonality value (backs Sazonalidade). COMEX only (monthly grain).
+
+    The seasonality mart (``serving_comex_seasonality``) collapses UF away — its
+    grain is (year × month × flow × NCM) — so a UF (``states``) filter cannot be
+    honoured here. The frontend producer surfaces it as an honest "não se aplica"
+    note rather than the seam silently dropping it; the basket + year window apply.
+    """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "monthly" not in banco.provides:
         return None
@@ -337,22 +492,6 @@ def cross_metric_refs() -> list[dict]:
     return refs
 
 
-def cross_common_window(refs: list[dict]) -> tuple[int, int]:
-    """Intersection of the selected metrics' native coverage (comparable window)."""
-    covs = []
-    for r in refs:
-        b = banco_by_id(r.get("b") or r.get("banco"))
-        m = _metric_meta(b, r.get("m") or r.get("metric"))
-        if m:
-            covs.append(m.get("years", [1986, 2024]))
-    if not covs:
-        return (1997, 2024)
-    y0, y1 = max(c[0] for c in covs), min(c[1] for c in covs)
-    if y0 <= y1:
-        return (y0, y1)
-    return (min(c[0] for c in covs), max(c[1] for c in covs))
-
-
 def cross_series(
     banco_id: str, metric_id: str, y0: int | None = None, y1: int | None = None
 ) -> dict | None:
@@ -380,51 +519,74 @@ def cross_series(
 
 def _cross_points(banco_id: str, metric_id: str, y0: int, y1: int, unit: str) -> list[dict]:
     if banco_id == "ibge_pevs":
-        if metric_id == "prod_value":
-            df = gateway.fetch_production_overview(
-                year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
-            )
-            return [
-                {"y": int(r.reference_year), "v": float(r.total_value or 0) / 1e9}
-                for r in df.itertuples()
-            ]
-        fam = "massa" if metric_id == "prod_mass" else "volume"
-        scale = 1e3 if metric_id == "prod_mass" else 1e6
-        pts = gateway.fetch_product_timeseries(
-            "ibge_pevs", year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
-        )
-        sub = pts[pts["family"] == fam].groupby("reference_year")["total_qty_native"].sum()
-        return [{"y": int(y), "v": float(v) / scale} for y, v in sub.items()]
-    if metric_id == "exp_price":  # derived: value(US$) ÷ weight(kg) = US$/kg
-        val = gateway.fetch_cross_series("mdic_comex:exp_value", year_start=y0, year_end=y1)
-        wt = gateway.fetch_cross_series("mdic_comex:exp_weight", year_start=y0, year_end=y1)
-        wmap = {int(r.reference_year): float(r.value or 0) for r in wt.itertuples()}
-        return [
-            {
-                "y": int(r.reference_year),
-                "v": float(r.value or 0) / (wmap.get(int(r.reference_year)) or 1),
-            }
-            for r in val.itertuples()
-        ]
+        return _pevs_cross_points(metric_id, y0, y1)
+    if metric_id == "exp_price":
+        return _exp_price_cross_points(y0, y1)
     df = gateway.fetch_cross_series(f"{banco_id}:{metric_id}", year_start=y0, year_end=y1)
     scale = 1e9 if unit.endswith("bi") else (1e6 if unit == "mil t" else 1.0)
     return [{"y": int(r.reference_year), "v": float(r.value or 0) / scale} for r in df.itertuples()]
+
+
+def _pevs_cross_points(metric_id: str, y0: int, y1: int) -> list[dict]:
+    """PEVS cross points: value (÷1e9) or per-family native quantity (÷1e3 / ÷1e6)."""
+    if metric_id == "prod_value":
+        df = gateway.fetch_production_overview(
+            year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
+        )
+        return [
+            {"y": int(r.reference_year), "v": float(r.total_value or 0) / 1e9}
+            for r in df.itertuples()
+        ]
+    fam = "massa" if metric_id == "prod_mass" else "volume"
+    scale = 1e3 if metric_id == "prod_mass" else 1e6
+    pts = gateway.fetch_product_timeseries(
+        "ibge_pevs", year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
+    )
+    sub = pts[pts["family"] == fam].groupby("reference_year")["total_qty_native"].sum()
+    return [{"y": int(y), "v": float(v) / scale} for y, v in sub.items()]
+
+
+def _exp_price_cross_points(y0: int, y1: int) -> list[dict]:
+    """Derived COMEX export price: value(US$) ÷ weight(kg) = US$/kg."""
+    val = gateway.fetch_cross_series("mdic_comex:exp_value", year_start=y0, year_end=y1)
+    wt = gateway.fetch_cross_series("mdic_comex:exp_weight", year_start=y0, year_end=y1)
+    wmap = {int(r.reference_year): float(r.value or 0) for r in wt.itertuples()}
+    # A year with no (or zero) weight has no defined price: emit None (a gap
+    # in the chart) — NEVER divide by 1, which would plot the year's raw
+    # total US$ value as a 'US$/kg' point.
+    return [
+        {
+            "y": int(r.reference_year),
+            "v": (
+                float(r.value or 0) / wmap[int(r.reference_year)]
+                if wmap.get(int(r.reference_year))
+                else None
+            ),
+        }
+        for r in val.itertuples()
+    ]
 
 
 # ── Cross-source analytics (crosswalk-joined) — M3b ──────────────────────────
 # The four analytical perspectives map the SAME commodity across PEVS / NCM / HS6
 # via gold_commodity_crosswalk, then compose existing readers filtered to that
 # commodity's codes. Pure composition — no new BFF SQL beyond the crosswalk read.
+#
+# The crosswalk/catalog reads below are memoized with the SAME flask-caching TTL
+# the gateway mart reads use (CACHE_DEFAULT_TIMEOUT) — NOT functools.lru_cache:
+# the crosswalk and the Gold families it joins are rebuilt by the nightly dbt
+# run, so a long-lived Cloud Run instance must converge to the fresh catalog
+# within the TTL instead of serving a stale one for its whole process lifetime.
 
 
-@functools.lru_cache(maxsize=1)
+@cache.memoize()
 def _crosswalk_df() -> pd.DataFrame:
     s = get_settings()
     fqn = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
     return gateway.run_query(f"select commodity_id, commodity_name, source, code from `{fqn}`", [])
 
 
-@functools.lru_cache(maxsize=1)
+@cache.memoize()
 def commodity_catalog() -> dict:
     """commodity_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk."""
     cat: dict = {}
@@ -464,7 +626,7 @@ def _pevs_mass_by_year(pevs_codes: tuple) -> dict:
     return {int(y): float(v) / 1e3 for y, v in g.items()}  # t -> mil t
 
 
-@functools.lru_cache(maxsize=1)
+@cache.memoize()
 def _pevs_family_by_commodity() -> dict:
     """commodity_id -> set of PEVS physical-unit families (massa/volume/...).
 
@@ -499,30 +661,49 @@ def _is_mass_basis(commodity_id: str | None) -> bool:
     return fams == {"massa"}
 
 
-def market_share(commodity_id: str | None) -> dict:
-    """BR exports (COMEX) / world exports (COMTRADE), per year + per commodity."""
-    br = _xyear("mdic_comex:exp_value", _codes(commodity_id, "comex"))
-    world = _xyear("un_comtrade:world_exp", _codes(commodity_id, "comtrade"))
-    years = sorted(set(br) & set(world))
-    series = [
+def _market_share_series(comex_codes: tuple, comtrade_codes: tuple) -> list[dict]:
+    """Yearly BR-export ÷ world-export share (US$ bi) over the common-year window."""
+    br = _xyear("mdic_comex:exp_value", comex_codes)
+    world = _xyear("un_comtrade:world_exp", comtrade_codes)
+    return [
         {
             "y": y,
             "br": br[y] / 1e9,
             "world": world[y] / 1e9,
             "share": (br[y] / world[y] * 100) if world[y] else 0,
         }
-        for y in years
+        for y in sorted(set(br) & set(world))
     ]
+
+
+def _market_share_latest(comex_codes: tuple, comtrade_codes: tuple) -> float | None:
+    """Latest common-year BR ÷ world share (%), or None when there is no overlap."""
+    b = _xyear("mdic_comex:exp_value", comex_codes)
+    w = _xyear("un_comtrade:world_exp", comtrade_codes)
+    common = sorted(set(b) & set(w))
+    if not common:
+        return None
+    ly = common[-1]
+    return (b[ly] / w[ly] * 100) if w[ly] else 0
+
+
+def market_share(commodity_id: str | None) -> dict:
+    """BR exports (COMEX) / world exports (COMTRADE), per year + per commodity."""
+    comex_codes = _codes(commodity_id, "comex")
+    comtrade_codes = _codes(commodity_id, "comtrade")
+    series = []
+    # Guard (mirrors market_nature): a scoped commodity missing codes for either
+    # source must yield an EMPTY series — an empty tuple means "no filter" to the
+    # readers, which would silently serve the ALL-commodities totals as if scoped.
+    if not commodity_id or (comex_codes and comtrade_codes):
+        series = _market_share_series(comex_codes, comtrade_codes)
     by_product = []
     for cid, c in commodity_catalog().items():
-        b = _xyear("mdic_comex:exp_value", tuple(c["comex"]))
-        w = _xyear("un_comtrade:world_exp", tuple(c["comtrade"]))
-        common = sorted(set(b) & set(w))
-        if common:
-            ly = common[-1]
-            by_product.append(
-                {"code": cid, "name": c["name"], "share": (b[ly] / w[ly] * 100) if w[ly] else 0}
-            )
+        if not (c["comex"] and c["comtrade"]):
+            continue  # same guard per commodity — never the unscoped totals
+        share = _market_share_latest(tuple(c["comex"]), tuple(c["comtrade"]))
+        if share is not None:
+            by_product.append({"code": cid, "name": c["name"], "share": share})
     by_product.sort(key=lambda x: x["share"], reverse=True)
     return {"unit": "US$ bi", "series": series, "by_product": by_product}
 
@@ -541,8 +722,50 @@ def export_coefficient(commodity_id: str | None) -> dict:
         }
     pevs_codes = _codes(commodity_id, "pevs")
     ncms = _codes(commodity_id, "comex")
-    prod = gateway.fetch_production_by_uf(value_column="qty_base", product_codes=pevs_codes)
-    exp = gateway.fetch_comex_by_uf(ncm_codes=ncms, flow="export")
+    if commodity_id and not (pevs_codes and ncms):
+        # Commodity has no codes for a needed source: empty payload, never the
+        # unscoped ALL-commodities totals (empty codes mean "no filter").
+        return {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
+    pevs_mass = _pevs_mass_by_year(pevs_codes)
+    exp_mass = {y: v / 1e6 for y, v in _xyear("mdic_comex:exp_weight", ncms).items()}
+    ts = sorted(set(pevs_mass) & set(exp_mass))
+    timeseries = [
+        {"y": y, "v": (exp_mass[y] / pevs_mass[y] * 100) if pevs_mass[y] else 0} for y in ts
+    ]
+    if not ts:
+        return {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
+    # The by-UF/national ratios must compare the SAME window on both sides:
+    # PEVS starts in 1986 but COMEX only in 1997, so unbounded cumulative sums
+    # would systematically understate coefPct (and disagree with the timeseries,
+    # which already intersects the two sources' years).
+    by_uf = _export_coef_by_uf(pevs_codes, ncms, ts[0], ts[-1])
+    return {
+        "unit": "mil t",
+        "by_uf": by_uf,
+        "national": _export_coef_national(by_uf),
+        "timeseries": timeseries,
+    }
+
+
+def _export_coef_by_uf(pevs_codes: tuple, ncms: tuple, y0: int, y1: int) -> list[dict]:
+    """Per-UF production (mil t) vs exported weight (mil t) and their coefficient.
+
+    Both readers are window-CUMULATIVE (``latest_year_only=False``): the coefficient
+    is exported-over-window ÷ produced-over-window across the SAME ``[y0, y1]``
+    common-year intersection, NOT a single latest-year ratio (that is the snapshot
+    choropleth's job). A single-year ratio would also reintroduce the year-window
+    mismatch the cumulative sums were built to avoid.
+    """
+    prod = gateway.fetch_production_by_uf(
+        year_start=y0,
+        year_end=y1,
+        value_column="qty_base",
+        product_codes=pevs_codes,
+        latest_year_only=False,
+    )
+    exp = gateway.fetch_comex_by_uf(
+        year_start=y0, year_end=y1, ncm_codes=ncms, flow="export", latest_year_only=False
+    )
     exp_by_uf = {r.state_acronym: float(r.total_weight_kg or 0) / 1e6 for r in exp.itertuples()}
     by_uf = []
     for r in prod.itertuples():
@@ -558,16 +781,32 @@ def export_coefficient(commodity_id: str | None) -> dict:
                 "coefPct": (e / p * 100) if p else 0,
             }
         )
+    return by_uf
+
+
+def _export_coef_national(by_uf: list[dict]) -> dict:
+    """Aggregate the per-UF rows into the national production/export/coefficient."""
     tp = sum(d["production"] for d in by_uf)
     te = sum(d["exportV"] for d in by_uf)
-    national = {"production": tp, "exportV": te, "coefPct": (te / tp * 100) if tp else 0}
-    pevs_mass = _pevs_mass_by_year(pevs_codes)
-    exp_mass = {y: v / 1e6 for y, v in _xyear("mdic_comex:exp_weight", ncms).items()}
-    ts = sorted(set(pevs_mass) & set(exp_mass))
-    timeseries = [
-        {"y": y, "v": (exp_mass[y] / pevs_mass[y] * 100) if pevs_mass[y] else 0} for y in ts
-    ]
-    return {"unit": "mil t", "by_uf": by_uf, "national": national, "timeseries": timeseries}
+    return {"production": tp, "exportV": te, "coefPct": (te / tp * 100) if tp else 0}
+
+
+def _fob_price_by_year(ncms: tuple) -> dict:
+    """FOB export unit price (US$/kg) = COMEX value ÷ weight, per common year."""
+    val = _xyear("mdic_comex:exp_value", ncms)
+    wt = _xyear("mdic_comex:exp_weight", ncms)
+    return {y: (val[y] / wt[y]) for y in (set(val) & set(wt)) if wt[y]}
+
+
+def _gate_price_by_year(pevs_codes: tuple) -> dict:
+    """Farm-gate implied price (US$/kg) = PEVS value ÷ (quantity × 1000), per year."""
+    pts = gateway.fetch_product_timeseries(
+        "ibge_pevs", codes=pevs_codes, value_column="val_yearfx_usd"
+    )
+    if pts is None or pts.empty:
+        return {}
+    g = pts.groupby("reference_year").agg(v=("total_value", "sum"), q=("total_qty_native", "sum"))
+    return {int(y): (row.v / (row.q * 1000)) if row.q else 0 for y, row in g.iterrows()}
 
 
 def price_spread(commodity_id: str | None) -> dict:
@@ -577,19 +816,12 @@ def price_spread(commodity_id: str | None) -> dict:
         # US$/m³, not the US$/kg the FOB price uses — markup/spread would be invalid.
         return {"unit": "US$/kg", "incompatible": True, "series": []}
     ncms = _codes(commodity_id, "comex")
-    val = _xyear("mdic_comex:exp_value", ncms)
-    wt = _xyear("mdic_comex:exp_weight", ncms)
-    fob = {y: (val[y] / wt[y]) for y in (set(val) & set(wt)) if wt[y]}  # US$/kg
-    pts = gateway.fetch_product_timeseries(
-        "ibge_pevs", codes=_codes(commodity_id, "pevs"), value_column="val_yearfx_usd"
-    )
-    gate = {}
-    if pts is not None and not pts.empty:
-        g = pts.groupby("reference_year").agg(
-            v=("total_value", "sum"), q=("total_qty_native", "sum")
-        )
-        gate = {int(y): (row.v / (row.q * 1000)) if row.q else 0 for y, row in g.iterrows()}
-    years = sorted(set(fob) & set(gate))
+    if commodity_id and not ncms:
+        # No NCM codes for this commodity: empty payload, never the unscoped
+        # ALL-commodities FOB price (empty codes mean "no filter" to the reader).
+        return {"unit": "US$/kg", "series": []}
+    fob = _fob_price_by_year(ncms)
+    gate = _gate_price_by_year(_codes(commodity_id, "pevs"))
     series = [
         {
             "y": y,
@@ -598,22 +830,29 @@ def price_spread(commodity_id: str | None) -> dict:
             "spread": fob[y] - gate[y],
             "markup": (fob[y] / gate[y]) if gate[y] else 0,
         }
-        for y in years
+        for y in sorted(set(fob) & set(gate))
     ]
     return {"unit": "US$/kg", "series": series}
 
 
 def trade_mirror(commodity_id: str | None) -> dict:
     """The same BR exports seen by MDIC (COMEX) vs UN Comtrade (reporter = Brazil)."""
-    mdic = {
-        y: v / 1e9 for y, v in _xyear("mdic_comex:exp_value", _codes(commodity_id, "comex")).items()
-    }
-    comtrade = {
-        y: v / 1e9
-        for y, v in _xyear("un_comtrade:exp_value", _codes(commodity_id, "comtrade")).items()
-    }
+    comex_codes = _codes(commodity_id, "comex")
+    comtrade_codes = _codes(commodity_id, "comtrade")
+    if commodity_id and not (comex_codes and comtrade_codes):
+        # Missing codes for one side: empty payload, never a "mirror" of the
+        # unscoped ALL-commodities totals (empty codes mean "no filter").
+        return {"unit": "US$ bi", "series": [], "discrepancy": []}
+    mdic = {y: v / 1e9 for y, v in _xyear("mdic_comex:exp_value", comex_codes).items()}
+    comtrade = {y: v / 1e9 for y, v in _xyear("un_comtrade:exp_value", comtrade_codes).items()}
+    # Third line: every OTHER country's declaration of what it imported FROM Brazil
+    # (partner = Brazil on import rows) — the mirror view's "Reportado pelos parceiros".
+    partners = {y: v / 1e9 for y, v in _xyear("un_comtrade:partner_exp", comtrade_codes).items()}
     years = sorted(set(mdic) & set(comtrade))
-    series = [{"y": y, "mdic": mdic[y], "comtrade": comtrade[y]} for y in years]
+    series = [
+        {"y": y, "mdic": mdic[y], "comtrade": comtrade[y], "partners": partners.get(y)}
+        for y in years
+    ]
     discrepancy = [
         {
             "y": d["y"],
@@ -634,7 +873,7 @@ def trade_mirror(commodity_id: str | None) -> dict:
 CUR_LEVELS = ("bruta", "processada", "misturado")
 
 
-@functools.lru_cache(maxsize=1)
+@cache.memoize()
 def _code_to_commodity() -> dict:
     """{(source, code) -> commodity_id} reverse index of the crosswalk, for
     grouping the worklist by commodity."""
@@ -679,6 +918,28 @@ def _current_code_levels() -> dict:
     return {(r.source, str(r.code)): r.industrialization_level for r in df.itertuples()}
 
 
+def _worklist_rows_for_source(src: str, levels: dict, cmap: dict, catalog: dict) -> list[dict]:
+    """The per-source code rows: each Gold code ⟕ its level + crosswalk commodity."""
+    products = gateway.fetch_products(src)
+    if products is None or products.empty:
+        return []
+    rows = []
+    for p in products.itertuples():
+        code = str(p.code)
+        cid = cmap.get((src, code))
+        rows.append(
+            {
+                "source": src,
+                "code": code,
+                "name": str(getattr(p, "name", code) or code),
+                "commodity": cid,
+                "commodity_name": catalog.get(cid, {}).get("name") if cid else None,
+                "level": levels.get((src, code)),
+            }
+        )
+    return rows
+
+
 def curation_worklist() -> dict:
     """The LEFT JOIN: Gold DISTINCT codes (per live source) ⟕ current levels.
 
@@ -691,24 +952,8 @@ def curation_worklist() -> dict:
     catalog = commodity_catalog()
     rows = []
     for src in ("ibge_pevs", "mdic_comex", "un_comtrade"):
-        if src not in _LIVE_SOURCES:
-            continue
-        products = gateway.fetch_products(src)
-        if products is None or products.empty:
-            continue
-        for p in products.itertuples():
-            code = str(p.code)
-            cid = cmap.get((src, code))
-            rows.append(
-                {
-                    "source": src,
-                    "code": code,
-                    "name": str(getattr(p, "name", code) or code),
-                    "commodity": cid,
-                    "commodity_name": catalog.get(cid, {}).get("name") if cid else None,
-                    "level": levels.get((src, code)),
-                }
-            )
+        if src in _LIVE_SOURCES:
+            rows.extend(_worklist_rows_for_source(src, levels, cmap, catalog))
     classified = sum(1 for r in rows if r["level"])
     by_level = {lvl: sum(1 for r in rows if r["level"] == lvl) for lvl in CUR_LEVELS}
     return {
@@ -740,45 +985,70 @@ def value_added(commodity_id: str | None = None) -> dict:
     export value (US$ bi) + weight (mil t) into that level. Real data, but empty
     until codes are classified in Curadoria. ``commodity_id`` optionally scopes to
     one crosswalk commodity. Composes existing readers — no new BFF SQL.
+
+    Set-based: ONE value + ONE weight query per level (the reader's ``codes``
+    filter is an ``IN UNNEST`` over the whole level), so the request cost stays
+    flat as curators classify more codes — never 2 BigQuery round-trips per code.
     """
-    coded = {
-        code: lvl
-        for (src, code), lvl in _current_code_levels().items()
-        if src == "mdic_comex" and lvl in ("bruta", "processada")
-    }
+    by_level = _value_added_codes_by_level(commodity_id)
+    acc, n = _value_added_accumulate(by_level)
+    series = [_value_added_series_point(y, acc[y]) for y in sorted(acc)]
+    return {"series": series, "n_codes": n}
+
+
+def _value_added_codes_by_level(commodity_id: str | None) -> dict[str, list[str]]:
+    """Group currently-classified COMEX codes into {bruta, processada} (scoped)."""
     scope = set(_codes(commodity_id, "comex")) if commodity_id else None
-    acc: dict = {}
-    n = 0
-    for code, lvl in coded.items():
+    by_level: dict[str, list[str]] = {"bruta": [], "processada": []}
+    for (src, code), lvl in _current_code_levels().items():
+        if src != "mdic_comex" or lvl not in by_level:
+            continue
         if scope is not None and code not in scope:
             continue
-        val = _xyear("mdic_comex:exp_value", (code,))
+        by_level[lvl].append(code)
+    return by_level
+
+
+def _value_added_accumulate(by_level: dict[str, list[str]]) -> tuple[dict, int]:
+    """Sum export value (US$ bi) + weight (mil t) per year per level; (acc, n_codes).
+
+    ONE value + ONE weight query per level (the reader's ``codes`` filter is an
+    ``IN UNNEST`` over the whole level), so the cost stays flat as more codes are
+    classified — never 2 BigQuery round-trips per code.
+    """
+    acc: dict = {}
+    n = 0
+    for lvl, lvl_codes in by_level.items():
+        if not lvl_codes:
+            continue
+        codes = tuple(sorted(lvl_codes))
+        val = _xyear("mdic_comex:exp_value", codes)
         if not val:
             continue
-        wt = _xyear("mdic_comex:exp_weight", (code,))
-        n += 1
+        wt = _xyear("mdic_comex:exp_weight", codes)
+        n += len(lvl_codes)
         for y, v in val.items():
             slot = acc.setdefault(
                 y, {"bruta": {"v": 0.0, "w": 0.0}, "processada": {"v": 0.0, "w": 0.0}}
             )
             slot[lvl]["v"] += v / 1e9  # US$ bi
             slot[lvl]["w"] += wt.get(y, 0.0) / 1e6  # mil t
-    series = []
-    for y in sorted(acc):
-        b, p = acc[y]["bruta"], acc[y]["processada"]
-        total = (b["v"] + p["v"]) or 1
-        price_b = (b["v"] / b["w"]) if b["w"] else 0
-        price_p = (p["v"] / p["w"]) if p["w"] else 0
-        series.append(
-            {
-                "y": y,
-                "brutaV": b["v"],
-                "procV": p["v"],
-                "procShare": p["v"] / total * 100,
-                "premium": (price_p / price_b) if price_b else 0,
-            }
-        )
-    return {"series": series, "n_codes": n}
+    return acc, n
+
+
+def _value_added_series_point(y: int, slot: dict) -> dict:
+    """One year's processed share + price premium (price_processada / price_bruta)."""
+    b, p = slot["bruta"], slot["processada"]
+    total = (b["v"] + p["v"]) or 1
+    price_b = (b["v"] / b["w"]) if b["w"] else 0
+    price_p = (p["v"] / p["w"]) if p["w"] else 0
+    return {
+        "y": y,
+        "brutaV": b["v"],
+        "procV": p["v"],
+        "procShare": p["v"] / total * 100,
+        "premium": (price_p / price_b) if price_b else 0,
+    }
 
 
 # ── Market-nature — COMTRADE value by curated economic purpose (regime×flow) ────
@@ -871,14 +1141,7 @@ def market_nature(commodity_id: str | None = None) -> dict:
         codes = ()
     df = gateway.fetch_comtrade_cpc_value(codes)
     markets = [m["id"] for m in ENRICH_MARKETS]
-    acc: dict = {}
-    if df is not None and not df.empty:
-        for r in df.itertuples():
-            market = mapping.get((r.customs_code, r.flow_code))
-            if not market:
-                continue
-            slot = acc.setdefault(int(r.reference_year), {})
-            slot[market] = slot.get(market, 0.0) + float(r.value_usd or 0) / 1e9
+    acc = _market_nature_accumulate(df, mapping)
     years = sorted(acc)
     series = [{"y": y, **{m: acc[y].get(m, 0.0) for m in markets}} for y in years]
     return {
@@ -887,6 +1150,20 @@ def market_nature(commodity_id: str | None = None) -> dict:
         "latest": series[-1] if series else {},
         "n_classified": len(mapping),
     }
+
+
+def _market_nature_accumulate(df: pd.DataFrame | None, mapping: dict) -> dict:
+    """{year: {market: US$ bi}} summed over COMTRADE rows by their curated market."""
+    acc: dict = {}
+    if df is None or df.empty:
+        return acc
+    for r in df.itertuples():
+        market = mapping.get((r.customs_code, r.flow_code))
+        if not market:
+            continue
+        slot = acc.setdefault(int(r.reference_year), {})
+        slot[market] = slot.get(market, 0.0) + float(r.value_usd or 0) / 1e9
+    return acc
 
 
 # Economic-purpose markets the curation maps to (mirrors the frontend ENRICH_MARKETS).

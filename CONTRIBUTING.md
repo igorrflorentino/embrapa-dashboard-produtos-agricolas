@@ -195,7 +195,7 @@ uv run pytest tests/test_ibge_client.py::test_name   # specific test
 2. **Never commit `dbt/profiles.yml`** — use the `profiles.yml.example` template.
 3. **No hardcoding** — everything via `.env` and `config.py`.
 4. **Always add tests** for new business logic.
-5. **Docstrings in Portuguese** — technical comments may be in English.
+5. **Language rule** ([CLAUDE.md → Code Style](CLAUDE.md#code-style)): anything read only by developers — identifiers, docstrings, comments, log/CLI messages, technical docs — is written in **English**; any string the end user could see (dashboard labels, chart/axis captions, i18n data values) is written in **Portuguese (pt-BR)**. When unsure whether a string is user-visible, default to Portuguese.
 
 ---
 

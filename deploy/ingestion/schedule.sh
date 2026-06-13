@@ -12,7 +12,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE not found"; exit 1; }
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# `|| true` contains grep's no-match exit under set -euo pipefail (an optional
+# key absent from .env must yield empty, not kill the script) — same helper as
+# schedule_reconcile.sh / schedule_comtrade.sh.
+get_env() { { grep -E "^$1=" "$ENV_FILE" || true; } | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
 # Resolve the Cloud Run region — must match deploy.sh so the scheduler targets
 # the same region the Job was deployed to. INGEST_JOB_REGION is a first-class
@@ -44,7 +47,9 @@ JOB_NAME="${INGEST_JOB_NAME:-embrapa-ingest-all}"
 SCHED_NAME="${INGEST_SCHEDULE_NAME:-${JOB_NAME}-nightly}"
 CRON="${INGEST_SCHEDULE_CRON:-0 5 * * *}"
 SCHED_TZ="${INGEST_SCHEDULE_TZ:-America/Sao_Paulo}"
-SCHED_SA="${INGEST_SCHEDULE_SA:-sa-data-pipeline-prod@${PROJECT}.iam.gserviceaccount.com}"
+# Same .env fallback chain as schedule_reconcile.sh / schedule_comtrade.sh.
+SCHED_SA="${INGEST_SCHEDULE_SA:-$(get_env INGEST_SCHEDULE_SA)}"
+SCHED_SA="${SCHED_SA:-sa-data-pipeline-prod@${PROJECT}.iam.gserviceaccount.com}"
 
 # Cloud Run Admin API v1 "run job" endpoint.
 URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB_NAME}:run"

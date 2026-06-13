@@ -14,6 +14,9 @@ function ViewPartners({ summary, conventions, database }) {
       {data.preview && <window.PreviewBanner banco={banco}
         capabilityNote="Rankings de parceiros exigem a dimensão de parceiro comercial, ainda não disponível nesta fonte." />}
 
+      {/* Honest note when the origin-UF filter cannot apply (country-origin banco). */}
+      <window.NotApplicableNote note={data.notApplicable} />
+
       <div className="kpi-row">
         <window.KpiCardSpark label={`Maior ${data.flowLabel}`} value={top?.name || '—'} sub={fmt(top?.value || 0)} />
         <window.KpiCardSpark label="Parceiros mapeados" value={data.partners.length} sub={`fluxo total ${fmt(total)}`} />

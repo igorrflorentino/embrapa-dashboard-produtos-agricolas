@@ -100,8 +100,16 @@ def recommended_chunk_years(n_products: int, safety: float = 0.7) -> int:
 # pathologies bypass requests' per-read timeout indefinitely.
 REQUEST_TOTAL_DEADLINE_S: float = 75.0
 
-# Hard ceiling per state — after this many seconds across all retries, give up.
-PER_STATE_DEADLINE_S: float = 180.0
+# Cumulative retry budget for ONE SIDRA HTTP call (one ``_http_get``): tenacity
+# stops *starting* new attempts once this many seconds have elapsed across
+# retries. Two things this is NOT:
+# - a hard wall-clock ceiling: ``stop_after_delay`` never interrupts an attempt
+#   already in flight, so one call can still run up to roughly this budget plus
+#   REQUEST_TOTAL_DEADLINE_S (the in-flight attempt's own drain deadline);
+# - per state: ``_fetch_block``'s recursive period-halving can issue several
+#   ``_http_get`` calls for one state, each with its own fresh budget.
+# Operators sizing job timeouts should budget per *call*, not per state.
+PER_CALL_RETRY_BUDGET_S: float = 180.0
 
 # Empirical sweet spot: 4 workers with `Connection: close` avoids the urllib3
 # pool deadlocks observed at 8 workers AND the connection-staleness hangs
@@ -166,10 +174,11 @@ def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
 
 @core_http.http_retry_policy(
     transient_exc=SidraTransientError,
-    # Stop on either attempt count OR cumulative time — the OR means a slow-
-    # byte hang can't keep the worker alive past PER_STATE_DEADLINE_S even if
-    # it never exhausts attempts.
-    deadline_s=PER_STATE_DEADLINE_S,
+    # Stop on either attempt count OR cumulative elapsed time — the OR keeps
+    # repeated slow-byte hangs from re-attempting indefinitely. Note this only
+    # blocks *starting* another attempt; the in-flight attempt is bounded by
+    # REQUEST_TOTAL_DEADLINE_S, not by this budget (see PER_CALL_RETRY_BUDGET_S).
+    deadline_s=PER_CALL_RETRY_BUDGET_S,
     before_sleep=_emit_retry,
 )
 def _http_get(url: str) -> requests.Response:

@@ -35,20 +35,22 @@ def test_serialize_snapshot_shapes_and_scales():
         ),
         "product_ts": pd.DataFrame(
             [
-                # mass: 2_000_000_000 R$ → 2000 mi; 5_000_000 t → 5000 mil t
+                # mass: 2_000_000_000 R$ → 2000 mi; 5_000_000 t (base) → 5000 mil t
                 {
                     "code": "001",
                     "reference_year": 2020,
                     "total_value": 2_000_000_000,
                     "total_qty_native": 5_000_000,
+                    "total_qty_base": 5_000_000,  # PEVS: native == base (t)
                     "family": "massa",
                 },
-                # volume: 6_000_000 m³ → 6 mi m³
+                # volume: 6_000_000 m³ (base) → 6 mi m³
                 {
                     "code": "777",
                     "reference_year": 2020,
                     "total_value": 1_000_000,
                     "total_qty_native": 6_000_000,
+                    "total_qty_base": 6_000_000,  # PEVS: native == base (m³)
                     "family": "volume",
                 },
             ]
@@ -96,8 +98,62 @@ def test_serialize_snapshot_shapes_and_scales():
 
     uf = out["ufData"][0]
     assert uf["uf"] == "PA" and uf["region"] == "N" and uf["value"] == 1.5
-    assert out["quality"][0] == {"id": "OK", "count": 42, "share": 0.8}
+    # no q_mass/q_vol columns in this fixture → safe 0.0 fallback (real values
+    # are asserted in test_uf_data_emits_per_family_quantities).
+    assert uf["q_mass"] == 0.0 and uf["q_vol"] == 0.0
+    # _quality emits a pt-BR label so the donut stays Portuguese even for flags the
+    # frontend taxonomy lacks (INCOMPLETE/MISSING_WEIGHT).
+    assert out["quality"][0] == {"id": "OK", "label": "OK", "count": 42, "share": 0.8}
     assert out["preview"] is False and out["_synthetic"] is False
+
+
+def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
+    """Regression: COMEX/COMTRADE quantities are mostly kg-NATIVE. The serializer
+    must scale total_qty_base (already t / m³ in the marts) — scaling the native
+    kg as if tonnes displayed trade quantities 1000× too large."""
+    snap = {
+        "products": None,
+        "product_ts": pd.DataFrame(
+            [
+                # kg-native NCM: 5_000_000_000 kg native = 5_000_000 t base → 5000 mil t
+                {
+                    "code": "08012100",
+                    "reference_year": 2022,
+                    "total_value": 1_000_000_000,
+                    "total_qty_native": 5_000_000_000,
+                    "total_qty_base": 5_000_000,
+                    "family": "massa",
+                },
+                # t-native NCM in the same family: base == native
+                {
+                    "code": "44012200",
+                    "reference_year": 2022,
+                    "total_value": 2_000_000,
+                    "total_qty_native": 3_000,
+                    "total_qty_base": 3_000,
+                    "family": "massa",
+                },
+            ]
+        ),
+        "overview_ts": pd.DataFrame(
+            [
+                {
+                    "reference_year": 2022,
+                    "total_value": 1_002_000_000,
+                    # the seam already aggregated qty_base per family (t)
+                    "q_mass": 5_003_000,
+                    "q_vol": 0.0,
+                }
+            ]
+        ),
+        "uf_data": None,
+        "quality": None,
+        "value_label": "Valor (US$ FOB)",
+    }
+    out = s.serialize_snapshot(snap)
+    assert out["productTS"]["08012100"][0]["q"] == 5000.0  # mil t, from qty_base
+    assert out["productTS"]["44012200"][0]["q"] == 3.0
+    assert out["overviewTS"][0]["q_mass"] == 5003.0  # mil t — never kg/1e3
 
 
 def test_serialize_snapshot_empty_is_safe():
@@ -153,13 +209,15 @@ def test_cross_series_none_passthrough():
 
 
 def test_quality_ts_pivots_to_per_year_shares():
-    # 2020: 90 OK + 10 MISSING_VALUE → ok 0.9, missing_value 0.1; flag id → contract key
+    # Real Gold flags only: 2020 OK/MISSING_VALUE; 2021 OK/INCOMPLETE (PEVS) +
+    # MISSING_WEIGHT (COMEX) — the synthetic ESTIMATED/OUTLIER/BOUNDARY are gone.
     df = pd.DataFrame(
         [
             {"reference_year": 2020, "data_quality_flag": "OK", "n": 90},
             {"reference_year": 2020, "data_quality_flag": "MISSING_VALUE", "n": 10},
             {"reference_year": 2021, "data_quality_flag": "OK", "n": 50},
-            {"reference_year": 2021, "data_quality_flag": "BOUNDARY_HISTORIC", "n": 50},
+            {"reference_year": 2021, "data_quality_flag": "INCOMPLETE", "n": 30},
+            {"reference_year": 2021, "data_quality_flag": "MISSING_WEIGHT", "n": 20},
         ]
     )
     out = s.serialize_snapshot(
@@ -174,8 +232,30 @@ def test_quality_ts_pivots_to_per_year_shares():
         }
     )["qualityTs"]
     assert [r["y"] for r in out] == [2020, 2021]  # sorted by year
-    assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1 and out[0]["outlier"] == 0.0
-    assert out[1]["ok"] == 0.5 and out[1]["boundary"] == 0.5  # BOUNDARY_HISTORIC → boundary
+    assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1
+    # every real contract key present (absent ones read 0); synthetic keys are gone
+    assert set(out[0]) == {
+        "y",
+        "ok",
+        "missing_value",
+        "missing_quantity",
+        "missing_weight",
+        "incomplete",
+    }
+    assert out[1]["ok"] == 0.5 and out[1]["incomplete"] == 0.3 and out[1]["missing_weight"] == 0.2
+
+
+def test_quality_ts_unmapped_flag_lowers_known_shares_not_dropped():
+    # An unexpected flag still counts toward the denominator (so the stack never
+    # silently sums to >1 by ignoring it) — it just maps to no output key.
+    df = pd.DataFrame(
+        [
+            {"reference_year": 2020, "data_quality_flag": "OK", "n": 80},
+            {"reference_year": 2020, "data_quality_flag": "SOMETHING_NEW", "n": 20},
+        ]
+    )
+    out = s._quality_ts(df)
+    assert out[0]["ok"] == 0.8  # 80/100 — the 20 unknown rows are in `total`
 
 
 def test_quality_by_product_per_product_shares_top_n():
@@ -201,7 +281,10 @@ def test_quality_by_product_per_product_shares_top_n():
     )["qualityByProduct"]
     assert [r["code"] for r in out] == ["A", "B"]  # ranked by row volume
     assert out[0]["OK"] == 0.75 and out[0]["MISSING_VALUE"] == 0.25  # flag-id keys, shares
-    assert out[1]["OK"] == 1.0 and out[1]["OUTLIER"] == 0.0  # absent flags read 0
+    # absent REAL flags read 0 (MISSING_WEIGHT/INCOMPLETE), and the synthetic
+    # OUTLIER/ESTIMATED/BOUNDARY_HISTORIC keys no longer exist at all.
+    assert out[1]["OK"] == 1.0 and out[1]["MISSING_WEIGHT"] == 0.0
+    assert "OUTLIER" not in out[1] and "BOUNDARY_HISTORIC" not in out[1]
 
 
 def test_serialize_market_nature_passthrough():
@@ -289,6 +372,7 @@ def _productivity_payload():
 
 def test_serialize_productivity_recomputes_yield_and_aggregates():
     out = s.serialize_productivity(_productivity_payload())
+    assert out["preview"] is False  # the contract requires the preview key
     assert out["crop"] == {"code": "40124", "name": "Soja"}
     assert [c["code"] for c in out["crops"]] == ["40124", "40122"]
     assert out["yieldUnit"] == "kg/ha" and out["areaUnit"] == "ha"
@@ -301,14 +385,18 @@ def test_serialize_productivity_recomputes_yield_and_aggregates():
     assert y2023["yieldKgHa"] == pytest.approx(3000.0 * 1000 / 900)
     assert y2024["yieldKgHa"] == pytest.approx(3600.0 * 1000 / 900)  # 4000
 
+    # national = the LATEST year's totals (matches the byUF grain) + CAGR.
+    assert out["national"]["prodT"] == 3600.0 and out["national"]["areaHa"] == 900.0
+    assert out["national"]["yieldKgHa"] == pytest.approx(4000.0)
     # CAGR over the 1-year span: (4000/3333.3)^(1/1) − 1 = 20%.
     assert out["national"]["yieldCagr"] == pytest.approx(20.0, abs=0.1)
 
-    # Per-UF is the LATEST year (2024) only, yield per UF.
-    by_uf = {r["uf"]: r["yieldKgHa"] for r in out["byUF"]}
+    # Per-UF is the LATEST year (2024) only, with yield + summable area/production.
+    by_uf = {r["uf"]: r for r in out["byUF"]}
     assert set(by_uf) == {"PR", "MT"}
-    assert by_uf["MT"] == pytest.approx(2400.0 * 1000 / 400)  # 6000
-    assert by_uf["PR"] == pytest.approx(1200.0 * 1000 / 500)  # 2400
+    assert by_uf["MT"]["yieldKgHa"] == pytest.approx(2400.0 * 1000 / 400)  # 6000
+    assert by_uf["PR"]["yieldKgHa"] == pytest.approx(1200.0 * 1000 / 500)  # 2400
+    assert by_uf["MT"]["prodT"] == 2400.0 and by_uf["MT"]["areaHa"] == 400.0
 
 
 def test_serialize_productivity_handles_zero_area_and_empty():
@@ -317,8 +405,10 @@ def test_serialize_productivity_handles_zero_area_and_empty():
     empty = s.serialize_productivity(
         {"crops": [], "active": "", "active_name": "", "rows": pd.DataFrame()}
     )
+    assert empty["preview"] is False
     assert empty["series"] == [] and empty["byUF"] == []
-    assert empty["national"]["yieldCagr"] == 0.0
+    # national carries every contracted field, zeroed, even with no data.
+    assert empty["national"] == {"yieldKgHa": 0.0, "areaHa": 0.0, "prodT": 0.0, "yieldCagr": 0.0}
     # Zero harvested area must not divide-by-zero → yield 0.
     zero = s.serialize_productivity(
         {
@@ -342,3 +432,198 @@ def test_serialize_productivity_handles_zero_area_and_empty():
         }
     )
     assert zero["series"][0]["yieldKgHa"] == 0.0 and zero["byUF"][0]["yieldKgHa"] == 0.0
+
+
+def test_uf_data_emits_per_family_quantities():
+    """ufData q_mass/q_vol are real (from the by-UF per-family qty_base sums),
+    scaled like overviewTS: massa ÷1e3 → mil t, volume ÷1e6 → mi m³."""
+    snap = {
+        "products": None,
+        "product_ts": None,
+        "overview_ts": None,
+        "uf_data": pd.DataFrame(
+            [
+                {
+                    "state_acronym": "PA",
+                    "state_name": "Pará",
+                    "region_abbrev": "N",
+                    "total_value": 1_500_000,
+                    "q_mass": 5_000_000,  # t → 5000 mil t
+                    "q_vol": 6_000_000,  # m³ → 6 mi m³
+                }
+            ]
+        ),
+        "quality": None,
+        "value_label": "",
+    }
+    uf = s.serialize_snapshot(snap)["ufData"][0]
+    assert uf["value"] == 1.5 and uf["q_mass"] == 5000.0 and uf["q_vol"] == 6.0
+
+
+def test_uf_yearly_emits_real_per_uf_year_rows():
+    """ufYearly is REAL per-(UF, year) Gold history (backs the ano × UF heatmap),
+    scaled like ufData: value ÷1e6, q_mass ÷1e3 → mil t, q_vol ÷1e6 → mi m³."""
+    snap = {
+        "products": None,
+        "product_ts": None,
+        "overview_ts": None,
+        "uf_data": None,
+        "uf_yearly": pd.DataFrame(
+            [
+                {
+                    "state_acronym": "PA",
+                    "state_name": "Pará",
+                    "region_abbrev": "N",
+                    "reference_year": 2019,
+                    "total_value": 1_000_000,
+                    "q_mass": 2_000_000,  # t → 2000 mil t
+                    "q_vol": 3_000_000,  # m³ → 3 mi m³
+                },
+                {
+                    "state_acronym": "PA",
+                    "state_name": "Pará",
+                    "region_abbrev": "N",
+                    "reference_year": 2020,
+                    "total_value": 1_500_000,
+                    "q_mass": 2_500_000,
+                    "q_vol": float("nan"),  # no volume that year → 0.0
+                },
+            ]
+        ),
+        "quality": None,
+        "value_label": "",
+    }
+    rows = s.serialize_snapshot(snap)["ufYearly"]
+    assert [(r["uf"], r["year"]) for r in rows] == [("PA", 2019), ("PA", 2020)]
+    assert rows[0] == {
+        "year": 2019,
+        "uf": "PA",
+        "name": "Pará",
+        "region": "N",
+        "value": 1.0,
+        "q_mass": 2000.0,
+        "q_vol": 3.0,
+    }
+    assert rows[1]["value"] == 1.5 and rows[1]["q_mass"] == 2500.0 and rows[1]["q_vol"] == 0.0
+
+
+def test_uf_yearly_empty_is_safe():
+    out = s.serialize_snapshot(
+        {
+            "products": None,
+            "product_ts": None,
+            "overview_ts": None,
+            "uf_data": None,
+            "uf_yearly": None,
+            "quality": None,
+            "value_label": "",
+        }
+    )
+    assert out["ufYearly"] == []
+
+
+def test_uf_data_flags_real_vs_pseudo_uf_codes():
+    """ufData rows carry a `real` flag: True for a Brazilian UF, False for a COMEX
+    special trade pseudo-code (EX/ND/ZN…), which has no state_name. Lets the frontend
+    count real UFs (27) instead of inflating the tally (FINDING #4)."""
+    df = pd.DataFrame(
+        [
+            {
+                "state_acronym": "SP",
+                "state_name": "São Paulo",
+                "region_abbrev": "SE",
+                "total_value": 5_000_000,
+                "q_mass": 0.0,
+                "q_vol": 0.0,
+            },
+            {
+                "state_acronym": "EX",
+                "state_name": None,  # pseudo trade code — no UF lookup match
+                "region_abbrev": None,
+                "total_value": 9_000_000,
+                "q_mass": 0.0,
+                "q_vol": 0.0,
+            },
+        ]
+    )
+    rows = s._uf_data(df)
+    by_uf = {r["uf"]: r for r in rows}
+    assert by_uf["SP"]["real"] is True
+    assert by_uf["EX"]["real"] is False
+
+
+def test_uf_data_null_family_quantity_is_zero():
+    # A UF with only mass production: q_vol is NULL/NaN → safe 0.0.
+    df = pd.DataFrame(
+        [
+            {
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region_abbrev": "CO",
+                "total_value": 2_000_000,
+                "q_mass": 3_000_000,
+                "q_vol": float("nan"),
+            }
+        ]
+    )
+    uf = s._uf_data(df)[0]
+    assert uf["q_mass"] == 3000.0 and uf["q_vol"] == 0.0
+
+
+def test_quality_uses_real_pt_br_labels():
+    df = pd.DataFrame(
+        [
+            {"data_quality_flag": "INCOMPLETE", "n_rows": 5, "share": 0.1},
+            {"data_quality_flag": "MISSING_WEIGHT", "n_rows": 3, "share": 0.06},
+        ]
+    )
+    out = s._quality(df)
+    by_id = {r["id"]: r["label"] for r in out}
+    assert by_id["INCOMPLETE"] == "Incompleto"  # pt-BR, not the raw English id
+    assert by_id["MISSING_WEIGHT"] == "Peso ausente"
+
+
+def test_serialize_source_meta_carries_latest_year_completeness():
+    """serialize_source_meta surfaces the FINDING #3 partial-year signal as camelCase
+    JSON the frontend can read for an honest YoY (monthsInLatestYear /
+    latestYearComplete / latestCompleteYear)."""
+    out = s.serialize_source_meta(
+        {
+            "source": "mdic_comex",
+            "gold_table": "gold_comex_flows",
+            "cadence": "monthly",
+            "year_start": 1997,
+            "year_end": 2026,
+            "months_in_latest_year": 5,
+            "latest_year_complete": False,
+            "latest_complete_year": 2025,
+        }
+    )
+    assert out["monthsInLatestYear"] == 5
+    assert out["latestYearComplete"] is False
+    assert out["latestCompleteYear"] == 2025
+
+
+def test_serialize_source_meta_annual_defaults_to_complete():
+    """An annual banco (no completeness keys) → latestYearComplete True,
+    monthsInLatestYear None (the serializer's safe default)."""
+    out = s.serialize_source_meta(
+        {"source": "ibge_pevs", "gold_table": "gold_pevs_production", "year_end": 2024}
+    )
+    assert out["latestYearComplete"] is True
+    assert out["monthsInLatestYear"] is None
+
+
+def test_serialize_source_meta_empty_is_empty_dict():
+    assert s.serialize_source_meta(None) == {}
+    assert s.serialize_source_meta({}) == {}
+
+
+def test_serialize_monthly_empty_emits_twelve_values():
+    """serialize_monthly must always emit 12 monthlyAvg entries — an empty list
+    crashed ViewSeasonality's peak/low/amplitude math."""
+    out = s.serialize_monthly(None)
+    assert out["monthlyAvg"] == [0.0] * 12
+    assert len(out["months"]) == 12 and out["years"] == [] and out["matrix"] == {}
+    out_empty_df = s.serialize_monthly(pd.DataFrame())
+    assert out_empty_df["monthlyAvg"] == [0.0] * 12

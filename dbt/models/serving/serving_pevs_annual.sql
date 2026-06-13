@@ -16,12 +16,14 @@
 -- Rolls gold_pevs_production (year × UF × CITY × product) up to
 -- (year × UF × product × family), dropping the municipality grain — the row
 -- multiplier the dashboard never charts directly. This is the GB→MB reduction
--- that lets the stateless Dash app push a parameterized GROUP BY down to BigQuery
--- and scan a small, clustered table instead of the full Gold fact.
+-- that lets the stateless webapi BFF (Flask REST behind the React SPA) push a
+-- parameterized GROUP BY down to BigQuery and scan a small, clustered table
+-- instead of the full Gold fact.
 --
 -- Backs (frontend_data_contract.md §3): overviewTS (GROUP BY year), productTS
--- (GROUP BY year, product_code), ufData (GROUP BY state_acronym). Carries
--- commodity_id so the UI can LEFT JOIN dim_commodity_scd2 live at query time.
+-- (GROUP BY year, product_code), ufData (GROUP BY state_acronym). Carries the
+-- cross-source commodity_id (from gold_commodity_crosswalk) so a row can be
+-- linked to its commodity — column-identical with serving_pam_annual.
 --
 -- Grain: one row per (reference_year, state_acronym, product_code, family).
 -- ────────────────────────────────────────────────────────────────────────────
@@ -49,11 +51,18 @@ with pevs as (
         sum(val_real_ipca_brl)          as val_real_ipca_brl,
         sum(val_real_ipca_usd)          as val_real_ipca_usd,
         sum(val_real_ipca_eur)          as val_real_ipca_eur,
+        -- IGP-M / IGP-DI deflation is carried in BRL and EUR only. The USD-deflated
+        -- combos (val_real_{igpm,igpdi}_usd) are intentionally NOT served: the BFF
+        -- allowlist (serving/sql.ALLOWED_VALUE_COLUMNS) omits them, so the serving
+        -- layer can never SELECT them — materializing them here would be dead bytes.
         sum(val_real_igpm_brl)          as val_real_igpm_brl,
         sum(val_real_igpm_eur)          as val_real_igpm_eur,
         sum(val_real_igpdi_brl)         as val_real_igpdi_brl,
         sum(val_real_igpdi_eur)         as val_real_igpdi_eur,
-        count(distinct city_name)       as n_cities,
+        -- city_code, not city_name: the name is a display label and two
+        -- municipalities can share one (Gold groups by city_code for the same
+        -- reason), so counting names could silently undercount.
+        count(distinct city_code)       as n_cities,
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
     from {{ ref('gold_pevs_production') }}

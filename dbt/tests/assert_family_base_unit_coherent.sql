@@ -6,8 +6,10 @@
 -- statistical units, picking `family` and `base_unit` with INDEPENDENT any_value()s
 -- can pair them from different rows (e.g. family='desconhecida' with base_unit='t').
 -- gold_comex_flows and gold_comtrade_flows therefore pick the unit fields together
--- from the dominant-quantity row; this test pins that invariant so a future edit
--- can't reintroduce the mismatch.
+-- from the dominant-quantity row; gold_pevs_production and gold_pam_production
+-- lift them via independent max()s under a one-unit-per-product assumption.
+-- This test pins the pairing invariant for ALL of them so a future edit (or a
+-- broken single-unit assumption) can't reintroduce the mismatch.
 --
 -- Fails (returns rows) if any Gold row pairs a family with the wrong base_unit.
 
@@ -21,6 +23,8 @@ with valid as (
 
 gold as (
     select 'gold_pevs_production' as model, family, base_unit from {{ ref('gold_pevs_production') }}
+    union all
+    select 'gold_pam_production',  family, base_unit from {{ ref('gold_pam_production') }}
     union all
     select 'gold_comex_flows',    family, base_unit from {{ ref('gold_comex_flows') }}
     union all

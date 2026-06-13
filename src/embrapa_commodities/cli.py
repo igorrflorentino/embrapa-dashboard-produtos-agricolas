@@ -612,26 +612,44 @@ def ingest_reconcile(
     settings = get_settings()
     failures: list[tuple[str, str]] = []
 
-    # IBGE: chunked full window (not the single-shot `ibge --full`) so the huge
-    # 1986→today SIDRA pull survives the unattended slow-byte deadline. A
-    # BadParameter (IBGE_START_YEAR unset) is a real misconfig — let it abort.
+    failures.extend(_reconcile_ibge(settings, chunk_years))
+    failures.extend(_reconcile_full_sources(settings))
+
+    if failures:
+        _report_source_failures(failures)
+        raise typer.Exit(code=1)
+    console.print("[green bold]✓ Reconcile complete — every source fully re-ingested[/green bold]")
+    console.print(
+        "[dim]Next:[/dim] run [bold]dbt build[/bold] to propagate any revisions to Silver/Gold "
+        "[dim](`make reconcile` chains it for you)[/dim]."
+    )
+
+
+def _reconcile_ibge(settings: Settings, chunk_years: int | None) -> list[tuple[str, str]]:
+    """IBGE phase of reconcile: chunked full window (not the single-shot
+    ``ibge --full``) so the huge 1986→today SIDRA pull survives the unattended
+    slow-byte deadline. A BadParameter (IBGE_START_YEAR unset) is a real
+    misconfig — let it abort. Returns the source-level failures it collected."""
     console.print("[bold]→ IBGE PEVS[/bold] [dim](chunked full window)[/dim]")
     try:
         tracker = _ibge_batch_ingest(settings, chunk_years)
     except typer.BadParameter:
         raise
     except Exception as exc:
-        failures.append(("IBGE PEVS", str(exc)[:200]))
         console.print(f"[red]✗ IBGE PEVS failed:[/red] {str(exc)[:200]}")
-    else:
-        if tracker.chunks_failed:
-            failures.append(("IBGE PEVS", f"{len(tracker.chunks_failed)} chunk(s) failed"))
+        return [("IBGE PEVS", str(exc)[:200])]
+    if tracker.chunks_failed:
+        return [("IBGE PEVS", f"{len(tracker.chunks_failed)} chunk(s) failed")]
+    return []
 
-    # BCB inflation/FX + COMEX: --full re-fetches each one's whole configured
-    # window. Reuse the same INGESTS registry as `ingest all`, skipping IBGE
-    # (already done, chunked) and the out-of-`all` COMTRADE. Gate on
-    # accepts_full exactly like `ingest all` so a future non-delta source added
-    # to the batch wouldn't trip on an unexpected full= kwarg.
+
+def _reconcile_full_sources(settings: Settings) -> list[tuple[str, str]]:
+    """BCB inflation/FX + COMEX phase: ``--full`` re-fetches each one's whole
+    configured window. Reuse the same INGESTS registry as ``ingest all``, skipping
+    IBGE (already done, chunked) and the out-of-``all`` COMTRADE. Gate on
+    accepts_full exactly like ``ingest all`` so a future non-delta source added to
+    the batch wouldn't trip on an unexpected full= kwarg."""
+    failures: list[tuple[str, str]] = []
     for spec in INGESTS:
         if not spec.in_all or spec.name == "ibge":
             continue
@@ -644,17 +662,15 @@ def ingest_reconcile(
         except Exception as exc:
             failures.append((spec.label, str(exc)[:200]))
             console.print(f"[red]✗ {spec.label} failed:[/red] {str(exc)[:200]}")
+    return failures
 
-    if failures:
-        console.print(f"\n[yellow bold]⚠ {len(failures)} source(s) failed[/yellow bold]")
-        for label, err in failures:
-            console.print(f"  [red]✗[/red] {label} — {err}")
-        raise typer.Exit(code=1)
-    console.print("[green bold]✓ Reconcile complete — every source fully re-ingested[/green bold]")
-    console.print(
-        "[dim]Next:[/dim] run [bold]dbt build[/bold] to propagate any revisions to Silver/Gold "
-        "[dim](`make reconcile` chains it for you)[/dim]."
-    )
+
+def _report_source_failures(failures: list[tuple[str, str]]) -> None:
+    """Print the aggregated source-level failure summary (shared by the batch
+    commands). The caller raises the non-zero exit."""
+    console.print(f"\n[yellow bold]⚠ {len(failures)} source(s) failed[/yellow bold]")
+    for label, err in failures:
+        console.print(f"  [red]✗[/red] {label} — {err}")
 
 
 # ─── discover ─────────────────────────────────────────────────────────────────
@@ -773,10 +789,16 @@ def monitor_cmd(
 def doctor_cmd() -> None:
     """Quick health-check before running an ingest. ~10 seconds.
 
-    Validates: .env parsing, ADC credentials, BigQuery / GCS reachability,
-    IBGE SIDRA + BCB SGS connectivity, and whether Bronze tables exist yet.
+    Validates: .env parsing (incl. the PAM/COMEX/COMTRADE mappings), the Gold
+    inflation pivot codes, ADC credentials, BigQuery / GCS reachability,
+    source connectivity (IBGE SIDRA, IBGE PAM, BCB SGS, COMEX, COMTRADE),
+    whether Bronze tables and serving marts exist yet, and Gold-backup
+    freshness.
 
-    Exits 1 if any check fails (Bronze-tables check is informational).
+    Exits 1 if any check fails. Bronze-tables and serving-marts checks are
+    informational (never fail); Gold-backup freshness FAILS when no complete
+    snapshot exists — run `make dbt-build-prod-with-backup` once — and only
+    warns when the latest snapshot is older than BACKUP_STALENESS_DAYS.
     """
     results = doctor.run_all()
     table = Table(title="embrapa doctor", show_lines=False)

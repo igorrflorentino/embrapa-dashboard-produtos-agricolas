@@ -27,6 +27,19 @@ async function loadProducers(fetchImpl) {
   return window.crossCatalog;
 }
 
+// Reload producers and return the full window surface for the filter tests.
+async function loadAll(fetchImpl) {
+  globalThis.fetch = fetchImpl;
+  vi.resetModules();
+  // bancoDim is read by the trade producers for axis labels; stub it minimally so
+  // the producers don't depend on the registry module in this unit suite.
+  window.bancoDim = () => ({ label: 'X' });
+  await import('./producers.js');
+  return window;
+}
+
+const urlOf = (f, i = 0) => f.mock.calls[i][0];
+
 describe('crossCatalog', () => {
   it('returns [] while cold and kicks off exactly one /api/catalog fetch', async () => {
     const f = vi.fn(() => jsonRes(CATALOG));
@@ -53,5 +66,199 @@ describe('crossCatalog', () => {
       { code: 'acai', name: 'Açaí' },
       { code: 'castanha_caju', name: 'Castanha de caju' },
     ]);
+  });
+});
+
+// The audit bug: the trade/productivity producers accepted only bancoId and
+// dropped the active filter summary, so a basket/year window changed no chart.
+// These lock that the summary is serialized into query params AND folded into the
+// resource cache key (so a changed filter refetches scoped data, not the first
+// snapshot).
+describe('trade producers thread the active filter summary', () => {
+  const SUMMARY = { basket: ['0801', '0802'], startDate: '2018-01-01', endDate: '2022-12-01' };
+
+  it.each([
+    ['flowData', 'flow'],
+    ['partnerData', 'partners'],
+    ['monthlyData', 'monthly'],
+  ])('%s serializes basket→codes + period→y0/y1 into /api/%s', async (fn, path) => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+
+    w[fn]('mdic_comex', SUMMARY);
+    const url = urlOf(f);
+    expect(url).toContain(`/api/${path}`);
+    expect(url).toContain('codes=0801%2C0802');
+    expect(url).toContain('y0=2018');
+    expect(url).toContain('y1=2022');
+  });
+
+  it('keys the resource by the filter signature so a changed window refetches', async () => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+
+    w.flowData('mdic_comex', SUMMARY); // first window
+    w.flowData('mdic_comex', SUMMARY); // same → cache hit, no new fetch
+    expect(f).toHaveBeenCalledTimes(1);
+
+    w.flowData('mdic_comex', { ...SUMMARY, endDate: '2024-12-01' }); // changed window
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(urlOf(f, 1)).toContain('y1=2024');
+  });
+
+  it('an unfiltered call sends no codes/y0/y1 (the prior default behaviour)', async () => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+
+    w.flowData('mdic_comex');
+    const url = urlOf(f);
+    expect(url).not.toContain('codes=');
+    expect(url).not.toContain('y0=');
+    expect(url).not.toContain('y1=');
+  });
+});
+
+describe('exportCoefficient decorates byUf rows with tile coords (F1.2)', () => {
+  // The export-coef byUf rows feed BrazilTileMap, which positions each tile by
+  // col/row — coords the /api omits. Like snapshot.ufData + productivity byUF, the
+  // producer MUST decorate them, or every tile lands at undefined·64 = NaN.
+  it('joins col/row/region/name from UF_DATA onto the resolved byUf rows', async () => {
+    const payload = {
+      preview: false, unit: 'mil t',
+      byUf: [{ uf: 'PA', production: 10, exportV: 4, coefPct: 40 }],
+      national: { coefPct: 40, production: 10 }, timeseries: [{ y: 2020, v: 40 }],
+    };
+    const f = vi.fn(() => jsonRes(payload));
+    const w = await loadAll(f);
+    window.UF_DATA = [{ uf: 'PA', col: 7, row: 2, region: 'Norte', name: 'Pará' }];
+
+    w.exportCoefficient('castanha_caju'); // cold → kicks fetch, shell []
+    await tick();
+    const data = w.exportCoefficient('castanha_caju'); // hot
+    expect(data.byUf[0]).toMatchObject({ uf: 'PA', col: 7, row: 2, region: 'Norte', name: 'Pará' });
+  });
+
+  it('keeps the contract `byUf` key and survives the empty loading shell', async () => {
+    const f = vi.fn(() => jsonRes(null)); // cold forever → shell
+    const w = await loadAll(f);
+    window.UF_DATA = [];
+    const shell = w.exportCoefficient('castanha_caju');
+    expect(Array.isArray(shell.byUf)).toBe(true); // not undefined → no NaN tiles
+    expect(shell.byUf).toEqual([]);
+  });
+});
+
+describe('productivityData honours the period window but not the basket', () => {
+  it('serializes only y0/y1 (no codes) and flags the basket as not-applicable', async () => {
+    const f = vi.fn(() => jsonRes(null)); // cold → loading shell
+    const w = await loadAll(f);
+
+    const shell = w.productivityData('ibge_pam', '2713', {
+      basket: ['9999'],
+      startDate: '2010-01-01',
+      endDate: '2020-12-01',
+    });
+    const url = urlOf(f);
+    expect(url).toContain('y0=2010');
+    expect(url).toContain('y1=2020');
+    expect(url).not.toContain('codes='); // the basket is N/A for this view's grain
+    // The basket can't apply here — surfaced honestly, not silently dropped.
+    expect(shell.notApplicable).toBeTruthy();
+    expect(shell.notApplicable.basket).toContain('lavoura');
+  });
+
+  it('omits notApplicable when no basket is active', async () => {
+    const f = vi.fn(() => jsonRes(null));
+    const w = await loadAll(f);
+
+    const shell = w.productivityData('ibge_pam', '2713', { startDate: '2010-01-01' });
+    expect(shell.notApplicable).toBeUndefined();
+  });
+});
+
+// The audit gap (deferred item 2): the origin-UF dimension was dropped on the
+// trade flow/partner readers. The producers must serialize summary.states into
+// the `states` param for the COMEX-origin readers, and — for grains that cannot
+// honour it (COMTRADE's country origin; the UF-less seasonality mart) — surface an
+// honest notApplicable note instead of silently sending or dropping the filter.
+describe('trade producers thread the origin-UF (states) filter', () => {
+  // Origin kind drives applicability: COMEX origin = uf (filterable), COMTRADE =
+  // country (not). UF_DATA gives the 27-UF universe so a proper-subset selection
+  // counts as a genuine narrowing (all-selected default does not).
+  const stubRegistry = (w) => {
+    w.bancoDim = (id, dim) => {
+      const kind = id === 'mdic_comex' && dim === 'origin' ? 'uf' : 'country';
+      return { label: 'X', kind };
+    };
+    w.UF_DATA = Array.from({ length: 27 }, (_, i) => ({ uf: `U${i}` }));
+  };
+
+  it.each([
+    ['flowData', 'flow'],
+    ['partnerData', 'partners'],
+  ])('%s serializes states→states param for COMEX origin', async (fn, path) => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+    stubRegistry(w);
+
+    const data = w[fn]('mdic_comex', { states: ['PA', 'SP'] });
+    const url = urlOf(f);
+    expect(url).toContain(`/api/${path}`);
+    expect(url).toContain('states=PA%2CSP');
+    expect(data.notApplicable).toBeUndefined(); // COMEX honours it → no note
+  });
+
+  it('keys the resource by the states selection so a changed UF filter refetches', async () => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+    stubRegistry(w);
+
+    w.flowData('mdic_comex', { states: ['PA'] });
+    w.flowData('mdic_comex', { states: ['PA'] }); // same → cache hit
+    expect(f).toHaveBeenCalledTimes(1);
+    w.flowData('mdic_comex', { states: ['PA', 'SP'] }); // changed → refetch
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(urlOf(f, 1)).toContain('states=PA%2CSP');
+  });
+
+  it.each([
+    ['flowData', 'flow'],
+    ['partnerData', 'partners'],
+  ])('%s drops states + surfaces notApplicable for COMTRADE (country origin)', async (fn, path) => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+    stubRegistry(w);
+
+    const data = w[fn]('un_comtrade', { states: ['PA', 'SP'] });
+    const url = urlOf(f);
+    expect(url).toContain(`/api/${path}`);
+    expect(url).not.toContain('states='); // never sent to a grain that can't honour it
+    expect(data.notApplicable).toBeTruthy();
+    expect(data.notApplicable.states).toContain('UF');
+  });
+
+  it('monthlyData never sends states and flags it not-applicable when narrowed', async () => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+    stubRegistry(w);
+
+    // A proper-subset UF selection on the seasonality grain (no UF column).
+    const data = w.monthlyData('mdic_comex', { states: ['PA'] });
+    const url = urlOf(f);
+    expect(url).toContain('/api/monthly');
+    expect(url).not.toContain('states=');
+    expect(data.notApplicable).toBeTruthy();
+    expect(data.notApplicable.states).toContain('sazonalidade');
+  });
+
+  it('the all-UFs-selected default is not a narrowing → no note', async () => {
+    const f = vi.fn(() => jsonRes({}));
+    const w = await loadAll(f);
+    stubRegistry(w);
+
+    // states = all 27 (the FilterMenu default): not a genuine narrowing.
+    const allUfs = w.UF_DATA.map((u) => u.uf);
+    const data = w.flowData('un_comtrade', { states: allUfs });
+    expect(data.notApplicable).toBeUndefined();
   });
 });

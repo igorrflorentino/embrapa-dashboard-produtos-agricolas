@@ -16,6 +16,61 @@ import { ensure, get } from './resource';
 const API = '/api';
 const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
 
+// ── active-filter → query-param plumbing (contract map §1, "filter params") ────
+// The reused views pass the FilterMenu summary as the producers' last arg. These
+// helpers turn it into the SUBSET of params each producer's grain can honour:
+//   • basket    → `codes` (comma-joined product codes; absent = all)
+//   • startDate / endDate → `y0` / `y1` (year window; absent = full coverage)
+// A filter the producer's grain CANNOT apply (e.g. the FilterMenu product basket
+// on ViewProductivity, whose crop is chosen by the view's own selector) is never
+// silently dropped — the producer surfaces it via `notApplicable` so the view can
+// render an honest pt-BR note (mirrors the contract's `incompatible`/`preview`).
+const filterCodes = (summary) => {
+  const b = summary && summary.basket;
+  // null/undefined = "no product filter" (all); [] = "none selected". Join the
+  // codes so the cache key + URL change with the selection; '' means all.
+  return b == null ? undefined : b.join(',');
+};
+// Origin-UF (state) selection → the `states` param the COMEX trade readers honour.
+// Same null-vs-empty rule as the basket: null/undefined = "no UF filter" (all);
+// [] = "none selected" (sends `states=`, distinct from absent). The seam binds
+// these as an IN UNNEST predicate on state_acronym (COMEX origin only).
+const filterStates = (summary) => {
+  const s = summary && summary.states;
+  return s == null ? undefined : s.join(',');
+};
+const filterYear = (iso) => {
+  if (!iso) return undefined;
+  const y = parseInt(String(iso).slice(0, 4), 10);
+  return Number.isFinite(y) ? y : undefined;
+};
+// Cache-key signature for a filtered producer: identical filters → identical key
+// (cache hit); a changed window/basket/states → a NEW key so the gate refetches the
+// scoped data instead of serving the first-loaded (unfiltered) snapshot forever.
+const filterSig = (summary) => {
+  const codes = filterCodes(summary) ?? '*';
+  const states = filterStates(summary) ?? '*';
+  const y0 = filterYear(summary && summary.startDate) ?? '';
+  const y1 = filterYear(summary && summary.endDate) ?? '';
+  return `${codes}|${states}|${y0}|${y1}`;
+};
+// True when the active summary GENUINELY narrows the UF dimension — states present
+// and a proper subset of the full UF universe (window.UF_DATA), or explicitly
+// cleared ([]). The all-27-selected default (every UF checked) is NOT a narrowing,
+// so it does not trigger the note. Used to surface an honest "não se aplica" note
+// on the grains that cannot honour a UF filter (COMTRADE's country origin; the
+// UF-less seasonality mart) — never for the unfiltered default.
+const ufFilterActive = (summary) => {
+  const s = summary && summary.states;
+  if (s == null) return false; // dimension untouched (default = all)
+  const total = (window.UF_DATA || []).length;
+  return s.length === 0 || (total > 0 && s.length < total);
+};
+// Does this banco's flow/partner ORIGIN resolve to a Brazilian UF? COMEX origin is
+// a UF (state_acronym, filterable); COMTRADE origin is a reporter country (no UF).
+const bancoOriginIsUf = (bancoId) =>
+  !!(window.bancoDim && window.bancoDim(bancoId, 'origin').kind === 'uf');
+
 // pt-BR month labels — was defined in the synthetic previewData.js (not imported);
 // the seasonality view + MonthYearHeatmap read window.MONTH_LABELS.
 window.MONTH_LABELS = window.MONTH_LABELS || [
@@ -100,9 +155,20 @@ const crossAnalytic = (name, path, shell) =>
 // Loading shells use preview:false — the data IS real, just not arrived yet (so
 // no "demonstração" banner flashes). Empty arrays render empty charts until the
 // resource resolves and the gate re-renders with real data.
-window.exportCoefficient = crossAnalytic('export-coef', 'export-coef', {
+
+// Export coefficient feeds data.byUf straight into BrazilTileMap, which positions
+// each tile by col/row — coords the /api deliberately omits (the views own UF_DATA).
+// Like productivityData.byUF and snapshot.ufData, the rows MUST be decorated here
+// or every tile lands at undefined·64 = NaN and the 27-UF map renders blank. Wrap
+// the raw crossAnalytic producer so the decoration is applied to BOTH the resolved
+// payload and the loading shell (no-op on []), keeping the contract's `byUf` key.
+const _exportCoefRaw = crossAnalytic('export-coef', 'export-coef', {
   preview: false, unit: 'mil t', byUf: [], national: {}, timeseries: [],
 });
+window.exportCoefficient = function exportCoefficient(commodityId) {
+  const data = _exportCoefRaw(commodityId);
+  return { ...data, byUf: decorateUfRows(data.byUf) };
+};
 window.marketShare = crossAnalytic('market-share', 'market-share', {
   preview: false, unit: 'US$ bi', series: [], byProduct: [],
 });
@@ -143,9 +209,26 @@ window.marketNatureAnalysis = crossAnalytic('market-nature', 'market-nature', {
 // ── trade adapters (flow / partner / monthly) — resource-backed, COMEX/COMTRADE ─
 // The banco's dimension labels (originLabel/destLabel/flowLabel) come from the
 // registry (bancoDim) client-side; the API supplies the data.
-window.flowData = function flowData(bancoId) {
-  const key = `trade:flow:${bancoId}`;
-  ensure(key, () => `${API}/flow?${qs({ banco: bancoId })}`);
+// The origin-UF (`states`) filter narrows the COMEX flow/partner readers; for a
+// country-origin banco (COMTRADE) it cannot apply, so the producer drops the param
+// and surfaces an honest `notApplicable.states` note (mirrors productivityData's
+// basket handling) instead of sending a filter the grain would ignore.
+const ufNote = (bancoId, summary, applies) =>
+  ufFilterActive(summary) && !applies
+    ? { states: 'O filtro de UF de origem não se aplica a este banco — a origem é um país, não uma UF.' }
+    : undefined;
+
+window.flowData = function flowData(bancoId, summary) {
+  const codes = filterCodes(summary);
+  const y0 = filterYear(summary && summary.startDate);
+  const y1 = filterYear(summary && summary.endDate);
+  const applies = bancoOriginIsUf(bancoId);
+  // Only send the UF filter where the origin is a Brazilian UF (COMEX); for a
+  // country origin it is not-applicable, so omit it (and note it below).
+  const states = applies ? filterStates(summary) : undefined;
+  const notApplicable = ufNote(bancoId, summary, applies);
+  const key = `trade:flow:${bancoId}:${filterSig(summary)}`;
+  ensure(key, () => `${API}/flow?${qs({ banco: bancoId, codes, states, y0, y1 })}`);
   const data = get(key);
   const dim = (d) => (window.bancoDim ? window.bancoDim(bancoId, d) : {});
   const labels = {
@@ -153,45 +236,78 @@ window.flowData = function flowData(bancoId) {
     destLabel: dim('dest').label || 'Destino',
   };
   return data
-    ? { ...data, ...labels }
-    : { preview: false, unit: 'US$', ...labels, nodes: [], links: [] };
+    ? { ...data, ...labels, notApplicable }
+    : { preview: false, unit: 'US$', ...labels, notApplicable, nodes: [], links: [] };
 };
-window.partnerData = function partnerData(bancoId) {
-  const key = `trade:partners:${bancoId}`;
-  ensure(key, () => `${API}/partners?${qs({ banco: bancoId })}`);
+window.partnerData = function partnerData(bancoId, summary) {
+  const codes = filterCodes(summary);
+  const y0 = filterYear(summary && summary.startDate);
+  const y1 = filterYear(summary && summary.endDate);
+  const applies = bancoOriginIsUf(bancoId);
+  const states = applies ? filterStates(summary) : undefined;
+  const notApplicable = ufNote(bancoId, summary, applies);
+  const key = `trade:partners:${bancoId}:${filterSig(summary)}`;
+  ensure(key, () => `${API}/partners?${qs({ banco: bancoId, codes, states, y0, y1 })}`);
   const data = get(key);
   const flowLabel = (window.bancoDim && window.bancoDim(bancoId, 'partner').label) || 'Parceiro';
-  return data ? { ...data, flowLabel } : { preview: false, flowLabel, unit: 'US$', partners: [] };
+  return data
+    ? { ...data, flowLabel, notApplicable }
+    : { preview: false, flowLabel, unit: 'US$', notApplicable, partners: [] };
 };
-window.monthlyData = function monthlyData(bancoId) {
-  const key = `trade:monthly:${bancoId}`;
-  ensure(key, () => `${API}/monthly?${qs({ banco: bancoId })}`);
-  return (
-    get(key) || {
-      preview: false,
-      unit: 'US$',
-      years: [],
-      months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-      matrix: {},
-      // 12 zeros (not []) so the view's peak/low/amplitude math survives the
-      // loading render; real values replace it when the fetch resolves.
-      monthlyAvg: new Array(12).fill(0),
-      series: [],
-    }
-  );
+window.monthlyData = function monthlyData(bancoId, summary) {
+  const codes = filterCodes(summary);
+  const y0 = filterYear(summary && summary.startDate);
+  const y1 = filterYear(summary && summary.endDate);
+  // The seasonality mart collapses UF away (grain = year × month × flow × NCM), so
+  // the UF (`states`) filter cannot narrow it on any banco — never send it, and
+  // surface an honest note when one is active (mirrors flow/partner above).
+  const notApplicable = ufFilterActive(summary)
+    ? { states: 'O filtro de UF de origem não se aplica à sazonalidade — o recorte mensal soma todas as UFs.' }
+    : undefined;
+  const key = `trade:monthly:${bancoId}:${filterSig(summary)}`;
+  ensure(key, () => `${API}/monthly?${qs({ banco: bancoId, codes, y0, y1 })}`);
+  const data = get(key);
+  return data
+    ? { ...data, notApplicable }
+    : {
+        preview: false,
+        unit: 'US$',
+        notApplicable,
+        years: [],
+        months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        matrix: {},
+        // 12 zeros (not []) so the view's peak/low/amplitude math survives the
+        // loading render; real values replace it when the fetch resolves.
+        monthlyAvg: new Array(12).fill(0),
+        series: [],
+      };
 };
 // PAM área × rendimento (backs ViewProductivity). Resource-backed: fetches the
 // real /api/productivity (production ÷ harvested area → yield kg/ha, server-side)
 // for the selected crop. The router only renders this view for a yield-capable
 // banco (IBGE PAM), so the empty shell below is just the brief loading frame —
 // the view renders empty charts until the resource resolves with real data.
-window.productivityData = function productivityData(bancoId, crop) {
-  const key = `productivity:${bancoId}:${crop || 'default'}`;
-  ensure(key, () => `${API}/productivity?${qs({ banco: bancoId, crop: crop || undefined })}`);
+window.productivityData = function productivityData(bancoId, crop, summary) {
+  // Period (year window) scopes the yield/area series + the latest-year geography.
+  // The FilterMenu product BASKET does NOT apply here: this view picks its own crop
+  // (the chip selector above), so a basket selection cannot narrow it — surface
+  // that honestly via `notApplicable` instead of silently ignoring it.
+  const y0 = filterYear(summary && summary.startDate);
+  const y1 = filterYear(summary && summary.endDate);
+  const basketActive = !!(summary && summary.basket != null);
+  const notApplicable = basketActive
+    ? { basket: 'A cesta de produtos não se aplica aqui — escolha a lavoura no seletor acima.' }
+    : undefined;
+  const key = `productivity:${bancoId}:${crop || 'default'}:${y0 ?? ''}|${y1 ?? ''}`;
+  ensure(
+    key,
+    () => `${API}/productivity?${qs({ banco: bancoId, crop: crop || undefined, y0, y1 })}`,
+  );
   const data = get(key);
   if (!data) {
     return {
       preview: false,
+      notApplicable,
       crop: { code: '', name: '' },
       crops: [],
       yieldUnit: 'kg/ha',
@@ -203,5 +319,5 @@ window.productivityData = function productivityData(bancoId, crop) {
   }
   // The per-UF tile map needs col/row tile coords the /api omits — decorate from
   // the UF_DATA registry, exactly like the snapshot's ufData (decorate.js).
-  return { ...data, byUF: decorateUfRows(data.byUF) };
+  return { ...data, notApplicable, byUF: decorateUfRows(data.byUF) };
 };

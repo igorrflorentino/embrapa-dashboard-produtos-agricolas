@@ -88,10 +88,15 @@ function ViewProductProfile({ families, summary, database, conventions }) {
     series.forEach(d => { totalByYear[d.y] = (totalByYear[d.y] || 0) + d.v; });
   });
 
-  // Build display series
+  // Implicit price = value ÷ quantity, both in their displayed unit. The quantity
+  // series uses the family-aware qtyMul (mass q is in mil t → ×1e3 t; volume q is
+  // in mi m³ → ×1e6 m³), so the price MUST divide by the SAME d.q * qtyMul. The
+  // old code hardcoded d.q * 1e3 for both families — correct only for mass; for
+  // volume products (madeira, lenha — PEVS's largest) it left native_m³/1e3,
+  // inflating the displayed R$/m³ (or US$/m³) by 1000×.
   const valueSeries = win.map(d => ({ y: d.y, v: d.v * 1e6 * cvf }));      // absolute currency
   const qtySeries   = win.map(d => ({ y: d.y, q: d.q * qtyMul }));                   // native unit (×mul)
-  const priceSeries = win.map(d => ({ y: d.y, v: (d.v * 1e6 * cvf) / (d.q * 1e3) })); // moeda/unidade
+  const priceSeries = win.map(d => ({ y: d.y, v: (d.q * qtyMul) ? (d.v * 1e6 * cvf) / (d.q * qtyMul) : 0 })); // moeda/unidade
   const shareSeries = win.map(d => ({ y: d.y, v: totalByYear[d.y] ? (d.v / totalByYear[d.y]) * 100 : 0 }));
 
   const last = win[win.length - 1] || { v: 0, q: 0 };
@@ -99,7 +104,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
   const lastValAbs = last.v * 1e6 * cvf;
   const prevValAbs = prev.v * 1e6 * cvf;
   const deltaV = prevValAbs ? ((lastValAbs - prevValAbs) / prevValAbs) * 100 : 0;
-  const lastPrice = (last.v * 1e6 * cvf) / (last.q * 1e3);
+  const lastPrice = (last.q * qtyMul) ? (last.v * 1e6 * cvf) / (last.q * qtyMul) : 0;
   const lastShare = totalByYear[last.y] ? (last.v / totalByYear[last.y]) * 100 : 0;
 
   // Top-10 producing UFs from the REAL per-UF ranking (already in the active

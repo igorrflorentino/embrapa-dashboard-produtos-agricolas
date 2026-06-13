@@ -31,8 +31,10 @@ function MetricConventions({ value, onChange, families }) {
         {options.map(o => (
           <button key={o.id}
                   type="button"
-                  className={'seg-opt ' + (active === o.id ? 'on' : '')}
-                  onClick={() => onPick(o.id)}>
+                  disabled={o.disabled}
+                  title={o.disabled ? o.disabledReason : undefined}
+                  className={'seg-opt ' + (active === o.id ? 'on' : '') + (o.disabled ? ' disabled' : '')}
+                  onClick={() => !o.disabled && onPick(o.id)}>
             <span className={mono ? 'tnum' : ''}>{o.id}</span>
             {o.sub && <small>{o.sub}</small>}
           </button>
@@ -40,6 +42,21 @@ function MetricConventions({ value, onChange, families }) {
       </div>
     </div>
   );
+
+  // The Gold/serving marts carry the full currency × correction matrix EXCEPT the
+  // IGP-M/IGP-DI × USD combos (no val_real_{igpm,igpdi}_usd is reachable through the
+  // serving allowlist — only BRL and EUR). Disable exactly those so the strip can
+  // never request a US$ figure the BFF would silently serve as a real R$ value under
+  // a US$ symbol (wrong-symbol display). EUR keeps both — its deflated columns exist.
+  const isUnservedCombo = (currency, corr) =>
+    currency === 'USD' && (corr === 'IGP-M' || corr === 'IGP-DI');
+  const UNSERVED_REASON =
+    'Indisponível para US$ — não há coluna deflacionada por este índice em dólar (use R$/€ ou IPCA).';
+  // Picking a currency must not leave an unservable correction active: switching to
+  // US$ while IGP-M/IGP-DI is selected snaps the correction back to IPCA in the SAME
+  // update, so the request never carries the wrong-symbol combo (no render-time set).
+  // Reuses window.clampConvention so the strip and the deep-link decoder share one rule.
+  const setCurrency = (id) => onChange(window.clampConvention({ ...value, currency: id }));
 
   return (
     <div className="mc-bar">
@@ -67,7 +84,7 @@ function MetricConventions({ value, onChange, families }) {
             { id: 'EUR', sub: '€'   },
           ]}
           active={value.currency}
-          onPick={(id) => set({ currency: id })}
+          onPick={setCurrency}
         />
 
         <Group
@@ -75,8 +92,8 @@ function MetricConventions({ value, onChange, families }) {
           options={[
             { id: 'Nominal', sub: 'sem corr.' },
             { id: 'IPCA',    sub: 'IBGE' },
-            { id: 'IGP-M',   sub: 'FGV'  },
-            { id: 'IGP-DI',  sub: 'FGV'  },
+            { id: 'IGP-M',   sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-M'), disabledReason: UNSERVED_REASON },
+            { id: 'IGP-DI',  sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-DI'), disabledReason: UNSERVED_REASON },
           ]}
           active={value.correction}
           onPick={(id) => set({ correction: id })}
@@ -107,6 +124,18 @@ window.DEFAULT_CONVENTIONS = {
   units:      { mass: 't', volume: 'm³' },
   autoScale:  false,
 };
+
+// The single source of truth for the unservable currency × correction combos:
+// IGP-M / IGP-DI deflation has no US$ column in the serving marts (only BRL/EUR), so
+// requesting it would surface a real R$ figure under a US$ symbol. The strip disables
+// these, and the deep-link decoder (main.jsx) clamps them — a bookmarked
+// ?cur=USD&corr=IGP-M must not slip past the UI gate. Returns a SERVABLE convention.
+window.clampConvention = (conv) => {
+  if (conv && conv.currency === 'USD' && (conv.correction === 'IGP-M' || conv.correction === 'IGP-DI')) {
+    return { ...conv, correction: 'IPCA' };
+  }
+  return conv;
+};
 // Display unit chosen for a family (falls back to the registry default).
 window.unitOf = (conv, fam) => (conv && conv.units && conv.units[fam]) || window.defaultUnitOf(fam);
 
@@ -134,15 +163,17 @@ function _fmtRescaled(v, conv, unitSuffix) {
   return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' ' + unitSuffix;
 }
 
-// Currency display symbols + BRL-pivot FX rates. The rates are NOT used by the
-// BRL-native path (convFactor: BRL/USD/EUR are server-native real Gold columns →
-// factor 1); they ARE still used by convFactorFor to cross-convert a USD-NATIVE
-// trade banco (COMEX/Comtrade) to a non-default display currency (the
-// cross-contract #5 base-aware path).
+// Currency display SYMBOLS (R$ / US$ / €). This is a label table ONLY — there is
+// deliberately NO numeric FX rate here. Every live banco (PEVS/PAM production AND
+// COMEX/Comtrade trade) now serves its snapshot value IN the requested currency
+// SERVER-side, at the REAL year-FX / deflated Gold columns (val_*_brl / val_*_usd /
+// val_*_eur, real BCB PTAX). So no client-side conversion of real data exists — the
+// old frozen mock rates (USD 0.205 / EUR 0.187) used to cross-convert a USD-native
+// trade banco were a wrong-number path on explicit BRL/EUR selection and are gone.
 window.CURRENCY_FX = {
-  BRL: { rate: 1,     symbol: 'R$',  long: 'Real'  },
-  USD: { rate: 0.205, symbol: 'US$', long: 'Dólar' },
-  EUR: { rate: 0.187, symbol: '€',   long: 'Euro'  },
+  BRL: { symbol: 'R$', long: 'Real'  },
+  USD: { symbol: 'US$', long: 'Dólar' },
+  EUR: { symbol: '€',   long: 'Euro'  },
 };
 
 // Mock nominal-deflation factor: when Nominal correction is picked we
@@ -155,51 +186,26 @@ window.CORRECTION_FACTOR = {
   Nominal: 0.22,  // illustrative — shrinks 2024 real values back to ~nominal
 };
 
-// Multiplicative display factor for a *value* (correction factor × display FX
-// rate). Stored values are BRL-CANONICAL: PEVS/SEFAZ are already in R$, and
-// the COMEX/Comtrade snapshots store BRL-EQUIVALENT figures (USD ÷ USD-rate,
-// see previewData.js) on purpose — so this single BRL-based factor renders the
-// real US$ amounts once changeDatabase defaults their display currency to USD.
-// Every manual value-scaling site (views building chart series by hand) MUST
-// use this so they agree with applyConv / formatValue.
-window.convFactor = (conv) => {
-  // REACT MIGRATION: currency × correction now select the REAL deflated value
-  // column SERVER-side (val_real_{ipca,igpm,igpdi}_brl, val_yearfx_* for Nominal,
-  // *_usd for USD) — the scientific core — instead of this flat client multiplier.
-  // So: correction is fully server-applied (factor 1); BRL/USD AND EUR are now
-  // server-native columns (val_*_brl / val_*_usd / val_*_eur — the serving marts
-  // carry real BCB PTAX EUR), so all three are factor 1 (a EUR snapshot is already
-  // EUR-valued and must NOT be re-multiplied). The FX fallback below is now
-  // defensive only — no selectable currency
-  // hits it. (Edge: USD + IGP-M/IGP-DI has no _usd column → BFF falls back to BRL;
-  // the value_label flags "moeda indisponível → R$".)
-  const serverNative =
-    conv.currency === 'BRL' || conv.currency === 'USD' || conv.currency === 'EUR';
-  return serverNative ? 1 : (window.CURRENCY_FX[conv.currency] || { rate: 1 }).rate;
-};
+// Multiplicative display factor for a server-backed *value*. ALWAYS 1: currency ×
+// correction now select the REAL deflated value column SERVER-side
+// (val_real_{ipca,igpm,igpdi}_{brl,usd,eur}, val_yearfx_{brl,usd,eur} for Nominal —
+// the scientific core, real BCB PTAX), so the snapshot value already ARRIVES in the
+// requested currency for EVERY live banco (production AND trade). There is no client
+// multiplier left; this helper exists so the manual value-scaling sites (views
+// building chart series by hand) read a single factor that agrees with applyConv /
+// formatValue. (Edge: USD + IGP-M/IGP-DI has no _usd column → the BFF falls back to
+// the real BRL column and the value_label flags "moeda indisponível → R$"; the
+// figure is still real, never a mock conversion.)
+window.convFactor = (_conv) => 1;
 
-// Base-aware value multiplier — for a value stored in a banco's OWN base
-// currency (bancos.js `baseCurrency`), returns the multiplier that converts it
-// to the active display currency. The plain convFactor above assumes every value
-// is BRL-canonical; that holds for PEVS/SEFAZ (base=BRL) and for the synthetic
-// snapshots (previewData.js stores BRL-equivalent on purpose). It does NOT hold
-// for the live API path of a USD-native trade banco (COMEX/Comtrade), whose
-// ufData arrives in US$: there convFactor('USD')=1 is correct only at the default
-// USD display — switching to R$ (convFactor('BRL')=1) would leave a US$ magnitude
-// under R$. This helper closes that gap WITHOUT changing the BRL-base path:
-//   • base=BRL → delegates to convFactor verbatim (PEVS/SEFAZ unchanged, every
-//     currency, default and not — server-native BRL/USD stay factor 1).
-//   • base=foreign (USD) → identity when display==base (default view unchanged),
-//     else the base→display cross-rate via the BRL-pivot CURRENCY_FX rates.
-window.convFactorFor = (base, conv) => {
-  base = base || 'BRL';
-  if (base === 'BRL') return window.convFactor(conv);     // BRL-canonical path, untouched
-  if (conv.currency === base) return 1;                   // default display → identity
-  const fx = window.CURRENCY_FX;
-  const rDisp = (fx[conv.currency] || { rate: 1 }).rate;
-  const rBase = (fx[base] || { rate: 1 }).rate || 1;
-  return rDisp / rBase;                                   // base → display via BRL pivot
-};
+// Base-aware value multiplier — kept for the views that call it (ViewGeography /
+// ViewOverview UF map) so their call sites need no change. It is now ALWAYS 1: a
+// trade banco's snapshot (ufData/overview) no longer arrives in a fixed US$ that the
+// client must cross-convert — the BFF serves it IN the requested display currency
+// (the real BRL/USD/EUR Gold column). Cross-converting again via a frozen mock rate
+// was the wrong-number bug on explicit BRL/EUR selection; that path is removed. The
+// `base` arg is ignored on purpose — server-native values need no base→display rate.
+window.convFactorFor = (_base, conv) => window.convFactor(conv);
 
 // Convert a BRL-canonical value through the active currency + correction.
 window.applyConv = (val, conv) => {

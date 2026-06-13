@@ -15,7 +15,8 @@
 //   }
 //
 // Output: { ts, productTS, ufData, regionData, topMunis, topProducts,
-//           qualityFlags, qualityTs, selectedProducts, yearStart, yearEnd, _shares }
+//           qualityFlags, qualityTs, selectedProducts, yearStart, yearEnd,
+//           notFilteredByBasket, _shares }
 
 (function () {
   const yearOf = (iso) => iso ? parseInt(iso.slice(0, 4), 10) : null;
@@ -113,21 +114,67 @@
       productTS[code] = series.filter(d => d.y >= yearStart && d.y <= yearEnd);
     });
 
-    // ── UF / region / municipio data — restrict by state filter & basket ──
-    // Selected-product share scales the absolute totals so a basket of
-    // 2 products doesn't keep the full 12-product UF total.
-    const productShare = allProducts.length ? (selectedProducts.length / allProducts.length) : 0;
-
+    // ── UF / region / municipio data — restrict by state filter only ──────
+    // The per-UF snapshot rows carry the banco's FULL (all-products) total per
+    // state — there is no per-product × UF grain in the snapshot. We therefore
+    // CANNOT narrow them to a product basket here. The old code faked it by
+    // scaling every UF uniformly by productShare = selected/all (e.g. picking 2
+    // of 12 products kept 17% of EVERY state's total, regardless of where those
+    // products are actually produced) — fabricated geography presented as real.
+    // We now serve the REAL state totals unchanged and expose
+    // `notFilteredByBasket` so the geo views can render an honest pt-BR note that
+    // a product basket does not narrow the territorial split (the real per-
+    // product × UF breakdown lives behind /api/product-uf, used by the product
+    // profile view). State filtering is exact and stays applied.
+    const hasGeoData = UF_DATA_T.length > 0;
+    const notFilteredByBasket =
+      hasGeoData && summary.basket != null && selectedProducts.length < allProducts.length;
     const ufData = UF_DATA_T
       .filter(u => !stateSet || stateSet.has(u.uf))
-      .map(u => ({
-        ...u,
-        value:  u.value  * productShare,
-        q_mass: u.q_mass * productShare,
-        q_vol:  (u.q_vol || 0) * productShare,
-      }));
+      .map(u => ({ ...u }));
 
-    // region totals derived from ufData (so they reflect basket + state filter)
+    // The per-UF snapshot (ufData) is SQL-scoped to max(reference_year) WITHIN the
+    // window (latest_year_only), NOT to yearEnd. If the researcher's endDate runs
+    // past the last year that actually has UF rows (e.g. a future year, or a partial
+    // trade year still being ingested), the map's DATA year and `yearEnd` diverge —
+    // so a map labelled with `yearEnd` would lie. We derive the map's true year from
+    // the data itself: the max reference_year present in ufYearly inside the window.
+    // ufYearly is the per-(UF, year) Gold history (serializers._uf_yearly); it shares
+    // ufData's exact year scope, so its in-window max IS the choropleth's year. Falls
+    // back to yearEnd when ufYearly is absent (synthetic snapshots / older payloads).
+    const ufYearly = Array.isArray(snap.ufYearly) ? snap.ufYearly : [];
+    const ufYearsInWindow = ufYearly
+      .map(r => r.year)
+      .filter(y => typeof y === 'number' && y >= yearStart && y <= yearEnd);
+    const ufLatestYear = ufYearsInWindow.length ? Math.max(...ufYearsInWindow) : yearEnd;
+    // The map year is "partial" when it falls SHORT of the requested window end —
+    // the researcher asked through yearEnd but the latest UF data stops earlier
+    // (newer year not yet in Gold, or an in-progress year). Lets the geo views annotate
+    // the choropleth/tile map honestly instead of mislabelling it with yearEnd.
+    const ufYearPartial = hasGeoData && ufLatestYear < yearEnd;
+
+    // The "UFs cobertas" denominator (ViewOverview/MainScreen) must be the banco's
+    // ALL-TIME UF universe, not just the latest year's UFs. ufData is latest-year-
+    // scoped (see above), so using it as the denominator would, on a SPARSE trade
+    // year (fewer states reporting), under-count the universe. ufYearly spans every
+    // covered year, so its distinct UF set IS the all-time universe — first row per
+    // UF carries name/region/real for the real-UF tally. Fall back to the latest-year
+    // ufData when ufYearly is absent (synthetic / older payloads). Counts are capped
+    // at 27 downstream, so this only ever CORRECTS an under-count, never inflates.
+    const ufUniverse = (() => {
+      if (!ufYearly.length) return UF_DATA_T;
+      const seen = new Map();
+      ufYearly.forEach(r => { if (!seen.has(r.uf)) seen.set(r.uf, r); });
+      return Array.from(seen.values());
+    })();
+
+    // productShare is NO LONGER used to scale displayed UF/region/heatmap values
+    // (that fabricated geography — see above). It survives only as an ESTIMATED
+    // multiplier for the hero "Linhas" provenance counter (MainScreen), where an
+    // approximate row count is acceptable and clearly labelled as a selection size.
+    const productShare = allProducts.length ? (selectedProducts.length / allProducts.length) : 0;
+
+    // region totals derived from the REAL (state-filtered) ufData
     const regionData = REGIONS_T.map(r => {
       const ufs = ufData.filter(u => u.region === r.id);
       return {
@@ -215,14 +262,28 @@
       ts, productTS, ufData, regionData, topMunis, topProducts,
       qualityFlags, qualityTs, selectedProducts,
       yearStart, yearEnd,
+      // The choropleth/tile map's TRUE data year (max UF year within the window),
+      // and whether it stops short of the requested yearEnd. The geo views label the
+      // map with `ufLatestYear` (not `yearEnd`) and annotate `ufYearPartial` so the
+      // year shown always matches the data plotted (FINDING #1).
+      ufLatestYear, ufYearPartial,
       // Banco-aware metadata so product/quality views read the ACTIVE banco's
       // dimensions instead of reaching into the PEVS globals (window.PRODUCTS …):
       products:        PRODUCTS_T,                 // active banco product list
       productsTotal:   allProducts.length,
       allProductTS:    PRODUCT_TS_T,               // full (unfiltered) per-product series
-      ufDataFull:      UF_DATA_T,                  // full (unfiltered) UF list ([] if no geo)
+      // The banco's ALL-TIME UF universe (distinct UFs across every covered year),
+      // not just the latest year's — so the "UFs cobertas" denominator never under-
+      // counts on a sparse trade year. Falls back to the latest-year UF list when
+      // ufYearly is absent. [] when the banco has no geography.
+      ufDataFull:      ufUniverse,
       qualityByProduct: snap.qualityByProduct || [],
       qualityByUf:     snap.qualityByUf || [],
+      // Honest flag for the geo views: true when a product basket is active but
+      // the per-UF/region/heatmap totals are NOT narrowed by it (no per-product ×
+      // UF grain in the snapshot). The views render a pt-BR note instead of
+      // silently showing all-products territorial figures under a basket chip.
+      notFilteredByBasket,
       _shares: { productShare, valueShare, flagShare, yearShare, stateShare },
     };
   };

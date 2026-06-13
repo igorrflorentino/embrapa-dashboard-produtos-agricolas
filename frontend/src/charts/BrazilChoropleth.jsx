@@ -122,12 +122,28 @@ export function BrazilChoropleth({ data, valueKey, label, height = 360 }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-paint when the data / metric changes (no map rebuild).
+  // Re-paint when the data / metric changes (no map rebuild). Guarded so it is a
+  // no-op until the map AND its style/layer exist (the data-effect can fire on the
+  // first render, before the async map.on('load') has added 'uf-fill'), and so a
+  // malformed paint expression degrades to the no-data fill instead of throwing
+  // "Cannot read properties of undefined (reading 'length')" up to the view and
+  // blanking the choropleth without the WebGL fallback (FINDING #5).
   function paint() {
     const map = mapRef.current;
-    if (!map || !map.getLayer || !map.getLayer('uf-fill')) return;
-    const { byUf } = ufColorScale(data, valueKey);
-    map.setPaintProperty('uf-fill', 'fill-color', fillColorExpression(byUf));
+    if (!map || typeof map.getLayer !== 'function') return;
+    if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) return;
+    if (!map.getLayer('uf-fill')) return;
+    try {
+      const { byUf } = ufColorScale(data, valueKey);
+      map.setPaintProperty('uf-fill', 'fill-color', fillColorExpression(byUf));
+    } catch (err) {
+      console.error('[choropleth] paint failed; falling back to no-data fill:', err);
+      try {
+        map.setPaintProperty('uf-fill', 'fill-color', NODATA);
+      } catch {
+        /* best effort — the style may be unusable; leave the existing fill */
+      }
+    }
   }
   useEffect(() => {
     paint();

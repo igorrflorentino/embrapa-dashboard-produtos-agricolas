@@ -84,13 +84,15 @@ def extract(
     """Fetch every configured series, tag it, and project the Bronze columns.
 
     In delta mode an empty fetch means "nothing new" → returns an empty frame.
-    In full mode an empty fetch is a real failure → raises.
+    In full mode an empty fetch for ANY configured series is a real failure →
+    raises, naming every empty series (not just when all of them are empty).
     """
     series_map = spec.series_map(settings)
     if not series_map:
         raise RuntimeError(f"{spec.config_env} is empty.")
 
     frames: list[pd.DataFrame] = []
+    empty_series: list[str] = []
     for code, label in series_map.items():
         start = (
             settings.bcb_start_year
@@ -107,17 +109,28 @@ def extract(
         )
         df = fetch_series(code, start, settings.bcb_end_year)
         if df.empty:
+            empty_series.append(f"{code}:{label}")
             continue
         df = df.rename(columns={"data": "reference_date_str", "valor": "value_str"})
         df["series_code"] = code
         df[spec.label_column] = label
         frames.append(df[["series_code", spec.label_column, "reference_date_str", "value_str"]])
+    if full and empty_series:
+        # A full fetch asked for the entire configured window, so an empty
+        # series means a misconfigured (typo'd) or discontinued code — a bad
+        # code 404s and is mapped to empty by the client. Silently skipping it
+        # would report success while the series stays permanently absent from
+        # Bronze (its Gold columns NULL with no error anywhere), so fail loudly
+        # naming every offender — even when other series returned data.
+        raise RuntimeError(
+            f"BCB returned no {spec.kind} data for series {', '.join(empty_series)} "
+            f"over the configured window {settings.bcb_start_year}-{settings.bcb_end_year}. "
+            f"Check {spec.config_env} for typo'd or discontinued codes."
+        )
     if not frames:
         # In delta mode, an empty fetch just means "nothing new" — not an error.
-        if not full:
-            logger.info("BCB %s: no new rows since last ingest.", spec.kind)
-            return pd.DataFrame()
-        raise RuntimeError(f"BCB returned no {spec.kind} data for the configured window.")
+        logger.info("BCB %s: no new rows since last ingest.", spec.kind)
+        return pd.DataFrame()
     # Verbatim: no ingestion_timestamp here — that is a Bronze concept stamped in
     # Phase 2, so the raw archive holds exactly what the SGS API returned.
     return pd.concat(frames, ignore_index=True)

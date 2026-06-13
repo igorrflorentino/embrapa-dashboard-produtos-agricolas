@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+### Fixed
+- **Full codebase audit + live visual inspection: 117 confirmed defects resolved.**
+  A two-phase audit (automated metrics + an adversarially-verified manual sweep)
+  found **106 issues, all fixed** — including the three once-deferred items: the
+  commodity-level curation dead-code removal, the UF/state filter wired into the
+  trade flow/partner readers, and **real year-FX BRL/EUR for trade bancos**
+  (retiring the frontend mock-FX rates; trade values now come from the Gold
+  columns). A subsequent **live dashboard inspection** found and fixed **11 more
+  UI/data issues**, most notably: the Overview/Geografia **per-UF map showed an
+  all-years cumulative mislabeled as the latest year** (the per-UF readers now
+  scope to the latest year, matching the national KPI and the `ano × UF` heatmap);
+  a **misleading year-over-year on an incomplete latest year** (now anchored on
+  the last complete year, with the partial year marked "(parcial)" on the series,
+  composition donut and map — the backend exposes `monthsInLatestYear` /
+  `latestYearComplete` / `latestCompleteYear` on `/source-meta`); **"UFs cobertas"
+  counted COMEX pseudo-origin codes** (ND/EX/ZN…) against the 27 real states
+  (ufData rows now carry a `real` flag); stale filter-summary chips; a duplicate
+  `/source-meta` fetch; and the Saúde "saudáveis" denominators. Also corrected:
+  the dbt 1994 `val_yearfx_*` CR$/R$ changeover, the append-only Comtrade
+  `cpc_value` dedup, the quality-flag taxonomy (real Gold flags), the implicit
+  price for volume-family products (1000× overstatement), and COMEX/COMTRADE mass
+  quantities (kg summed and scaled as tonnes). Decomposed all radon grade-C
+  functions and added ~210 tests (Python 497→701, frontend 47→103); full suite
+  green. Detailed report: `PLANS/codebase_audit_2026-06-12.md`.
+  > Open item needing a real-browser check: the Geografia maplibre choropleth
+  > ("Mapa" mode) could not be verified in the headless preview (the "Blocos" SVG
+  > map works); the data path was hardened defensively.
+
 ### Removed
 - **Chinese Yuan (CNY) dropped entirely.** The dashboard now offers only BRL, USD and EUR. Removed the external-FX path that sourced BRL/CNY (the `extfx_cny_brl` seed, `silver_extfx_currency`, and `scripts/refresh_cny_seed.py`) and dropped the `val_yearfx_cny` / `val_real_ipca_cny` / `val_real_igpm_cny` / `val_real_igpdi_cny` columns from every Gold fact (`gold_pevs_production`, `gold_pam_production`, `gold_comex_flows`, `gold_comtrade_flows`). Requires a `dbt build --full-refresh` to physically drop the columns; Looker Studio reports bound to the CNY metrics must unbind them (see `docs/looker_studio_setup.md`). China-the-country trade flows (COMEX/COMTRADE partner geography) are unaffected.
 
