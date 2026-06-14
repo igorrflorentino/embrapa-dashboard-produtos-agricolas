@@ -1010,8 +1010,8 @@ def test_source_meta_override_flips_maturity_and_coverage(monkeypatch):
         lambda banco_id: pd.DataFrame(
             [
                 {
-                    "maturity": "estavel",
-                    "maturity_note": "Cobertura completa.",
+                    "maturity": "manutencao",  # differs from the estavel registry default
+                    "maturity_note": "Em correção.",
                     "maturity_date": None,  # NULL → stripped → registry default stands
                     "cobertura_years": "1997 → presente",
                     "cobertura_atualizacao": None,
@@ -1021,11 +1021,10 @@ def test_source_meta_override_flips_maturity_and_coverage(monkeypatch):
         ),
     )
     meta = seam.source_meta("un_comtrade")
-    assert meta["maturity"] == "estavel"  # overridden (registry default = beta)
-    assert meta["maturity_note"] == "Cobertura completa."
-    assert meta["maturity_date"] is not None  # NULL override → registry default kept
+    assert meta["maturity"] == "manutencao"  # override beats the registry default (estavel)
+    assert meta["maturity_note"] == "Em correção."
     assert meta["cobertura"]["years"] == "1997 → presente"  # overridden field
-    assert meta["cobertura"]["granularidade"]  # un-overridden field kept from registry
+    assert meta["cobertura"]["granularidade"]  # NULL override → registry default kept
 
 
 def test_source_meta_override_table_absent_uses_registry(monkeypatch):
@@ -1044,7 +1043,7 @@ def test_source_meta_override_table_absent_uses_registry(monkeypatch):
 
     monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", _raise)
     meta = seam.source_meta("un_comtrade")
-    assert meta["maturity"] == "beta"  # un_comtrade registry default
+    assert meta["maturity"] == "estavel"  # un_comtrade registry default (now stable)
 
 
 def test_product_uf_ranking_pevs_and_comex(monkeypatch):

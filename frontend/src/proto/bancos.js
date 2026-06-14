@@ -153,11 +153,11 @@ window.BANCOS = [
     source: 'IBGE',
     table:  'gold_pam_production',
     // Beta: live first cut — 5 principais lavouras (soja, milho, café, cana,
-    // arroz) a partir de 2010, com QUANTIDADE e VALOR da produção. Renderiza as
-    // perspectivas de produção/geo/qualidade com banner de cobertura parcial.
-    maturity: 'beta',
-    maturityNote: 'Primeira fração: 5 principais lavouras a partir de 2010, com quantidade, valor, área e rendimento (a produtividade já está no painel). Demais lavouras e o histórico completo na sequência.',
-    maturityDate: '1º trimestre/2027',
+    // Estável: histórico completo (1974+), 8 lavouras (incl. banana, mandioca,
+    // açaí) com quantidade, valor, área e rendimento (produtividade no painel).
+    maturity: 'estavel',
+    maturityNote: null,
+    maturityDate: null,
     // LEAN surface: product + geography + quality + yield. The PEVS-shaped views
     // AND the PAM-only Produtividade (área × rendimento) view are wired end-to-end:
     // gold_pam_production carries area_planted/harvested_ha + production, surfaced
@@ -199,8 +199,8 @@ window.BANCOS = [
       { col: 'valor_producao',               desc: 'Valor da produção (R$) — disponível.' },
     ],
     cobertura: {
-      years:      '2010 → presente',
-      atualizacao:'anual (atualização manual)',
+      years:      '1974 → presente',
+      atualizacao:'anual (atualização mensal automática)',
       granularidade: 'lavoura × município × ano',
     },
   },
@@ -269,15 +269,13 @@ window.BANCOS = [
     scope:  'País → país (com ou sem filtro Brasil)',
     source: 'UN Statistics Division',
     table:  'gold_comtrade_flows',
-    maturity: 'beta',
-    // Connected & loaded, but the ingestion window is intentionally capped at
-    // 2022–2023 today (the dev window — see project memory "COMTRADE dev window").
-    // Bronze/Gold hold only those two years, so the registry must NOT overstate
-    // coverage: the cross-source comparable-window math reads THIS registry and
-    // would otherwise intersect to a window Gold does not contain. The historical
-    // backfill (older years) lands after the frontend handoff is verified.
-    maturityNote: 'Cobertura inicial 2022–2023; backfill histórico (anos anteriores) em andamento — limite de requisições da API UN Comtrade.',
-    maturityDate: '4º trimestre/2026',
+    // Estável: histórico completo do Brasil 1989+ (códigos HS aposentados —
+    // banana 080300, soja 120100 etc. — traduzidos para os atuais no silver). O
+    // total mundial (world_exp) cobre só 2022–2023 até o backfill all-reporters,
+    // mantido adiado — por isso os metrics years de world_exp ficam em [2022,2023].
+    maturity: 'estavel',
+    maturityNote: null,
+    maturityDate: null,
     // Country → country flows. Product (HS6), flow, partner, quality.
     // Geography is country-level only (no Brazilian UF/município).
     provides: ['product', 'flow', 'partner', 'quality'],
@@ -291,8 +289,8 @@ window.BANCOS = [
       product: { codeLabel: 'Código HS6' },
     },
     metrics: [
-      { id: 'exp_value', label: 'Valor exportado (BR)', family: 'currency', unit: 'US$', agg: 'Exportações brasileiras declaradas à ONU', years: [2022, 2023] },
-      { id: 'imp_value', label: 'Valor importado (BR)', family: 'currency', unit: 'US$', agg: 'Importações brasileiras declaradas à ONU', years: [2022, 2023] },
+      { id: 'exp_value', label: 'Valor exportado (BR)', family: 'currency', unit: 'US$', agg: 'Exportações brasileiras declaradas à ONU', years: [1989, 2024] },
+      { id: 'imp_value', label: 'Valor importado (BR)', family: 'currency', unit: 'US$', agg: 'Importações brasileiras declaradas à ONU', years: [1989, 2024] },
       { id: 'world_exp', label: 'Exportação mundial',    family: 'currency', unit: 'US$', agg: 'Total mundial do produto (todos reporters)', years: [2022, 2023] },
     ],
     // Provenance (live). Representative snapshot generated from the explicit
@@ -318,7 +316,7 @@ window.BANCOS = [
       { col: 'data_quality',                desc: 'Bandeira (final · preliminar · estimado · mirror).' },
     ],
     cobertura: {
-      years:      '2022 → 2023 (janela inicial)',
+      years:      '1989 → presente',
       atualizacao:'anual + revisões',
       granularidade: 'HS6 × par de países × ano',
     },

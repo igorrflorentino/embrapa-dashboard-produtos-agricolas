@@ -298,9 +298,9 @@ BANCOS: list[Banco] = [
         scope="País → país (com ou sem filtro Brasil)",
         source="UN Statistics Division",
         table="gold_comtrade_flows",
-        maturity="beta",
-        maturity_note="Cobertura inicial 2022–2023; backfill histórico em andamento.",
-        maturity_date="4º trimestre/2026",
+        maturity="estavel",
+        maturity_note=None,
+        maturity_date=None,
         provides=("product", "flow", "partner", "quality"),
         base_currency="USD",
         geo_level=None,
@@ -312,7 +312,7 @@ BANCOS: list[Banco] = [
         },
         metrics=_COMTRADE_METRICS,
         cobertura={
-            "years": "2022 → presente",
+            "years": "1989 → presente",
             "atualizacao": "anual + revisões",
             "granularidade": "HS6 × par de países × ano",
         },
@@ -326,12 +326,8 @@ BANCOS: list[Banco] = [
         scope="Brasil · UF · município",
         source="IBGE",
         table="gold_pam_production",
-        maturity="beta",
-        maturity_note=(
-            "Primeira fração: 5 principais lavouras (soja, milho, café, cana, arroz) "
-            "a partir de 2010, com quantidade, valor, área e rendimento (a produtividade "
-            "já está no painel). Demais lavouras e o histórico completo na sequência."
-        ),
+        maturity="estavel",
+        maturity_note=None,
         # 'yield' (área × rendimento) is wired end-to-end via /api/productivity over
         # gold_pam_production's area_*_ha + production columns — keep in sync with
         # the frontend bancos.js provides list.
@@ -340,8 +336,8 @@ BANCOS: list[Banco] = [
         geo_level="municipio",
         dimensions={**_UF_DIMS, "product": {"codeLabel": "Código PAM"}},
         cobertura={
-            "years": "2010 → presente",
-            "atualizacao": "anual (atualização manual)",
+            "years": "1974 → presente",
+            "atualizacao": "anual (atualização mensal automática)",
             "granularidade": "lavoura × município × ano",
         },
     ),
