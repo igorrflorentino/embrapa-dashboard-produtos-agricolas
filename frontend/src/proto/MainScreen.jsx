@@ -35,21 +35,42 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     );
   }
 
-  if (infoPage === 'curation') {
+  // Enriquecimento — one screen per tool (the old combined ?ip=curation aliases to
+  // the industrialization screen so existing deep links still resolve).
+  if (infoPage === 'enrich_industrial' || infoPage === 'curation') {
     return (
-      <div className="screen" data-screen-label="Curadoria">
+      <div className="screen" data-screen-label="Enriquecimento · Nível de industrialização">
         <div className="page-hero">
           <div>
-            <div className="overline">Curadoria · conhecimento do pesquisador</div>
-            <h1 className="page-title">Enriquecimento dos dados</h1>
+            <div className="overline">Enriquecimento · conhecimento do pesquisador</div>
+            <h1 className="page-title">Nível de industrialização</h1>
             <p className="page-sub">
-              Adicione conhecimento às dimensões dos bancos — nível de industrialização dos
-              códigos e finalidade econômica dos fluxos. Essas anotações destravam as
-              <strong> Análises curadas</strong> no modo Multi-fonte.
+              Classifique cada código (entre as fontes) como <strong>bruto</strong> ou
+              <strong> processado</strong>. Essa anotação destrava a análise de
+              <strong> valor agregado</strong> no modo Multi-fonte.
             </p>
           </div>
         </div>
-        <window.ViewCuration />
+        <window.ViewEnrichmentIndustrialization />
+      </div>
+    );
+  }
+
+  if (infoPage === 'enrich_market') {
+    return (
+      <div className="screen" data-screen-label="Enriquecimento · Tipo de Mercado">
+        <div className="page-hero">
+          <div>
+            <div className="overline">Enriquecimento · conhecimento do pesquisador</div>
+            <h1 className="page-title">Tipo de Mercado</h1>
+            <p className="page-sub">
+              Classifique cada par <strong>procedimento aduaneiro × fluxo</strong> por finalidade
+              econômica (<strong>consumo</strong> vs. <strong>processamento</strong>). Essa anotação
+              destrava a análise de <strong>tipo de mercado</strong> no modo Multi-fonte.
+            </p>
+          </div>
+        </div>
+        <window.ViewEnrichmentMarketNature />
       </div>
     );
   }

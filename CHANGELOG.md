@@ -9,7 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+### Changed
+- **Enrichment is now a sidebar SECTION with one screen per tool** (was a single
+  "Curadoria" item opening one window with internal tabs). The "Enriquecimento"
+  section holds **Nível de industrialização** (`?ip=enrich_industrial`) and **Tipo
+  de Mercado** (`?ip=enrich_market`), each its own screen over the same shared
+  institutional store — so each enrichment can be done separately. `ViewCuration`
+  split into `ViewEnrichmentIndustrialization` + `ViewEnrichmentMarketNature` with a
+  shared apply bar; the old `?ip=curation` deep link still resolves (→ industrialization).
+- **9-commodity scope across every source** — castanha-do-brasil, madeira, açaí,
+  cupuaçu, banana, mandioca, soja, milho, arroz, each on the sources that carry it.
+  Codes verified (live SIDRA, official NCM table, WCO/HS); COMEX gained a 4-digit SH
+  *heading* tier in the product matcher.
+- **Full historical backfill**: IBGE PAM back to **1974** (monetary reform absorbed
+  via `historical_currency_factors`, was 1994+); UN COMTRADE Brazil-reporter to **1989**.
+- **IBGE PAM and UN COMTRADE graduated `beta → estável`** (complete data, no caveat),
+  flipped through the new editable `research_inputs.banco_metadata` override table
+  (maturity/coverage edits are a BigQuery `MERGE`, merged over the registry by
+  `/api/source-meta` — no rebuild/redeploy).
+- **Geo filter nação restricted to Brasil** for domestic bancos: the cascade no
+  longer offers foreign "export destinations" (China/EUA/…) — a prototype fabrication
+  that mapped to no column in any geo-cascade banco (dead options). International
+  partners stay a real dimension only for COMEX/COMTRADE, via their own país/partner
+  filters.
+
 ### Fixed
+- **The VALOR TOTAL hero ignored the state filter and the choropleth ignored the
+  product basket** (Overview/Geografia). Both stemmed from the per-banco snapshot
+  lacking a product × UF × year grain (the honest "a cesta não recorta a distribuição
+  por UF" note). A new basket-scoped cube — `/api/geo-yearly`, reusing the existing
+  `serving_*_annual` `*_by_uf_yearly` readers with `product_codes` (**no new dbt
+  model**) — now lets the hero, choropleth, ranking and series respect **state +
+  product + período together** (the note clears once the cube loads). `applyFilters`
+  pulls it on demand and sums it over the selected states client-side; the value
+  column matches the snapshot's via the active currency×correction.
+- **Transparent retired→current code translation** — the dashboard now exposes only
+  current codes, with retired-code history folded into them: `comtrade_hs_succession`
+  + `comex_ncm_succession` seeds applied in the silver models (`coalesce(succ.current
+  _code, code)`; raw kept in `*_code_reported`, the true natural key for the uniqueness
+  tests). Verified: 0 retired codes leak to Gold.
 - **Full codebase audit + live visual inspection: 117 confirmed defects resolved.**
   A two-phase audit (automated metrics + an adversarially-verified manual sweep)
   found **106 issues, all fixed** — including the three once-deferred items: the

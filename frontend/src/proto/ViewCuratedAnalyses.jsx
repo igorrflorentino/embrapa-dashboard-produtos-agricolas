@@ -60,7 +60,7 @@ function ViewValueAdded() {
           action={<span className="caption">classificação da Curadoria</span>} />
         {data.nCodes < 1 ? (
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum código bruto/processado incluído para esta seleção. Ajuste em <strong>Curadoria</strong>.
+            Nenhum código bruto/processado incluído para esta seleção. Ajuste em <strong>Enriquecimento → Nível de industrialização</strong>.
           </p>
         ) : (
           <>
@@ -79,7 +79,7 @@ function ViewValueAdded() {
           action={<span className="caption">% · valor processado ÷ total</span>} />
         <window.LineChart data={shareTs} valueKey="v" label="% processado" color="var(--viz-2)" height={240} />
         <p className="caption" style={{ padding: '8px 4px 0' }}>
-          Reclassifique um código entre <strong>bruta</strong> e <strong>processada</strong> na Curadoria e esta análise se atualiza —
+          Reclassifique um código entre <strong>bruta</strong> e <strong>processada</strong> em <strong>Enriquecimento → Nível de industrialização</strong> e esta análise se atualiza —
           é o conhecimento do pesquisador entrando no dado.
         </p>
       </div>
@@ -128,8 +128,8 @@ function ViewMarketNature() {
             title="Classifique os pares aduana × fluxo para ativar esta análise" />
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
             Nenhum par <strong>procedimento aduaneiro × fluxo</strong> classificado ainda. Defina a
-            finalidade (consumo ou processamento) de cada par na aba{' '}
-            <strong>Curadoria → Aduana &amp; finalidade econômica</strong> — esta análise passa a somar o
+            finalidade (consumo ou processamento) de cada par em{' '}
+            <strong>Enriquecimento → Tipo de Mercado</strong> — esta análise passa a somar o
             valor do COMTRADE por finalidade, ao vivo.
           </p>
         </div>

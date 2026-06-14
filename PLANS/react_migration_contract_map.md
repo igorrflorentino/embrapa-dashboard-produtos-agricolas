@@ -14,6 +14,10 @@
    are already pre-aggregated to annual/product/UF grain (small), so shipping the whole
    snapshot honors Pushdown — the heavy aggregation already happened in BigQuery. We do **not**
    reimplement `applyFilters` in Python. `dataStore.js` + `dataFilters.js` are reused unchanged.
+   *(Refinement: the geography split is now **hybrid** — the snapshot's `ufYearly` is all-products,
+   so to narrow the territorial split by a product basket `applyFilters` pulls a basket-scoped
+   product×UF×year cube on demand via `/geo-yearly` and still slices period/state client-side.
+   Every other dimension stays purely client-side over the full snapshot.)*
 
 2. **Conventions (currency × correction) are applied SERVER-SIDE via column selection.**
    The prototype faked correction with a single client multiplier on a canonical value — wrong
@@ -59,6 +63,7 @@ contracts.js shape. `preview:false` on all live producers (real data).
 | `/source-meta` | `banco` | `source_meta(banco)` | provenance row dict ✅ done |
 | `/snapshot` | `banco,currency,correction` | `snapshot(banco,conv)` *(summary=None → full)* | `BancoSnapshot` (§2) |
 | `/product-uf` | `banco,code,currency,correction,startDate?,endDate?` | `product_uf_ranking(banco,code,conv,summary)` | `{uf:[{uf,name,region,value}]}` |
+| `/geo-yearly` | `banco,codes?,currency,correction` | `geo_yearly(banco,conv,summary)` | `{ufYearly:[{year,uf,name,region,value,q_mass,q_vol}]}` — basket-scoped product×UF×year cube (full history; client slices period/state). `[]` for a banco with no geo grain. Lets the hero/choropleth/series respect state+product+período together |
 | `/productivity` | `banco,crop?,y0?,y1?` | `productivity(banco,crop,summary)` | `ProductivityData` (PAM only; basket N/A — crop is the picker) |
 | `/flow` | `banco,codes?,states?,y0?,y1?` | `flow_data(banco,summary)` | `FlowData` (Sankey nodes/links); `states` = origin-UF filter (COMEX only) |
 | `/partners` | `banco,codes?,states?,y0?,y1?` | `partner_data(banco,summary)` | `PartnerData` (exp/imp split); `states` = origin-UF filter (COMEX only) |
