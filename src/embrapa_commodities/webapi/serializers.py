@@ -355,6 +355,17 @@ def serialize_product_uf(df: pd.DataFrame | None) -> dict:
     return {"uf": rows}
 
 
+def serialize_geo_yearly(df: pd.DataFrame | None) -> dict:
+    """seam.geo_yearly() → { ufYearly: [{year, uf, name, region, value, q_mass, q_vol}] }.
+
+    The basket-scoped per-(UF, year) cube backing the geography-aware hero/map/series.
+    Reuses :func:`_uf_yearly` so the value/quantity scaling (value ÷1e6 → mi, q_mass
+    ÷1e3 → mil t, q_vol ÷1e6 → mi m³) is BYTE-IDENTICAL to the snapshot's ``ufYearly``
+    — the frontend treats both interchangeably. ``{ ufYearly: [] }`` when df is
+    None/empty (no geo grain, or the basket matched nothing)."""
+    return {"ufYearly": _uf_yearly(df)}
+
+
 def serialize_productivity(payload: dict | None) -> dict | None:
     """seam.productivity() → the ViewProductivity contract (área × rendimento).
 

@@ -522,6 +522,44 @@ def test_uf_yearly_empty_is_safe():
     assert out["ufYearly"] == []
 
 
+def test_serialize_geo_yearly_wraps_uf_yearly_with_same_scaling():
+    """serialize_geo_yearly is the /api/geo-yearly payload: { ufYearly: [...] } with
+    the EXACT scaling _uf_yearly applies (value ÷1e6, q_mass ÷1e3, q_vol ÷1e6), so the
+    basket cube is byte-interchangeable with the snapshot's ufYearly client-side."""
+    df = pd.DataFrame(
+        [
+            {
+                "state_acronym": "PA",
+                "state_name": "Pará",
+                "region_abbrev": "N",
+                "reference_year": 2024,
+                "total_value": 1_000_000,
+                "q_mass": 2_000_000,
+                "q_vol": 3_000_000,
+            }
+        ]
+    )
+    out = s.serialize_geo_yearly(df)
+    assert out == {
+        "ufYearly": [
+            {
+                "year": 2024,
+                "uf": "PA",
+                "name": "Pará",
+                "region": "N",
+                "value": 1.0,
+                "q_mass": 2000.0,
+                "q_vol": 3.0,
+            }
+        ]
+    }
+
+
+def test_serialize_geo_yearly_empty_is_safe():
+    assert s.serialize_geo_yearly(None) == {"ufYearly": []}
+    assert s.serialize_geo_yearly(pd.DataFrame()) == {"ufYearly": []}
+
+
 def test_uf_data_flags_real_vs_pseudo_uf_codes():
     """ufData rows carry a `real` flag: True for a Brazilian UF, False for a COMEX
     special trade pseudo-code (EX/ND/ZN…), which has no state_name. Lets the frontend

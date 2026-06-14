@@ -156,6 +156,12 @@ window.dataStore = {
   latestAt: (id) => refreshOf(id),
   table: (id) => tableOf(id),
 
+  // The active display conventions (currency/correction). The snapshot is fetched
+  // and cached per-convention; producers that fetch their OWN convention-scoped
+  // resources (e.g. the geo-yearly cube in producers.js, consumed by applyFilters)
+  // read this so their value column matches the snapshot's exactly.
+  conv: () => ({ ...activeConv }),
+
   // Live provenance for a banco. The numeric coverage (rows, products, UFs, year
   // span) + the last-refresh stamp are overlaid from /api/source-meta when it has
   // resolved, so every consumer (hero counters + denominators, Sobre, Saúde) reads

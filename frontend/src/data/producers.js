@@ -85,6 +85,40 @@ window.snapshotFor = function snapshotFor() {
   return null;
 };
 
+// ── basket-scoped per-(UF, year) cube (geography-aware hero / map / series) ─────
+// The /api/snapshot ufYearly is all-products (the client can slice it by state and
+// year but NOT by product), so a product basket can't narrow the territorial split
+// or the VALOR TOTAL hero. This producer pushes the active basket down to
+// /api/geo-yearly, which returns the SAME (UF × year) shape narrowed to the chosen
+// products; applyFilters then sums it over the selected states + period client-side,
+// making the hero, choropleth and series respect state + product + period together.
+//
+// Keyed by banco + convention + basket ONLY (state/year are client-side slices), so
+// panning the period or toggling a UF reuses the cached cube instead of refetching.
+// The convention is read from the dataStore so the cube's value column matches the
+// snapshot's byte-for-byte. Returns null until loaded (applyFilters falls back to the
+// all-products ufYearly) or for a banco with no geo grain (COMTRADE).
+window.geoYearly = function geoYearly(bancoId, summary) {
+  const b = window.bancoById && window.bancoById(bancoId);
+  if (!b || !(b.provides || []).includes('geo')) return null;
+  const conv = window.dataStore && window.dataStore.conv
+    ? window.dataStore.conv()
+    : { currency: 'BRL', correction: 'IPCA' };
+  const codes = filterCodes(summary); // undefined = all products; comma list otherwise
+  const key = `geoYearly:${bancoId}:${conv.currency}|${conv.correction}:${codes ?? '*'}`;
+  ensure(
+    key,
+    () => `${API}/geo-yearly?${qs({
+      banco: bancoId,
+      codes,
+      currency: conv.currency,
+      correction: conv.correction,
+    })}`,
+  );
+  const data = get(key);
+  return data && Array.isArray(data.ufYearly) ? data.ufYearly : null;
+};
+
 // ── cross-source comparable series ────────────────────────────────────────────
 window.crossSeries = function crossSeries(bancoId, metricId, opts = {}) {
   const { y0, y1 } = opts;

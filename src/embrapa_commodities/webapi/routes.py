@@ -170,6 +170,25 @@ def product_uf():
     return jsonify(serializers.serialize_product_uf(df))
 
 
+@api.get("/geo-yearly")
+def geo_yearly():
+    """Basket-scoped per-(UF, year) cube (backs the geography-aware hero + map +
+    series). currency+correction pick the deflated value column server-side, same as
+    /snapshot; ``codes`` (comma-joined product codes; absent = all) pushes the active
+    product basket down to the by-UF-yearly mart so the territorial split respects the
+    selected products. The year window is left open (full history) — the client slices
+    period + state. { ufYearly: [] } when the banco has no geo grain."""
+    banco = request.args.get("banco", "")
+    conv = {
+        "currency": request.args.get("currency", "BRL"),
+        "correction": request.args.get("correction", "IPCA"),
+    }
+    codes = request.args.get("codes")
+    summary = {"basket": codes.split(",")} if codes else None
+    df = seam.geo_yearly(banco, conv, summary)
+    return jsonify(serializers.serialize_geo_yearly(df))
+
+
 @api.get("/productivity")
 def productivity():
     """Área × rendimento for one crop (backs ViewProductivity, IBGE PAM only).

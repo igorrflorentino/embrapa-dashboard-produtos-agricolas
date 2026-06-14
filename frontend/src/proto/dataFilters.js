@@ -90,9 +90,64 @@
     const flagSet  = summary.flags  == null ? null : new Set(summary.flags);
     const stateSet = summary.states == null ? null : new Set(summary.states);
 
-    // ── Aggregated time series (rebuilt from productTS) ───────────────
+    // ── Geography-aware aggregation (product × UF × year) ──────────────
+    // The national per-product series (PRODUCT_TS_T) can honour a product basket
+    // and a year window, but NOT a state filter (it has no UF grain). The snapshot's
+    // ufYearly carries (UF × year) but is ALL-products (so it can honour state + year
+    // but not a basket). To make VALOR TOTAL / the choropleth / the series respect
+    // state + product + period TOGETHER, we pull a basket-scoped (UF × year) cube on
+    // demand (window.geoYearly → /api/geo-yearly) and aggregate it client-side.
+    const hasGeoData = UF_DATA_T.length > 0;
+    const ufYearlyAll = Array.isArray(snap.ufYearly) ? snap.ufYearly : [];
+    // A basket genuinely narrows products only when a proper, non-empty subset is
+    // selected (null = all; [] = none → handled by the empty-series path below).
+    const basketActive =
+      hasGeoData && summary.basket != null &&
+      selectedProducts.length > 0 && selectedProducts.length < allProducts.length;
+    // A state filter genuinely narrows only below the canonical 27-UF universe (the
+    // all-selected default is NOT a narrowing). Summing the (UF × year) grid over a
+    // proper subset is the only case where it diverges from the national series.
+    const _ufUniverse = (window.UF_DATA || []).length || 27;
+    const stateNarrowing =
+      hasGeoData && stateSet != null &&
+      (stateSet.size === 0 || stateSet.size < _ufUniverse);
+    // The basket-scoped cube (null until the fetch lands, or for a non-geo banco).
+    // Only fetched when a basket is active — a state-only narrowing reads the
+    // all-products ufYearly already in the snapshot (no extra round-trip).
+    const geoCube = (basketActive && window.geoYearly)
+      ? window.geoYearly(bancoId, summary) : null;
+    const useCube = !!(geoCube && geoCube.length);
+    // The (UF × year) source for the geo-derived series/map: the basket cube when
+    // ready, else the snapshot's all-products grid (for the state-only case).
+    const geoSource = useCube ? geoCube : ufYearlyAll;
+    // When narrowing states, restrict to the selected UFs; with no narrowing sum the
+    // WHOLE grid (incl. COMEX non-state pseudo-origins) so the national total matches
+    // PRODUCT_TS_T exactly (those pseudo-origins are not selectable UFs).
+    const sumStates = (rows, y) => {
+      let v = 0, qMass = 0, qVol = 0;
+      for (const r of rows) {
+        if (r.year !== y) continue;
+        if (stateNarrowing && !stateSet.has(r.uf)) continue;
+        v += (r.value || 0) / 1000;     // ufYearly value is mi → ts.v is bi
+        qMass += (r.q_mass || 0);        // already mil t
+        qVol  += (r.q_vol  || 0);        // already mi m³
+      }
+      return { v, q_mass: qMass, q_vol: qVol };
+    };
+    // Engage the geo-derived series only when it adds correctness the national series
+    // can't: a real state narrowing, OR a basket whose territorial cube has loaded —
+    // and only when the (UF × year) grid actually carries rows (a snapshot without
+    // ufYearly falls back to the national series rather than zeroing it out).
+    const geoDerivedTs = hasGeoData && geoSource.length > 0 && (stateNarrowing || useCube);
+
+    // ── Aggregated time series ────────────────────────────────────────
     const allYears = OVERVIEW_T.map(d => d.y).filter(y => y >= yearStart && y <= yearEnd);
     const ts = allYears.map(y => {
+      if (geoDerivedTs) {
+        const g = sumStates(geoSource, y);
+        return { y, v: g.v, q: g.q_mass, q_mass: g.q_mass, q_vol: g.q_vol };
+      }
+      // National path (no state narrowing): per-product series, basket + year aware.
       let v = 0, qMass = 0, qVol = 0;
       selectedProducts.forEach(code => {
         const series = PRODUCT_TS_T[code];
@@ -114,43 +169,53 @@
       productTS[code] = series.filter(d => d.y >= yearStart && d.y <= yearEnd);
     });
 
-    // ── UF / region / municipio data — restrict by state filter only ──────
-    // The per-UF snapshot rows carry the banco's FULL (all-products) total per
-    // state — there is no per-product × UF grain in the snapshot. We therefore
-    // CANNOT narrow them to a product basket here. The old code faked it by
-    // scaling every UF uniformly by productShare = selected/all (e.g. picking 2
-    // of 12 products kept 17% of EVERY state's total, regardless of where those
-    // products are actually produced) — fabricated geography presented as real.
-    // We now serve the REAL state totals unchanged and expose
-    // `notFilteredByBasket` so the geo views can render an honest pt-BR note that
-    // a product basket does not narrow the territorial split (the real per-
-    // product × UF breakdown lives behind /api/product-uf, used by the product
-    // profile view). State filtering is exact and stays applied.
-    const hasGeoData = UF_DATA_T.length > 0;
-    const notFilteredByBasket =
-      hasGeoData && summary.basket != null && selectedProducts.length < allProducts.length;
-    const ufData = UF_DATA_T
-      .filter(u => !stateSet || stateSet.has(u.uf))
-      .map(u => ({ ...u }));
+    // ── UF / region / municipio data ─────────────────────────────────────
+    // Per-UF rows for the choropleth + ranking, restricted by the state filter and —
+    // when the basket's (UF × year) cube has loaded (useCube) — by the product basket
+    // too, so the map reflects the SELECTED products. Until that cube lands (or when
+    // no basket is active) the map shows the snapshot's latest-year per-UF totals
+    // (all products), narrowed by state. State filtering is always exact.
+    // `notFilteredByBasket` stays true ONLY while a basket is active but its cube has
+    // not loaded — the geo views render an honest pt-BR note for that transient. The
+    // old code faked a basket × UF split by scaling every UF uniformly by selected/all
+    // (fabricated geography); the cube is the REAL product × UF × year grain instead.
+    const notFilteredByBasket = hasGeoData && basketActive && !useCube;
 
-    // The per-UF snapshot (ufData) is SQL-scoped to max(reference_year) WITHIN the
-    // window (latest_year_only), NOT to yearEnd. If the researcher's endDate runs
-    // past the last year that actually has UF rows (e.g. a future year, or a partial
-    // trade year still being ingested), the map's DATA year and `yearEnd` diverge —
-    // so a map labelled with `yearEnd` would lie. We derive the map's true year from
-    // the data itself: the max reference_year present in ufYearly inside the window.
-    // ufYearly is the per-(UF, year) Gold history (serializers._uf_yearly); it shares
-    // ufData's exact year scope, so its in-window max IS the choropleth's year. Falls
-    // back to yearEnd when ufYearly is absent (synthetic snapshots / older payloads).
-    const ufYearly = Array.isArray(snap.ufYearly) ? snap.ufYearly : [];
+    // Tile-grid (col/row) join for cube-derived UF rows: the snapshot's ufData is
+    // already decorated (decorate.js), but cube rows come straight from the serializer,
+    // so attach col/row/name/region from the UF registry (mirrors decorateUfRows).
+    const _ufTiles = {};
+    (window.UF_DATA || []).forEach(u => { _ufTiles[u.uf] = u; });
+    const _decorateUf = (rows) => rows.map(r => {
+      const t = _ufTiles[r.uf] || {};
+      return { ...r, col: r.col ?? t.col, row: r.row ?? t.row,
+               region: r.region || t.region, name: r.name || t.name };
+    });
+
+    // The per-(UF, year) grid backing the map + its TRUE data year: the basket cube
+    // when loaded, else the snapshot's all-products grid. The map's data year is the
+    // max reference_year present IN the window (NOT yearEnd) — if the endDate runs past
+    // the last year with UF rows (future/partial trade year), labelling with yearEnd
+    // would lie. Falls back to yearEnd when the grid is empty (synthetic/older payloads).
+    const ufYearly = geoSource;
     const ufYearsInWindow = ufYearly
       .map(r => r.year)
       .filter(y => typeof y === 'number' && y >= yearStart && y <= yearEnd);
     const ufLatestYear = ufYearsInWindow.length ? Math.max(...ufYearsInWindow) : yearEnd;
-    // The map year is "partial" when it falls SHORT of the requested window end —
-    // the researcher asked through yearEnd but the latest UF data stops earlier
-    // (newer year not yet in Gold, or an in-progress year). Lets the geo views annotate
-    // the choropleth/tile map honestly instead of mislabelling it with yearEnd.
+    const ufData = useCube
+      ? _decorateUf(
+          geoCube
+            .filter(r => r.year === ufLatestYear)
+            .filter(u => !stateSet || stateSet.has(u.uf))
+            .map(r => ({ uf: r.uf, name: r.name, region: r.region,
+                         value: r.value, q_mass: r.q_mass, q_vol: r.q_vol })),
+        )
+      : UF_DATA_T
+          .filter(u => !stateSet || stateSet.has(u.uf))
+          .map(u => ({ ...u }));
+    // The map year is "partial" when it falls SHORT of the requested window end — the
+    // researcher asked through yearEnd but the latest UF data stops earlier (newer year
+    // not yet in Gold, or an in-progress year). Lets the geo views annotate honestly.
     const ufYearPartial = hasGeoData && ufLatestYear < yearEnd;
 
     // The "UFs cobertas" denominator (ViewOverview/MainScreen) must be the banco's
@@ -161,10 +226,13 @@
     // UF carries name/region/real for the real-UF tally. Fall back to the latest-year
     // ufData when ufYearly is absent (synthetic / older payloads). Counts are capped
     // at 27 downstream, so this only ever CORRECTS an under-count, never inflates.
+    // Always derived from the ALL-products grid (ufYearlyAll), never the basket cube —
+    // the denominator is the banco's FULL territorial universe, so it stays "/27"
+    // rather than shrinking to the subset of UFs that happen to grow the basket.
     const ufUniverse = (() => {
-      if (!ufYearly.length) return UF_DATA_T;
+      if (!ufYearlyAll.length) return UF_DATA_T;
       const seen = new Map();
-      ufYearly.forEach(r => { if (!seen.has(r.uf)) seen.set(r.uf, r); });
+      ufYearlyAll.forEach(r => { if (!seen.has(r.uf)) seen.set(r.uf, r); });
       return Array.from(seen.values());
     })();
 

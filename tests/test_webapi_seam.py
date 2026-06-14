@@ -249,6 +249,72 @@ def test_snapshot_renames_comex_uf_yearly_value_column(monkeypatch):
     assert float(uy.loc[0, "total_value"]) == 9e6
 
 
+# ── geo_yearly: basket-scoped per-(UF, year) cube ──────────────────────────────
+
+
+def test_geo_yearly_pushes_basket_down_to_production_reader(monkeypatch):
+    """geo_yearly threads the active basket into the by-UF-yearly reader so the
+    returned (UF × year) cube is narrowed to the selected products (the snapshot's
+    ufYearly is all-products; this is what makes the map/hero basket-aware)."""
+    seam = _seam()
+    captured = {}
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "PA",
+                "state_name": "Pará",
+                "region_abbrev": "N",
+                "reference_year": 2021,
+                "total_value": 5e6,
+                "q_mass": 1e6,
+                "q_vol": None,
+            }
+        ]
+    )
+
+    def fake(*a, **k):
+        captured.update(k)
+        return yearly
+
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf_yearly", fake)
+    out = seam.geo_yearly(
+        "ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"basket": ["3405"]}
+    )
+    assert list(out["state_acronym"]) == ["PA"]
+    assert captured["product_codes"] == ("3405",)  # basket pushed down to the query
+    assert captured["source"] == "ibge_pevs"
+
+
+def test_geo_yearly_renames_comex_value_column(monkeypatch):
+    """COMEX's year×UF reader returns total_value_usd; geo_yearly renames it to
+    total_value so the shared _uf_yearly serializer reads the same field as PEVS."""
+    seam = _seam()
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region_abbrev": "CO",
+                "reference_year": 2022,
+                "total_value_usd": 7e6,
+                "q_mass": 2e6,
+                "q_vol": 0.0,
+            }
+        ]
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", lambda *a, **k: yearly)
+    out = seam.geo_yearly("mdic_comex", {"currency": "USD", "correction": "Nominal"}, None)
+    assert "total_value" in out.columns and "total_value_usd" not in out.columns
+    assert float(out.loc[0, "total_value"]) == 7e6
+
+
+def test_geo_yearly_none_for_banco_without_geo_grain():
+    """COMTRADE is country-pair (no UF) → geo_yearly returns None (the route then
+    serializes { ufYearly: [] } and the client keeps its national series)."""
+    seam = _seam()
+    assert seam.geo_yearly("un_comtrade", {}, None) is None
+
+
 # ── value label: Comtrade imports are CIF, not FOB ─────────────────────────────
 
 
