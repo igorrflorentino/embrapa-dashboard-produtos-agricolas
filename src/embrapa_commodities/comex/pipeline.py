@@ -181,7 +181,10 @@ def bronze_one(
         storage_client, settings=settings, source="comex", dataset=RAW_DATASET, basename=basename
     )
     df = client.filter_products(
-        raw_bytes, set(settings.comex_ncm_map), set(settings.comex_chapter_map)
+        raw_bytes,
+        set(settings.comex_ncm_map),
+        set(settings.comex_chapter_map),
+        set(settings.comex_heading_map),
     )
     if df.empty:
         logger.info("Comex %s %d: no configured products in raw, skipping bronze.", flow, year)

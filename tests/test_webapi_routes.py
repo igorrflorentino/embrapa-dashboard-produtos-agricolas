@@ -183,6 +183,46 @@ def test_productivity_route_threads_year_window_not_basket(monkeypatch):
     assert captured["summary"] == {"startDate": "2010", "endDate": "2020"}
 
 
+def test_geo_yearly_route_threads_basket_to_seam(monkeypatch):
+    """/geo-yearly turns ?codes into the basket summary the seam pushes down to the
+    by-UF-yearly mart, and threads currency/correction so the cube's value column
+    matches the snapshot's."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_geo_yearly(banco, conv, summary=None):
+        captured.update(banco=banco, conv=conv, summary=summary)
+        return None
+
+    monkeypatch.setattr(seam, "geo_yearly", fake_geo_yearly)
+    monkeypatch.setattr(serializers, "serialize_geo_yearly", lambda *a, **k: {"ufYearly": []})
+    resp = client.get(
+        "/api/geo-yearly?banco=ibge_pevs&codes=3405,3434&currency=BRL&correction=IPCA"
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == {"ufYearly": []}
+    assert captured["banco"] == "ibge_pevs"
+    assert captured["conv"] == {"currency": "BRL", "correction": "IPCA"}
+    assert captured["summary"] == {"basket": ["3405", "3434"]}
+
+
+def test_geo_yearly_route_unfiltered_passes_summary_none(monkeypatch):
+    """No ?codes → summary is None (all products), same convention as /snapshot."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        seam, "geo_yearly", lambda banco, conv, summary=None: captured.update(summary=summary)
+    )
+    monkeypatch.setattr(serializers, "serialize_geo_yearly", lambda *a, **k: {"ufYearly": []})
+    resp = client.get("/api/geo-yearly?banco=ibge_pevs")
+    assert resp.status_code == 200
+    assert captured["summary"] is None
+
+
 # ── GET read endpoints: route → seam → serializer wiring ──────────────────────
 
 

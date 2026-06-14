@@ -125,11 +125,17 @@ window.familiesInBasket = (productCodes, bancoId) => {
             || null;
   const products = (snap && snap.products) || window.PRODUCTS || [];
   const famOf = (c) => { const p = products.find(x => x.code === c); return p ? p.family : null; };
+  // Keep only DISPLAYABLE unit families (present in UNIT_FAMILIES). A product whose
+  // source unit isn't one of the 5 known families gets 'desconhecida' from Silver
+  // (common in COMTRADE's varied HS6 units); that sentinel is not a real family and
+  // must not reach UnitFamilyBanner/MetricConventions (UNIT_FAMILIES['desconhecida']
+  // is undefined → would crash the banner). Its qty_base is NULL anyway (unsummable).
+  const known = (f) => !!(f && window.UNIT_FAMILIES && window.UNIT_FAMILIES[f]);
   // null/undefined = "no product filter" → all families present in the banco.
   // An explicit (possibly empty) selection is honoured literally: zero
   // products → zero families (nothing to measure).
-  if (productCodes == null) return [...new Set(products.map(p => p.family))];
-  return [...new Set(productCodes.map(c => famOf(c)).filter(Boolean))];
+  if (productCodes == null) return [...new Set(products.map(p => p.family).filter(known))];
+  return [...new Set(productCodes.map(c => famOf(c)).filter(known))];
 };
 
 // ────────────────────────────────────────────────────────────────────

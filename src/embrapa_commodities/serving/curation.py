@@ -75,6 +75,20 @@ CURATORS_SCHEMA = [
     bigquery.SchemaField("added_at", "TIMESTAMP", mode="NULLABLE"),
 ]
 
+# Sparse per-banco metadata overrides (one row per banco the operator has touched).
+# Every override column is NULLABLE — a NULL means "keep the registry default".
+BANCO_METADATA_SCHEMA = [
+    bigquery.SchemaField("banco_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("maturity", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("maturity_note", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("maturity_date", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("cobertura_years", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("cobertura_atualizacao", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("cobertura_granularidade", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("updated_by", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="NULLABLE"),
+]
+
 
 def _bq_client(settings: Settings) -> bigquery.Client:
     return bigquery.Client(
@@ -99,6 +113,32 @@ def ensure_curators_table(
     ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
     bq.create_table(bigquery.Table(table_fqn, schema=CURATORS_SCHEMA), exists_ok=True)
     logger.info("Curators allowlist table ready at %s", table_fqn)
+    return table_fqn
+
+
+def ensure_banco_metadata_table(
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Create the operator-editable banco-metadata override table if missing.
+
+    Idempotent; returns its FQN. Tiny (one row per overridden banco), so no
+    clustering. Manage rows in the BigQuery Console (or via SQL) to flip a banco's
+    maturity / note / coverage with no redeploy — e.g.::
+
+        MERGE `<project>.research_inputs.banco_metadata` t
+        USING (SELECT 'un_comtrade' banco_id, 'estavel' maturity) s
+        ON t.banco_id = s.banco_id
+        WHEN MATCHED THEN UPDATE SET maturity = s.maturity, updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (banco_id, maturity, updated_at)
+            VALUES (s.banco_id, s.maturity, CURRENT_TIMESTAMP());
+    """
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_banco_metadata_table)
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    bq.create_table(bigquery.Table(table_fqn, schema=BANCO_METADATA_SCHEMA), exists_ok=True)
+    logger.info("Banco metadata override table ready at %s", table_fqn)
     return table_fqn
 
 

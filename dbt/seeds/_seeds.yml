@@ -190,6 +190,28 @@ seeds:
       - name: ncm_description
         tests: [not_null]
 
+  - name: comex_ncm_succession
+    description: |
+      NCM succession (retired → current) for transparent full-history COMEX queries.
+      The MDIC bulk reports each year under the NCM then in force (it does NOT
+      restate), so a commodity whose 8-digit NCM was renumbered by a revision shows
+      under the retired code for older years — soja 1201.00.10/.90 (pre-2017) and
+      banana 0803.00.00 (pre-2012). silver_comex_flows rewrites ncm_code from
+      `reported_code` to `current_code` (keeping the raw value in ncm_code_reported),
+      so Gold / serving / the dashboard only ever expose current NCMs. (castanha,
+      milho and arroz already report their current NCMs across the whole 1997+
+      series, so they need no mapping.) Extend this seed — no code change.
+    config:
+      column_types:
+        reported_code: string
+        current_code: string
+        note: string
+    columns:
+      - name: reported_code
+        tests: [not_null, unique]
+      - name: current_code
+        tests: [not_null]
+
   # ─── UN Comtrade reference dimensions ──────────────────────────────────────
   - name: comtrade_country
     description: |
@@ -259,15 +281,44 @@ seeds:
       - name: description
         tests: [not_null]
 
+  - name: comtrade_hs_succession
+    description: |
+      HS code succession (retired → current) for transparent full-history queries.
+      UN Comtrade reports each year under the HS revision then in force, so a
+      commodity whose 6-digit code was split across revisions appears under a
+      retired aggregate for older years (banana 080300 pre-HS2012; soja 120100
+      pre-HS2012; castanha 080120 pre-HS2007; some ch.44 wood pre-HS2017).
+      silver_comtrade_flows rewrites cmd_code from `reported_code` to
+      `current_code` (keeping the raw value in cmd_code_reported), so Gold /
+      serving / the dashboard only ever expose CURRENT codes — the user never sees
+      a retired code. Because COMTRADE ingests Brazil as the sole reporter, the
+      broad→specific canonical targets are chosen for Brazil's dominant trade form
+      (documented per row), which is accurate for Brazilian data. Extend this seed
+      to map further retired leaves (e.g. ch.44 species splits) — no code change.
+    config:
+      column_types:
+        reported_code: string
+        current_code: string
+        note: string
+    columns:
+      - name: reported_code
+        tests: [not_null, unique]
+      - name: current_code
+        tests: [not_null]
+
   # ─── Cross-source product bridge ───────────────────────────────────────────
   - name: commodity_crosswalk
     description: |
       Hand-maintained domain knowledge linking the SAME commodity across sources,
       at the commodity-CONCEPT level: a few code PREFIXES per commodity, not
-      code-by-code. source ∈ {pevs (extractive code), comex (NCM), comtrade (HS6)};
-      code_prefix matches a Gold product code by prefix. Resolved to exact codes by
-      gold_commodity_crosswalk. Add a commodity / prefix when the product scope grows;
-      codes matching no prefix degrade gracefully to "unlinked".
+      code-by-code. source ∈ {pevs (extractive code), pam (SIDRA c782 crop code),
+      comex (NCM), comtrade (HS6)}; code_prefix matches a Gold product code by
+      prefix. The pevs/comex/comtrade rows are resolved to exact codes by
+      gold_commodity_crosswalk; the pam rows are resolved inline in
+      serving_pam_annual (that mart re-implements the prefix expansion against the
+      PAM codes, since gold_commodity_crosswalk's source_codes CTE never scans PAM).
+      Add a commodity / prefix when the product scope grows; codes matching no
+      prefix degrade gracefully to "unlinked".
     config:
       column_types:
         commodity_id: string
@@ -282,7 +333,7 @@ seeds:
           - not_null
           - accepted_values:
               arguments:
-                values: ["pevs", "comex", "comtrade"]
+                values: ["pevs", "pam", "comex", "comtrade"]
       - name: code_prefix
         tests: [not_null]
       - name: commodity_name

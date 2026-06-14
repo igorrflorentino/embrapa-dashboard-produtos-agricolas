@@ -92,6 +92,9 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
         classification=settings.pam_classification_id,
         products=product_codes,
         geo_level="n6",
+        # Fetch only the 5 substantive variables, not v/all — table 5457's 3 extra
+        # "percentual" series would push a dense state past SIDRA's cell limit.
+        variables=settings.pam_variable_codes,
     )
     if df.empty:
         # SIDRA had nothing — almost always PAM_END_YEAR set past the latest

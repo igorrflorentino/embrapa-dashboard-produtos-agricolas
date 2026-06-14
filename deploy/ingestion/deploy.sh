@@ -19,7 +19,10 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 
 # Read a single value from .env without sourcing it (avoids bash interpreting
 # odd values); strips a trailing CR so Windows CRLF files work too.
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# `|| true`: a key absent from .env (e.g. optional COMTRADE_KEY_SECRET) must
+# return empty, not crash the script under `set -euo pipefail` (grep exits 1 on
+# no match, which pipefail would propagate). Mirrors schedule_*.sh's get_env.
+get_env() { { grep -E "^$1=" "$ENV_FILE" || true; } | head -n1 | cut -d= -f2- | tr -d '\r'; }
 
 # Resolve the Cloud Run region. Cloud Run requires a SINGLE region (e.g.
 # us-central1) and rejects a BigQuery multi-region locator like "US"/"EU" —
@@ -90,11 +93,14 @@ gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
 # Allowlist (anchored, prefix-based so new per-source knobs are auto-covered):
 #   GCP_PROJECT_ID, GCS_*                       — project + landing/raw bucket + prefixes
 #   BQ_LOCATION                                 — dataset region
-#   BQ_BRONZE_{IBGE,BCB,COMEX}_*                — Bronze dataset/table names for the
-#                                                 sources `all` runs (NOT COMTRADE:
-#                                                 it is key-gated and excluded from `all`)
-#   IBGE_* / BCB_* / COMEX_*                     — per-source scope (codes, years, flows, delta)
-INGEST_ALLOWLIST='^(GCP_PROJECT_ID|GCS_[A-Z0-9_]+|BQ_LOCATION|BQ_BRONZE_(IBGE|BCB|COMEX)_[A-Z0-9_]+|IBGE_[A-Z0-9_]+|BCB_[A-Z0-9_]+|COMEX_[A-Z0-9_]+)='
+#   BQ_BRONZE_{IBGE,PAM,BCB,COMEX}_*            — Bronze dataset/table names for the
+#                                                 sources `all` runs + PAM (its own monthly
+#                                                 trigger; NOT COMTRADE: key-gated, out of `all`)
+#   IBGE_* / PAM_* / BCB_* / COMEX_*            — per-source scope (codes, years, flows, delta)
+# PAM_* is forwarded even though PAM is out of `ingest all` (in_all=False): the
+# monthly schedule_pam.sh overrides args to `ibge-pam`, and the Job must carry
+# PAM_PRODUCT_CODES / PAM_START_YEAR / … for that run to use your .env scope.
+INGEST_ALLOWLIST='^(GCP_PROJECT_ID|GCS_[A-Z0-9_]+|BQ_LOCATION|BQ_BRONZE_(IBGE|PAM|BCB|COMEX)_[A-Z0-9_]+|IBGE_[A-Z0-9_]+|PAM_[A-Z0-9_]+|BCB_[A-Z0-9_]+|COMEX_[A-Z0-9_]+)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
 grep -E "$INGEST_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
@@ -127,7 +133,7 @@ gcloud run jobs deploy "$JOB_NAME" --project "$PROJECT" --region "$REGION" \
   --service-account "$INGEST_SA" \
   --env-vars-file "$ENV_YAML" \
   --task-timeout "$TASK_TIMEOUT" \
-  --max-retries 1 \
+  --max-retries 2 \
   --memory "$MEMORY" \
   --cpu "$CPU" \
   ${COMTRADE_SECRET:+--set-secrets COMTRADE_API_KEY=${COMTRADE_SECRET}:latest}

@@ -21,11 +21,12 @@
 -- gold_pevs_production (val_yearfx_* / val_real_{ipca,igpm,igpdi}_*), so PAM
 -- rides the identical currency/correction toggles in the dashboard.
 --
--- NOTE (lean): val_raw is already nominal R$ for the post-1994 window (Silver
--- ×1000 from "Mil Reais", no reform factor). Unlike PEVS, NO historical-currency
--- seed is applied — correct only while PAM_START_YEAR ≥ 1994 (see silver_ibge_pam).
--- The dashboard surfaces qty + value today; area/yield are carried here for the
--- planned área/rendimento expansion (no re-ingest needed).
+-- NOTE: val_raw is nominal R$ for the FULL history — silver_ibge_pam applies the
+-- date-aware historical_currency_factors join (same as PEVS), so pre-1994 years
+-- (Mil Cruzeiros/Cruzados/…) are reform-corrected. Foreign-FX columns
+-- (val_yearfx_{usd,eur}) stay NULL pre-1994 (old-currency PTAX would mix scales);
+-- val_real_* (BRL, inflation-deflated) is valid wherever the index covers the year.
+-- The dashboard surfaces qty + value + área/rendimento (productivity is live).
 -- ────────────────────────────────────────────────────────────────────────────
 
 with base_pam as (

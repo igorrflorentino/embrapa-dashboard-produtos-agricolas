@@ -249,6 +249,72 @@ def test_snapshot_renames_comex_uf_yearly_value_column(monkeypatch):
     assert float(uy.loc[0, "total_value"]) == 9e6
 
 
+# ── geo_yearly: basket-scoped per-(UF, year) cube ──────────────────────────────
+
+
+def test_geo_yearly_pushes_basket_down_to_production_reader(monkeypatch):
+    """geo_yearly threads the active basket into the by-UF-yearly reader so the
+    returned (UF × year) cube is narrowed to the selected products (the snapshot's
+    ufYearly is all-products; this is what makes the map/hero basket-aware)."""
+    seam = _seam()
+    captured = {}
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "PA",
+                "state_name": "Pará",
+                "region_abbrev": "N",
+                "reference_year": 2021,
+                "total_value": 5e6,
+                "q_mass": 1e6,
+                "q_vol": None,
+            }
+        ]
+    )
+
+    def fake(*a, **k):
+        captured.update(k)
+        return yearly
+
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_uf_yearly", fake)
+    out = seam.geo_yearly(
+        "ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"basket": ["3405"]}
+    )
+    assert list(out["state_acronym"]) == ["PA"]
+    assert captured["product_codes"] == ("3405",)  # basket pushed down to the query
+    assert captured["source"] == "ibge_pevs"
+
+
+def test_geo_yearly_renames_comex_value_column(monkeypatch):
+    """COMEX's year×UF reader returns total_value_usd; geo_yearly renames it to
+    total_value so the shared _uf_yearly serializer reads the same field as PEVS."""
+    seam = _seam()
+    yearly = pd.DataFrame(
+        [
+            {
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region_abbrev": "CO",
+                "reference_year": 2022,
+                "total_value_usd": 7e6,
+                "q_mass": 2e6,
+                "q_vol": 0.0,
+            }
+        ]
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", lambda *a, **k: yearly)
+    out = seam.geo_yearly("mdic_comex", {"currency": "USD", "correction": "Nominal"}, None)
+    assert "total_value" in out.columns and "total_value_usd" not in out.columns
+    assert float(out.loc[0, "total_value"]) == 7e6
+
+
+def test_geo_yearly_none_for_banco_without_geo_grain():
+    """COMTRADE is country-pair (no UF) → geo_yearly returns None (the route then
+    serializes { ufYearly: [] } and the client keeps its national series)."""
+    seam = _seam()
+    assert seam.geo_yearly("un_comtrade", {}, None) is None
+
+
 # ── value label: Comtrade imports are CIF, not FOB ─────────────────────────────
 
 
@@ -911,6 +977,7 @@ def test_source_meta_returns_first_row_dict(monkeypatch):
         "fetch_source_metadata",
         lambda source=None: pd.DataFrame([{"source": "ibge_pevs", "rows": 100}]),
     )
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
     meta = seam.source_meta("ibge_pevs")
     # The provenance row is preserved verbatim...
     assert meta["source"] == "ibge_pevs" and meta["rows"] == 100
@@ -918,6 +985,8 @@ def test_source_meta_returns_first_row_dict(monkeypatch):
     # year_end in this fixture → trivially complete, no months query).
     assert meta["latest_year_complete"] is True
     assert meta["months_in_latest_year"] is None
+    # ...and the lifecycle metadata, falling back to the registry (no override row).
+    assert meta["maturity"] == "estavel"  # ibge_pevs default in registries.py
 
 
 def test_source_meta_empty_for_absent_or_non_live(monkeypatch):
@@ -936,6 +1005,7 @@ def test_source_meta_annual_banco_latest_year_always_complete(monkeypatch):
         "fetch_source_metadata",
         lambda source=None: pd.DataFrame([{"source": "ibge_pevs", "year_end": 2024}]),
     )
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
     monkeypatch.setattr(
         seam.gateway,
         "fetch_comex_months_per_year",
@@ -956,6 +1026,7 @@ def test_source_meta_comex_partial_latest_year_flags_incomplete(monkeypatch):
         "fetch_source_metadata",
         lambda source=None: pd.DataFrame([{"source": "mdic_comex", "year_end": 2026}]),
     )
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
     monkeypatch.setattr(
         seam.gateway,
         "fetch_comex_months_per_year",
@@ -977,6 +1048,7 @@ def test_source_meta_comex_full_latest_year_is_complete(monkeypatch):
         "fetch_source_metadata",
         lambda source=None: pd.DataFrame([{"source": "mdic_comex", "year_end": 2024}]),
     )
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
     monkeypatch.setattr(
         seam.gateway,
         "fetch_comex_months_per_year",
@@ -986,6 +1058,58 @@ def test_source_meta_comex_full_latest_year_is_complete(monkeypatch):
     assert meta["months_in_latest_year"] == 12
     assert meta["latest_year_complete"] is True
     assert meta["latest_complete_year"] == 2024
+
+
+def test_source_meta_override_flips_maturity_and_coverage(monkeypatch):
+    """An override row in research_inputs.banco_metadata wins over the registry —
+    the no-redeploy Console flip (beta→estavel) + a new note/coverage. NULL columns
+    (here maturity_date) are dropped, so they fall back to the registry default."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "un_comtrade", "year_end": 2024}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_banco_metadata",
+        lambda banco_id: pd.DataFrame(
+            [
+                {
+                    "maturity": "manutencao",  # differs from the estavel registry default
+                    "maturity_note": "Em correção.",
+                    "maturity_date": None,  # NULL → stripped → registry default stands
+                    "cobertura_years": "1997 → presente",
+                    "cobertura_atualizacao": None,
+                    "cobertura_granularidade": None,
+                }
+            ]
+        ),
+    )
+    meta = seam.source_meta("un_comtrade")
+    assert meta["maturity"] == "manutencao"  # override beats the registry default (estavel)
+    assert meta["maturity_note"] == "Em correção."
+    assert meta["cobertura"]["years"] == "1997 → presente"  # overridden field
+    assert meta["cobertura"]["granularidade"]  # NULL override → registry default kept
+
+
+def test_source_meta_override_table_absent_uses_registry(monkeypatch):
+    """A missing override table (NotFound) is 'no overrides' → registry default."""
+    from google.api_core.exceptions import NotFound
+
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "un_comtrade", "year_end": 2023}]),
+    )
+
+    def _raise(banco_id):
+        raise NotFound("table not found")
+
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", _raise)
+    meta = seam.source_meta("un_comtrade")
+    assert meta["maturity"] == "estavel"  # un_comtrade registry default (now stable)
 
 
 def test_product_uf_ranking_pevs_and_comex(monkeypatch):

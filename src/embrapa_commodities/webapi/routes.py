@@ -18,7 +18,10 @@ from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from embrapa_commodities.config import get_settings
-from embrapa_commodities.serving.curation import ensure_curators_table
+from embrapa_commodities.serving.curation import (
+    ensure_banco_metadata_table,
+    ensure_curators_table,
+)
 from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
@@ -69,6 +72,22 @@ def _ensure_curators_table() -> None:
         logger.warning("Could not ensure curators allowlist table", exc_info=True)
 
 
+def _ensure_banco_metadata_table() -> None:
+    """Self-heal the Console-managed banco-metadata override table (best-effort).
+
+    The override read (``seam.banco_metadata_overrides``) treats a missing table as
+    "no overrides" (registry defaults stand), so an operator following the runbook's
+    documented MERGE to flip a maturity would otherwise hit "table not found". Create
+    it idempotently on the first source-meta read — like the curators table — so the
+    "auto-creates on first use" promise holds. Best-effort: a transient BQ/permission
+    fault must never break the provenance read (an absent table is just no overrides).
+    """
+    try:
+        ensure_banco_metadata_table()
+    except Exception:  # pragma: no cover - BQ unavailable / perms; never block the read
+        logger.warning("Could not ensure banco metadata override table", exc_info=True)
+
+
 def _authorize_curator():
     """Resolve the IAP author and enforce the curator allowlist (authorization).
 
@@ -111,6 +130,7 @@ def source_meta():
     the last-refresh stamp), so the frontend renders live gold_source_metadata
     instead of frozen bancos.js literals.
     """
+    _ensure_banco_metadata_table()
     raw = seam.source_meta(request.args.get("banco", ""))
     return jsonify(serializers.serialize_source_meta(raw))
 
@@ -148,6 +168,25 @@ def product_uf():
     summary = {"startDate": start, "endDate": end} if (start or end) else None
     df = seam.product_uf_ranking(banco, code, conv, summary)
     return jsonify(serializers.serialize_product_uf(df))
+
+
+@api.get("/geo-yearly")
+def geo_yearly():
+    """Basket-scoped per-(UF, year) cube (backs the geography-aware hero + map +
+    series). currency+correction pick the deflated value column server-side, same as
+    /snapshot; ``codes`` (comma-joined product codes; absent = all) pushes the active
+    product basket down to the by-UF-yearly mart so the territorial split respects the
+    selected products. The year window is left open (full history) — the client slices
+    period + state. { ufYearly: [] } when the banco has no geo grain."""
+    banco = request.args.get("banco", "")
+    conv = {
+        "currency": request.args.get("currency", "BRL"),
+        "correction": request.args.get("correction", "IPCA"),
+    }
+    codes = request.args.get("codes")
+    summary = {"basket": codes.split(",")} if codes else None
+    df = seam.geo_yearly(banco, conv, summary)
+    return jsonify(serializers.serialize_geo_yearly(df))
 
 
 @api.get("/productivity")

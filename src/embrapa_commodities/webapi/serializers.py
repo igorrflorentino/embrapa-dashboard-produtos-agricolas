@@ -159,6 +159,14 @@ def serialize_source_meta(meta: dict | None) -> dict:
         "monthsInLatestYear": _int_or_none(meta.get("months_in_latest_year")),
         "latestYearComplete": bool(meta.get("latest_year_complete", True)),
         "latestCompleteYear": _int_or_none(meta.get("latest_complete_year")),
+        # Operator-editable lifecycle metadata (research_inputs.banco_metadata merged
+        # over the registry default by seam._apply_banco_metadata). Lets a Console
+        # flip — beta→estavel, a new note/date, updated coverage — reach the SPA's
+        # MaturityTag/MaturityBanner/coverage WITHOUT a rebuild+redeploy.
+        "maturity": meta.get("maturity"),
+        "maturityNote": meta.get("maturity_note"),
+        "maturityDate": meta.get("maturity_date"),
+        "cobertura": meta.get("cobertura"),
     }
 
 
@@ -345,6 +353,17 @@ def serialize_product_uf(df: pd.DataFrame | None) -> dict:
     ]
     rows.sort(key=lambda d: d["value"], reverse=True)
     return {"uf": rows}
+
+
+def serialize_geo_yearly(df: pd.DataFrame | None) -> dict:
+    """seam.geo_yearly() → { ufYearly: [{year, uf, name, region, value, q_mass, q_vol}] }.
+
+    The basket-scoped per-(UF, year) cube backing the geography-aware hero/map/series.
+    Reuses :func:`_uf_yearly` so the value/quantity scaling (value ÷1e6 → mi, q_mass
+    ÷1e3 → mil t, q_vol ÷1e6 → mi m³) is BYTE-IDENTICAL to the snapshot's ``ufYearly``
+    — the frontend treats both interchangeably. ``{ ufYearly: [] }`` when df is
+    None/empty (no geo grain, or the basket matched nothing)."""
+    return {"ufYearly": _uf_yearly(df)}
 
 
 def serialize_productivity(payload: dict | None) -> dict | None:

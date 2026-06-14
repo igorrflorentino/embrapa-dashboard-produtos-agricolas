@@ -51,7 +51,11 @@ def _check_env(settings: Settings) -> CheckResult:
         products = settings.product_codes
         pam_codes = settings.pam_product_codes_list
         comex_flows = settings.comex_flows_list
-        comex_codes = {**settings.comex_ncm_map, **settings.comex_chapter_map}
+        comex_codes = {
+            **settings.comex_ncm_map,
+            **settings.comex_heading_map,
+            **settings.comex_chapter_map,
+        }
         comtrade_flows = settings.comtrade_flows_list
         comtrade_codes = settings.comtrade_cmd_map
         detail = (

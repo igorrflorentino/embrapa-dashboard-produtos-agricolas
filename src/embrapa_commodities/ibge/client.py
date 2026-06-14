@@ -63,7 +63,7 @@ BRAZIL_STATES: tuple[int, ...] = (
     53,
 )
 
-SIDRA_VALUES_URL = "https://apisidra.ibge.gov.br/values/t/{table_id}/p/{periods}/v/all/{geo_level}/{geo_filter}/c{classification}/{products}"
+SIDRA_VALUES_URL = "https://apisidra.ibge.gov.br/values/t/{table_id}/p/{periods}/v/{variables}/{geo_level}/{geo_filter}/c{classification}/{products}"
 
 # SIDRA returns at most this many cells per HTTP response. Going over triggers
 # a 400 with "Limite de valores excedido".
@@ -227,8 +227,13 @@ def _fetch_block(
     geo_filter: str,
     classification: str,
     products: list[str],
+    variables: str = "all",
 ) -> list[list[dict]]:
     """Fetch one SIDRA block. Returns a list of payloads (each with its own header row).
+
+    ``variables`` is the SIDRA ``v/`` selector — ``"all"`` (default, PEVS) or an
+    explicit comma list (PAM passes only its 5 substantive codes, since table 5457's
+    ``v/all`` includes 3 useless percentual series that blow the per-request limit).
 
     On `SidraLimitExceeded`, the period is halved and the function recurses; if
     the period is already a single year, the exception propagates so the caller
@@ -238,6 +243,7 @@ def _fetch_block(
     url = SIDRA_VALUES_URL.format(
         table_id=table_id,
         periods=_periods_string(periods),
+        variables=variables,
         geo_level=geo_level,
         geo_filter=geo_filter,
         classification=classification,
@@ -256,7 +262,7 @@ def _fetch_block(
     except SidraLimitExceeded:
         if len(periods) > 1:
             mid = len(periods) // 2
-            args = (table_id, geo_level, geo_filter, classification, products)
+            args = (table_id, geo_level, geo_filter, classification, products, variables)
             return _fetch_block(args[0], periods[:mid], *args[1:]) + _fetch_block(
                 args[0], periods[mid:], *args[1:]
             )
@@ -270,6 +276,7 @@ def _fetch_one_state(
     periods: list[int],
     classification: str,
     products: list[str],
+    variables: str = "all",
 ) -> list[list[dict]]:
     """Per-state worker. Sets the contextvar so retry events carry the UF,
     and emits state_start / state_end / state_error around the fetch."""
@@ -279,7 +286,7 @@ def _fetch_one_state(
     observability.emit("state_start", state=uf, state_code=state_code)
     try:
         payloads = _fetch_block(
-            table_id, periods, "n6", f"in n3 {state_code}", classification, products
+            table_id, periods, "n6", f"in n3 {state_code}", classification, products, variables
         )
         # Each payload's first row is the SIDRA header — exclude it from the count.
         rows = sum(max(0, len(p) - 1) for p in payloads)
@@ -309,6 +316,7 @@ def _fetch_by_state_parallel(
     periods: list[int],
     classification: str,
     products: list[str],
+    variables: str = "all",
 ) -> list[list[dict]]:
     """Fallback path: slice an n6 query by state with a thread pool."""
     payloads: list[list[dict]] = []
@@ -321,6 +329,7 @@ def _fetch_by_state_parallel(
                 periods,
                 classification,
                 products,
+                variables,
             ): state_code
             for state_code in BRAZIL_STATES
         }
@@ -346,6 +355,7 @@ def fetch_sidra_dataframe(
     classification: str,
     products: list[str],
     geo_level: str = "n6",
+    variables: str = "all",
 ) -> pd.DataFrame:
     """Extract the full PEVS slice into a single DataFrame with snake_case headers.
 
@@ -372,9 +382,11 @@ def fetch_sidra_dataframe(
         return pd.DataFrame()
 
     if geo_level == "n6":
-        payloads = _fetch_by_state_parallel(table_id, periods, classification, products)
+        payloads = _fetch_by_state_parallel(table_id, periods, classification, products, variables)
     else:
-        payloads = _fetch_block(table_id, periods, geo_level, "all", classification, products)
+        payloads = _fetch_block(
+            table_id, periods, geo_level, "all", classification, products, variables
+        )
 
     frames: list[pd.DataFrame] = []
     for payload in payloads:

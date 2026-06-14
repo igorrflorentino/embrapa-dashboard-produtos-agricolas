@@ -528,6 +528,26 @@ def fetch_curators():
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_banco_metadata(banco_id: str):
+    """Operator-editable maturity/coverage overrides for one banco
+    (research_inputs.<banco_metadata>). Short TTL (like the curators read) so a
+    Console flip — e.g. beta→estavel — takes effect within the window. Raises
+    NotFound when the table doesn't exist — the seam treats that as 'no overrides'
+    and uses the registry defaults. Bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_banco_metadata_table
+    )
+    sql = (
+        "select maturity, maturity_note, maturity_date, cobertura_years, "
+        "cobertura_atualizacao, cobertura_granularidade "
+        f"from `{table}` where banco_id = @banco_id limit 1"
+    )
+    params = [bigquery.ScalarQueryParameter("banco_id", "STRING", banco_id)]
+    return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.
     Raises if the log table doesn't exist yet (no pair classified) — the seam

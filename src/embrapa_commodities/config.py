@@ -78,7 +78,12 @@ class Settings(BaseSettings):
     # ─── IBGE ─────────────────────────────────────────────────────────────────
     ibge_table_id: str = Field(default="289")
     ibge_classification_id: str = Field(default="193")
-    ibge_product_codes: str = Field(default="3405,3435,3450")
+    # PEVS = EXTRACTIVE vegetal/forestry production. SIDRA t289/c193 codes:
+    #   3405 Castanha-do-pará · 3435 Madeira em tora · 3434 Lenha ·
+    #   3433 Carvão vegetal · 3450 Pinheiro brasileiro (Araucária, em tora) ·
+    #   3403 Açaí (fruto, extractive). Cultivated crops (soja, milho, arroz,
+    #   banana, mandioca, açaí cultivated) live in PAM, not here.
+    ibge_product_codes: str = Field(default="3405,3435,3434,3433,3450,3403")
     ibge_start_year: int | None = Field(
         default=None,
         description="None requires user to run `embrapa discover ibge-periods` first.",
@@ -102,19 +107,32 @@ class Settings(BaseSettings):
     pam_table_id: str = Field(default="5457")
     # Classification 782 = "produto das lavouras temporárias e permanentes".
     pam_classification_id: str = Field(default="782")
-    # LEAN first cut — the 5 highest-value Brazilian crops. Widen via .env
-    # (PAM_PRODUCT_CODES) once the pipeline is validated. Codes are SIDRA c782:
-    #   40124 Soja · 40122 Milho · 40139 Café (Total) · 40106 Cana-de-açúcar · 40102 Arroz
-    pam_product_codes: str = Field(default="40124,40122,40139,40106,40102")
-    # LEAN floor — start recent on purpose for the first cut (PAM history runs to
-    # 1974; the full backfill is heavy). Lower PAM_START_YEAR for older history
-    # once validated. The END floats with the current year (like IBGE PEVS) so the
-    # nightly delta absorbs PAM's recent-year revisions and auto-picks-up a newly
-    # published year; SIDRA simply returns no rows for years not yet published.
-    pam_start_year: int | None = Field(default=2010)
+    # CULTIVATED crops (PAM is annual ag production by municipality). SIDRA c782:
+    #   40124 Soja · 40122 Milho · 40139 Café (Total) · 40106 Cana-de-açúcar ·
+    #   40102 Arroz · 40136 Banana (cacho) · 40119 Mandioca · 45982 Açaí
+    #   (cultivated — distinct from PEVS extractive açaí 3403). Café/cana are
+    #   kept from the first cut though they're outside the core commodity list.
+    pam_product_codes: str = Field(default="40124,40122,40139,40106,40102,40136,40119,45982")
+    # Full PAM history (SIDRA 5457 runs to 1974). The monetary value is now
+    # reform-correct via the historical_currency_factors join in silver_ibge_pam,
+    # so pre-1994 years (Mil Cruzeiros/Cruzados/…) land in nominal R$ — no lean
+    # floor needed. The END floats with the current year (like IBGE PEVS) so the
+    # delta absorbs PAM's recent-year revisions and auto-picks-up a newly published
+    # year; SIDRA simply returns no rows for years not yet published. The first
+    # backfill is heavy — use `ingest ibge-pam --full` (or chunk it) once.
+    pam_start_year: int | None = Field(default=1974)
     pam_end_year: int = Field(default_factory=_current_year)
     # Same delta semantics as IBGE PEVS (PAM also revises only recent years).
     pam_delta_overlap_years: int = Field(default=1, ge=0)
+    # SIDRA variables to FETCH for PAM (the client requests only these, not v/all).
+    # Table 5457 publishes 8 variables via v/all, but 3 are useless "percentual"
+    # series — fetching all 8 inflates each (state, year) response past SIDRA's
+    # per-request cell limit for a dense state (MG × 8 crops), making even a
+    # 1-year backfill window impossible. These 5 are exactly the substantive ones
+    # silver_ibge_pam keeps. MUST stay in sync with the dbt vars pam_variable_*
+    # (dbt_project.yml): 8331 área plantada · 216 área colhida · 214 quantidade ·
+    # 112 rendimento · 215 valor. `embrapa doctor` is the place to add a parity check.
+    pam_variable_codes: str = Field(default="8331,216,214,112,215")
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
@@ -140,10 +158,48 @@ class Settings(BaseSettings):
     # Which flows to ingest — closed domain {export, import}, mapped to the
     # EXP_/IMP_ file prefixes by the client.
     comex_flows: str = Field(default="export,import")
-    # CODE:LABEL of full 8-digit NCMs to keep regardless of chapter.
-    comex_ncm_codes: str = Field(default="08012100:castanha_com_casca,08012200:castanha_sem_casca")
-    # CODE:LABEL of 2-digit HS chapters to keep wholesale (44 = wood & charcoal).
-    comex_chapter_codes: str = Field(default="44:madeira_carvao")
+    # CODE:LABEL of full 8-digit NCMs to keep regardless of chapter. Codes verified
+    # against the official Siscomex NCM table (Res. Gecex 812/2025). Used ONLY for
+    # commodities whose HS4 heading is NOT clean (would pull unrelated products):
+    #   castanha — 0801 also holds coconut + cashew, so the exact Brazil-nut leaves
+    #     (the MDIC NCM already reports 08012100/08012200 across the whole 1997+
+    #     series — no pre-split code needed here, unlike COMTRADE's international HS);
+    #   açaí/cupuaçu — only the dedicated "purê" leaves (2007.99.21/.26) are
+    #     isolable (the generic fruit buckets mix dozens of fruits → omitted);
+    #   mandioca — its forms span 0714 (also other roots) / 1106 / 1108 / 1903, so
+    #     the exact leaves (these are stable across NCM revisions).
+    # Commodities with a CLEAN heading (soja, milho, arroz, banana) use
+    # comex_heading_codes instead — that captures EVERY NCM under the heading across
+    # all revisions (the MDIC bulk reports each year under the NCM then in force —
+    # e.g. soja is 12010090 pre-2017, not 12019000), giving complete history.
+    comex_ncm_codes: str = Field(
+        default=(
+            "08012100:castanha_com_casca,08012200:castanha_sem_casca,"
+            "20079921:acai_pure,20079926:cupuacu_pure,"
+            "07141000:mandioca_raiz,11062000:mandioca_farinha,"
+            "11081400:mandioca_fecula,19030000:tapioca"
+        )
+    )
+    # CODE:LABEL of 2-digit HS chapters to keep wholesale. Empty by default —
+    # madeira moved to explicit 4-digit headings (see comex_heading_codes) to drop
+    # manufactured-wood articles (móveis/marcenaria) that polluted the whole-chapter
+    # scope and are not comparable to PEVS extractive output.
+    comex_chapter_codes: str = Field(default="")
+    # CODE:LABEL of 4-digit HS headings (prefix match on NCM[:4]) — captures EVERY
+    # 8-digit NCM under the heading across all NCM revisions (so a code retired by a
+    # revision is still ingested; retired→current is then normalized in silver via
+    # comex_ncm_succession). Wood (raw/primary forms only): 4401 lenha/resíduos ·
+    # 4402 carvão · 4403 toras · 4407 serrada. Clean-heading commodities: 0803
+    # banana · 1005 milho · 1006 arroz · 1201 soja (grão) · 1507 soja (óleo) ·
+    # 2304 soja (farelo). Each heading contains ONLY its commodity.
+    comex_heading_codes: str = Field(
+        default=(
+            "4401:madeira_lenha_residuos,4402:madeira_carvao,"
+            "4403:madeira_tora,4407:madeira_serrada,"
+            "0803:banana,1005:milho,1006:arroz,"
+            "1201:soja_grao,1507:soja_oleo,2304:soja_farelo"
+        )
+    )
     comex_start_year: int = Field(default=1997)
     comex_end_year: int = Field(default_factory=_current_year)
 
@@ -156,27 +212,65 @@ class Settings(BaseSettings):
     bq_bronze_comtrade_flows_table: str = Field(default="comtrade_flows_raw")
     # HS code prefixes to keep (CODE:LABEL) — mirror the COMEX scope so Brazil can
     # be compared against the world for the same commodities. These are the SCOPE
-    # codes; the ingest expands them to their 6-digit HS leaves (Comtrade returns
-    # data only at the requested code level).
-    comtrade_cmd_codes: str = Field(default="0801:castanha,44:madeira_carvao")
+    # codes; the ingest expands each to its 6-digit HS leaves via the public HS
+    # reference (Comtrade returns data only at the requested code level). Prefixes
+    # of any length work (client.list_hs6_codes does startswith). açaí and cupuaçu
+    # have NO isolable HS6 (the purê falls in the mixed 200799 bucket) so they are
+    # deliberately absent here.
+    #
+    # FULL-HISTORY (retired codes): the public HS reference is COMBINED across
+    # revisions, so a 4-digit prefix already enumerates BOTH the current and the
+    # retired 6-digit leaves under it — banana 0803 → {080300 (pre-HS2012), 080310,
+    # 080390}; soja 1201 → {120100, 120110, 120190}; wood 4401/4403/4407 → the old
+    # AND new ch.44 leaves. The ONLY retired code a prefix misses is castanha's
+    # 080120 (pre-HS2007), because castanha is narrowed to the exact 080121/080122
+    # leaves (the bare 0801 would also pull coconut + cashew) — so 080120 is added
+    # explicitly below. Retired codes are then TRANSLATED to their current
+    # equivalent in silver_comtrade_flows (comtrade_hs_succession seed), so the Gold
+    # / serving / dashboard only ever expose current codes.
+    comtrade_cmd_codes: str = Field(
+        default=(
+            "080121:castanha_com_casca,080122:castanha_sem_casca,"
+            "080120:castanha_historica,"
+            "4401:madeira_lenha_residuos,4402:madeira_carvao,"
+            "4403:madeira_tora,4407:madeira_serrada,"
+            "0803:banana,"
+            "071410:mandioca_raiz,110620:mandioca_farinha,"
+            "110814:mandioca_fecula,190300:tapioca,"
+            "1201:soja_grao,150710:soja_oleo_bruto,150790:soja_oleo_refinado,"
+            "230400:soja_farelo,"
+            "1005:milho,"
+            "1006:arroz"
+        )
+    )
     # Flow codes (UN Comtrade flowCode): X=export, M=import, RX=re-export,
     # RM=re-import. The four primary regimes the frontend's `flow` filter exposes.
     comtrade_flows: str = Field(default="X,M,RX,RM")
     # Reporters to pull ("all" = every reporting country, expanded by the client
     # from the Comtrade Reporters reference; or a comma list of M49 codes). The
     # keyed endpoint rejects "all" literally, so the client enumerates and batches.
-    comtrade_reporters: str = Field(default="all")
+    # DEFAULT = "76" (Brazil): the pipeline fetches reporter × ALL partners, so a
+    # Brazil-only pull gives Brazil's COMPLETE export/import history (every partner)
+    # cheaply and within quota. The cross-source MIRROR (what partners declare about
+    # Brazil) + world market-share need every reporter's partner=Brazil rows — set
+    # "all" for the (expensive) global pull, or add a partnerCode-filtered mirror
+    # pass to the client/pipeline (it omits partnerCode today — client.fetch_chunk).
+    comtrade_reporters: str = Field(default="76")
     # ISO-A3 of the reporter treated as "home" (Brazil) when the serving layer
     # splits Brazil's own trade from the world total — COMTRADE ingests ALL
     # reporters, so this filter is applied at query time (serving), never at
     # ingestion. Backs crossSeries: exp_value/imp_value filter to this reporter;
     # world_exp sums over all reporters.
     comtrade_brazil_iso: str = Field(default="BRA")
-    # DEV window — kept small/recent on purpose while building and testing (avoid
-    # the massive full backfill). Lower COMTRADE_START_YEAR for older history once
-    # the pipeline is validated; raise COMTRADE_END_YEAR past 2023 when ready.
-    comtrade_start_year: int = Field(default=2022)
-    comtrade_end_year: int = Field(default=2023)
+    # Full history. Brazil reports to UN Comtrade from ~1989; the END floats with
+    # the current year (the pipeline always re-fetches the latest year — Comtrade
+    # revises it — and lands an empty sentinel for past years with no data so they
+    # resume-skip without re-billing quota). Retired pre-revision codes are fetched
+    # (the combined HS reference enumerates them under the 4-digit prefixes, plus
+    # the explicit castanha 080120) and then mapped to their current equivalent in
+    # silver_comtrade_flows — see comtrade_cmd_codes above.
+    comtrade_start_year: int = Field(default=1989)
+    comtrade_end_year: int = Field(default_factory=_current_year)
 
     # ─── Cold-storage backup ──────────────────────────────────────────────────
     # `embrapa doctor` warns when the most recent gs://${GCS_BUCKET}/backups/
@@ -247,6 +341,14 @@ class Settings(BaseSettings):
     # this table and CURATION_ALLOWED_EMAILS; if BOTH are empty/absent, any
     # IAP-authenticated caller may curate (current behaviour). Auto-created.
     bq_curators_table: str = Field(default="curators")
+    # Operator-editable banco metadata OVERRIDES (research_inputs.<this>) — the
+    # Console-managed way to change a banco's maturity stage / note / planned date /
+    # coverage labels WITHOUT a rebuild+redeploy of the SPA. Sparse: a row overrides
+    # only the columns it sets; NULL columns (or no row) fall back to the registry
+    # default (registries.py / bancos.js), which stays the source of truth. The API
+    # merges it into /api/source-meta with the short curation TTL, so a flip like
+    # beta→estavel reflects within cache_classification_timeout. Auto-created.
+    bq_banco_metadata_table: str = Field(default="banco_metadata")
     # Per-query byte ceiling on the always-on /api path (gateway.run_query): caps a
     # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
     # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)
@@ -320,6 +422,11 @@ class Settings(BaseSettings):
     @property
     def comex_chapter_map(self) -> dict[str, str]:
         return _parse_code_label(self.comex_chapter_codes)
+
+    @property
+    def comex_heading_map(self) -> dict[str, str]:
+        """4-digit HS headings kept by prefix match on NCM[:4] (e.g. wood)."""
+        return _parse_code_label(self.comex_heading_codes)
 
     @property
     def comtrade_cmd_map(self) -> dict[str, str]:

@@ -67,6 +67,22 @@ const sourceMeta = {}; // bancoId -> serialize_source_meta payload (or {} when a
 // exactly one network call per banco (FINDING #8).
 const sourceMetaInFlight = {}; // bancoId -> Promise
 
+// Overlay the live, operator-editable maturity/coverage (/api/source-meta, merged
+// from research_inputs.banco_metadata) onto the in-memory registry banco, so the
+// proto's MaturityTag / MaturityBanner / coverage — which read the static banco —
+// reflect a Console flip (e.g. beta→estavel) WITHOUT a rebuild+redeploy. Sparse:
+// each field is overlaid only when the backend sends a non-null value; otherwise the
+// bancos.js literal stands (the backend default IS that literal). maturityMeta(banco)
+// then resolves the live stage app-wide; notify() re-renders.
+function overlayBancoMetadata(id, m) {
+  const b = window.bancoById && window.bancoById(id);
+  if (!b) return;
+  if (m.maturity) b.maturity = m.maturity;
+  if (m.maturityNote != null) b.maturityNote = m.maturityNote;
+  if (m.maturityDate != null) b.maturityDate = m.maturityDate;
+  if (m.cobertura && typeof m.cobertura === 'object') b.cobertura = m.cobertura;
+}
+
 function fetchSourceMeta(id) {
   if (sourceMetaInFlight[id]) return sourceMetaInFlight[id];
   const p = fetch(`${API}/source-meta?banco=${encodeURIComponent(id)}`)
@@ -74,6 +90,7 @@ function fetchSourceMeta(id) {
     .then((m) => {
       if (m && typeof m === 'object') {
         sourceMeta[id] = m;
+        overlayBancoMetadata(id, m); // live maturity/coverage → registry banco
         notify(); // re-render the hero/Sobre/Saúde with the real values
       }
     })
@@ -138,6 +155,12 @@ window.dataStore = {
   latestVersion: (id) => (goldVersion[id] && goldVersion[id].v) || null,
   latestAt: (id) => refreshOf(id),
   table: (id) => tableOf(id),
+
+  // The active display conventions (currency/correction). The snapshot is fetched
+  // and cached per-convention; producers that fetch their OWN convention-scoped
+  // resources (e.g. the geo-yearly cube in producers.js, consumed by applyFilters)
+  // read this so their value column matches the snapshot's exactly.
+  conv: () => ({ ...activeConv }),
 
   // Live provenance for a banco. The numeric coverage (rows, products, UFs, year
   // span) + the last-refresh stamp are overlaid from /api/source-meta when it has

@@ -311,7 +311,46 @@ def source_meta(banco_id: str) -> dict:
     except (TypeError, ValueError):
         year_end = None
     meta.update(_latest_year_completeness(banco_id, year_end))
+    _apply_banco_metadata(meta, banco_id)
     return meta
+
+
+def banco_metadata_overrides(banco_id: str) -> dict:
+    """Operator-set maturity/coverage overrides for a banco; empty dict when the
+    override table is absent (none configured) or the banco has no row. Any OTHER
+    error propagates — a transient BQ/permission fault must NOT silently erase a
+    deliberate flip (e.g. beta→estavel) back to the registry default."""
+    try:
+        df = gateway.fetch_banco_metadata(banco_id)
+    except NotFound:
+        return {}
+    if df is None or df.empty:
+        return {}
+    row = df.iloc[0].to_dict()
+    # Keep only set columns: a NULL/NaN override means "use the registry default".
+    return {
+        k: v for k, v in row.items() if v is not None and not (isinstance(v, float) and pd.isna(v))
+    }
+
+
+def _apply_banco_metadata(meta: dict, banco_id: str) -> None:
+    """Overlay the editable override row over the registry Banco defaults, writing
+    maturity/maturity_note/maturity_date/cobertura into ``meta``. The registry stays
+    the source of truth; the override table only carries deliberate per-field edits."""
+    banco = banco_by_id(banco_id)
+    ov = banco_metadata_overrides(banco_id)
+    meta["maturity"] = ov.get("maturity") or (banco.maturity if banco else None)
+    meta["maturity_note"] = ov.get("maturity_note", banco.maturity_note if banco else None)
+    meta["maturity_date"] = ov.get("maturity_date", banco.maturity_date if banco else None)
+    cobertura = dict(banco.cobertura) if banco and banco.cobertura else {}
+    for col, key in (
+        ("cobertura_years", "years"),
+        ("cobertura_atualizacao", "atualizacao"),
+        ("cobertura_granularidade", "granularidade"),
+    ):
+        if ov.get(col):
+            cobertura[key] = ov[col]
+    meta["cobertura"] = cobertura or None
 
 
 def product_uf_ranking(
@@ -329,6 +368,37 @@ def product_uf_ranking(
         )
     return gateway.fetch_production_by_uf(
         year_start=y0, year_end=y1, product_codes=(code,), value_column=value_col, source=banco_id
+    )
+
+
+def geo_yearly(banco_id: str, conv: dict, summary: dict | None = None) -> pd.DataFrame | None:
+    """Per-(UF, year) value/quantity for the SELECTED product basket (backs the
+    geography-aware hero + map + series — Pushdown Computing at the product × UF ×
+    year grain the snapshot deliberately omits).
+
+    Unlike ``snapshot()`` — which fetches ``uf_yearly`` with NO basket so the client
+    can slice it by state/year but NOT by product — this reader pushes the active
+    basket down to the by-UF-yearly mart query (``codes``), so the returned cube IS
+    narrowed to the chosen products. The frontend then sums it over the selected
+    states + window client-side, making VALOR TOTAL / quantities / the choropleth
+    respect state + product + period together. ``None`` when the banco has no geo
+    grain (e.g. COMTRADE: country-pair, no UF). The year window is left OPEN here
+    (full history) so the cube is cacheable across period changes — the client
+    applies the period slice. Same value column + COMEX USD→display rename as the
+    snapshot, so the cube shares the snapshot's currency basis exactly.
+    """
+    banco = banco_by_id(banco_id)
+    if banco_id not in _LIVE_SOURCES or not banco or "geo" not in banco.provides:
+        return None
+    value_col, _ = effective_value_column(banco, conv)
+    codes = _basket(summary)
+    if banco_id == "mdic_comex":
+        df = gateway.fetch_comex_by_uf_yearly(ncm_codes=codes, value_column=value_col)
+        if df is not None:
+            df = df.rename(columns={"total_value_usd": "total_value"})
+        return df
+    return gateway.fetch_production_by_uf_yearly(
+        product_codes=codes, value_column=value_col, source=banco_id
     )
 
 

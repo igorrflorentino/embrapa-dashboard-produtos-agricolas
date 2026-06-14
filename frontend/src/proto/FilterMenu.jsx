@@ -75,20 +75,18 @@ const qualityLabelOf = (id) => {
   return f ? f.label : id;
 };
 
-// Nations — producer + main PEVS export destinations.
+// Nations — the geo-cascade is consumed ONLY by domestic datasets (ibge_pevs,
+// ibge_pam, sefaz_nf): PEVS/PAM are Brazilian *production* (Gold carries only
+// uf/municipio — no destination country) and NFe is internal inter-UF flow. So
+// the only real nação is Brasil. The earlier list also carried 11 foreign
+// "export destinations" (China, EUA, …) — a prototype fabrication that mapped to
+// NO column in any geo-cascade banco: adding one was a silent no-op, selecting
+// only one zeroed the whole map. International partners are a REAL dimension only
+// for COMEX/COMTRADE, which expose them via their own `pais`/`partner`
+// multi-search dims, not this cascade. Kept as a list so the cascade rendering
+// and "all selected" checks stay unchanged.
 const NATIONS = [
-  { iso: 'BR', name: 'Brasil',        role: 'produtor' },
-  { iso: 'CN', name: 'China',         role: 'destino'  },
-  { iso: 'US', name: 'Estados Unidos',role: 'destino'  },
-  { iso: 'DE', name: 'Alemanha',      role: 'destino'  },
-  { iso: 'NL', name: 'Países Baixos', role: 'destino'  },
-  { iso: 'FR', name: 'França',        role: 'destino'  },
-  { iso: 'IT', name: 'Itália',        role: 'destino'  },
-  { iso: 'GB', name: 'Reino Unido',   role: 'destino'  },
-  { iso: 'ES', name: 'Espanha',       role: 'destino'  },
-  { iso: 'JP', name: 'Japão',         role: 'destino'  },
-  { iso: 'AR', name: 'Argentina',     role: 'destino'  },
-  { iso: 'CL', name: 'Chile',         role: 'destino'  },
+  { iso: 'BR', name: 'Brasil', role: 'produtor' },
 ];
 
 // Brazil's 5 macro-regions. Linked to BR nation.

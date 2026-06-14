@@ -80,6 +80,21 @@ def test_filter_products_import_keeps_freight_and_insurance() -> None:
     assert row["VL_SEGURO"] == "12"
 
 
+def test_filter_products_heading_4digit_keeps_wood_via_prefix() -> None:
+    # No chapter; heading 4407 (sawn wood) selects 44072920 by its first 4 digits,
+    # alongside the exact castanha NCMs. This is the madeira-narrowing path.
+    df = client.filter_products(_csv_to_parquet_bytes(EXP_CSV), NCM_CODES, set(), {"4407"})
+    assert set(df["CO_NCM"]) == {"08012100", "44072920"}
+
+
+def test_filter_products_heading_is_narrower_than_chapter() -> None:
+    # A 4-digit heading is stricter than the 2-digit chapter: 4403 (logs) must NOT
+    # match 44072920 (heading 4407), so with no NCM/chapter the frame is empty.
+    df = client.filter_products(_csv_to_parquet_bytes(EXP_CSV), set(), set(), {"4403"})
+    assert df.empty
+    assert list(df.columns) == client.SOURCE_COLUMNS
+
+
 def test_filter_products_empty_when_nothing_matches() -> None:
     csv = (
         '"CO_ANO";"CO_MES";"CO_NCM";"CO_UNID";"CO_PAIS";"SG_UF_NCM";"CO_VIA";"CO_URF";'

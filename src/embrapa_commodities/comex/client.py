@@ -287,22 +287,30 @@ def extract_to_parquet(base_url: str, flow: str, year: int, parquet_path: str) -
 
 
 def filter_products(
-    raw_parquet: bytes, ncm_codes: set[str], chapter_codes: set[str]
+    raw_parquet: bytes,
+    ncm_codes: set[str],
+    chapter_codes: set[str],
+    heading_codes: set[str] | None = None,
 ) -> pd.DataFrame:
     """Phase 2: filter a raw Parquet (all NCMs) to the configured products.
 
-    A row is kept when ``CO_NCM`` is in ``ncm_codes`` or its first two digits are
-    in ``chapter_codes`` (column-precise — a substring match on the raw line
-    would false-hit country code 445 for chapter 44). Streams via
-    ``iter_batches`` so memory stays bounded. Returns a frame with exactly
-    :data:`SOURCE_COLUMNS` (import-only columns NULL for export files).
+    A row is kept when ``CO_NCM`` is in ``ncm_codes`` (exact 8-digit), or its
+    first FOUR digits are in ``heading_codes`` (HS heading, e.g. 4403 madeira),
+    or its first TWO digits are in ``chapter_codes`` (whole HS chapter). All three
+    are column-precise on ``CO_NCM`` — a substring match on the raw line would
+    false-hit e.g. country code 445 for chapter 44. Streams via ``iter_batches``
+    so memory stays bounded. Returns a frame with exactly :data:`SOURCE_COLUMNS`
+    (import-only columns NULL for export files).
     """
+    heading_codes = heading_codes or set()
     parquet_file = pq.ParquetFile(BytesIO(raw_parquet))
     frames: list[pd.DataFrame] = []
     for batch in parquet_file.iter_batches(batch_size=PARSE_CHUNK_ROWS):
         chunk = batch.to_pandas()
         ncm = chunk["CO_NCM"].astype(str)
-        mask = ncm.isin(ncm_codes) | ncm.str[:2].isin(chapter_codes)
+        mask = (
+            ncm.isin(ncm_codes) | ncm.str[:4].isin(heading_codes) | ncm.str[:2].isin(chapter_codes)
+        )
         selected = chunk[mask]
         if not selected.empty:
             frames.append(selected)

@@ -183,3 +183,70 @@ describe('applyFilters — ufDataFull is the ALL-TIME UF universe (heads-up #1)'
     expect(f.ufDataFull.map((u) => u.uf).sort()).toEqual(['PA', 'RS']);
   });
 });
+
+describe('applyFilters — geography-aware series (state filter reaches the hero)', () => {
+  beforeEach(() => { delete window.applyFilters; delete window.geoYearly; });
+
+  it('a STATE narrowing derives the series from the selected UFs, not the national curve', async () => {
+    const applyFilters = await loadApplyFilters();
+    // No basket → no cube; the state slice reads the all-products ufYearly grid.
+    const f = applyFilters({ states: ['PA'] }, 'ibge_pevs');
+    const t2020 = f.ts.find((d) => d.y === 2020);
+    const t2021 = f.ts.find((d) => d.y === 2021);
+    // PA-only: ufYearly PA value 90/100 (mi) → ts.v in bi (÷1000); q_mass = PA's 45/50.
+    expect(t2020.v).toBeCloseTo(0.09); // 90 / 1000, NOT the national 60/1000
+    expect(t2021.v).toBeCloseTo(0.1); // 100 / 1000
+    expect(t2020.q_mass).toBe(45);
+    expect(t2021.q_mass).toBe(50);
+  });
+
+  it('all-states selected is NOT a narrowing → keeps the national per-product series', async () => {
+    const applyFilters = await loadApplyFilters();
+    // window.UF_DATA absent → universe defaults to 27; 2 selected < 27 would narrow,
+    // so to assert the no-narrowing path we declare the full 2-UF universe here.
+    window.UF_DATA = [{ uf: 'PA' }, { uf: 'RS' }];
+    const f = applyFilters({ states: ['PA', 'RS'] }, 'ibge_pevs');
+    const t2020 = f.ts.find((d) => d.y === 2020);
+    expect(t2020.v).toBeCloseTo(0.06); // national A+B+C = 60/1000, untouched
+    delete window.UF_DATA;
+  });
+});
+
+describe('applyFilters — basket-scoped (UF × year) cube drives the territorial split', () => {
+  beforeEach(() => { delete window.applyFilters; delete window.geoYearly; });
+
+  const CUBE = [
+    { year: 2020, uf: 'PA', name: 'Pará', region: 'N', value: 50, q_mass: 25, q_vol: 0 },
+    { year: 2021, uf: 'PA', name: 'Pará', region: 'N', value: 55, q_mass: 27, q_vol: 0 },
+    { year: 2020, uf: 'RS', name: 'Rio Grande do Sul', region: 'S', value: 8, q_mass: 4, q_vol: 0 },
+    { year: 2021, uf: 'RS', name: 'Rio Grande do Sul', region: 'S', value: 9, q_mass: 4.5, q_vol: 0 },
+  ];
+
+  it('uses the cube (not the all-products snapshot) and CLEARS the honest note', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoYearly = () => CUBE; // basket cube loaded
+    const f = applyFilters({ basket: ['A'] }, 'ibge_pevs');
+    // Map reflects the basket cube's latest year (PA 2021 = 55), NOT the snapshot's 100.
+    expect(f.ufData.find((u) => u.uf === 'PA').value).toBe(55);
+    expect(f.notFilteredByBasket).toBe(false); // cube loaded → note cleared
+    // No state filter → basket national = sum of ALL cube UFs per year.
+    expect(f.ts.find((d) => d.y === 2021).v).toBeCloseTo((55 + 9) / 1000);
+  });
+
+  it('combines the cube with a state filter (true product × UF)', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoYearly = () => CUBE;
+    const f = applyFilters({ basket: ['A'], states: ['PA'] }, 'ibge_pevs');
+    expect(f.ufData.map((u) => u.uf)).toEqual(['PA']); // RS dropped
+    expect(f.ts.find((d) => d.y === 2021).v).toBeCloseTo(55 / 1000); // PA-only, basket cube
+    expect(f.notFilteredByBasket).toBe(false);
+  });
+
+  it('keeps the honest note while the cube is still loading (geoYearly → null)', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoYearly = () => null; // fetch pending
+    const f = applyFilters({ basket: ['A'] }, 'ibge_pevs');
+    expect(f.notFilteredByBasket).toBe(true); // not yet basket-aware → still honest
+    expect(f.ufData.find((u) => u.uf === 'PA').value).toBe(100); // snapshot all-products
+  });
+});
