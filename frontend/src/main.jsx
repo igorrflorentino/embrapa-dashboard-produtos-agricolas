@@ -254,7 +254,10 @@ function DataGate({ database, infoPage, view, children }) {
 
 // ── root: holds the app state the prototype's Dashboard component held ─────────
 function Dashboard() {
-  const initial = readStateFromURL() || {};
+  // Fresh open (no deep-link state in the URL) lands on the "Sobre" info page —
+  // a calm, non-data entry point — instead of a banco's Visão geral. A deep link
+  // (shared/bookmarked URL with its own state) is honoured as-is.
+  const initial = readStateFromURL() || { infoPage: 'about' };
   const [view, setView] = useState(initial.view || 'overview');
   const [database, setDatabase] = useState(initial.database || 'ibge_pevs');
   const [infoPage, setInfoPage] = useState(initial.infoPage ?? null);
@@ -297,6 +300,23 @@ function Dashboard() {
       return window.clampConvention ? window.clampConvention(next) : next;
     }); // F1.4
     setDatabase(nextId);
+    // Always land on Visão geral on a banco switch: the simplest, predictable rule
+    // (no "this perspective doesn't apply to the new banco" dead-ends), and it
+    // exits any open info page (Sobre/Glossário/Saúde) back into the data.
+    setView('overview');
+    setInfoPage(null);
+  }, []);
+
+  // Mode switch (single ↔ multi) always loads a consistent default perspective so
+  // the change is visually unmistakable: multi → the general cross view
+  // (cross_source), single → Visão geral. Guards a no-op click on the active mode.
+  const modeRef = React.useRef(mode);
+  modeRef.current = mode;
+  const changeMode = React.useCallback((nextMode) => {
+    if (nextMode === modeRef.current) return;
+    setMode(nextMode);
+    setInfoPage(null);
+    setView(nextMode === 'multi' ? 'cross_source' : 'overview');
   }, []);
 
   // Sync-over-async gate (contract map §3.1): the cross/curation producers are
@@ -367,7 +387,7 @@ function Dashboard() {
       conventions={conventions}
       crossState={crossState}
       mode={mode}
-      setMode={setMode}
+      setMode={changeMode}
     >
       <DataGate database={database} infoPage={infoPage} view={view}>
         {isDataView && window.FilterTriggerBar && (
