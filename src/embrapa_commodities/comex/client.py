@@ -309,9 +309,7 @@ def filter_products(
         chunk = batch.to_pandas()
         ncm = chunk["CO_NCM"].astype(str)
         mask = (
-            ncm.isin(ncm_codes)
-            | ncm.str[:4].isin(heading_codes)
-            | ncm.str[:2].isin(chapter_codes)
+            ncm.isin(ncm_codes) | ncm.str[:4].isin(heading_codes) | ncm.str[:2].isin(chapter_codes)
         )
         selected = chunk[mask]
         if not selected.empty:

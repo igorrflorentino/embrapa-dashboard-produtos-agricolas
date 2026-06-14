@@ -112,9 +112,7 @@ class Settings(BaseSettings):
     #   40102 Arroz · 40136 Banana (cacho) · 40119 Mandioca · 45982 Açaí
     #   (cultivated — distinct from PEVS extractive açaí 3403). Café/cana are
     #   kept from the first cut though they're outside the core commodity list.
-    pam_product_codes: str = Field(
-        default="40124,40122,40139,40106,40102,40136,40119,45982"
-    )
+    pam_product_codes: str = Field(default="40124,40122,40139,40106,40102,40136,40119,45982")
     # Full PAM history (SIDRA 5457 runs to 1974). The monetary value is now
     # reform-correct via the historical_currency_factors join in silver_ibge_pam,
     # so pre-1994 years (Mil Cruzeiros/Cruzados/…) land in nominal R$ — no lean

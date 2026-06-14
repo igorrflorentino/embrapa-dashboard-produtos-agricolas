@@ -329,9 +329,7 @@ def banco_metadata_overrides(banco_id: str) -> dict:
     row = df.iloc[0].to_dict()
     # Keep only set columns: a NULL/NaN override means "use the registry default".
     return {
-        k: v
-        for k, v in row.items()
-        if v is not None and not (isinstance(v, float) and pd.isna(v))
+        k: v for k, v in row.items() if v is not None and not (isinstance(v, float) and pd.isna(v))
     }
 
 
