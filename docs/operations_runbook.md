@@ -49,6 +49,58 @@ Notes:
   a retried/double-clicked save reusing the same key is a no-op, not a duplicate
   audit row.
 
+## Changing a banco's maturity / note / coverage without a redeploy
+
+The dashboard's per-banco lifecycle metadata — **maturity stage** (`planejado` ·
+`desenvolvimento` · `beta` · `estavel` · `manutencao` · `descontinuado`), the
+caveat **note**, the planned **date**, and the **coverage** labels — has its
+defaults baked in `registries.py` (backend) and `bancos.js` (the SPA). Those are
+the source of truth, but editing them needs a rebuild + Cloud Run redeploy.
+
+For the common operational change (e.g. promoting a banco `beta → estavel` once
+its backfill lands, or refreshing a coverage label), there is a **Console-managed
+override table** — no rebuild, no redeploy:
+
+- `<dataset>.banco_metadata` (`<dataset>` = `BQ_RESEARCH_INPUTS_DATASET`, default
+  `research_inputs`; table name = `BQ_BANCO_METADATA_TABLE`, default
+  `banco_metadata`). One **sparse** row per banco you have touched: each column is
+  an override; a `NULL` column (or no row at all) falls back to the registry
+  default. The API merges it into `/api/source-meta`, so the SPA's MaturityTag /
+  MaturityBanner / coverage chips reflect the edit.
+
+```sql
+-- Promote UN COMTRADE beta → estavel (removes the caveat banner):
+MERGE `<project>.research_inputs.banco_metadata` t
+USING (SELECT 'un_comtrade' AS banco_id, 'estavel' AS maturity) s
+ON t.banco_id = s.banco_id
+WHEN MATCHED THEN UPDATE SET maturity = s.maturity, updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (banco_id, maturity, updated_at)
+  VALUES (s.banco_id, s.maturity, CURRENT_TIMESTAMP());
+
+-- Update only the coverage label (leave maturity on the registry default):
+MERGE `<project>.research_inputs.banco_metadata` t
+USING (SELECT 'ibge_pam' AS banco_id, '1974 → presente' AS cobertura_years) s
+ON t.banco_id = s.banco_id
+WHEN MATCHED THEN UPDATE SET cobertura_years = s.cobertura_years, updated_at = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (banco_id, cobertura_years, updated_at)
+  VALUES (s.banco_id, s.cobertura_years, CURRENT_TIMESTAMP());
+
+-- Revert a banco to its registry default (drop the override row):
+DELETE FROM `<project>.research_inputs.banco_metadata` WHERE banco_id = 'un_comtrade';
+```
+
+Override columns: `maturity`, `maturity_note`, `maturity_date`, `cobertura_years`,
+`cobertura_atualizacao`, `cobertura_granularidade`. Notes:
+- Changes take effect within the classification cache TTL
+  (`CACHE_CLASSIFICATION_TIMEOUT`, ~30s) — no redeploy, no invalidation needed.
+- The table auto-creates on the **first `/api/source-meta` read**
+  (`routes._ensure_banco_metadata_table`, idempotent). The prod web SA
+  `sa-web-dashboard-prod` already has WRITER on `research_inputs`.
+- `maturity` must be one of the six stage ids above (an unknown id falls back to
+  `planejado` rendering in the SPA). Keep the registry the long-term source of
+  truth: fold a lasting change back into `registries.py` + `bancos.js` at the next
+  release so the default and the override agree.
+
 ## IAP author verification — set `IAP_AUDIENCE` in prod
 
 Curation writes attribute every edit to a person (`edited_by`). That author can

@@ -156,7 +156,7 @@ window.BANCOS = [
     // arroz) a partir de 2010, com QUANTIDADE e VALOR da produção. Renderiza as
     // perspectivas de produção/geo/qualidade com banner de cobertura parcial.
     maturity: 'beta',
-    maturityNote: 'Primeira fração: 5 principais lavouras a partir de 2010, com quantidade e valor da produção. Área e rendimento já estão no Gold e entram no painel em seguida; demais lavouras na sequência.',
+    maturityNote: 'Primeira fração: 5 principais lavouras a partir de 2010, com quantidade, valor, área e rendimento (a produtividade já está no painel). Demais lavouras e o histórico completo na sequência.',
     maturityDate: '1º trimestre/2027',
     // LEAN surface: product + geography + quality + yield. The PEVS-shaped views
     // AND the PAM-only Produtividade (área × rendimento) view are wired end-to-end:

@@ -98,7 +98,13 @@ select
     p.reference_year,
     p.reference_month,
     p.reference_date,
-    p.ncm_code,
+    -- Transparent full-history normalization: an NCM retired by a revision (the
+    -- MDIC bulk reports each year under the NCM then in force — soja 1201.00.10/.90
+    -- pre-2017, banana 0803.00.00 pre-2012) is rewritten to its CURRENT equivalent,
+    -- so Gold / serving / the dashboard only ever expose current NCMs. The raw
+    -- reported value is kept in ncm_code_reported for audit. See comex_ncm_succession.
+    coalesce(succ.current_code, p.ncm_code)                 as ncm_code,
+    p.ncm_code                                              as ncm_code_reported,
     p.hs_chapter,
     p.country_code,
     p.state_acronym,
@@ -129,4 +135,6 @@ left join {{ ref('product_unit_factors') }} ufp
     on ufp.source = 'comex'
     and ufp.product_code = p.ncm_code
     and lower(trim(u.unit_name)) = ufp.unit_raw
+left join {{ ref('comex_ncm_succession') }} succ
+    on p.ncm_code = succ.reported_code
 where p.reference_date is not null

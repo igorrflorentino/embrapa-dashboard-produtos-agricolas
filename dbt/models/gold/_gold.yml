@@ -88,9 +88,10 @@ models:
       five measures into columns: area_planted_ha / area_harvested_ha (ha),
       qty_native (t, the 'massa' quantity) / qty_base, yield_kg_ha (kg/ha), and
       the monetary val_* matrix (same FX + inflation deflation as
-      gold_pevs_production). Lean window (1994+): val_raw is nominal R$ with no
-      historical-currency reform factor (see silver_ibge_pam). serving_pam_annual
-      derives the chart-grain mart from this table.
+      gold_pevs_production). Full history (1974+): val_raw is nominal R$ via the
+      date-aware historical_currency_factors join in silver_ibge_pam (reform-correct
+      for pre-1994 Cruzeiros/Cruzados/…). serving_pam_annual derives the chart-grain
+      mart from this table.
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -105,7 +106,7 @@ models:
           - not_null
           - dbt_utils.expression_is_true:
               arguments:
-                expression: "between 1994 and extract(year from current_date()) + 1"
+                expression: "between 1974 and extract(year from current_date()) + 1"
       - name: reference_date
         tests: [not_null]
       - name: state_acronym
@@ -367,7 +368,7 @@ models:
               - code
     columns:
       - name: commodity_id
-        description: "Stable commodity slug (e.g. castanha_do_para, madeira_em_tora)."
+        description: "Stable commodity slug (e.g. castanha_do_para, madeira, soja)."
         tests: [not_null]
       - name: commodity_name
         tests: [not_null]

@@ -159,6 +159,14 @@ def serialize_source_meta(meta: dict | None) -> dict:
         "monthsInLatestYear": _int_or_none(meta.get("months_in_latest_year")),
         "latestYearComplete": bool(meta.get("latest_year_complete", True)),
         "latestCompleteYear": _int_or_none(meta.get("latest_complete_year")),
+        # Operator-editable lifecycle metadata (research_inputs.banco_metadata merged
+        # over the registry default by seam._apply_banco_metadata). Lets a Console
+        # flip — beta→estavel, a new note/date, updated coverage — reach the SPA's
+        # MaturityTag/MaturityBanner/coverage WITHOUT a rebuild+redeploy.
+        "maturity": meta.get("maturity"),
+        "maturityNote": meta.get("maturity_note"),
+        "maturityDate": meta.get("maturity_date"),
+        "cobertura": meta.get("cobertura"),
     }
 
 

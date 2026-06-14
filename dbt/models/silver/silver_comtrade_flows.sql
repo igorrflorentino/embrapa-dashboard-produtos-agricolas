@@ -148,7 +148,13 @@ select
     p.reporter_code,
     p.partner_code,
     p.partner2_code,
-    p.cmd_code,
+    -- Transparent full-history normalization: a retired HS6 (reported under the
+    -- revision in force that year — banana 080300, soja 120100, castanha 080120,
+    -- old ch.44 wood) is rewritten to its CURRENT equivalent, so Gold / serving /
+    -- the dashboard only ever expose current codes. The raw reported value is kept
+    -- in cmd_code_reported for audit. See seed comtrade_hs_succession.
+    coalesce(succ.current_code, p.cmd_code)             as cmd_code,
+    p.cmd_code                                          as cmd_code_reported,
     p.hs_chapter,
     p.customs_code,
     p.mode_of_supply_code,
@@ -171,4 +177,6 @@ left join {{ ref('comtrade_unit') }} u
     on p.qty_unit_code = u.qty_unit_code
 left join {{ ref('unit_family_conversions') }} ufc
     on nullif(u.unit_raw, '') = ufc.unit_raw
+left join {{ ref('comtrade_hs_succession') }} succ
+    on p.cmd_code = succ.reported_code
 where p.flow is not null

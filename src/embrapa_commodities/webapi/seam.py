@@ -311,7 +311,48 @@ def source_meta(banco_id: str) -> dict:
     except (TypeError, ValueError):
         year_end = None
     meta.update(_latest_year_completeness(banco_id, year_end))
+    _apply_banco_metadata(meta, banco_id)
     return meta
+
+
+def banco_metadata_overrides(banco_id: str) -> dict:
+    """Operator-set maturity/coverage overrides for a banco; empty dict when the
+    override table is absent (none configured) or the banco has no row. Any OTHER
+    error propagates — a transient BQ/permission fault must NOT silently erase a
+    deliberate flip (e.g. beta→estavel) back to the registry default."""
+    try:
+        df = gateway.fetch_banco_metadata(banco_id)
+    except NotFound:
+        return {}
+    if df is None or df.empty:
+        return {}
+    row = df.iloc[0].to_dict()
+    # Keep only set columns: a NULL/NaN override means "use the registry default".
+    return {
+        k: v
+        for k, v in row.items()
+        if v is not None and not (isinstance(v, float) and pd.isna(v))
+    }
+
+
+def _apply_banco_metadata(meta: dict, banco_id: str) -> None:
+    """Overlay the editable override row over the registry Banco defaults, writing
+    maturity/maturity_note/maturity_date/cobertura into ``meta``. The registry stays
+    the source of truth; the override table only carries deliberate per-field edits."""
+    banco = banco_by_id(banco_id)
+    ov = banco_metadata_overrides(banco_id)
+    meta["maturity"] = ov.get("maturity") or (banco.maturity if banco else None)
+    meta["maturity_note"] = ov.get("maturity_note", banco.maturity_note if banco else None)
+    meta["maturity_date"] = ov.get("maturity_date", banco.maturity_date if banco else None)
+    cobertura = dict(banco.cobertura) if banco and banco.cobertura else {}
+    for col, key in (
+        ("cobertura_years", "years"),
+        ("cobertura_atualizacao", "atualizacao"),
+        ("cobertura_granularidade", "granularidade"),
+    ):
+        if ov.get(col):
+            cobertura[key] = ov[col]
+    meta["cobertura"] = cobertura or None
 
 
 def product_uf_ranking(

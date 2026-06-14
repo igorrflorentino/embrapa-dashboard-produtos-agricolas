@@ -1,6 +1,7 @@
 .PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         ingest-ibge-historical reconcile ingest-job-deploy ingest-job-schedule \
-        ingest-job-reconcile-schedule ingest-job-comtrade-schedule ingest-job-alert iam-grant \
+        ingest-job-reconcile-schedule ingest-job-comtrade-schedule ingest-job-pam-schedule \
+        ingest-job-alert iam-grant \
         webapi-run webapi-deploy \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
         dbt-build-curation serving-sync ensure-curation \
@@ -55,6 +56,9 @@ ingest-job-reconcile-schedule:    ## Create/update the MONTHLY deep-refresh trig
 
 ingest-job-comtrade-schedule:    ## Create/update the MONTHLY UN Comtrade backfill trigger (Job with --args=comtrade; needs COMTRADE_API_KEY secret)
 	bash deploy/ingestion/schedule_comtrade.sh
+
+ingest-job-pam-schedule:    ## Create/update the MONTHLY IBGE PAM trigger (Job with --args=ibge-pam; needs PAM_* in the deploy allowlist → redeploy)
+	bash deploy/ingestion/schedule_pam.sh
 
 ingest-job-alert:    ## Create the Cloud Monitoring alert for ingestion-job failures (needs INGEST_ALERT_EMAIL)
 	bash deploy/ingestion/alert.sh

@@ -21,13 +21,12 @@
     format — one row per (year, city, product, variable); gold_pam_production
     pivots it into measure columns.
 
-    LEAN-WINDOW ASSUMPTION: the monetary variable (215) is scaled to nominal Reais
-    by ×1000 (SIDRA reports it in "Mil Reais") — valid ONLY because the configured
-    window is post-1994 (PAM_START_YEAR default 2010), where the unit is always
-    "Mil Reais". If PAM is ever backfilled below 1994, var 215 switches to Mil
-    Cruzeiros/Cruzados/etc. and a date-aware historical_currency_factors join (as
-    in silver_ibge_pevs) MUST be added — otherwise pre-1994 values come out
-    10^6–10^9× too large. A dbt test guards the window (see _silver.yml).
+    CURRENCY REFORM: the monetary variable (215) is converted to nominal Reais by
+    the date-aware historical_currency_factors join (same as silver_ibge_pevs) — the
+    factor embeds the "Mil" multiplier AND the cumulative reform divisions, so the
+    full PAM history (back to 1974: Mil Cruzeiros/Cruzados/Cruzados Novos/Cruzeiros
+    Reais → R$) lands correct. PAM_START_YEAR can therefore go to 1974 without the
+    10^6–10^9× pre-1994 blow-up that the old ×1000 hardcode would have caused.
 -#}
 
 {% set var_quantity = var("pam_variable_quantity") %}
@@ -109,11 +108,14 @@ select
     p.variable_name,
     p.unit_of_measure,
 
-    -- Monetary value (var 215): SIDRA reports "Mil Reais" → ×1000 to nominal R$.
-    -- No reform factor: the configured window is post-1994 (see header). Every
-    -- other variable (area ha, quantity t, yield kg/ha) passes through unscaled.
+    -- Monetary value (var 215): apply the date-aware currency seed factor (same as
+    -- silver_ibge_pevs). The factor embeds BOTH the "Mil" multiplier AND the
+    -- cumulative reform divisions (Cz$→…→R$), so a backfill below 1994 (Mil
+    -- Cruzeiros/Cruzados/etc.) lands in nominal R$ instead of 10^6–10^9× too large.
+    -- The year range disambiguates the reused "Mil Cruzeiros" label. Every other
+    -- variable (area ha, quantity t, yield kg/ha) passes through unscaled.
     case
-        when p.variable_code = '{{ var_value }}' then p.raw_numeric_value * 1000
+        when p.variable_code = '{{ var_value }}' then p.raw_numeric_value * fx.brl_factor
         else p.raw_numeric_value
     end as numeric_value,
 
@@ -136,5 +138,8 @@ select
 
     p.ingestion_timestamp
 from parsed p
+left join {{ ref('historical_currency_factors') }} fx
+    on lower(trim(p.unit_of_measure)) = lower(trim(fx.unit_of_measure))
+    and p.reference_year between fx.year_from and fx.year_to
 left join {{ ref('unit_family_conversions') }} ufc
     on lower(trim(p.unit_of_measure)) = ufc.unit_raw

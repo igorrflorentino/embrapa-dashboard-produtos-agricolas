@@ -51,12 +51,14 @@ models:
       - name: reference_year
         tests:
           - not_null
-          # Lean-window guard: the ×1000 monetary scaling assumes "Mil Reais"
-          # (1994+). If PAM is backfilled below 1994 this fails, flagging that a
-          # date-aware reform factor is now required (see silver_ibge_pam header).
+          # PAM history runs to 1974. The monetary value now uses the date-aware
+          # historical_currency_factors join (reform-correct, like PEVS), so the
+          # old 1994+ lean-window guard is lifted — the seed covers Mil Cruzeiros
+          # (from 1942) onward. Floor mirrors silver_ibge_pevs' 1986 lower bound's
+          # intent: just catch a junk/blank year, not constrain real coverage.
           - dbt_utils.expression_is_true:
               arguments:
-                expression: "between 1994 and extract(year from current_date()) + 1"
+                expression: "between 1974 and extract(year from current_date()) + 1"
       - name: state_acronym
         tests: [not_null]
       - name: product_code
@@ -118,19 +120,28 @@ models:
       grain (flow × month × NCM × country × UF × transport route × customs
       office × statistical unit). VL_FOB/VL_FRETE/VL_SEGURO are nominal US$.
     tests:
+      # Uniqueness is on ncm_code_REPORTED (the NCM as the source filed it), not the
+      # normalized ncm_code: a retired NCM can map to the same current code as its
+      # successor, which would legitimately repeat ncm_code. Gold/serving re-aggregate
+      # by the normalized ncm_code.
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
               - flow
               - reference_year
               - reference_month
-              - ncm_code
+              - ncm_code_reported
               - country_code
               - state_acronym
               - transport_route_code
               - customs_office_code
               - stat_unit_code
     columns:
+      - name: ncm_code
+        description: "8-digit NCM, NORMALIZED to the current code (retired→current via comex_ncm_succession)."
+      - name: ncm_code_reported
+        description: "8-digit NCM exactly as the MDIC bulk filed it for that year; audit trail."
+        tests: [not_null]
       - name: flow
         tests:
           - not_null
@@ -169,6 +180,10 @@ models:
       (0) is dropped; flowCode is normalised X/M/RX/RM →
       export/import/re-export/re-import. Zero-quantity sentinels → NULL.
     tests:
+      # Uniqueness is on cmd_code_REPORTED (the genuine natural key of a Comtrade
+      # record), not the normalized cmd_code: two retired/current codes can map to
+      # the same current code (e.g. 080300→080390), which would legitimately repeat
+      # cmd_code. Gold/serving re-aggregate by the normalized cmd_code.
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -176,8 +191,13 @@ models:
               - reference_year
               - reporter_code
               - partner_code
-              - cmd_code
+              - cmd_code_reported
     columns:
+      - name: cmd_code
+        description: "HS6, NORMALIZED to the current code (retired→current via comtrade_hs_succession)."
+      - name: cmd_code_reported
+        description: "HS6 exactly as reported by the source (the revision in force that year); audit trail."
+        tests: [not_null]
       - name: flow
         tests:
           - not_null

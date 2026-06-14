@@ -196,13 +196,14 @@ _COMEX_METRICS = (
         "years": [1997, 2024],
     },
 )
-# COMTRADE coverage is intentionally capped at 2022–2023 (the ingestion dev
-# window — see project memory "COMTRADE dev window"): Bronze holds only those two
-# years today, so [2022, 2023] is the honest backend truth that the cross-source
-# comparable-window math (SeriesResult.coverage) must reflect. The frontend
-# bancos.js advertises a wider 1988→presente range as the *planned* coverage; the
-# two intentionally differ until the historical backfill lands. Do NOT widen these
-# to match the frontend — that would overstate what Gold actually contains.
+# COMTRADE coverage after the 2026-06 backfill: Brazil's OWN declarations span
+# 1989→2024 (reporter=BRA, full history). The WORLD total (world_exp) needs every
+# reporter's rows, which only exist for 2022–2023 (the earlier all-reporters dev
+# window — the global/mirror backfill is deferred). So exp_value/imp_value (Brazil)
+# advertise [1989, 2024], while world_exp stays [2022, 2023] — the honest window
+# where all-reporters data actually exists. These drive the cross-source
+# comparable-window math (SeriesResult.coverage); do NOT widen world_exp until the
+# all-reporters/mirror ingestion lands, or it would sum Brazil-only as "world".
 _COMTRADE_METRICS = (
     {
         "id": "exp_value",
@@ -210,7 +211,7 @@ _COMTRADE_METRICS = (
         "family": "currency",
         "unit": "US$",
         "agg": "Exportações brasileiras declaradas à ONU",
-        "years": [2022, 2023],
+        "years": [1989, 2024],
     },
     {
         "id": "imp_value",
@@ -218,7 +219,7 @@ _COMTRADE_METRICS = (
         "family": "currency",
         "unit": "US$",
         "agg": "Importações brasileiras declaradas à ONU",
-        "years": [2022, 2023],
+        "years": [1989, 2024],
     },
     {
         "id": "world_exp",
@@ -328,8 +329,8 @@ BANCOS: list[Banco] = [
         maturity="beta",
         maturity_note=(
             "Primeira fração: 5 principais lavouras (soja, milho, café, cana, arroz) "
-            "a partir de 2010, com quantidade e valor da produção. Área e rendimento "
-            "já estão no Gold e entram no painel em seguida; demais lavouras na sequência."
+            "a partir de 2010, com quantidade, valor, área e rendimento (a produtividade "
+            "já está no painel). Demais lavouras e o histórico completo na sequência."
         ),
         # 'yield' (área × rendimento) is wired end-to-end via /api/productivity over
         # gold_pam_production's area_*_ha + production columns — keep in sync with
