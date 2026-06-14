@@ -323,10 +323,14 @@ function AppShell({
             })
           )}
 
-          <div className="side-section">Curadoria</div>
-          <div className={'side-item ' + (infoPage === 'curation' ? 'active' : '')}
-               onClick={() => onInfo('curation')}>
-            <window.Icon name="fact_check"/>Enriquecimento
+          <div className="side-section">Enriquecimento</div>
+          <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
+               onClick={() => onInfo('enrich_industrial')}>
+            <window.Icon name="factory"/>Nível de industrialização
+          </div>
+          <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
+               onClick={() => onInfo('enrich_market')}>
+            <window.Icon name="trending_up"/>Tipo de Mercado
           </div>
 
           <div className="side-section">Informações</div>
