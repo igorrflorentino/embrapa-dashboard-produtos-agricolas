@@ -47,17 +47,21 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE_NAME}:${TAG}"
 MEMORY="${WEBAPI_MEMORY:-1Gi}"
 CPU="${WEBAPI_CPU:-1}"
 CONCURRENCY="${WEBAPI_CONCURRENCY:-16}"
+# Keep min-instances=0 (scale to zero, ZERO idle cost — the zero-fixed-cost rule).
+# A value >0 keeps warm instances billed 24/7; only set it on an explicit decision.
 MIN_INSTANCES="${WEBAPI_MIN_INSTANCES:-0}"
 MAX_INSTANCES="${WEBAPI_MAX_INSTANCES:-4}"
 # Ingress. This service runs Cloud Run DIRECT IAP (run.googleapis.com/iap-enabled
 # = true): IAP authenticates every request at the platform on the *.run.app URL
 # and injects the trusted X-Goog-Authenticated-User-Email, so the SECURE posture
-# here is `ingress=all` + IAP — NOT an ingress lock. Locking ingress to
-# internal-and-cloud-load-balancing would BREAK direct IAP (it rejects the
-# *.run.app path), so we DON'T force it: --ingress is passed only when the operator
-# opts in (WEBAPI_INGRESS=...), e.g. for the alternate external-HTTPS-LB + IAP
-# topology in docs/auth_architecture.md. Unset (default) → Cloud Run preserves the
-# service's current ingress, so a routine redeploy never changes the access path.
+# here is `ingress=all` + IAP — NOT an ingress lock. This is FREE and scales to
+# zero; an external HTTPS Load Balancer is a fixed monthly cost and is OUT OF SCOPE
+# (future-only, see docs/auth_architecture.md + the zero-fixed-cost rule). Locking
+# ingress to internal-and-cloud-load-balancing would BREAK direct IAP (it rejects
+# the *.run.app path), so we DON'T force it: --ingress is passed only when the
+# operator opts in (WEBAPI_INGRESS=...), reserved for that FUTURE external-HTTPS-LB
+# + IAP topology. Unset (default) → Cloud Run preserves the service's current
+# ingress, so a routine redeploy never changes the access path.
 INGRESS="${WEBAPI_INGRESS:-}"
 
 echo "Project=$PROJECT  Region=$REGION  Service=$SERVICE_NAME"

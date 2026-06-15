@@ -517,7 +517,7 @@ A **Service Account Impersonation** model (OAuth 2.0) with no distributed keyfil
 - **`sa-data-pipeline-prod`**: ingestion pipelines (write GCS + BQ)
 - **`sa-ai-agent-admin-prod`**: AI agents (BQ editor + GCS)
 
-> The `sa-web-dashboard-prod` SA is the **runtime of the stateless dashboard on Cloud Run**. With Pushdown Computing it is scoped to **least privilege**: `roles/bigquery.dataViewer` **only on the `serving` dataset** (marts + `dim_code_industrialization_scd2`) — not on all of Gold — plus `roles/bigquery.jobUser` (project-level) to run the queries, and `roles/bigquery.dataEditor` **only on the `research_inputs` dataset** for the append-only curation `INSERT`. The dashboard sits **behind IAP** as a **hard deploy requirement** — the Service is published with `--ingress internal-and-cloud-load-balancing` + `--no-allow-unauthenticated` behind a Load Balancer with IAP enabled, so that the `X-Goog-Authenticated-User-Email` header (the source of the auditable `edited_by`) cannot be forged. Details and the rationale for each flag in [`docs/auth_architecture.md` § Dashboard ingress](docs/auth_architecture.md#dashboard-ingress--iap-behind-a-load-balancer-hard-requirement). It is the **live runtime SA of the deployed webapi Service** (`deploy/webapi/deploy.sh` deploys as this SA). **Looker Studio does not use this SA** — it consumes Gold via the end user's OAuth (an independent consumption path).
+> The `sa-web-dashboard-prod` SA is the **runtime of the stateless dashboard on Cloud Run**. With Pushdown Computing it is scoped to **least privilege**: `roles/bigquery.dataViewer` **only on the `serving` dataset** (marts + `dim_code_industrialization_scd2`) — not on all of Gold — plus `roles/bigquery.jobUser` (project-level) to run the queries, and `roles/bigquery.dataEditor` **only on the `research_inputs` dataset** for the append-only curation `INSERT`. The dashboard sits **behind Cloud Run _direct_ IAP** as a **hard deploy requirement** — the Service runs with `run.googleapis.com/iap-enabled=true` + `--no-allow-unauthenticated` on its `*.run.app` URL (ingress `all`, **no external load balancer**: direct IAP is free and scale-to-zero, an LB would be a fixed cost), so that the `X-Goog-Authenticated-User-Email` header (the source of the auditable `edited_by`) cannot be forged. Details and the rationale for each control in [`docs/auth_architecture.md` § Dashboard ingress](docs/auth_architecture.md#dashboard-ingress--cloud-run-direct-iap-hard-requirement). It is the **live runtime SA of the deployed webapi Service** (`deploy/webapi/deploy.sh` deploys as this SA). **Looker Studio does not use this SA** — it consumes Gold via the end user's OAuth (an independent consumption path).
 
 Full details in [`docs/auth_architecture.md`](docs/auth_architecture.md) and [`docs/iam_setup.md`](docs/iam_setup.md).
 
@@ -550,7 +550,7 @@ Service. The distinction is deliberate:
 
 | | **Job** (ingestion) | **Service** (webapi dashboard) |
 |---|---|---|
-| Nature | batch, ephemeral — runs to completion and stops | stateless, always-on, scales to zero |
+| Nature | batch, ephemeral — runs to completion and stops | stateless, request-driven — scales to zero (min-instances=0, no provisioned/always-allocated CPU) |
 | HTTP port | no | yes (Gunicorn) |
 | Trigger | **Cloud Scheduler** (cron) | user request (behind IAP) |
 

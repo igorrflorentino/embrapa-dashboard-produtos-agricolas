@@ -111,16 +111,19 @@ come from two places, and **which one is active depends on `IAP_AUDIENCE`**:
   audience. A direct request to the backend cannot forge the audit author, and
   an ingress misconfiguration (e.g. an accidentally public service) fails
   closed.
-- **`IAP_AUDIENCE` unset**: the JWT check is **skipped** — the app **fails
-  open** to the plaintext `X-Goog-Authenticated-User-Email` header, which any
-  caller that can reach the service directly can spoof. This mode exists for
-  local dev only (paired with `CURATION_DEV_AUTHOR`).
+- **`IAP_AUDIENCE` unset**: the in-app JWT double-check is **skipped**. With Cloud
+  Run **direct IAP** enabled (the prod posture), the platform still authenticates
+  every request and **overwrites** the `X-Goog-Authenticated-User-Email` header, so
+  author capture stays trustworthy — the in-app check is defense-in-depth. The
+  header is only spoofable when IAP is **not** in front (e.g. local dev), which is
+  why this mode is paired with `CURATION_DEV_AUTHOR` for local dev only.
 
 Operator steps (one-time per deployment):
 
-1. Get the audience string: Console → Security → Identity-Aware Proxy → ⋮ on
-   the resource → "Get JWT audience code". Behind a load balancer it has the
-   form `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`.
+1. Get the audience string: Console → Security → Identity-Aware Proxy → ⋮ on the
+   **Cloud Run resource** → "Get JWT audience code" (the direct Cloud Run IAP form).
+   *(Only in the future external-LB + IAP topology would it instead take the form
+   `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`.)*
 2. Set `IAP_AUDIENCE=<that string>` in the `.env` used for deploys —
    `deploy/webapi/deploy.sh` forwards it to the Cloud Run Service — and run
    `make webapi-deploy`.
