@@ -216,6 +216,22 @@ Role on sa-secret-reader-prod:
 > the ingress posture below is a **non-negotiable deploy-time requirement** the
 > operator must satisfy on every deploy.
 
+> **Currently deployed posture (2026-06): Cloud Run *direct* IAP, not the LB
+> below.** The live `embrapa-dashboard` service runs with
+> `run.googleapis.com/iap-enabled=true` + `--no-allow-unauthenticated` and
+> `ingress=all` — i.e. Google IAP authenticates every request at the Cloud Run
+> platform on the `*.run.app` URL and **overwrites** the
+> `X-Goog-Authenticated-User-Email` with the verified identity before it reaches
+> the container. That is an IAP-enforced boundary too (the forgeable-header risk
+> below is the *ingress=all WITHOUT IAP* case). With direct IAP, locking ingress to
+> `internal-and-cloud-load-balancing` would **break** access (it rejects the
+> `*.run.app` path), so `deploy/webapi/deploy.sh` does **not** force the lock: it
+> preserves the current ingress by default and opts into the LB lock only when
+> `WEBAPI_INGRESS=internal-and-cloud-load-balancing` is set — for the
+> external-HTTPS-LB + IAP topology described below, should the project migrate to
+> it. `IAP_AUDIENCE` arms the optional in-app JWT double-check (`serving/iap.py`) on
+> top of either posture.
+
 The dashboard derives the audit field `edited_by` (who classified a commodity in
 the append-only curation log) **solely** from the IAP-injected request header
 `X-Goog-Authenticated-User-Email`. That header is only trustworthy if **IAP is
