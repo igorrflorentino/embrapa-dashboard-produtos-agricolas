@@ -63,7 +63,7 @@ def run_query(sql: str, params: list) -> object:
     """Execute a parameterized query and return the result as a DataFrame.
 
     Applies a ``maximum_bytes_billed`` ceiling (``Settings.bq_max_bytes_billed``)
-    so the always-on /api path can't run an unbounded scan — a pathological filter
+    so the /api serving path can't run an unbounded scan — a pathological filter
     or a cold Bronze read is FAILED by BigQuery (visibly) rather than silently
     billing a runaway query. ``None``/0 disables the cap.
     """

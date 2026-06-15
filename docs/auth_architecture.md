@@ -209,70 +209,89 @@ Role on sa-secret-reader-prod:
 | `sa-web-dashboard-prod` | `roles/bigquery.dataViewer` **on `serving`**<br/>`roles/bigquery.dataEditor` **on `research_inputs`**<br/>`roles/bigquery.jobUser` (project) | Dataset-scoped least privilege for the Cloud Run dashboard: read marts, append curation log — **not** project-wide on Gold. Looker Studio uses end-user OAuth, not this SA. |
 | `sa-ai-agent-admin-prod` | `roles/bigquery.dataViewer` (project, read-only)<br/>`roles/bigquery.jobUser` (project)<br/>`roles/bigquery.dataEditor` **on one sandbox dataset only**<br/>`roles/storage.objectCreator` | Read-only analysis; writes confined to a report sandbox (never Gold prod / the curation log) |
 
-## Dashboard ingress — IAP behind a load balancer (HARD REQUIREMENT)
+## Dashboard ingress — Cloud Run direct IAP (HARD REQUIREMENT)
 
 > Applies to the Cloud Run **Service** (the React SPA + Flask REST dashboard,
 > `deploy/webapi/`), not the ingestion Job. The Service is live on Cloud Run, and
-> the ingress posture below is a **non-negotiable deploy-time requirement** the
+> the IAP posture below is a **non-negotiable deploy-time requirement** the
 > operator must satisfy on every deploy.
-
-> **Currently deployed posture (2026-06): Cloud Run *direct* IAP, not the LB
-> below.** The live `embrapa-dashboard` service runs with
-> `run.googleapis.com/iap-enabled=true` + `--no-allow-unauthenticated` and
-> `ingress=all` — i.e. Google IAP authenticates every request at the Cloud Run
-> platform on the `*.run.app` URL and **overwrites** the
-> `X-Goog-Authenticated-User-Email` with the verified identity before it reaches
-> the container. That is an IAP-enforced boundary too (the forgeable-header risk
-> below is the *ingress=all WITHOUT IAP* case). With direct IAP, locking ingress to
-> `internal-and-cloud-load-balancing` would **break** access (it rejects the
-> `*.run.app` path), so `deploy/webapi/deploy.sh` does **not** force the lock: it
-> preserves the current ingress by default and opts into the LB lock only when
-> `WEBAPI_INGRESS=internal-and-cloud-load-balancing` is set — for the
-> external-HTTPS-LB + IAP topology described below, should the project migrate to
-> it. `IAP_AUDIENCE` arms the optional in-app JWT double-check (`serving/iap.py`) on
-> top of either posture.
+>
+> **Zero fixed cost (scale-to-zero).** This is an experimental project that must
+> not bill when idle, so auth uses **Cloud Run _direct_ IAP** — which is **free** —
+> and **NOT** an external HTTPS Load Balancer (an LB carries a fixed ~US$18+/mo
+> charge even at zero traffic). There is currently **no load balancer**. The
+> LB + IAP arrangement is a **future-only expansion**, added solely when the
+> project is explicitly instructed to migrate (see § _Future expansion only_ at the
+> end of this section, and the scale-to-zero rule in [`cost_safety.md`](cost_safety.md)).
 
 The dashboard derives the audit field `edited_by` (who classified a commodity in
 the append-only curation log) **solely** from the IAP-injected request header
-`X-Goog-Authenticated-User-Email`. That header is only trustworthy if **IAP is
-the sole ingress path** to the Service. If the Cloud Run URL is reachable
-directly — bypassing the load balancer and IAP — then **any caller can forge
-that header**, and the curation audit trail (`edited_by`) becomes falsifiable.
-There is no in-app password; IAP *is* the authentication boundary.
+`X-Goog-Authenticated-User-Email`. That header is only trustworthy if **IAP is the
+authentication boundary** in front of the Service. With **Cloud Run direct IAP**,
+Google IAP authenticates every request at the platform — on the `*.run.app` URL
+itself — and **overwrites** any client-supplied `X-Goog-Authenticated-User-Email`
+with the verified identity before it reaches the container. The forgeable-header
+risk exists only when the Service runs `ingress=all` **WITHOUT** IAP enabled; with
+IAP enabled it is closed. There is no in-app password; IAP *is* the authentication
+boundary.
 
-**Therefore the dashboard Service MUST be deployed with both of:**
+**Therefore the dashboard Service MUST be deployed with all of:**
 
 ```bash
 gcloud run deploy <dashboard-service> \
-  --ingress internal-and-cloud-load-balancing \  # reject direct *.run.app traffic; only the LB (+ internal) can reach it
-  --no-allow-unauthenticated \                    # require an authenticated principal — no public invoker
+  --no-allow-unauthenticated \   # remove the public allUsers invoker — require an authenticated principal
   ...
+# + IAP enabled ON the Cloud Run service (annotation run.googleapis.com/iap-enabled=true,
+#   set in Console → Security → IAP, or via gcloud). Ingress stays the DEFAULT `all` so
+#   IAP serves the *.run.app URL. Do NOT pass --ingress internal-and-cloud-load-balancing —
+#   that is the future-LB topology and would BREAK direct IAP. deploy/webapi/deploy.sh does
+#   exactly this: it never forces an ingress lock by default.
 ```
 
-…**behind an external HTTPS Load Balancer with Identity-Aware Proxy (IAP)
-enabled** on the backend service, so every request is authenticated by IAP
-before it reaches the container (and IAP is what stamps the trusted
-`X-Goog-Authenticated-User-Email`).
-
-Why each flag is load-bearing:
+Why each control is load-bearing:
 
 | Control | What it prevents |
 |---|---|
-| `--ingress internal-and-cloud-load-balancing` | Blocks the default public `*.run.app` URL. Without it, requests skip the LB/IAP entirely and arrive with a **client-supplied** (forgeable) email header. |
-| `--no-allow-unauthenticated` | Removes the public `allUsers` invoker binding. Defense-in-depth: even via the LB, the request must carry a valid identity. |
-| **IAP enabled on the LB backend** | Performs the actual Google sign-in and **overwrites** any client-supplied `X-Goog-Authenticated-User-Email` with the verified identity — the trust anchor for `edited_by`. |
+| **IAP enabled on the Cloud Run service** (`run.googleapis.com/iap-enabled=true`, ingress `all`) | Google IAP authenticates every request at the platform on the `*.run.app` URL and **overwrites** any client-supplied `X-Goog-Authenticated-User-Email` with the verified identity — the trust anchor for `edited_by`. |
+| `--no-allow-unauthenticated` | Removes the public `allUsers` invoker binding. Defense-in-depth: the request must carry a valid identity (the IAP service agent's). |
 
-> **Defense in depth — the app must also verify the IAP JWT.** Ingress lock + IAP
-> is the primary boundary; `src/embrapa_commodities/serving/iap.py` additionally
-> validates the signed `X-Goog-IAP-JWT-Assertion` so a misconfiguration (e.g. an
-> accidental public ingress) fails closed rather than trusting a forged plain
-> header. Operators must **not** rely on the JWT check as a substitute for the
-> ingress lock — both layers are required.
+> **Defense in depth — the app also verifies the IAP JWT.** Cloud Run direct IAP is
+> the primary boundary; `src/embrapa_commodities/serving/iap.py` additionally
+> validates the signed `X-Goog-IAP-JWT-Assertion` (when `IAP_AUDIENCE` is set) so a
+> misconfiguration (e.g. IAP accidentally disabled) fails closed rather than
+> trusting a forged plain header. Operators must **not** rely on the in-app JWT
+> check as a substitute for enabling IAP — both the platform IAP boundary and the
+> in-app verification are wanted.
 
 This is the same boundary referenced as "behind IAP" in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md) (§ Security and Authentication and §
 Dynamic Curation). The least-privilege IAM for the Service's runtime SA
 (`sa-web-dashboard-prod`) is in [`iam_setup.md`](iam_setup.md) §2.3.
+
+### Future expansion only — external HTTPS Load Balancer + IAP
+
+> ⚠️ **Do NOT deploy this without an explicit instruction.** An external HTTPS Load
+> Balancer adds a **fixed monthly cost** (the forwarding rule + LB are billed even
+> at zero traffic), which violates the project's zero-fixed-cost / scale-to-zero
+> rule. It is documented only as the migration path for if/when the dashboard
+> graduates from an experiment to steady real-world use.
+
+If the project later migrates to an external HTTPS Load Balancer with IAP on the
+backend service, lock the Service so the LB is the sole ingress path:
+
+```bash
+gcloud run deploy <dashboard-service> \
+  --ingress internal-and-cloud-load-balancing \  # reject direct *.run.app; only the LB (+ internal) reaches it
+  --no-allow-unauthenticated \
+  ...
+```
+
+`deploy/webapi/deploy.sh` supports this via
+`WEBAPI_INGRESS=internal-and-cloud-load-balancing` (unset by default → no lock →
+direct IAP preserved). In that topology the JWT audience (`IAP_AUDIENCE`) takes the
+backend-service form `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`;
+under the current direct-IAP posture it is the audience shown in
+Console → Security → IAP ("Get JWT audience code") for the Cloud Run resource.
 
 ## Credential Management
 

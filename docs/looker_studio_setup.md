@@ -13,27 +13,23 @@ This creates `embrapa-dashboard-commodities.gold.gold_pevs_production` with the 
 
 ---
 
-## 1. Enable BI Engine (optional)
+## 1. BI Engine — DO NOT enable (fixed cost; future-only)
 
 BI Engine is a caching technology that speeds up BigQuery queries.
 
-Looker Studio provides 1Gb of BI Engine for free. It will not be necessary for this project, but it may be useful for future use cases.
+> ⚠️ **Leave this OFF.** A BI Engine **Reservation** is **reserved capacity billed
+> per GB-hour even at zero traffic** (~US$ 30/month/GB) — a **fixed cost** that
+> directly violates this project's zero-fixed-cost / scale-to-zero rule (see
+> [cost_safety.md § 0](cost_safety.md)). It is **not** needed: the dataset is small
+> and BigQuery on-demand is more than fast enough. Enable it **only** as a future,
+> explicitly-instructed decision if the dashboard ever sees heavy steady use.
 
-It improves dashboard performance, especially if you have complex queries or large data volumes. It can also help reduce costs, since queries that use BI Engine are not billed by bytes scanned.
-
-1. Go to: **BigQuery → BI Engine → Reservations** in the GCP console
-2. Click **Create Reservation**
-3. Settings:
-   - **Project**: `embrapa-dashboard-commodities`
-   - **Location**: `us-central1` (same as your BQ_LOCATION)
-   - **Capacity**: `[set the capacity, e.g.: 1Gb]`
-4. Click **Create**
-
-Estimated cost: ~US$ 30/month/Gb.
-
-> Before enabling BI Engine, configure the budget and quota in
-> [cost_safety.md](cost_safety.md) — that way any unexpected cost triggers
-> an automatic alert.
+If (and only if) that future arrives, the steps are: **BigQuery → BI Engine →
+Reservations → Create Reservation** (project `embrapa-dashboard-commodities`,
+location `us-central1`, capacity e.g. 1 GB; ~US$ 30/month/GB). First configure the
+budget + quota in [cost_safety.md](cost_safety.md) so any unexpected cost alerts.
+(Looker Studio also exposes a small free BI Engine allotment in some cases, but a
+*Reservation* is the paid, always-on form to avoid.)
 
 ---
 

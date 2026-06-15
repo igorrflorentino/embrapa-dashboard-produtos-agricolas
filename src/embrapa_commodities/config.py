@@ -322,8 +322,10 @@ class Settings(BaseSettings):
     # IAP backend audience for verifying the signed X-Goog-IAP-JWT-Assertion.
     # When SET (production behind IAP), the curation author is taken from the
     # cryptographically verified JWT, not the spoofable plaintext email header —
-    # a direct request to the backend can no longer forge the audit author. Format
-    # for Cloud Run behind a load balancer:
+    # a direct request to the backend can no longer forge the audit author. With
+    # the prod posture (Cloud Run DIRECT IAP) the value is the Cloud-Run-resource
+    # audience code (Console → Security → IAP → ⋮ → "Get JWT audience code"); only
+    # the future external-LB topology would use the backendServices form
     # /projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>.
     # Leave UNSET for local dev (no IAP): the plaintext header + curation_dev_author
     # path is used. See src/embrapa_commodities/serving/iap.py.
@@ -349,7 +351,7 @@ class Settings(BaseSettings):
     # merges it into /api/source-meta with the short curation TTL, so a flip like
     # beta→estavel reflects within cache_classification_timeout. Auto-created.
     bq_banco_metadata_table: str = Field(default="banco_metadata")
-    # Per-query byte ceiling on the always-on /api path (gateway.run_query): caps a
+    # Per-query byte ceiling on the /api serving path (gateway.run_query): caps a
     # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
     # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)
     # — above the pre-aggregated mart reads, below a true runaway. 0/None disables.

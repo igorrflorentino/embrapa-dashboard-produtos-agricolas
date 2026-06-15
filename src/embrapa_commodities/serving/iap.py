@@ -5,8 +5,9 @@ the verified end-user identity in two forms:
 
 * ``X-Goog-Authenticated-User-Email`` — a convenience header, plaintext, of the
   form ``accounts.google.com:user@example.com``. Trivial to *read* but **forgeable**
-  by any client that can reach the backend directly (e.g. if the Cloud Run ingress
-  is not locked down to the IAP/load-balancer).
+  by any client that can reach the backend directly (i.e. only when IAP is not in
+  front — local dev; in prod Cloud Run direct IAP overwrites it with the verified
+  identity).
 * ``X-Goog-IAP-JWT-Assertion`` — a **signed** JWT IAP mints with its private key.
   Validating its signature against Google's public certs (and checking the
   ``aud`` claim matches *this* backend) is the only spoof-proof way to learn who
@@ -66,9 +67,10 @@ def verify_iap_jwt(
 
     Validates the ``X-Goog-IAP-JWT-Assertion`` signature against Google's IAP
     public keys (``certs_url``) and checks the token's ``aud`` claim equals
-    ``audience`` (the expected backend — for Cloud Run behind a load balancer this
-    is ``/projects/<PROJ_NUM>/global/backendServices/<SVC_ID>``). Returns the
-    verified end-user email. Raises :class:`InvalidIapAssertionError` on any
+    ``audience`` (the expected backend — with the prod posture, Cloud Run direct
+    IAP, this is the Cloud-Run-resource audience code; only the future external-LB
+    topology would use ``/projects/<PROJ_NUM>/global/backendServices/<SVC_ID>``).
+    Returns the verified end-user email. Raises :class:`InvalidIapAssertionError` on any
     failure (missing header, bad signature, expired, wrong audience/issuer, or a
     token without an ``email`` claim) — never falls through to the plaintext header.
 

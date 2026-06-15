@@ -12,7 +12,7 @@ feeds Silver → Gold → the `serving` marts.
 
 | | **Job** (this dir) | **Service** (dashboard, `deploy/webapi/`) |
 |---|---|---|
-| Nature | batch, ephemeral | always-on, scales to zero |
+| Nature | batch, ephemeral | request-driven — scales to zero (min-instances=0) |
 | HTTP port | none | yes (Gunicorn) |
 | Trigger | Cloud Scheduler (cron) | user request (behind IAP) |
 | Runtime SA | `sa-data-pipeline-prod` (write GCS+BQ) | `sa-web-dashboard-prod` (read serving) |
