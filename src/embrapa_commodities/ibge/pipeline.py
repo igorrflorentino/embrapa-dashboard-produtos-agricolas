@@ -20,13 +20,14 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities import observability
-from embrapa_commodities.config import Settings, get_credentials
+from embrapa_commodities.config import Settings
 from embrapa_commodities.core import land_raw, list_raw, raw_provenance, read_raw
 from embrapa_commodities.gcp.bigquery import (
     ensure_dataset,
     latest_reference_year,
     load_dataframe,
 )
+from embrapa_commodities.gcp.clients import resolve_clients
 from embrapa_commodities.ibge.client import fetch_sidra_dataframe
 
 logger = logging.getLogger(__name__)
@@ -262,13 +263,7 @@ def run(
     rebuilds Bronze from the archived raw trail without re-querying SIDRA.
     Optional clients let the batch CLI reuse one client across chunks.
     """
-    creds = get_credentials(settings)
-    storage_client = storage_client or storage.Client(
-        project=settings.gcp_project_id, credentials=creds
-    )
-    bq_client = bq_client or bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
+    bq_client, storage_client = resolve_clients(settings, bq_client, storage_client)
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_ibge_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
 
