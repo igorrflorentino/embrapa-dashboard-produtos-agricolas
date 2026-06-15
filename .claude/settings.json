@@ -43,17 +43,6 @@
           }
         ]
       }
-    ],
-    "Notification": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if [[ \"$OSTYPE\" == \"darwin\"* ]]; then osascript -e 'display notification \"Claude Code needs your attention\" with title \"Claude Code\"'; afplay /System/Library/Sounds/Glass.aiff; else powershell.exe -Command \"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Media.SystemSounds]::Asterisk.Play(); [System.Windows.Forms.MessageBox]::Show('Claude Code needs your attention', 'Claude Code')\"; fi"
-          }
-        ]
-      }
     ]
   }
 }
