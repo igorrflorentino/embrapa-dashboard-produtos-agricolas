@@ -46,8 +46,8 @@
 window.MATURITY = {
   planejado:       { id: 'planejado',       label: 'Planejado',          color: 'var(--pres-gray-400)', hasData: false, future: true, order: 1,
                      desc: 'No roadmap, mas sem implementação iniciada nem prazo definido.' },
-  desenvolvimento: { id: 'desenvolvimento', label: 'Em desenvolvimento',  color: 'var(--status-mat-dev)', hasData: false, future: true, order: 2,
-                     desc: 'Implementação em andamento, com data prevista de conclusão.' },
+  desenvolvimento: { id: 'desenvolvimento', label: 'Em desenvolvimento',  color: 'var(--status-mat-dev)', hasData: true,  order: 2,
+                     desc: 'Em produção e já consultável, mas ainda em construção — a cobertura e os cálculos podem mudar.' },
   beta:            { id: 'beta',            label: 'Beta',               color: 'var(--info)',          hasData: true,  caveat: true, order: 3,
                      desc: 'Disponível para uso, mas com cobertura ainda parcial e sujeita a mudanças.' },
   estavel:         { id: 'estavel',         label: 'Estável',            color: 'var(--ok)',            hasData: true,  order: 4,
@@ -57,14 +57,25 @@ window.MATURITY = {
   descontinuado:   { id: 'descontinuado',   label: 'Descontinuado',      color: 'var(--status-mat-sunset)', hasData: true,  caveat: true, sunset: true, order: 6,
                      desc: 'Banco obsoleto — não recebe mais manutenção e será removido em breve.' },
 };
+// Per-banco maturity is NOT defined in this file. Its single source of truth is
+// BigQuery (research_inputs.banco_metadata), served via /api/source-meta and
+// overlaid onto the banco object by dataStore.overlayBancoMetadata. Until that
+// resolves a banco has no `maturity`, so maturityMeta returns a neutral LOADING
+// stage (a "…" tag) rather than guessing — never a hardcoded per-banco default.
+window.MATURITY_LOADING = {
+  id: 'loading', label: '…', color: 'var(--pres-gray-300)', hasData: false, order: 0,
+  desc: 'Carregando a maturidade do banco…',
+};
 window.maturityMeta = (b) =>
-  window.MATURITY[(b && b.maturity) || 'planejado'] || window.MATURITY.planejado;
+  (b && b.maturity)
+    ? (window.MATURITY[b.maturity] || window.MATURITY.planejado)
+    : window.MATURITY_LOADING;
 
 // Short availability label for banco pickers/tags, derived from maturity.
-// 'Disponível' once the banco has data; otherwise it mirrors the no-data
-// stage so a planned-but-undated banco doesn't over-promise with "Em breve":
-//   desenvolvimento (committed, has a date) → "Em breve"
-//   planejado       (no ETA)                → "Sem previsão"
+// 'Disponível' once the banco has data (this now includes `desenvolvimento`,
+// which is in production and consultable); a no-data stage without an ETA
+// (planejado) reads "Sem previsão". The "Em breve" branch is reserved for any
+// future no-data-but-committed stage.
 window.bancoAvailability = (b) => {
   if (window.maturityMeta(b).hasData) return 'Disponível';
   return (b && b.maturity === 'desenvolvimento') ? 'Em breve' : 'Sem previsão';
@@ -81,7 +92,6 @@ window.BANCOS = [
     scope:  'Brasil · UF · município',
     source: 'IBGE',
     table:  'gold_pevs_production',
-    maturity: 'estavel',
     // Data capabilities this banco exposes (see CAPABILITIES in views.js).
     // IBGE PEVS = production only: products, geography, quality — annual,
     // no origin→destination flow, no commercial partner.
@@ -105,7 +115,8 @@ window.BANCOS = [
       product: { codeLabel: 'Código PEVS' },
     },
     // Comparable ANNUAL series this banco can contribute to the cross-source
-    // perspective (see crossSource.js). Each metric is a single time series
+    // perspective (consumed by window.crossSeries in src/data/producers.js). Each
+    // metric is a single time series
     // keyed by year. `family` groups metrics that share a physical/value
     // dimension (currency / mass / volume / ratio) so the cross view knows
     // which series can share an axis or form a ratio. `years` is the native
@@ -115,28 +126,14 @@ window.BANCOS = [
       { id: 'prod_mass',   label: 'Quantidade produzida (massa)',  family: 'mass',   unit: 't',  agg: 'Massa colhida das espécies de família massa', years: [1986, 2024] },
       { id: 'prod_volume', label: 'Quantidade produzida (volume)', family: 'volume', unit: 'm³', agg: 'Volume das espécies de família volume',     years: [1986, 2024] },
     ],
-    // Derive product/UF/year totals from the live datasets instead of
-    // hardcoding them in the registry — keeps everything in sync if
-    // data.js changes (e.g. a new PEVS product or extra year of data).
+    // Provenance: only the edition LABEL prefix lives here ("PEVS <ano>"); its YEAR
+    // is overlaid live from gold_source_metadata (dataStore.meta → real yearEnd), and
+    // every count (rows, products, UFs, years) + the Gold refresh stamp come SOLELY
+    // from /api/source-meta. No fabricated publication date — the page never had a
+    // real one (gold_source_metadata exposes no publish date), so we don't invent it;
+    // it shows the live edition + the real refresh stamp instead.
     prov: {
-      lastCrop:     'PEVS 2024',
-      lastCropDate: 'publ. 27 set 2024',
-      refresh:      '28 mai 2026 · 04:30 BRT',
-      totalRows:    11_177_427,
-      get productsTotal() { return (window.PRODUCTS || []).length; },
-      get ufsTotal()      { return (window.UF_DATA   || []).length; },
-      get yearsTotal()    {
-        const ts = window.OVERVIEW_TS || [];
-        return ts.length;
-      },
-      get yearStart() {
-        const ts = window.OVERVIEW_TS || [];
-        return ts[0]?.y || 1986;
-      },
-      get yearEnd() {
-        const ts = window.OVERVIEW_TS || [];
-        return ts[ts.length - 1]?.y || 2024;
-      },
+      lastCrop: 'PEVS 2024',
     },
   },
 
@@ -155,9 +152,6 @@ window.BANCOS = [
     // Beta: live first cut — 5 principais lavouras (soja, milho, café, cana,
     // Estável: histórico completo (1974+), 8 lavouras (incl. banana, mandioca,
     // açaí) com quantidade, valor, área e rendimento (produtividade no painel).
-    maturity: 'estavel',
-    maturityNote: null,
-    maturityDate: null,
     // LEAN surface: product + geography + quality + yield. The PEVS-shaped views
     // AND the PAM-only Produtividade (área × rendimento) view are wired end-to-end:
     // gold_pam_production carries area_planted/harvested_ha + production, surfaced
@@ -176,19 +170,11 @@ window.BANCOS = [
     // picker (would return null) until its cross series builders land. PAM's own
     // production/geo/quality views are fully live regardless.
     metrics: [],
-    // Provenance shown ONLY as a pre-load fallback — the live app overrides every
-    // counter from gold_source_metadata (dataStore.meta('ibge_pam')). Kept honest
-    // to the lean window so even the fallback never overstates coverage.
+    // Provenance shown ONLY as a pre-load fallback — the live app overrides the year
+    // and every counter from gold_source_metadata (dataStore.meta('ibge_pam')). Kept
+    // honest to the lean window so even the fallback never overstates coverage.
     prov: {
-      lastCrop:     'PAM 2024',
-      lastCropDate: 'publ. set 2025',
-      refresh:      '—',
-      totalRows:    null,
-      productsTotal: 5,
-      ufsTotal:      27,
-      yearStart:     2010,
-      yearEnd:       2024,
-      yearsTotal:    15,
+      lastCrop: 'PAM 2024',
     },
     plannedScope: [
       { col: 'produto (lavoura)',            desc: 'Cultura agrícola — temporária ou permanente.' },
@@ -213,7 +199,6 @@ window.BANCOS = [
     scope:  'UF de origem ↔ países parceiros',
     source: 'MDIC · SECEX',
     table:  'gold_comex_flows',
-    maturity: 'estavel',
     // Exports by UF of origin → partner country, monthly, with product
     // (NCM) and quality. Has flow + partner + monthly.
     provides: ['product', 'geo', 'flow', 'partner', 'monthly', 'quality'],
@@ -233,19 +218,12 @@ window.BANCOS = [
       { id: 'exp_weight', label: 'Peso exportado',        family: 'mass',     unit: 'kg',  agg: 'Soma do peso líquido exportado',       years: [1997, 2024] },
       { id: 'exp_price',  label: 'Preço médio (US$/kg)',   family: 'ratio',    unit: 'US$/kg', agg: 'Valor FOB ÷ peso líquido', years: [1997, 2024] },
     ],
-    // Provenance (live). Representative snapshot generated from the explicit
-    // contract shape (02_SNAPSHOT_CONTRACTS.md), castanha/nut chain demo
-    // parameters, until the real Gold is wired.
+    // Provenance (live): the real Gold IS wired (gold_comex_flows). The "· Mnn"
+    // suffix is a template — dataStore.meta overlays the real yearEnd and, for this
+    // partial latest year, the real months elapsed (e.g. "COMEX 2026 · M05"); the
+    // literal below is only the pre-resolution fallback.
     prov: {
-      lastCrop:     'COMEX 2024 · M12',
-      lastCropDate: 'publ. jan 2025',
-      refresh:      '29 mai 2026 · 05:10 BRT',
-      totalRows:    1_284_530,
-      productsTotal: 5,
-      ufsTotal:      27,
-      yearStart:     1997,
-      yearEnd:       2024,
-      yearsTotal:    28,
+      lastCrop: 'COMEX 2024 · M12',
     },
     plannedScope: [
       { col: 'NCM · SH4 · SH6',                 desc: 'Classificação harmonizada do produto exportado.' },
@@ -273,9 +251,6 @@ window.BANCOS = [
     // banana 080300, soja 120100 etc. — traduzidos para os atuais no silver). O
     // total mundial (world_exp) cobre só 2022–2023 até o backfill all-reporters,
     // mantido adiado — por isso os metrics years de world_exp ficam em [2022,2023].
-    maturity: 'estavel',
-    maturityNote: null,
-    maturityDate: null,
     // Country → country flows. Product (HS6), flow, partner, quality.
     // Geography is country-level only (no Brazilian UF/município).
     provides: ['product', 'flow', 'partner', 'quality'],
@@ -293,20 +268,12 @@ window.BANCOS = [
       { id: 'imp_value', label: 'Valor importado (BR)', family: 'currency', unit: 'US$', agg: 'Importações brasileiras declaradas à ONU', years: [1989, 2024] },
       { id: 'world_exp', label: 'Exportação mundial',    family: 'currency', unit: 'US$', agg: 'Total mundial do produto (todos reporters)', years: [2022, 2023] },
     ],
-    // Provenance (live). Representative snapshot generated from the explicit
-    // contract shape (02_SNAPSHOT_CONTRACTS.md), HS 0801 nut-trade demo
-    // parameters, until the real Gold is wired.
+    // Provenance (live): the real Gold IS wired (gold_comtrade_flows, Brazil 1989+).
+    // The edition YEAR below is overlaid live from gold_source_metadata (real
+    // yearEnd); the literal is only the pre-resolution fallback.
     // Country-level only → no UF dimension (ufsTotal = 0).
     prov: {
-      lastCrop:     'Comtrade 2023',
-      lastCropDate: 'rev. 2024T1',
-      refresh:      '29 mai 2026 · 05:10 BRT',
-      totalRows:    642_180,
-      productsTotal: 5,
-      ufsTotal:      0,
-      yearStart:     2022,
-      yearEnd:       2023,
-      yearsTotal:    2,
+      lastCrop: 'Comtrade 2023',
     },
     plannedScope: [
       { col: 'reporter · partner',          desc: 'Países envolvidos no fluxo declarado.' },
@@ -330,7 +297,6 @@ window.BANCOS = [
     scope:  'UF ↔ UF · município ↔ município',
     source: 'Receita · SEFAZ',
     table:  'gold_nfe_flows',
-    maturity: 'planejado',
     // Internal trade: UF↔UF / município↔município flows, daily, with
     // product (NCM), partner (the counterpart UF), monthly+ and quality.
     provides: ['product', 'geo', 'flow', 'partner', 'monthly', 'quality'],
@@ -367,10 +333,11 @@ window.BANCOS = [
 
 window.bancoById = (id) => window.BANCOS.find(b => b.id === id) || window.BANCOS[0];
 
-// Canonical / default DISPLAY currency for a banco. COMEX/Comtrade snapshots
-// store BRL-equivalent values (see previewData.js) and default their display
-// to USD so the real US$ figures render. Used to reset the display currency on
-// banco switch and to label the value filter. Falls back to BRL.
+// Canonical / default DISPLAY currency for a banco. COMEX/Comtrade are USD-native
+// trade bancos, so they default their display to USD and the real US$ figures
+// render (the BFF still serves any requested currency from the Gold column). Used
+// to reset the display currency on banco switch and to label the value filter.
+// Falls back to BRL.
 window.canonCurrencyFor = (id) => {
   const b = window.bancoById ? window.bancoById(id) : null;
   return (b && b.baseCurrency) || 'BRL';
@@ -420,10 +387,12 @@ window.bancoMeta = (id) => {
 };
 
 // Derive the legacy `status` ('live'|'soon') from maturity.hasData so all
-// existing routing / CSV gating / cross-source preview logic keeps working
-// while the UI reads the richer maturity stage. Single source of truth.
+// existing routing / CSV gating / cross-source preview logic keeps working while
+// the UI reads the richer maturity stage. `maturity` itself is NOT seeded here —
+// it is overlaid from BigQuery (/api/source-meta); until it resolves the banco
+// has no maturity, so `status` reads 'soon' and the DataGate waits on the live
+// metadata (it never shows a placeholder before the real maturity is known).
 window.BANCOS.forEach(b => {
-  if (!('maturity' in b)) b.maturity = 'planejado';
   Object.defineProperty(b, 'status', {
     get() { return (window.MATURITY[b.maturity] || {}).hasData ? 'live' : 'soon'; },
     enumerable: true, configurable: true,
@@ -453,8 +422,9 @@ window.METRIC_FAMILIES = {
 
 // ── Dev-time COVERAGE LINT ───────────────────────────────────────────────
 // A few per-banco maps are CURATED, not derived from this registry: the
-// glossary (glossary.js), the cross-source series builders (crossSource.js)
-// and the health table/sources (ViewHealth.jsx). When a new visible banco is
+// glossary (glossary.js), the cross-source series builders (window.crossSeries
+// in src/data/producers.js) and the health table/sources (ViewHealth.jsx). When
+// a new visible banco is
 // plugged in, those are the spots most likely to be forgotten. This helper
 // warns ONCE per map (console only — never touches data) when a visible banco
 // has no entry, mirroring viewComponent's "warn loudly instead of failing

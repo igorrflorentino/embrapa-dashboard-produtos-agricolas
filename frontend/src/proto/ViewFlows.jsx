@@ -1,6 +1,5 @@
 // ViewFlows — territorial flows (origin → destination). Generic across
-// MDIC / SEFAZ / UN Comtrade via the flowData contract. Renders synthetic
-// preview data until the banco is live.
+// MDIC / SEFAZ / UN Comtrade via the flowData contract (real Gold data).
 
 function ViewFlows({ summary, conventions, database }) {
   const banco = window.bancoById(database);
@@ -13,9 +12,6 @@ function ViewFlows({ summary, conventions, database }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="Fluxos exigem pares origem → destino, ainda não disponíveis nesta fonte." />}
-
       {/* Honest note when a filter the flow grain cannot honour is active (e.g. the
           origin-UF filter on a country-origin banco like Comtrade). The data layer
           already withholds the param; this surfaces WHY the charts are unchanged. */}
@@ -32,7 +28,7 @@ function ViewFlows({ summary, conventions, database }) {
         <window.SectionHeader
           overline={`Diagrama de fluxo · ${data.originLabel} → ${data.destLabel}`}
           title="Para onde a produção vai"
-          action={<span className="caption">{data.unit}{data.preview ? ' · valores ilustrativos' : ''}</span>}
+          action={<span className="caption">{data.unit}</span>}
         />
         <window.SankeyChart nodes={data.nodes} links={data.links} unit={data.unit} height={380} />
       </div>

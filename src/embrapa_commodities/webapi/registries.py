@@ -28,9 +28,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# ── Maturity registry (dataset lifecycle) ────────────────────────────────────
-# Ordered Planejado → … → Descontinuado. ``has_data`` gates real data vs. the
-# placeholder; ``caveat`` adds a banner. ``color`` is a CSS token.
+# ── Maturity stages (reference vocabulary only) ──────────────────────────────
+# The canonical list of VALID maturity values, ordered Planejado → … →
+# Descontinuado. PER-BANCO maturity is NOT defined here — its single source of
+# truth is BigQuery (``research_inputs.banco_metadata``), served via
+# ``/api/source-meta``. The frontend (``frontend/src/proto/bancos.js``) owns how a
+# stage renders (``has_data``/``caveat``/``color``). This dict is kept only as a
+# spec/parity reference for the allowed maturity strings.
 MATURITY: dict[str, dict] = {
     "planejado": {
         "id": "planejado",
@@ -45,10 +49,12 @@ MATURITY: dict[str, dict] = {
         "id": "desenvolvimento",
         "label": "Em desenvolvimento",
         "color": "var(--status-mat-dev)",
-        "has_data": False,
-        "future": True,
+        "has_data": True,
         "order": 2,
-        "desc": "Implementação em andamento, com data prevista de conclusão.",
+        "desc": (
+            "Em produção e já consultável, mas ainda em construção — "
+            "a cobertura e os cálculos podem mudar."
+        ),
     },
     "beta": {
         "id": "beta",
@@ -103,7 +109,13 @@ CAPABILITIES: dict[str, dict] = {
 
 @dataclass(frozen=True)
 class Banco:
-    """A data source the dashboard can consume (one Gold table)."""
+    """A data source the dashboard can consume (one Gold table).
+
+    A banco's *maturity* (and note/date) is NOT defined here. The single source of
+    truth is the BigQuery table ``research_inputs.banco_metadata`` (served via
+    ``/api/source-meta`` and rendered by the frontend). The registry only carries a
+    banco's static capabilities (dimensions, metrics, value columns, coverage).
+    """
 
     id: str
     short: str
@@ -113,25 +125,13 @@ class Banco:
     scope: str
     source: str
     table: str
-    maturity: str
     provides: tuple[str, ...]
     base_currency: str = "BRL"
     geo_level: str | None = None
     visible: bool = True
-    maturity_note: str | None = None
-    maturity_date: str | None = None
     dimensions: dict = field(default_factory=dict)
     metrics: tuple[dict, ...] = ()
     cobertura: dict = field(default_factory=dict)
-
-    @property
-    def has_data(self) -> bool:
-        return bool(MATURITY.get(self.maturity, {}).get("has_data"))
-
-    @property
-    def status(self) -> str:
-        """Legacy derived flag: 'live' once the banco carries data, else 'soon'."""
-        return "live" if self.has_data else "soon"
 
 
 # Cross-source comparable-metric catalogs (per banco). ``years`` is native
@@ -251,7 +251,6 @@ BANCOS: list[Banco] = [
         scope="Brasil · UF · município",
         source="IBGE",
         table="gold_pevs_production",
-        maturity="estavel",
         provides=("product", "geo", "quality"),
         base_currency="BRL",
         geo_level="municipio",
@@ -272,7 +271,6 @@ BANCOS: list[Banco] = [
         scope="UF de origem ↔ países parceiros",
         source="MDIC · SECEX",
         table="gold_comex_flows",
-        maturity="estavel",
         provides=("product", "geo", "flow", "partner", "monthly", "quality"),
         base_currency="USD",
         geo_level="uf",
@@ -298,9 +296,6 @@ BANCOS: list[Banco] = [
         scope="País → país (com ou sem filtro Brasil)",
         source="UN Statistics Division",
         table="gold_comtrade_flows",
-        maturity="estavel",
-        maturity_note=None,
-        maturity_date=None,
         provides=("product", "flow", "partner", "quality"),
         base_currency="USD",
         geo_level=None,
@@ -326,8 +321,6 @@ BANCOS: list[Banco] = [
         scope="Brasil · UF · município",
         source="IBGE",
         table="gold_pam_production",
-        maturity="estavel",
-        maturity_note=None,
         # 'yield' (área × rendimento) is wired end-to-end via /api/productivity over
         # gold_pam_production's area_*_ha + production columns — keep in sync with
         # the frontend bancos.js provides list.
@@ -350,8 +343,6 @@ BANCOS: list[Banco] = [
         scope="UF ↔ UF · município ↔ município",
         source="Receita · SEFAZ",
         table="gold_nfe_flows",
-        maturity="planejado",
-        maturity_note="Contrato provisório — sem fonte confirmada neste projeto.",
         provides=("product", "geo", "flow", "partner", "monthly", "quality"),
         base_currency="BRL",
         geo_level="municipio",
@@ -374,17 +365,6 @@ def banco_by_id(banco_id: str) -> Banco:
 
 def visible_bancos() -> list[Banco]:
     return [b for b in BANCOS if b.visible]
-
-
-def maturity_meta(banco: Banco) -> dict:
-    return MATURITY.get(banco.maturity, MATURITY["planejado"])
-
-
-def banco_availability(banco: Banco) -> str:
-    """Short availability label for pickers, derived from maturity."""
-    if maturity_meta(banco)["has_data"]:
-        return "Disponível"
-    return "Em breve" if banco.maturity == "desenvolvimento" else "Sem previsão"
 
 
 def canon_currency_for(banco_id: str) -> str:

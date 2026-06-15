@@ -1,9 +1,9 @@
 // ViewCrossSource — the "Cruzamento entre fontes" perspective.
 // Compares 2–4 annual series drawn from DIFFERENT bancos on a shared time
-// axis. All data flows through window.crossSeries (crossSource.js); this
+// axis. All data flows through window.crossSeries (src/data/producers.js); this
 // component only orchestrates selection, the visualization toggle and the
 // derived analytics. Controlled via { value, onChange } so the selection
-// travels in the shared URL / citation (see Dashboard.html + AppShell).
+// travels in the shared URL / citation (see src/main.jsx + AppShell).
 
 const { useMemo: useCSMemo } = React;
 
@@ -47,8 +47,6 @@ function ViewCrossSource({ value, onChange }) {
     })
     .filter(Boolean);
 
-  const anyPreview = seriesResults.some(s => s.preview);
-  const firstPreviewBanco = (seriesResults.find(s => s.preview) || {}).bancoMeta || null;
   const units = [...new Set(seriesResults.map(s => s.unit))];
   const families = [...new Set(seriesResults.map(s => s.family))];
 
@@ -110,12 +108,6 @@ function ViewCrossSource({ value, onChange }) {
 
   return (
     <>
-      {anyPreview && (
-        <window.PreviewBanner
-          banco={firstPreviewBanco}
-          capabilityNote="Séries de bancos ainda não liberados entram como demonstração." />
-      )}
-
       {/* KPI strip */}
       <div className="kpi-row">
         <window.KpiCardSpark label="Séries comparadas" value={`${items.length} / ${CS_MAX}`}
@@ -211,7 +203,7 @@ function ViewCrossSource({ value, onChange }) {
             <span key={it.key} className="xs-legend-item">
               <span className="xs-legend-dot" style={{ background: it.color }}></span>
               <strong>{it.label}</strong>
-              <span className="xs-legend-src">{it.bancoShort} · {it.unit}{it.preview ? ' · prévia' : ''}</span>
+              <span className="xs-legend-src">{it.bancoShort} · {it.unit}</span>
             </span>
           ))}
         </div>
@@ -239,7 +231,7 @@ function ViewCrossSource({ value, onChange }) {
               {items.map(it => (
                 <tr key={it.key}>
                   <td><span className="pc-row-dot" style={{ background: it.color }}></span>{it.label}</td>
-                  <td>{it.bancoShort}{it.preview ? <span className="xs-tbl-preview">prévia</span> : ''}</td>
+                  <td>{it.bancoShort}</td>
                   <td className="num tnum">{fmtV(it.v0, it.unit)}</td>
                   <td className="num tnum">{fmtV(it.vT, it.unit)}</td>
                   <td className="num tnum" style={{ color: it.accum >= 0 ? 'var(--ok)' : 'var(--err)' }}>{window.fmtSigned(it.accum, 0)}</td>

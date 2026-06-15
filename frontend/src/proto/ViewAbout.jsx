@@ -1,110 +1,148 @@
-// ViewAbout — institutional "Sobre o dashboard" page.
-// Pure structured content: purpose, datasets, perspectives, pipeline,
-// usage tips, credits. No insights, no live data — just what the
-// dashboard is and how to use it.
+// ViewAbout — institutional "Sobre o dashboard" page. This is the landing screen,
+// so it doubles as the onboarding guide: what the dashboard is, which bancos feed
+// it, how to navigate, how the data is processed, and how to read it. No insights
+// or live analysis — just orientation. All per-banco facts (maturity, coverage,
+// refresh, table) come from the backend (/api/source-meta), never hardcoded here.
+
+// App version — sourced from the package manifest so it never drifts from the real
+// release (single source of truth, like maturity comes from BigQuery).
+import pkg from '../../package.json';
 
 const { useState: useAbState, useEffect: useAbEffect } = React;
 
+// Per-category descriptions for the grouped "Perspectivas analíticas" section.
+// Keyed by VIEW_GROUPS[].id (views.js). Onboarding tone — says what each family of
+// perspectives is FOR, so a new researcher knows where to look.
+const GROUP_DESCS = {
+  aggregate: 'Olhe a cesta de commodities como um todo: indicadores consolidados e séries históricas de valor e quantidade. É o ponto de partida antes de descer ao produto individual.',
+  product: 'Aprofunde-se em uma commodity específica ou compare algumas lado a lado: preço, participação na cesta, ranking de estados e — na produção agrícola — produtividade.',
+  flows: 'Acompanhe o caminho da commodity da origem ao destino: a cadeia da extração à exportação e os parceiros (estados e países) que compram e vendem.',
+  distribution: 'Veja onde a produção acontece e quão concentrada ela é: mapas e rankings por região, estado ou município, com índices de concentração e desigualdade (Gini, HHI, Lorenz).',
+  temporal: 'Investigue os padrões no tempo além da tendência: sazonalidade, decomposição da série e quebras estruturais. Mais reveladora com dados mensais.',
+  crosssource: 'Cruze séries de bancos diferentes no mesmo eixo — produção (IBGE) × exportação (MDIC) × mercado mundial (Comtrade) — para medir coeficiente de exportação, participação global, spread de preço e o balanço da cadeia.',
+  curated: 'Análises que dependem da classificação feita pelo pesquisador (Engenharia de atributos): produto bruto × processado e a finalidade econômica (consumo × processamento) do que é comercializado.',
+  documentation: 'Conheça a procedência e a confiabilidade do banco selecionado: o diagnóstico de qualidade dos dados (e, no menu lateral, o glossário de termos e códigos).',
+};
+
 function ViewAbout() {
   const bancos = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
-  const livePev = window.bancoById ? window.bancoById('ibge_pevs') : null;
-  const yearStart = livePev?.prov?.yearStart || 1986;
 
-  // Sobre is an info-page (?ip=about): reached directly it renders outside the
-  // data boundary, so /api/source-meta is never fetched and the footer date
-  // would fall back to the frozen registry literal. Fetch the PEVS provenance on
-  // mount + subscribe, so the footer/citation date tracks the real Gold refresh.
+  // Sobre is an info-page (?ip=about): reached directly it renders outside the data
+  // boundary. Eager-load every banco's provenance so the cards + footer date reflect
+  // the real Gold metadata (and re-render as each /api/source-meta resolves).
   const [, forceAb] = useAbState(0);
   useAbEffect(() => window.dataStore.subscribe(() => forceAb(n => n + 1)), []);
   useAbEffect(() => {
-    if (window.dataStore && window.dataStore.loadMeta) window.dataStore.loadMeta('ibge_pevs');
-  }, []);
+    bancos.forEach(b => window.dataStore && window.dataStore.loadMeta && window.dataStore.loadMeta(b.id));
+  }, []); // eslint-disable-line
 
-  // Perspectives derived from the single registry (views.js · VIEW_GROUPS) so
-  // this page never goes stale when a view is added/removed. The glossary is a
-  // reference tool (not an analytical perspective), so it stays out of this
-  // list — but its group still counts toward the categories.
-  const VIEWS = (window.VIEW_GROUPS || [])
-    .flatMap(g => g.views.map(v => ({ id: v.id, title: v.label, desc: v.desc, group: g.label })))
-    .filter(v => v.id !== 'glossary' && v.desc);
-  const viewGroupCount = (window.VIEW_GROUPS || []).length;
+  // Perspectives grouped by the 8 categories (views.js · VIEW_GROUPS) — registry
+  // driven, so it never goes stale. Glossary is a reference tool, not a perspective,
+  // so it is filtered out; empty groups are dropped.
+  const groups = (window.VIEW_GROUPS || [])
+    .map(g => ({
+      id: g.id,
+      label: g.label,
+      hint: g.hint,
+      views: g.views.filter(v => v.id !== 'glossary' && v.desc).map(v => ({ id: v.id, title: v.label, desc: v.desc })),
+    }))
+    .filter(g => g.views.length);
+  const totalViews = groups.reduce((n, g) => n + g.views.length, 0);
 
-  // Gold table names derived from the banco registry (bancos.js), rather than
-  // repeated in the pipeline text.
-  const goldTables = bancos.map(b => window.bancoTable(b.id)).join(', ');
+  // Gold tables — only for bancos that actually HAVE a Gold table (planejado bancos
+  // like SEFAZ have none; their registry literal is a placeholder, not a real table).
+  const goldTables = bancos
+    .filter(b => window.maturityMeta(b).hasData)
+    .map(b => window.bancoTable(b.id))
+    .join(', ');
 
-  // App version is config; the date follows the LIVE Gold refresh from
-  // window.dataStore.meta() (/api/source-meta overlay), not the frozen registry
-  // prov — so the footer date tracks the real last refresh once it resolves.
-  const APP_VERSION = 'v0.4.2';
+  const APP_VERSION = 'v' + pkg.version;
   const _pevMeta = window.dataStore && window.dataStore.meta ? window.dataStore.meta('ibge_pevs') : null;
   const refreshDate = ((_pevMeta && _pevMeta.refresh) || '').split(' · ')[0] || '—';
 
   const PIPELINE = [
     {
       stage: 'Bronze',
-      hint:  'Raw',
-      desc:  'Ingestão direta das fontes oficiais sem transformação: tabelas SIDRA, arquivos do COMEX, downloads UN Comtrade, extrações SEFAZ. Auditoria por hash de arquivo e timestamp de ingestão.',
+      hint: 'Bruto',
+      desc: 'Cópia fiel das fontes oficiais, sem nenhuma alteração: tabelas do IBGE (SIDRA), arquivos do comércio exterior (MDIC) e dados da ONU (UN Comtrade). Cada arquivo é registrado com a data de coleta, para rastreabilidade.',
     },
     {
       stage: 'Silver',
-      hint:  'Conformed',
-      desc:  'Normalização de esquemas, conciliação de códigos (NCM ↔ SH6, IBGE ↔ TOM/SIAFI), reconstrução de séries históricas e marcação da dimensão data_quality_flag.',
+      hint: 'Padronizado',
+      desc: 'Padronização: os diferentes códigos de produto de cada fonte são reconciliados entre si, as séries históricas são reconstruídas e cada valor recebe uma marca de confiabilidade.',
     },
     {
       stage: 'Gold',
-      hint:  'Analytics',
-      desc:  `Tabelas desnormalizadas e enriquecidas por banco (${goldTables}). Convenções monetárias e cobertura temporal aplicadas. Fonte direta do dashboard.`,
+      hint: 'Analítico completo',
+      desc: `Uma tabela abrangente por fonte (${goldTables}), já com as conversões de moeda e a correção pela inflação aplicadas. É a base de toda a análise — e a fonte direta do Looker Studio.`,
+    },
+    {
+      stage: 'Serving',
+      hint: 'Pronto para o painel',
+      desc: 'Recortes pré-agregados na granularidade exata de cada gráfico (ano × UF × produto, sazonalidade, fluxos por parceiro), derivados do Gold e combinados com os calendários e a geografia oficiais. É daqui que este painel lê todos os números — respostas rápidas sem reprocessar o Gold a cada filtro.',
     },
   ];
 
   const TIPS = [
     {
+      title: 'Como navegar',
+      desc: 'Escolha um banco de dados na barra à esquerda e uma perspectiva no menu “Selecionar perspectiva”, no topo. Alterne entre “Banco único” (uma fonte por vez) e “Multi-fonte” (cruza séries de bancos diferentes no mesmo eixo). A barra lateral pode ser redimensionada arrastando sua borda direita.',
+    },
+    {
       title: 'Filtros não são iguais a convenções métricas',
-      desc:  'Filtros reduzem quais linhas entram na visualização (produtos, período, UFs e municípios, flags, faixa de valor). Convenções métricas decidem como essas linhas são exibidas (moeda, correção monetária, unidade de massa e volume). Os dois são independentes.',
+      desc: 'Os filtros escolhem QUAIS dados aparecem (produtos, período, estados e municípios, faixa de valor, sinalizações de qualidade). As convenções métricas escolhem COMO esses dados são mostrados (moeda, correção pela inflação, unidade de massa ou volume). São controles independentes — mudar um não mexe no outro.',
+    },
+    {
+      title: 'Valor nominal × valor real',
+      desc: 'Para comparar anos diferentes de forma justa, prefira o valor corrigido pela inflação (real). O valor nominal está em moeda da época e só deve ser usado para conferência pontual — somar ou comparar valores nominais de anos distintos induz a erro. A correção (IPCA, IGP-M ou IGP-DI) é escolhida nas convenções métricas.',
     },
     {
       title: 'Famílias de unidades nunca se misturam',
-      desc:  'Quantidades em massa (t/kg) e em volume (m³/L) jamais são somadas. Quando a cesta selecionada contém produtos de famílias diferentes, o dashboard mostra uma métrica de quantidade por família. Valor monetário (BRL) permanece agregável.',
+      desc: 'Quantidades em massa (t/kg) e em volume (m³/L) jamais são somadas. Quando a cesta selecionada contém produtos de famílias diferentes, o dashboard mostra uma métrica de quantidade por família. O valor monetário permanece sempre agregável.',
     },
     {
       title: 'Citação e compartilhamento',
-      desc:  'Use “Citar painel” no canto superior direito para gerar uma referência ABNT do estado atual (banco, perspectiva, recorte e convenções). “Compartilhar” copia uma URL que reproduz toda a seleção atual.',
+      desc: 'Use “Citar painel” (canto superior direito) para gerar, do painel exatamente como exibido — banco, perspectiva, recorte, produtos, UFs, filtros e convenções —, a citação no texto (ABNT NBR 10520:2023) e a referência completa (ABNT NBR 6023:2025), já com o link permanente. “Compartilhar” copia uma URL que reproduz toda a seleção atual, ideal para colaborar com outro pesquisador.',
     },
     {
-      title: 'Exportação',
-      desc:  'O botão “Exportar CSV”, ao lado de “Editar filtros”, baixa a fatia atual de dados — com todos os filtros aplicados, na resolução máxima disponível na tabela Gold.',
+      title: 'Exportação de dados',
+      desc: 'O botão “Exportar CSV”, ao lado de “Editar filtros”, baixa a fatia de dados em tela — já com todos os filtros aplicados, na resolução máxima disponível — para você seguir a análise em planilha ou em outra ferramenta.',
     },
   ];
 
   const CREDITS = [
     { role: 'Coordenação científica', who: 'Embrapa — Empresa Brasileira de Pesquisa Agropecuária' },
     { role: 'Vinculação institucional', who: 'Ministério da Agricultura e Pecuária · Governo Federal' },
-    { role: 'Fontes de dados',         who: 'IBGE · MDIC SECEX · UN Statistics Division · SEFAZ estaduais' },
-    { role: 'Engenharia de dados',     who: 'Pipeline Medalhão sobre BigQuery — ingestão, conformação e enriquecimento' },
-    { role: 'Apresentação',            who: 'Dashboard interativo HTML + visualizações SVG próprias' },
+    { role: 'Fontes de dados', who: 'IBGE · MDIC SECEX · UN Statistics Division · SEFAZ estaduais' },
+    { role: 'Engenharia de dados', who: 'Coleta, padronização e cálculo de indicadores a partir das fontes oficiais, em nuvem' },
+    { role: 'Apresentação', who: 'Aplicação web interativa (React) com gráficos Plotly' },
   ];
 
   return (
     <div className="ab-stack">
-      {/* Purpose */}
+      {/* Purpose + first steps (onboarding) */}
       <div className="card ab-purpose">
         <window.SectionHeader
           overline="Propósito"
-          title="Análise histórica de commodities brasileiras"
+          title="Análise histórica das commodities brasileiras"
         />
         <p className="ab-lead">
-          Esta é uma ferramenta científica desenvolvida pela <strong>Embrapa</strong> para
-          permitir que pesquisadores acompanhem a evolução temporal da produção,
-          exploração, comercialização e exportação de commodities brasileiras. O foco
-          é exclusivamente analítico — não há recomendações automatizadas, projeções ou
-          opiniões. Todos os números visíveis vêm diretamente das tabelas Gold do pipeline.
+          O <strong>Dashboard de Análise Histórica de Commodities</strong> reúne, num só lugar,
+          as principais bases públicas sobre as commodities brasileiras — produção extrativa e
+          agrícola, comércio interno e comércio exterior — para que pesquisadores explorem como
+          esses mercados evoluíram ao longo de décadas. Cada fonte oficial entra com o mesmo
+          peso: você escolhe o banco de dados e a perspectiva, aplica filtros e compara séries.
+          O foco é exclusivamente analítico e científico — todos os números vêm de dados oficiais
+          processados pelo pipeline, sem projeções, recomendações ou opiniões automatizadas.
         </p>
         <p className="ab-lead">
-          O recorte temporal disponível depende da fonte: a base IBGE PEVS cobre
-          desde <strong>{yearStart}</strong>; comércio exterior (MDIC, UN Comtrade) já
-          está disponível com cobertura própria, e o comércio interno (SEFAZ) será
-          liberado em seguida.
+          <strong>Primeiros passos:</strong> escolha um banco de dados na barra à esquerda,
+          selecione uma perspectiva no menu superior e ajuste os filtros e as convenções métricas
+          conforme a sua pergunta de pesquisa. Para comparar fontes diferentes, ative o modo
+          <strong> Multi-fonte</strong>. Cada banco tem cobertura temporal e maturidade próprias,
+          indicadas nos cartões abaixo. As seções seguintes detalham os bancos, as perspectivas
+          disponíveis, como os dados são processados e as convenções importantes para interpretar
+          os resultados com segurança.
         </p>
       </div>
 
@@ -116,26 +154,35 @@ function ViewAbout() {
           action={<span className="caption">{bancos.length} bancos · {bancos.filter(b => b.status === 'live').length} disponível(is)</span>}
         />
         <div className="ab-banco-grid">
-          {bancos.map(b => { const bm = window.bancoMeta(b.id); return (
-            <div key={b.id} className={'ab-banco mat-' + b.maturity}>
-              <div className="ab-banco-head">
-                <span className="ab-banco-short">{b.short}</span>
-                <window.MaturityTag banco={b} />
+          {bancos.map(b => {
+            const bm = window.bancoMeta(b.id);
+            const hasData = window.maturityMeta(b).hasData;
+            return (
+              <div key={b.id} className={'ab-banco mat-' + b.maturity}>
+                <div className="ab-banco-head">
+                  <span className="ab-banco-short">{b.short}</span>
+                  <window.MaturityTag banco={b} />
+                </div>
+                <div className="ab-banco-domain">{bm.domain}</div>
+                <p className="ab-banco-sub">{b.sub}</p>
+                <dl className="ab-banco-meta">
+                  <dt>Granularidade</dt><dd>{bm.scope}</dd>
+                  <dt>Fonte</dt><dd>{bm.source}</dd>
+                  <dt>Tabela</dt>
+                  <dd>
+                    {hasData
+                      ? <><code>{bm.table}</code><span className="ab-banco-table-note"> — tabela Gold de referência; os gráficos são lidos de recortes pré-agregados da camada Serving, derivados dela.</span></>
+                      : <span className="ab-banco-table-note">ainda não publicada</span>}
+                  </dd>
+                  {bm.maturityDate && (
+                    <>
+                      <dt>Conclusão prevista</dt><dd className="tnum">{bm.maturityDate}</dd>
+                    </>
+                  )}
+                </dl>
               </div>
-              <div className="ab-banco-domain">{bm.domain}</div>
-              <p className="ab-banco-sub">{b.sub}</p>
-              <dl className="ab-banco-meta">
-                <dt>Granularidade</dt><dd>{bm.scope}</dd>
-                <dt>Fonte</dt><dd>{bm.source}</dd>
-                <dt>Tabela</dt><dd><code>{bm.table}</code></dd>
-                {bm.maturityDate && (
-                  <>
-                    <dt>Conclusão prevista</dt><dd className="tnum">{bm.maturityDate}</dd>
-                  </>
-                )}
-              </dl>
-            </div>
-          ); })}
+            );
+          })}
         </div>
         <div className="ab-mat-legend">
           <div className="ab-mat-legend-head">Maturidade dos bancos</div>
@@ -143,21 +190,27 @@ function ViewAbout() {
         </div>
       </div>
 
-      {/* Perspectives */}
+      {/* Perspectives — grouped by category */}
       <div className="card">
         <window.SectionHeader
           overline="Perspectivas analíticas"
-          title={`${VIEWS.length} perspectivas em ${viewGroupCount} categorias`}
+          title={`${totalViews} perspectivas em ${groups.length} categorias`}
         />
-        <div className="ab-view-grid">
-          {VIEWS.map((v, i) => (
-            <div key={v.id} className="ab-view">
-              <span className="ab-view-num tnum">{String(i + 1).padStart(2, '0')}</span>
-              <h3 className="ab-view-title">
-                {v.title}
-                <span style={{ fontWeight: 400, color: 'var(--fg-3)' }}> · {v.group}</span>
-              </h3>
-              <p className="ab-view-desc">{v.desc}</p>
+        <div className="ab-pgroups">
+          {groups.map(g => (
+            <div key={g.id} className="ab-pgroup">
+              <div className="ab-pgroup-head">
+                <h3 className="ab-pgroup-title">{g.label}</h3>
+                {GROUP_DESCS[g.id] && <p className="ab-pgroup-desc">{GROUP_DESCS[g.id]}</p>}
+              </div>
+              <div className="ab-view-grid">
+                {g.views.map(v => (
+                  <div key={v.id} className="ab-view">
+                    <h4 className="ab-view-title">{v.title}</h4>
+                    <p className="ab-view-desc">{v.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -167,7 +220,7 @@ function ViewAbout() {
       <div className="card">
         <window.SectionHeader
           overline="Como os dados são processados"
-          title="Arquitetura Medalhão · Bronze → Silver → Gold"
+          title="Das fontes oficiais aos números do painel, em quatro etapas"
         />
         <div className="ab-pipeline">
           {PIPELINE.map((s, i) => (
@@ -191,7 +244,7 @@ function ViewAbout() {
       <div className="card">
         <window.SectionHeader
           overline="Como usar"
-          title="Convenções importantes antes de interpretar"
+          title="Guia rápido para interpretar e navegar"
         />
         <div className="ab-tips">
           {TIPS.map((t, i) => (

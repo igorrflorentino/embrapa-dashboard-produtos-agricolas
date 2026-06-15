@@ -71,8 +71,8 @@ const ufFilterActive = (summary) => {
 const bancoOriginIsUf = (bancoId) =>
   !!(window.bancoDim && window.bancoDim(bancoId, 'origin').kind === 'uf');
 
-// pt-BR month labels — was defined in the synthetic previewData.js (not imported);
-// the seasonality view + MonthYearHeatmap read window.MONTH_LABELS.
+// pt-BR month labels — defined here (the seasonality view + MonthYearHeatmap read
+// window.MONTH_LABELS).
 window.MONTH_LABELS = window.MONTH_LABELS || [
   'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
 ];
@@ -155,7 +155,16 @@ window.crossCommonWindow = function crossCommonWindow(refs = []) {
       return m && m.years;
     })
     .filter(Boolean);
-  if (!covs.length) return { y0: 1997, y1: 2024, union: [1997, 2024] };
+  if (!covs.length) {
+    // No metric coverage in the selection — derive the window from the registry's
+    // full metric span (never a stale hardcoded year). Empty registry → current
+    // year, so the arithmetic below stays valid.
+    const all = (window.BANCOS || []).flatMap((b) => (b.metrics || []).map((m) => m.years)).filter(Boolean);
+    if (!all.length) { const y = new Date().getFullYear(); return { y0: y, y1: y, union: [y, y] }; }
+    const lo = Math.min(...all.map((c) => c[0]));
+    const hi = Math.max(...all.map((c) => c[1]));
+    return { y0: lo, y1: hi, union: [lo, hi] };
+  }
   const y0 = Math.max(...covs.map((c) => c[0]));
   const y1 = Math.min(...covs.map((c) => c[1]));
   const union = [Math.min(...covs.map((c) => c[0])), Math.max(...covs.map((c) => c[1]))];

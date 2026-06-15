@@ -372,6 +372,19 @@
   line-height: 1.55;
   margin: 0;
 }
+/* Two-norm cite dialog: in-text citation (NBR 10520:2023) + reference (6023:2018) */
+.cite-block { display: flex; flex-direction: column; gap: 6px; }
+.cite-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cite-copy-mini {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 11px var(--font-body);
+  color: var(--embrapa-green-darker); background: transparent;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  padding: 3px 9px; cursor: pointer;
+}
+.cite-copy-mini:hover { background: var(--bg-surface-2); }
+.cite-text-inline { font-weight: 600; white-space: normal; }
+.cite-hint { color: var(--fg-3); margin: 0; }
 .cite-actions {
   display: flex;
   justify-content: flex-end;
@@ -392,6 +405,7 @@
   flex: 1;
 }
 .sidebar {
+  position: relative;
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   padding: 12px 0;
@@ -401,6 +415,23 @@
   font-size: 13px;
   min-height: calc(100vh - var(--topbar-h));
 }
+/* Drag handle on the sidebar's right edge — the user resizes the sidebar by
+   dragging it (width clamped 200–460px in AppShell; double-click resets). */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 6;
+  background: transparent;
+  transition: background var(--dur-fast);
+  touch-action: none;
+}
+.sidebar-resizer:hover { background: color-mix(in srgb, var(--embrapa-green) 35%, transparent); }
+body.sb-resizing { cursor: col-resize; user-select: none; }
+body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa-green) 50%, transparent); }
 .side-section {
   padding: 14px 18px 6px;
   font-size: 10px;
@@ -1062,8 +1093,11 @@
   color: var(--fg-2);
   line-height: 1.65;
   margin: 0 0 12px;
-  text-wrap: pretty;
-  max-width: 80ch;
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  /* fill the card width — no measure cap, so the justified text reaches the right
+     border instead of leaving a white gap on wide screens */
 }
 .ab-purpose .ab-lead:last-child { margin-bottom: 0; }
 .ab-purpose .ab-lead strong { color: var(--fg-1); }
@@ -1143,6 +1177,7 @@
   padding: 1px 6px;
   border-radius: 3px;
 }
+.ab-banco-table-note { color: var(--fg-3); font-size: 11.5px; line-height: 1.45; }
 
 /* Perspectives grid */
 .ab-view-grid {
@@ -1152,24 +1187,41 @@
   padding: 4px 0;
 }
 .ab-view {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 14px;
+  display: flex;
+  flex-direction: column;
   row-gap: 4px;
-  padding: 16px 18px;
+  padding: 14px 18px;
   border-top: 1px solid var(--border-subtle);
   border-right: 1px solid var(--border-subtle);
 }
 .ab-view:nth-child(-n+2) { border-top: none; }
 .ab-view:nth-child(2n)   { border-right: none; }
-.ab-view-num {
-  grid-row: 1 / span 2;
-  font: 800 22px var(--font-display);
-  color: var(--embrapa-green);
-  opacity: 0.85;
-  line-height: 1;
-  margin-top: 2px;
+
+/* Perspectives grouped by category (the 8 VIEW_GROUPS). Each group is a distinct
+   bordered card with a tinted header band and a green left accent, so it is always
+   clear where one group starts and the next ends. */
+.ab-pgroups { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 0; }
+.ab-pgroup {
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--embrapa-green);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.ab-pgroup-head {
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--embrapa-green) 6%, var(--bg-surface));
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ab-pgroup-title {
+  font: 700 15px var(--font-display);
+  color: var(--embrapa-green-darker, var(--fg-1));
+  margin: 0 0 4px;
+  letter-spacing: -0.005em;
+}
+.ab-pgroup-desc {
+  font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 0;
+  text-wrap: pretty;
 }
 .ab-view-title {
   font: 700 15px var(--font-display);
@@ -1188,7 +1240,9 @@
 /* Pipeline */
 .ab-pipeline {
   display: grid;
-  grid-template-columns: 1fr 28px 1fr 28px 1fr;
+  /* Four stages (Bronze → Silver → Gold → Serving) with a 28px arrow column
+     between each — seven tracks total. Stacks to one column under 980px. */
+  grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr;
   align-items: stretch;
   gap: 0;
   padding: 8px 4px 4px;
@@ -1205,6 +1259,9 @@
 .ab-stage-bronze { border-left: 4px solid var(--medal-bronze); }
 .ab-stage-silver { border-left: 4px solid var(--medal-silver); }
 .ab-stage-gold   { border-left: 4px solid var(--medal-gold); }
+/* Serving — the layer the painel reads from; Embrapa-green accent to set it
+   apart from the three medal stages. */
+.ab-stage-serving { border-left: 4px solid var(--embrapa-green); }
 .ab-stage-head { display: flex; align-items: baseline; gap: 10px; }
 .ab-stage-name {
   font: 700 15px var(--font-display);
@@ -1320,6 +1377,15 @@
    ViewHealth — Saúde do sistema
    ==================================================================== */
 .hs-kpi-row .kpi-card .kpi-val { font-size: 22px; }
+/* The "Última atualização da Gold" value is a long timestamp (e.g.
+   "11 jun 2026 · 05:02 BRT"). The global .kpi-val rule sets white-space:nowrap
+   (fine for short numeric KPIs), which makes this stamp overflow the card and
+   break the page layout. Scope a wrapping override to the Health KPI strip only. */
+.hs-kpi-row .kpi-card .kpi-val {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
 
 .hs-status-pill {
   display: inline-flex;
@@ -1920,8 +1986,10 @@
   padding: 28px 32px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 40px;
   flex-wrap: wrap;
+  text-align: center;
 }
 .triade {
   height: 44px;
@@ -1930,6 +1998,7 @@
 }
 .foot-meta {
   display: flex; flex-direction: column;
+  align-items: center;
   gap: 2px;
   font-size: 12px;
   color: var(--fg-2);
@@ -2811,6 +2880,10 @@
 .cur-table td { vertical-align: middle; }
 /* Pair matrix (regime × flow) */
 .cur-matrix th.cur-c, .cur-matrix td.cur-c { text-align: center; min-width: 132px; }
+/* The flow column headers carry the full official UN Comtrade name + code, which
+   can be long (e.g. "Importação para aperfeiçoamento ativo (MIP)"). Let them wrap
+   to a couple of lines instead of forcing very wide columns. */
+.cur-matrix th.cur-c { white-space: normal; vertical-align: bottom; max-width: 150px; line-height: 1.3; }
 .cur-regime { font: 500 13px var(--font-body); color: var(--fg-1); }
 .cur-cell {
   width: 100%; height: 30px; padding: 0 4px 0 8px;
@@ -2830,6 +2903,25 @@
 .cur-corner-col { display: block; font: 600 9.5px var(--font-body); letter-spacing: 0.06em; color: var(--embrapa-green-darker); margin-bottom: 3px; }
 .cur-corner-row { display: block; font: 700 10px var(--font-body); letter-spacing: 0.06em; color: var(--fg-2); }
 .cur-hashint { text-decoration: underline dotted var(--border-strong); text-underline-offset: 3px; cursor: help; }
+/* Fast custom hover tooltip for the regime × fluxo matrix (body-level, fixed
+   position so it escapes the table's overflow clipping; ~90 ms show delay). */
+.cur-tip-pop {
+  position: fixed;
+  z-index: 9999;
+  max-width: 320px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  background: var(--embrapa-green-darker);
+  color: #fff;
+  font: 400 12.5px/1.5 var(--font-body);
+  box-shadow: 0 6px 24px rgba(0, 60, 29, 0.28);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 90ms ease, transform 90ms ease;
+}
+.cur-tip-pop.on { opacity: 1; visibility: visible; transform: translateY(0); }
 .cur-codes-seg { height: 30px; }
 .cur-group-by { display: inline-flex; align-items: center; gap: 9px; }
 .cur-group-label { font: 600 10px var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); white-space: nowrap; }
@@ -2998,10 +3090,12 @@
 .mat-legend { display: flex; flex-direction: column; gap: 10px; }
 .mat-legend.compact { gap: 7px; }
 .mat-legend-row {
-  display: grid; grid-template-columns: 132px 1fr; gap: 14px; align-items: start;
+  /* The tag column auto-sizes to the WIDEST tag (e.g. "Em desenvolvimento") so a
+     long label never overflows a fixed track and overlaps the description. */
+  display: grid; grid-template-columns: max-content 1fr; gap: 14px; align-items: start;
 }
-.mat-legend-desc { font: 400 12.5px/1.5 var(--font-body); color: var(--fg-3); }
-.mat-legend-row .mat-tag { justify-self: start; }
+.mat-legend-desc { font: 400 12.5px/1.5 var(--font-body); color: var(--fg-3); min-width: 0; }
+.mat-legend-row .mat-tag { justify-self: start; white-space: nowrap; }
 
 /* About-page legend wrapper. */
 .ab-mat-legend {

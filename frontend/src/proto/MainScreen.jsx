@@ -39,15 +39,20 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // the industrialization screen so existing deep links still resolve).
   if (infoPage === 'enrich_industrial' || infoPage === 'curation') {
     return (
-      <div className="screen" data-screen-label="Enriquecimento · Nível de industrialização">
+      <div className="screen" data-screen-label="Engenharia de atributos · Nível de industrialização">
         <div className="page-hero">
           <div>
-            <div className="overline">Enriquecimento · conhecimento do pesquisador</div>
+            <div className="overline">Engenharia de atributos · conhecimento do pesquisador</div>
             <h1 className="page-title">Nível de industrialização</h1>
             <p className="page-sub">
-              Classifique cada código (entre as fontes) como <strong>bruto</strong> ou
-              <strong> processado</strong>. Essa anotação destrava a análise de
-              <strong> valor agregado</strong> no modo Multi-fonte.
+              Aqui você classifica cada produto em um nível: <strong>Bruta</strong> (in natura, sem
+              transformação), <strong>Processada</strong> (beneficiada pela indústria) ou
+              <strong> Misturado</strong> (quando o código junta os dois e não dá para separar).
+              Basta escolher na tabela abaixo e clicar em <strong>Aplicar à base</strong>.
+              Com essa marcação, o painel consegue separar quanto de cada commodity sai do país
+              ainda bruta e quanto sai já industrializada — e acompanhar, ano a ano, se a produção
+              brasileira está <strong>agregando mais valor</strong>. O que você define fica salvo e
+              passa a valer para todos os pesquisadores.
             </p>
           </div>
         </div>
@@ -58,15 +63,20 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
 
   if (infoPage === 'enrich_market') {
     return (
-      <div className="screen" data-screen-label="Enriquecimento · Tipo de Mercado">
+      <div className="screen" data-screen-label="Engenharia de atributos · Tipo de Mercado">
         <div className="page-hero">
           <div>
-            <div className="overline">Enriquecimento · conhecimento do pesquisador</div>
+            <div className="overline">Engenharia de atributos · conhecimento do pesquisador</div>
             <h1 className="page-title">Tipo de Mercado</h1>
             <p className="page-sub">
-              Classifique cada par <strong>procedimento aduaneiro × fluxo</strong> por finalidade
-              econômica (<strong>consumo</strong> vs. <strong>processamento</strong>). Essa anotação
-              destrava a análise de <strong>tipo de mercado</strong> no modo Multi-fonte.
+              Cada operação de comércio exterior combina um <strong>regime aduaneiro</strong> (a
+              forma como a mercadoria entra ou sai do país — exportação definitiva, drawback,
+              entreposto, etc.) com um <strong>fluxo</strong> (importação, exportação,
+              reexportação…). Aqui você indica, para cada combinação, se ela atende ao
+              <strong> consumo</strong> final ou ao <strong>processamento</strong> industrial.
+              A matriz mostra o valor em dólar de cada combinação — comece pelas que mais pesam.
+              Assim o painel revela se a commodity é negociada para uso final ou como insumo da
+              indústria. O que você define fica salvo e passa a valer para todos os pesquisadores.
             </p>
           </div>
         </div>
@@ -405,18 +415,20 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   const _liveRows = _fAll && Array.isArray(_fAll.qualityFlags)
     ? _fAll.qualityFlags.reduce((s, f) => s + (f.count || 0), 0)
     : 0;
+  // The registry prov no longer fabricates a row count, so the only source is the
+  // live snapshot's quality-flag sum; show "—" until it resolves (never a fake total).
   const totalRows = _liveRows || prov.totalRows;
-  const rowsAfter = Math.round(
+  const rowsAfter = totalRows ? Math.round(
     totalRows *
     (_shares.productShare ?? 1) *
     (_shares.valueShare   ?? 1) *
     (_shares.yearShare    ?? 1) *
     (_shares.flagShare    ?? 1) *
     (_shares.stateShare   ?? 1)
-  );
+  ) : null;
   const fmtRows = window.fmtRows;  // shared compact mi/mil counter (data.js)
-  const rowsTotalLabel = fmtRows(totalRows);
-  const rowsAfterLabel = fmtRows(rowsAfter);
+  const rowsTotalLabel = totalRows ? fmtRows(totalRows) : '—';
+  const rowsAfterLabel = rowsAfter != null ? fmtRows(rowsAfter) : '—';
 
   // ---- Data views ----
   const ViewComponent = window.viewComponent(view) || window.ViewOverview;
@@ -449,11 +461,11 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">Última safra</span>
-              <span className="meta-val tnum">{metaProv.lastCrop} <small>· {metaProv.lastCropDate}</small></span>
+              <span className="meta-val tnum">{metaProv.lastCrop || '—'}</span>
             </div>
             <div className="meta-row">
               <span className="meta-label">Refresh Gold</span>
-              <span className="meta-val tnum">{metaProv.refresh}</span>
+              <span className="meta-val tnum">{metaProv.refresh || '—'}</span>
             </div>
           </div>
 
@@ -467,7 +479,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">Produtos</span>
-              <span className="meta-val tnum">{productsSelected} / {productsTotal}</span>
+              <span className="meta-val tnum">{productsSelected ?? '—'} / {productsTotal ?? '—'}</span>
             </div>
             <div className="meta-row">
               <span className="meta-label">UFs cobertas</span>
@@ -475,7 +487,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             </div>
             <div className="meta-row">
               <span className="meta-label">Anos cobertos</span>
-              <span className="meta-val tnum">{yearsCovered} / {metaProv.yearsTotal}</span>
+              <span className="meta-val tnum">{yearsCovered ?? '—'} / {metaProv.yearsTotal ?? '—'}</span>
             </div>
           </div>
         </div>

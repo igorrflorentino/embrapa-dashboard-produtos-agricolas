@@ -293,24 +293,25 @@ def _latest_year_completeness(banco_id: str, year_end: int | None) -> dict:
 
 
 def source_meta(banco_id: str) -> dict:
-    """Provenance row for a banco (backs the page-hero meta), or {} if absent.
+    """Provenance + lifecycle metadata for a banco (backs the page-hero meta).
 
-    Augmented with the latest-year completeness signal (months_in_latest_year /
-    latest_year_complete / latest_complete_year) so the frontend can compute an
-    honest YoY for monthly-sourced bancos whose latest year is still partial.
+    Gold provenance (rows, year span) + the latest-year completeness signal are
+    present only for a live source that has a metadata row. The lifecycle
+    maturity/note/coverage come from BigQuery (``research_inputs.banco_metadata``)
+    for EVERY banco — the single source of truth — so even a planned banco with no
+    Gold table reports its BQ maturity (and the frontend renders it).
     """
-    if banco_id not in _LIVE_SOURCES:
-        return {}
-    df = gateway.fetch_source_metadata(source=banco_id)
-    if df is None or df.empty:
-        return {}
-    meta = df.iloc[0].to_dict()
-    year_end = meta.get("year_end")
-    try:
-        year_end = int(year_end) if year_end is not None else None
-    except (TypeError, ValueError):
-        year_end = None
-    meta.update(_latest_year_completeness(banco_id, year_end))
+    meta: dict = {}
+    if banco_id in _LIVE_SOURCES:
+        df = gateway.fetch_source_metadata(source=banco_id)
+        if df is not None and not df.empty:
+            meta = df.iloc[0].to_dict()
+            year_end = meta.get("year_end")
+            try:
+                year_end = int(year_end) if year_end is not None else None
+            except (TypeError, ValueError):
+                year_end = None
+            meta.update(_latest_year_completeness(banco_id, year_end))
     _apply_banco_metadata(meta, banco_id)
     return meta
 
@@ -334,14 +335,18 @@ def banco_metadata_overrides(banco_id: str) -> dict:
 
 
 def _apply_banco_metadata(meta: dict, banco_id: str) -> None:
-    """Overlay the editable override row over the registry Banco defaults, writing
-    maturity/maturity_note/maturity_date/cobertura into ``meta``. The registry stays
-    the source of truth; the override table only carries deliberate per-field edits."""
+    """Write maturity/maturity_note/maturity_date/cobertura into ``meta``.
+
+    Maturity is sourced SOLELY from the BigQuery override table
+    (``research_inputs.banco_metadata``) — the single source of truth. The Python
+    registry no longer carries a per-banco maturity, so there is no fallback: a
+    banco absent from the table reports ``maturity = None``. Coverage still merges
+    the registry's static ``cobertura`` with any table override."""
     banco = banco_by_id(banco_id)
     ov = banco_metadata_overrides(banco_id)
-    meta["maturity"] = ov.get("maturity") or (banco.maturity if banco else None)
-    meta["maturity_note"] = ov.get("maturity_note", banco.maturity_note if banco else None)
-    meta["maturity_date"] = ov.get("maturity_date", banco.maturity_date if banco else None)
+    meta["maturity"] = ov.get("maturity")
+    meta["maturity_note"] = ov.get("maturity_note")
+    meta["maturity_date"] = ov.get("maturity_date")
     cobertura = dict(banco.cobertura) if banco and banco.cobertura else {}
     for col, key in (
         ("cobertura_years", "years"),
@@ -572,7 +577,10 @@ def cross_series(
     metric = _metric_meta(banco, metric_id)
     if unit is None or metric is None or banco_id not in _LIVE_SOURCES:
         return None
-    cov = metric.get("years", [1986, 2024])
+    # A cross metric must declare its coverage; no fabricated default window.
+    cov = metric.get("years")
+    if not cov:
+        return None
     yy0, yy1 = (y0 or cov[0]), (y1 or cov[1])
     return {
         "banco": banco_id,
@@ -837,15 +845,31 @@ def _export_coef_by_uf(pevs_codes: tuple, ncms: tuple, y0: int, y1: int) -> list
         year_start=y0, year_end=y1, ncm_codes=ncms, flow="export", latest_year_only=False
     )
     exp_by_uf = {r.state_acronym: float(r.total_weight_kg or 0) / 1e6 for r in exp.itertuples()}
+    prod_by_uf = {
+        r.state_acronym: {
+            "name": r.state_name,
+            "region": r.region_abbrev,
+            "production": float(r.total_value or 0) / 1e3,  # qty_base (t) -> mil t
+        }
+        for r in prod.itertuples()
+    }
+    # Union the UF universe (FINDING #3): a UF that EXPORTS but has no PEVS
+    # production row (port/warehousing states shipping goods grown elsewhere) must
+    # NOT be dropped — otherwise its exports vanish from the choropleth AND from the
+    # national aggregate, making the national KPI disagree with the (all-UF)
+    # timeseries. Export-only UFs carry production=0; the view filters production>0
+    # for the ranking, so the ranking stays clean while the national totals and the
+    # map become complete and consistent with the timeseries.
     by_uf = []
-    for r in prod.itertuples():
-        p = float(r.total_value or 0) / 1e3  # qty_base (t) -> mil t
-        e = exp_by_uf.get(r.state_acronym, 0.0)
+    for uf in sorted(set(prod_by_uf) | set(exp_by_uf)):
+        pr = prod_by_uf.get(uf)
+        p = pr["production"] if pr else 0.0
+        e = exp_by_uf.get(uf, 0.0)
         by_uf.append(
             {
-                "uf": r.state_acronym,
-                "name": r.state_name,
-                "region": r.region_abbrev,
+                "uf": uf,
+                "name": pr["name"] if pr else uf,
+                "region": pr["region"] if pr else None,
                 "production": p,
                 "exportV": e,
                 "coefPct": (e / p * 100) if p else 0,
@@ -1125,13 +1149,22 @@ def _value_added_series_point(y: int, slot: dict) -> dict:
 # The customs procedure (customsCode) × flow (flowCode) pairs are CURATED to a
 # market (consumo/processamento) by the researcher; the analysis sums COMTRADE
 # value by that mapping. Real data — empty until pairs are classified.
+#
+# pt-BR labels for ALL ten UN Comtrade flow codes (the "trade regimes" reference:
+# comtradeapi.un.org/files/v1/app/reference/tradeRegimes.json). Only M/X/RM/RX are
+# ingested today (config.comtrade_flows), so only those reach the worklist; the
+# rest are kept here so the label is correct if the ingestion scope ever widens.
 _FLOW_LABELS = {
     "M": "Importação",
     "X": "Exportação",
-    "RM": "Reimportação",
-    "RX": "Reexportação",
     "DX": "Exportação nacional",
     "FM": "Importação estrangeira",
+    "MIP": "Importação para aperfeiçoamento ativo",
+    "MOP": "Importação após aperfeiçoamento passivo",
+    "RM": "Reimportação",
+    "RX": "Reexportação",
+    "XIP": "Exportação após aperfeiçoamento ativo",
+    "XOP": "Exportação para aperfeiçoamento passivo",
 }
 
 

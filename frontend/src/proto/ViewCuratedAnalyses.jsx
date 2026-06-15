@@ -2,7 +2,8 @@
 // subscribe to the store, so editing the Curadoria re-renders them live.
 //   · ViewValueAdded   — exports split by industrialization (bruta × processada)
 //   · ViewMarketNature — trade value by curated economic purpose (consumo × processamento)
-// Both render synthetic preview until the trade bancos are live.
+// Both read real Gold/COMTRADE data; the curated split comes from Engenharia de
+// atributos and an empty classification shows an honest "classify first" state.
 
 const { useState: useCaState, useEffect: useCaEffect } = React;
 
@@ -18,7 +19,6 @@ function ViewValueAdded() {
   useEnrichmentTick();
   const [group, setGroup] = useCaState(null);
   const data = window.valueAddedAnalysis(group);
-  const banco = window.bancoById('mdic_comex');
   const last = data.series[data.series.length - 1];
   const first = data.series[0];
 
@@ -30,9 +30,6 @@ function ViewValueAdded() {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="Exportação por código entra como demonstração até o MDIC ser ligado; a classificação bruta/processada vem da Curadoria e pode ser editada lá." />}
-
       <div className="pp-selector">
         <span className="pp-selector-label">Commodity</span>
         <div className="pp-chips">
@@ -60,7 +57,7 @@ function ViewValueAdded() {
           action={<span className="caption">classificação da Curadoria</span>} />
         {data.nCodes < 1 ? (
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum código bruto/processado incluído para esta seleção. Ajuste em <strong>Enriquecimento → Nível de industrialização</strong>.
+            Nenhum código bruto/processado incluído para esta seleção. Ajuste em <strong>Engenharia de atributos → Nível de industrialização</strong>.
           </p>
         ) : (
           <>
@@ -79,7 +76,7 @@ function ViewValueAdded() {
           action={<span className="caption">% · valor processado ÷ total</span>} />
         <window.LineChart data={shareTs} valueKey="v" label="% processado" color="var(--viz-2)" height={240} />
         <p className="caption" style={{ padding: '8px 4px 0' }}>
-          Reclassifique um código entre <strong>bruta</strong> e <strong>processada</strong> em <strong>Enriquecimento → Nível de industrialização</strong> e esta análise se atualiza —
+          Reclassifique um código entre <strong>bruta</strong> e <strong>processada</strong> em <strong>Engenharia de atributos → Nível de industrialização</strong> e esta análise se atualiza —
           é o conhecimento do pesquisador entrando no dado.
         </p>
       </div>
@@ -93,7 +90,6 @@ function ViewMarketNature() {
   const [group, setGroup] = useCaState(null);
   window.enrichment.worklist(); // kick the code worklist so ENRICH_GROUPS (the commodity chips) populates
   const data = window.marketNatureAnalysis(group);
-  const banco = window.bancoById('mdic_comex');
 
   // Scope the analysis to one commodity's COMTRADE codes (or all curated).
   const selector = (
@@ -120,16 +116,14 @@ function ViewMarketNature() {
   if (!data.series || !data.series.length) {
     return (
       <>
-        {data.preview && <window.PreviewBanner banco={banco}
-          capabilityNote="A finalidade (consumo/processamento) de cada par procedimento aduaneiro × fluxo vem da Curadoria." />}
         {selector}
         <div className="card subtle">
           <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
-            title="Classifique os pares aduana × fluxo para ativar esta análise" />
+            title="Classifique os pares regime × fluxo para ativar esta análise" />
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum par <strong>procedimento aduaneiro × fluxo</strong> classificado ainda. Defina a
+            Nenhum par <strong>regime aduaneiro × fluxo</strong> classificado ainda. Defina a
             finalidade (consumo ou processamento) de cada par em{' '}
-            <strong>Enriquecimento → Tipo de Mercado</strong> — esta análise passa a somar o
+            <strong>Engenharia de atributos → Tipo de Mercado</strong> — esta análise passa a somar o
             valor do COMTRADE por finalidade, ao vivo.
           </p>
         </div>
@@ -148,8 +142,6 @@ function ViewMarketNature() {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="Valores por fluxo entram como demonstração até o MDIC ser ligado; a finalidade (consumo/processamento) de cada par regime × fluxo vem da Curadoria." />}
       {selector}
 
       <div className="kpi-row">

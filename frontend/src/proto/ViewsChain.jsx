@@ -3,7 +3,9 @@
 //                        (reconciled mass split + world-market slice).
 //   · ViewHarvestLag   — harvest (PEVS, modeled monthly) vs shipments
 //                        (MDIC monthly): how many months exports lag the crop.
-// Both read crossChain.js contracts and reuse existing charts.
+// Both read their producers from src/data/producers.js (window.chainBalance /
+// window.harvestShipmentLag — currently data-blocked preview shells) and reuse
+// existing charts.
 
 const { useState: useChState } = React;
 

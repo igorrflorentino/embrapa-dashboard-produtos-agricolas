@@ -1,7 +1,7 @@
 // PreviewBanner — the "dados sintéticos de demonstração" banner the preview /
 // cross / chain views render when a producer returns preview:true (data-blocked
 // or not-yet-connected sources). Not a chart — a faithful HTML port of the
-// prototype's PreviewBanner (Charts.flow.jsx), kept here so the reused views find
+// prototype's original PreviewBanner, kept here so the reused views find
 // window.PreviewBanner.
 
 function PreviewBanner({ banco, capabilityNote }) {

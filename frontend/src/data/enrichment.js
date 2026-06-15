@@ -12,9 +12,11 @@
 //      window.marketNatureAnalysis (→ /api/cross/market-nature).
 //
 // Both edit a local draft and commit via POST on "Aplicar à base" (the
-// append-only writers, author captured from IAP). The flow-market codes are the
-// raw UN Comtrade procedure codes (opaque on purpose — their meaning is NOT
-// hardcoded; the researcher curates from the code + its value, not a guess).
+// append-only writers, author captured from IAP). The flow-market rows are the
+// raw UN Comtrade customs-procedure codes (customsCode, prefix C); their meaning
+// is mapped to human pt-BR labels via CUSTOMS_DESC below (authoritative source:
+// the UN Comtrade CustomsCodes.json reference). The per-pair USD value is still
+// surfaced so the researcher curates by materiality.
 
 import { ensure, get, invalidate, subscribe as subscribeResource } from './resource';
 
@@ -34,6 +36,57 @@ window.ENRICH_MARKETS = [
 ];
 // Derived from the live code worklist rows (commodity → name) at read time.
 window.ENRICH_GROUPS = [];
+
+// ── customs-procedure code → human pt-BR label + researcher tooltip ───────────
+// The matrix rows are UN Comtrade `customsCode` values (WCO customs procedures,
+// prefix C). Authoritative meanings: UN Comtrade CustomsCodes.json reference
+// (NOT the EU/UK CDS C-series, a different classification). The `hint` is a plain
+// sentence for an agricultural researcher; regimes() appends the traded value.
+const CUSTOMS_DESC = {
+  C01: { label: 'Despacho para consumo',         hint: 'Importação nacionalizada: mercadoria estrangeira liberada para circular e ser consumida no país após o recolhimento dos tributos — destino típico de abastecimento do mercado interno.' },
+  C02: { label: 'Reimportação no mesmo estado',  hint: 'Retorno ao país de um bem que havia sido exportado, sem transformação no exterior (ex.: devolução) — não representa nova produção nem agregação de valor.' },
+  C03: { label: 'Exportação definitiva',         hint: 'Saída definitiva de mercadoria nacional para o exterior, sem previsão de retorno — a exportação comum, que escoa a produção do país.' },
+  C04: { label: 'Entreposto aduaneiro',          hint: 'Mercadoria armazenada sob controle aduaneiro, com tributos suspensos, antes de definir o destino (consumo, reexportação ou industrialização) — ponto de espera logístico, não destino final.' },
+  C05: { label: 'Zona franca',                   hint: 'Área com incentivos fiscais e aduaneiros (ex.: Zona Franca de Manaus); a mercadoria entra com tributação reduzida, em geral para transformação industrial.' },
+  C06: { label: 'Aperfeiçoamento ativo',         hint: 'Importação temporária de insumos, com suspensão de tributos, para industrialização no país e posterior reexportação — sinaliza uso industrial, não consumo final.' },
+  C07: { label: 'Aperfeiçoamento passivo',       hint: 'Exportação temporária de um bem para beneficiamento ou reparo no exterior, com retorno ao país — o valor é agregado fora do território nacional.' },
+  C08: { label: 'Drawback',                      hint: 'Regime de incentivo à exportação que suspende ou restitui os tributos dos insumos importados usados na fabricação de um produto a ser exportado — produção voltada ao mercado externo.' },
+  C09: { label: 'Transformação para consumo interno', hint: 'Industrialização da mercadoria importada sob controle aduaneiro, com os tributos incidindo sobre o produto já transformado, destinado ao mercado interno — uso industrial voltado ao consumo nacional.' },
+  C10: { label: 'Cabotagem',                      hint: 'Transporte de mercadoria entre pontos do próprio país por via marítima ou fluvial — movimentação interna, não comércio com o exterior.' },
+  C11: { label: 'Infrações aduaneiras',          hint: 'Operações associadas a apreensões ou irregularidades aduaneiras — não refletem fluxo comercial regular; interprete com cautela.' },
+  C12: { label: 'Viajantes',                      hint: 'Bens trazidos ou levados por viajantes (bagagem) — volumes pequenos e de uso pessoal, sem caráter de mercado.' },
+  C13: { label: 'Tráfego postal',                hint: 'Mercadorias movimentadas pelo correio (remessas postais) — em geral de pequeno porte.' },
+  C14: { label: 'Provisões de bordo',            hint: 'Combustíveis, alimentos e suprimentos embarcados em navios e aeronaves para consumo durante a viagem — não é mercadoria destinada a um mercado.' },
+  C15: { label: 'Remessas de socorro',           hint: 'Doações e ajuda humanitária — fluxo de natureza não comercial.' },
+  C20: { label: 'Procedimento não especificado', hint: 'Operação aduaneira não enquadrada nas demais categorias — agrupa registros sem classificação própria; interprete com cautela.' },
+};
+
+// ── flow code → pt-BR label + tooltip (columns) ───────────────────────────────
+// Authoritative names + codes from the UN Comtrade "trade regimes" reference
+// (comtradeapi.un.org/files/v1/app/reference/tradeRegimes.json — the file the
+// `flowCode` dimension is published in: exactly these 10 codes). `label` is the
+// column header (the backend _FLOW_LABELS overrides it when the flow is present in
+// the data); flowTypes() appends the code in parentheses, like the customs rows.
+// `hint` is the hover description. Only M/X/RM/RX occur in the current data; the
+// rest are shown for completeness so the matrix is ready for any granularity.
+const FLOW_DESC = {
+  M:   { label: 'Importação',                              hint: 'Entrada de mercadoria estrangeira no território nacional, qualquer que seja o destino (consumo, estoque ou industrialização).' },
+  X:   { label: 'Exportação',                              hint: 'Saída de mercadoria do país para o exterior; pode englobar produção nacional e reexportações, conforme o detalhamento da fonte.' },
+  DX:  { label: 'Exportação nacional',                     hint: 'Exportação de mercadoria efetivamente produzida no país (domestic export), distinta da simples reexportação.' },
+  FM:  { label: 'Importação estrangeira',                  hint: 'Importação de mercadoria de origem estrangeira (foreign import) — contrapartida da exportação nacional do país parceiro.' },
+  MIP: { label: 'Importação para aperfeiçoamento ativo',   hint: 'Importação temporária de mercadoria que entra no país para ser industrializada ou beneficiada e depois reexportada (regime de aperfeiçoamento ativo).' },
+  MOP: { label: 'Importação após aperfeiçoamento passivo', hint: 'Retorno ao país de mercadoria nacional que havia sido exportada temporariamente para beneficiamento no exterior (regime de aperfeiçoamento passivo).' },
+  RM:  { label: 'Reimportação',                            hint: 'Reentrada de mercadoria que havia sido exportada, sem transformação no exterior (ex.: devoluções) — não caracteriza nova importação para consumo.' },
+  RX:  { label: 'Reexportação',                            hint: 'Reexportação de mercadoria antes importada, sem ter sido transformada no país — indica papel de entreposto/intermediação, não de produção própria.' },
+  XIP: { label: 'Exportação após aperfeiçoamento ativo',   hint: 'Saída do país de mercadoria já industrializada ou beneficiada internamente a partir de insumos importados em regime de aperfeiçoamento ativo.' },
+  XOP: { label: 'Exportação para aperfeiçoamento passivo', hint: 'Exportação temporária de mercadoria nacional enviada ao exterior para beneficiamento, com previsão de retorno (regime de aperfeiçoamento passivo).' },
+};
+// Canonical orders for the COMPLETE matrix — every known regime (rows) × every
+// known flow (columns) is shown, so the table holds ALL combinations and is ready
+// for any data granularity, even before a given pair appears in the data. Flow
+// order mirrors the UN Comtrade reference (import side, then export side).
+const FLOW_ORDER = ['M', 'X', 'DX', 'FM', 'MIP', 'MOP', 'RM', 'RX', 'XIP', 'XOP'];
+const CUSTOMS_ORDER = Object.keys(CUSTOMS_DESC);
 
 // ── USD formatters (compact, for the matrix cell + row hints) ─────────────────
 const fmtUsdShort = (v) => {
@@ -127,33 +180,63 @@ window.enrichment = {
   codes: () => worklist(),
   worklist: () => worklist(),
 
-  // Matrix ROWS = real customs procedure codes, sorted by total traded value so
-  // the material procedures sit at the top. Codes are opaque (UN Comtrade CPC) —
-  // we surface the code + its value, never a guessed meaning.
+  // Matrix ROWS = the COMPLETE set of customs-procedure codes: every canonical
+  // regime (CUSTOMS_ORDER) unioned with any extra code present in the data, so the
+  // table holds ALL regimes and is ready for any data granularity — even regimes
+  // that have not appeared in the data yet. Ordered by total traded value desc
+  // (material regimes on top), then by canonical order for the zero-value tail.
+  // Each code maps to a human pt-BR name + tooltip via CUSTOMS_DESC; the traded
+  // value is appended to the tooltip (or a "no records yet" note when it is zero).
   regimes() {
     const wl = flowWorklist();
     const totals = {};
     wl.cells.forEach((c) => {
       totals[c.customs_code] = (totals[c.customs_code] || 0) + (c.value_usd || 0);
     });
-    return wl.customs
-      .slice()
-      .sort((a, b) => (totals[b] || 0) - (totals[a] || 0))
-      .map((code) => ({
-        id: code,
-        term: code,
-        label: `Procedimento aduaneiro ${code}`,
-        hint: `Código de procedimento aduaneiro (UN Comtrade customsCode) ${code} — total transacionado ${fmtUsdShort(totals[code] || 0)}. Classifique a finalidade econômica de cada fluxo deste procedimento.`,
-      }));
+    const all = Array.from(new Set([...CUSTOMS_ORDER, ...wl.customs]));
+    const orderIdx = (code) => {
+      const i = CUSTOMS_ORDER.indexOf(code);
+      return i === -1 ? CUSTOMS_ORDER.length : i;
+    };
+    return all
+      .sort((a, b) => (totals[b] || 0) - (totals[a] || 0) || orderIdx(a) - orderIdx(b))
+      .map((code) => {
+        const d = CUSTOMS_DESC[code];
+        const name = d ? `${d.label} (${code})` : `Regime aduaneiro ${code}`;
+        const meaning = d
+          ? d.hint
+          : `Regime aduaneiro ${code} do comércio exterior (código UN Comtrade), sem descrição cadastrada.`;
+        const value = totals[code] || 0;
+        const valueNote = value
+          ? `Total transacionado: ${fmtUsdShort(value)}.`
+          : 'Ainda sem registros nos dados atuais.';
+        return { id: code, term: name, label: name, hint: `${meaning} ${valueNote}` };
+      });
   },
-  // Matrix COLUMNS = real flow codes (M, X, RM, RX, …) with pt-BR labels.
+  // Matrix COLUMNS = the COMPLETE set of flow codes: every canonical flow
+  // (FLOW_ORDER) unioned with any extra code present in the data. The pt-BR label
+  // comes from the backend when the flow is present, otherwise from FLOW_DESC; the
+  // tooltip is the direction's meaning (FLOW_DESC).
   flowTypes() {
-    return flowWorklist().flows.map((f) => ({
-      id: f.code,
-      term: f.label,
-      label: f.label,
-      hint: `Fluxo comercial ${f.code} — ${f.label}.`,
-    }));
+    const present = flowWorklist().flows;
+    const labelOf = {};
+    present.forEach((f) => {
+      labelOf[f.code] = f.label;
+    });
+    const all = Array.from(new Set([...FLOW_ORDER, ...present.map((f) => f.code)]));
+    const orderIdx = (code) => {
+      const i = FLOW_ORDER.indexOf(code);
+      return i === -1 ? FLOW_ORDER.length : i;
+    };
+    return all
+      .sort((a, b) => orderIdx(a) - orderIdx(b))
+      .map((code) => {
+        const d = FLOW_DESC[code];
+        const base = labelOf[code] || (d && d.label) || `Fluxo ${code}`;
+        const name = `${base} (${code})`; // keep the code, like the customs rows
+        const meaning = (d && d.hint) || `Fluxo comercial ${code} (código UN Comtrade).`;
+        return { id: code, term: name, label: name, hint: meaning };
+      });
   },
   pairMarket: (customs, flow) => effMarket(customs, flow),
   // The per-cell traded value (formatted) — empty when the pair has no COMTRADE
@@ -311,14 +394,17 @@ window.enrichment = {
     window.ENRICH_LEVELS.forEach((l) => {
       byLevel[l.id] = wl.filter((c) => c.level === l.id).length;
     });
-    const fw = flowWorklist();
+    // Count over the COMPLETE matrix (all regimes × all flows), matching what the
+    // editor renders, so "classificadas / total" reflects the full grid.
+    const regimes = this.regimes();
+    const flows = this.flowTypes();
     let flowsClassified = 0;
-    fw.customs.forEach((c) => fw.flows.forEach((f) => effMarket(c, f.code) && flowsClassified++));
+    regimes.forEach((r) => flows.forEach((f) => effMarket(r.id, f.id) && flowsClassified++));
     return {
       codesTotal: wl.length,
       byLevel,
       unclassified: wl.filter((c) => !c.level).length,
-      flowsTotal: fw.customs.length * fw.flows.length,
+      flowsTotal: regimes.length * flows.length,
       flowsClassified,
     };
   },
