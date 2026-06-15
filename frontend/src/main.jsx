@@ -18,6 +18,7 @@ import './proto/filtersSchema.js';
 import './proto/glossary.js';
 import './proto/urlState.js';
 import './proto/chipFmt.js';
+import './proto/filterSummary.js';
 import './proto/seriesUtils.js';
 import './proto/dataFilters.js';
 import './proto/csvExport.js';

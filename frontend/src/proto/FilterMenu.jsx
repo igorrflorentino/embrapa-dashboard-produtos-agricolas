@@ -595,16 +595,19 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       ? `${PRODS.length} produtos (todos)`
       : `${products.size} de ${PRODS.length} produtos`;
     const period = `${formatMonth(startDate)}–${formatMonth(endDate)}`;
-    const geoTxt =
-      !hasGeo
-        ? 'sem recorte geográfico'
-      : nations.size === NATIONS.length && regions.size === FM_REGIONS.length && states.size === STATES.length && (!muniSliceable || munis.size === MUNIS.length)
-        ? 'todo o território'
-      : nations.size === 1 && nations.has('BR') && states.size === STATES.length && (!muniSliceable || munis.size === MUNIS.length)
-        ? 'Brasil · todos os estados'
-      : muniSliceable
-        ? `${nations.size} nação(ões), ${states.size} UF, ${munis.size === MUNIS.length ? 'todos os' : munis.size} municípios`
-        : `${nations.size} nação(ões), ${states.size} UF`;
+    const geoTxt = window.filterSummary.geoHeaderText({
+      hasGeo,
+      nationsSize: nations.size,
+      nationsTotal: NATIONS.length,
+      hasOnlyBR: nations.size === 1 && nations.has('BR'),
+      regionsSize: regions.size,
+      regionsTotal: FM_REGIONS.length,
+      statesSize: states.size,
+      statesTotal: STATES.length,
+      munisSize: munis.size,
+      munisTotal: MUNIS.length,
+      muniSliceable,
+    });
     return { prodTxt, period, geoTxt };
   }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, muniSliceable, MUNIS]);
 
@@ -616,16 +619,19 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       quickRange === 'all' ? `${yearStart}–${yearEnd}`
       : `${formatMonth(startDate)}–${formatMonth(endDate)}`;
     const valueChip = window.chipFmt.valueRange(vMin, vMax, sym);
-    const muniFull = !muniSliceable || munis.size === MUNIS.length; // all listed (or no live municipal slice) = no municipal slice
-    const geoChip = !hasGeo
-      ? 'Não se aplica'
-      : nations.size === 1 && nations.has('BR') && states.size === STATES.length && muniFull
-        ? `Brasil · ${STATES.length} UFs`
-      : nations.size === NATIONS.length && regions.size === FM_REGIONS.length && states.size === STATES.length && muniFull
-        ? 'Todo o território'
-      : !muniFull
-        ? `${states.size} ${states.size === 1 ? 'UF' : 'UFs'} · ${munis.size} ${munis.size === 1 ? 'município' : 'municípios'}`
-      : `${nations.size} ${nations.size === 1 ? 'nação' : 'nações'} · ${states.size} ${states.size === 1 ? 'UF' : 'UFs'}`;
+    const geoChip = window.filterSummary.geoChipText({
+      hasGeo,
+      nationsSize: nations.size,
+      nationsTotal: NATIONS.length,
+      hasOnlyBR: nations.size === 1 && nations.has('BR'),
+      regionsSize: regions.size,
+      regionsTotal: FM_REGIONS.length,
+      statesSize: states.size,
+      statesTotal: STATES.length,
+      munisSize: munis.size,
+      munisTotal: MUNIS.length,
+      muniSliceable,
+    });
     const qualityChip = window.chipFmt.quality([...flags], QUALITY.length, qualityLabelOf);
     return { products: prodChip, period: periodChip, valueRange: valueChip, geo: geoChip, quality: qualityChip };
   };
