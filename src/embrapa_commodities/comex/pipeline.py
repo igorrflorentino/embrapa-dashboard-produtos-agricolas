@@ -26,7 +26,7 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.comex import client
-from embrapa_commodities.config import Settings, get_credentials
+from embrapa_commodities.config import Settings
 from embrapa_commodities.core import (
     ChunkOutcome,
     IngestPartialFailure,
@@ -37,6 +37,7 @@ from embrapa_commodities.core import (
     raw_provenance,
 )
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
+from embrapa_commodities.gcp.clients import resolve_clients
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +367,7 @@ def run(
     source-level handler can collect them; with a consumer, ``run`` returns
     normally and the caller decides the exit code from the outcomes it saw.
     """
-    bq_client, storage_client = _resolve_clients(settings, bq_client, storage_client)
+    bq_client, storage_client = resolve_clients(settings, bq_client, storage_client)
     table_fqn = ensure_destination(settings, bq_client)
 
     last_destination = ""
@@ -396,22 +397,6 @@ def run(
     if failures and on_chunk is None:
         raise IngestPartialFailure(failures)
     return last_destination
-
-
-def _resolve_clients(
-    settings: Settings,
-    bq_client: bigquery.Client | None,
-    storage_client: storage.Client | None,
-) -> tuple[bigquery.Client, storage.Client]:
-    """Build the BigQuery + GCS clients from impersonated creds, unless injected."""
-    creds = get_credentials(settings)
-    bq_client = bq_client or bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
-    storage_client = storage_client or storage.Client(
-        project=settings.gcp_project_id, credentials=creds
-    )
-    return bq_client, storage_client
 
 
 def _run_one_chunk(
