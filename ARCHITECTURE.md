@@ -425,6 +425,40 @@ between rebuilds → cache **explicitly invalidated** on write **+ short TTL**
 writes; the short TTL resolves the others (eventual consistency ≤30s) — this is what
 allows scaling to several instances **without Redis**.
 
+### Running the dashboard locally (dev + preview)
+
+Two ways to bring it up against the **real** BigQuery serving/Gold data (queries
+are on-demand and cheap — pre-aggregated marts scan MB):
+
+1. **Two processes (frontend dev with HMR)** — best when editing the SPA:
+   - `make webapi-run` → the Flask BFF on `:8000` (API-only; `app.run`, threaded).
+   - `cd frontend && npm run dev` → Vite on `:5173`, which proxies `/api` → `:8000`.
+     Open `http://localhost:5173`.
+2. **One process (single origin, mirrors prod)** — simplest for a quick check or
+   the Claude Code preview: `make webapi-run` alone. When a built SPA exists at
+   `frontend/dist` (run `npm --prefix frontend run build` once), the same Flask app
+   serves the SPA **and** `/api` from `:8000` — the prod topology. Open
+   `http://localhost:8000`. The repo ships `.claude/launch.json` with both servers
+   (`webapi` :8000, `frontend-react` :5173) for the preview tooling.
+
+**Prerequisites — `.env` + ADC (this is the usual local-run gotcha):** the backend
+reads config from a repo-root `.env` (pydantic-settings) and authenticates to
+BigQuery via your **Application Default Credentials** (`gcloud auth
+application-default login`). A **fresh `git worktree` has no `.env`** — it is
+gitignored, so it is **not** copied when the worktree is created. Without it
+`GCP_PROJECT_ID` is unset, `Settings()` fails, and the data endpoints return a
+clear error (the cache binding falls back to a no-op `NullCache` rather than
+masking the cause — see `serving/cache.py:init_cache_safely`). Fix it by
+materializing a `.env` in the worktree/clone root:
+
+```bash
+cp /path/to/main/checkout/.env .env        # reuse a known-good config, OR
+uv run python scripts/setup_dev_env.py      # generate .env + ~/.dbt/profiles.yml
+```
+
+`/healthz` and the static SPA work even without config; only the BigQuery-backed
+`/api/*` endpoints need it.
+
 ---
 
 ## Dynamic Curation — append-only log + SCD Type 2

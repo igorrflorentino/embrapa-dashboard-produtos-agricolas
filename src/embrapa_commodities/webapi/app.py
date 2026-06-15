@@ -18,8 +18,7 @@ from pathlib import Path
 from flask import Flask, jsonify, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from embrapa_commodities.config import get_settings
-from embrapa_commodities.serving.cache import init_cache
+from embrapa_commodities.serving.cache import init_cache_safely
 
 from .routes import api
 
@@ -68,12 +67,11 @@ def create_app() -> Flask:
     # flask-caching needs GCP settings (project/dataset/TTLs). Best-effort so the
     # module still imports for lint/tests without a configured .env; at runtime
     # (Cloud Run / dev with .env) it binds and the gateway memoization works.
-    # A real bind failure leaves the cache UNBOUND (every memoized read then
-    # fails), so log it at WARNING rather than swallowing it silently.
-    try:
-        init_cache(app, get_settings())
-    except Exception:  # pragma: no cover - depends on environment
-        logger.warning("init_cache failed; gateway memoization disabled", exc_info=True)
+    # init_cache_safely binds a no-op NullCache if settings/binding fail, so the
+    # cache is ALWAYS present — a misconfigured env (e.g. a fresh worktree with no
+    # .env) then surfaces the REAL error from the data endpoints (uncached) instead
+    # of a cryptic `KeyError: 'cache'` from an unbound cache. See serving/cache.py.
+    init_cache_safely(app)
 
     app.register_blueprint(api, url_prefix="/api")
 
