@@ -1,5 +1,7 @@
 // ViewsMultiSource.jsx — the four analytical multi-source perspectives.
-// All read through crossAnalytics.js contracts; all are self-contained
+// All read their cross-analytics producers from src/data/producers.js
+// (window.tradeMirror / priceSpread / marketShare / exportCoefficient); all are
+// self-contained
 // (own commodity selector), since unlike "Cruzamento entre fontes" they
 // don't need a lifted multi-series selection. Charts are reused as-is.
 
@@ -41,10 +43,9 @@ function CrossProductPicker({ value, onChange }) {
 const msNum = window.numBR, msPct = window.pctBR;
 
 // ── (1) Export coefficient ──────────────────────────────────────────────────
-function ViewExportCoef({ view }) {
+function ViewExportCoef() {
   const [product, setProduct] = useMSState(null);
   const data = window.exportCoefficient(product);
-  const banco = window.crossPreviewBanco(view);
   const ranked = data.byUf.filter(u => u.production > 0).sort((a, b) => b.coefPct - a.coefPct);
   const top = ranked[0], bottom = ranked[ranked.length - 1];
   // Real coverage window from the series itself — never the hardcoded "1997–2024".
@@ -74,13 +75,14 @@ function ViewExportCoef({ view }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco} capabilityNote="Produção é real (IBGE); a parcela exportada por UF entra como demonstração até o MDIC ser ligado." />}
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Coeficiente nacional" value={msPct(data.national.coefPct)} sub="do produzido segue p/ exportação" />
-        <window.KpiCardSpark label="UF mais exportadora" value={top?.uf || '—'} sub={`${msPct(top?.coefPct || 0)} da produção`} />
-        <window.KpiCardSpark label="UF mais interna" value={bottom?.uf || '—'} sub={`${msPct(bottom?.coefPct || 0)} exportado`} />
+        <window.KpiCardSpark label="Coeficiente nacional" value={data.national.coefPct == null ? '—' : msPct(data.national.coefPct)} sub={`acumulado ${coefWindow} · do produzido vai p/ exportação`} />
+        <window.KpiCardSpark label="UF mais exportadora" value={top?.uf || '—'} sub={top ? `${msPct(top.coefPct)} da produção` : '—'} />
+        {ranked.length > 1
+          ? <window.KpiCardSpark label="UF mais interna" value={bottom?.uf || '—'} sub={`${msPct(bottom?.coefPct || 0)} exportado`} />
+          : <window.KpiCardSpark label="UF mais interna" value="—" sub="produção concentrada em 1 UF" />}
         <window.KpiCardSpark label="Produção considerada" value={msNum(data.national.production) + ' mil t'} sub={`${ranked.length} ${ranked.length === 1 ? 'UF' : 'UFs'} com produção`} />
       </div>
 
@@ -88,16 +90,23 @@ function ViewExportCoef({ view }) {
         <window.SectionHeader overline="Orientação exportadora · por UF" title="Quanto da produção de cada estado vai para fora"
           action={<span className="caption">% exportado · IBGE × MDIC</span>} />
         <window.BrazilTileMap data={data.byUf} valueKey="coefPct" label="% exportado" />
+        <p className="caption" style={{ padding: '10px 4px 2px' }}>
+          O coeficiente compara o <strong>peso exportado</strong> (MDIC) com a <strong>massa produzida</strong> (IBGE)
+          dos mesmos produtos. Pode passar de <strong>100%</strong> quando o estado exporta formas processadas,
+          reexporta ou usa estoque de anos anteriores — não é erro. No mapa, valores abaixo de 0,5% aparecem
+          arredondados como 0.
+        </p>
       </div>
 
       <div className="card">
         <window.SectionHeader overline="Coeficiente nacional no tempo" title="Evolução da orientação exportadora"
-          action={<span className="caption">{coefWindow} · IBGE × MDIC{data.preview ? ' · valores ilustrativos' : ''}</span>} />
+          action={<span className="caption">{coefWindow} · IBGE × MDIC</span>} />
         <window.LineChart data={data.timeseries} valueKey="v" label="%" color="var(--embrapa-green)" height={260} />
       </div>
 
       <div className="card">
-        <window.SectionHeader overline="Ranking · maior orientação exportadora" title="UFs por coeficiente" />
+        <window.SectionHeader overline="Ranking · maior orientação exportadora" title="UFs por coeficiente"
+          action={<span className="caption">acumulado {coefWindow}</span>} />
         <div className="pc-table-wrap">
           <table className="pc-table">
             <thead><tr><th>UF</th><th className="num">Produção (mil t)</th><th className="num">Exportado (mil t)</th><th className="num">Coeficiente</th></tr></thead>
@@ -119,10 +128,9 @@ function ViewExportCoef({ view }) {
 }
 
 // ── (2) Brazil in the world market ─────────────────────────────────────
-function ViewMarketShare({ view }) {
+function ViewMarketShare() {
   const [product, setProduct] = useMSState(null);
   const data = window.marketShare(product);
-  const banco = window.crossPreviewBanco(view);
   const last = data.series[data.series.length - 1];
   const first = data.series[0];
   const peak = data.series.reduce((m, d) => d.share > m.share ? d : m, data.series[0]);
@@ -130,7 +138,6 @@ function ViewMarketShare({ view }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco} capabilityNote="Exportação brasileira e total mundial entram como demonstração até MDIC e UN Comtrade serem ligados." />}
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
@@ -155,10 +162,9 @@ function ViewMarketShare({ view }) {
 }
 
 // ── (3) Price: farm-gate vs. FOB ──────────────────────────────────────
-function ViewPriceSpread({ view }) {
+function ViewPriceSpread() {
   const [product, setProduct] = useMSState(null);
   const data = window.priceSpread(product);
-  const banco = window.crossPreviewBanco(view);
 
   // Same mass-basis requirement as the export coefficient: the gate price is
   // value ÷ mass, undefined for volume/mixed selections. The seam refuses with
@@ -189,7 +195,6 @@ function ViewPriceSpread({ view }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco} capabilityNote="Preço de exportação entra como demonstração até o MDIC ser ligado; o preço na porteira deriva da produção real (IBGE)." />}
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
@@ -220,10 +225,9 @@ function ViewPriceSpread({ view }) {
 }
 
 // ── (4) Espelho comercial ─────────────────────────────────────────────
-function ViewMirror({ view }) {
+function ViewMirror() {
   const [product, setProduct] = useMSState(null);
   const data = window.tradeMirror(product);
-  const banco = window.crossPreviewBanco(view);
   const last = data.series[data.series.length - 1];
   const avgDisc = data.discrepancy.reduce((s, d) => s + d.v, 0) / (data.discrepancy.length || 1);
   // Real series window (#25) — never the hardcoded "1997–2024". Derived from the
@@ -238,7 +242,6 @@ function ViewMirror({ view }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco} capabilityNote="As três leituras da mesma exportação entram como demonstração até MDIC e UN Comtrade serem ligados." />}
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
@@ -250,7 +253,7 @@ function ViewMirror({ view }) {
 
       <div className="card">
         <window.SectionHeader overline="A mesma exportação, três fontes" title="MDIC × Comtrade × parceiros"
-          action={<span className="caption">US$ bi · MDIC × UN Comtrade{data.preview ? ' · valores ilustrativos' : ''}</span>} />
+          action={<span className="caption">US$ bi · MDIC × UN Comtrade</span>} />
         <window.MultiLineChart series={lineSeries} valueKey="v" label="US$ bi" height={300} />
         <div className="pc-legend">
           {lineSeries.map(s => (

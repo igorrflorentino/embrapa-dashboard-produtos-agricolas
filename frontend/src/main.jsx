@@ -1,5 +1,5 @@
-// main.jsx — application entry. Replaces the prototype's Dashboard.html inline
-// boot. Order matters: bootstrap-globals sets window.React FIRST (proto modules
+// main.jsx — application entry. Replaces the prototype's inline HTML boot
+// script. Order matters: bootstrap-globals sets window.React FIRST (proto modules
 // read React as a bare global at eval time), then the modules side-effect-import
 // in dependency order (each assigns window.X). The SYNTHETIC data layer + SVG
 // charts are NOT imported from proto/ — they're replaced by src/data/* (API) and
@@ -234,8 +234,19 @@ function DataGate({ database, infoPage, view, children }) {
   const d = window.useBancoData(database); // hook (DataBoundary.jsx) — loads + subscribes
   const banco = window.bancoById && window.bancoById(database);
   const vm = window.viewById && window.viewById(view);
-  const needsData = !infoPage && !(vm && vm.crossBanco) && banco && banco.status === 'live';
+  const isBancoView = !infoPage && !(vm && vm.crossBanco) && !!banco;
 
+  // Maturity (live/soon) is the single source of truth from BigQuery, delivered by
+  // /api/source-meta. Until it resolves for this banco, whether the view shows real
+  // data or the "Em breve" placeholder is unknown — so wait on the loader instead of
+  // flashing the wrong state. useBancoData() already kicks the source-meta fetch
+  // alongside the snapshot; this just holds the gate (and the subscribe effect below
+  // re-renders once it lands).
+  if (isBancoView && window.dataStore && !window.dataStore.hasMeta(database)) {
+    return <window.DataLoading banco={banco} />;
+  }
+
+  const needsData = isBancoView && banco.status === 'live';
   if (needsData) {
     if (d.status === 'loading' || d.status === 'idle') return <window.DataLoading banco={banco} />;
     if (d.status === 'error') {
@@ -335,6 +346,15 @@ function Dashboard() {
       : undefined),
     [],
   );
+
+  // Eager-load the live maturity/coverage (/api/source-meta) for EVERY visible
+  // banco at startup, so the sidebar / Sobre / Saúde maturity tags reflect the
+  // BigQuery source of truth immediately — not only the active banco. The
+  // dataStore.subscribe effect above re-renders as each resolves; loadMeta dedupes.
+  useEffect(() => {
+    const all = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
+    all.forEach((b) => window.dataStore && window.dataStore.loadMeta && window.dataStore.loadMeta(b.id));
+  }, []);
 
   // URL write-back: mirror the app state into the query string (replaceState, no
   // history clutter) so reload + copy-paste preserve view/banco/filters/

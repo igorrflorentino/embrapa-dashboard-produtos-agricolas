@@ -407,8 +407,8 @@ window.fmtRows = (n) => {
 // Compact axis-TICK formatter (mil/mi/bi/tri). Ticks are scale guides, not
 // data: full pt-BR numbers (e.g. "4.534.380.148") overflow the ~30px gutter
 // and get clipped. Abbreviating ONLY the ticks fixes the clip without touching
-// KPIs/tables. Shared by every hand-rolled SVG chart (was duplicated as
-// _fmtAxisNum in Charts.jsx and _csFmtAxis in Charts.cross.jsx).
+// KPIs/tables. Legacy global from the SVG-chart era — kept harmlessly; the
+// Plotly charts now format ticks via src/charts/ptBrTicks.
 window.fmtAxisTick = (v) => {
   if (v == null || isNaN(v)) return '';
   const a = Math.abs(v);

@@ -15,10 +15,9 @@
 // This file is where that shape is DEFINED ONCE — in code, executable and
 // enforced — so it can never silently drift from prose docs:
 //
-//   1. @typedef blocks below  → the human-readable shape reference. The other
-//      builder files (previewData.js, crossSource.js, crossAnalytics.js,
-//      crossChain.js, enrichment.js) and the handoff doc
-//      (design_handoff_commodities_backend/02_SNAPSHOT_CONTRACTS.md) POINT
+//   1. @typedef blocks below  → the human-readable shape reference. The API-backed
+//      producers (src/data/producers.js + src/data/enrichment.js) and the handoff
+//      doc (design_handoff_commodities_backend/02_SNAPSHOT_CONTRACTS.md) POINT
 //      here instead of re-typing keys — no duplication, no drift.
 //
 //   2. window.SNAPSHOT_CONTRACTS  → the machine-readable required-keys
@@ -30,8 +29,9 @@
 //      only, never touches data. So if a builder loses a key the contract
 //      promises, you see it in the console instead of a broken chart.
 //
-// The CONCRETE demo values (castanha chain etc.) live in demoFixture.js and
-// are NOT part of the contract — only the shape is normative.
+// The CONCRETE demo values (castanha chain etc.) live in the preview shells
+// returned by src/data/producers.js and are NOT part of the contract — only the
+// shape is normative.
 
 // ════════════════════════════════════════════════════════════════════════
 //  SHAPE REFERENCE (@typedef) — the canonical definition the docs point to
@@ -57,7 +57,7 @@
 // @property {string}   [table]             Backend-reported Gold table name.
 // @property {boolean}  [_synthetic]        Marker: representative, not real Gold.
 //
-// ── Preview adapters (previewData.js) ────────────────────────────────────
+// ── Preview adapters (src/data/producers.js) ─────────────────────────────
 //
 // @typedef {Object} FlowData            window.flowData(bancoId, summary)
 // @property {boolean} preview
@@ -92,7 +92,7 @@
 // @property {{y:number,yieldKgHa:number,areaHa:number,prodT:number}[]} series   prodT = yieldKgHa × areaHa ÷ 1000.
 // @property {{uf:string,name:string,region:string,col:number,row:number,yieldKgHa:number,areaHa:number,prodT:number}[]} byUF   col/row decorated client-side (decorateUfRows).
 //
-// ── Cross-source builders (crossSource.js) ───────────────────────────────
+// ── Cross-source builders (src/data/producers.js) ────────────────────────
 //
 // @typedef {Object} SeriesResult        window.crossSeries(bancoId, metricId, {y0,y1})
 // @property {string}  banco
@@ -107,7 +107,7 @@
 // @property {[number,number]} coverage
 // @property {{y:number,v:number}[]} points
 //
-// ── Cross analytics (crossAnalytics.js) ──────────────────────────────────
+// ── Cross analytics (src/data/producers.js) ──────────────────────────────
 //
 // @typedef {Object} ExportCoefficient   window.exportCoefficient(productCode)
 // @property {boolean} preview
@@ -133,7 +133,7 @@
 // @property {{y:number,mdic:number,comtrade:number}[]} series   The SAME BR exports seen by MDIC (SECEX) and UN Comtrade (reporter = Brazil); the partner-reported mirror is NOT produced by the seam — do not read d.partners (that field belongs to PartnerConcentration, not here).
 // @property {{y:number,v:number}[]} discrepancy
 //
-// ── Cross chain — EXTENDED contracts (crossChain.js) ─────────────────────
+// ── Cross chain — EXTENDED contracts (src/data/producers.js) ─────────────
 //
 // @typedef {Object} ChainBalance        window.chainBalance(productCode, year)
 // @property {boolean} preview
@@ -162,7 +162,7 @@
 // @property {number}   corrAtLag
 // @property {{lag:number,corr:number}[]} lagProfile   lag −6…+6.
 //
-// ── Enrichment analyses (enrichment.js) ──────────────────────────────────
+// ── Enrichment analyses (src/data/enrichment.js) ─────────────────────────
 //
 // @typedef {Object} ValueAddedAnalysis  window.valueAddedAnalysis(groupId)
 // @property {boolean}  preview

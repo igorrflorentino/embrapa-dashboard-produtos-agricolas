@@ -1,5 +1,5 @@
 // ViewPartners — trading-partner rankings (country or UF). Generic via
-// the partnerData contract. Synthetic preview until the banco is live.
+// the partnerData contract (real Gold data).
 
 function ViewPartners({ summary, conventions, database }) {
   const banco = window.bancoById(database);
@@ -11,9 +11,6 @@ function ViewPartners({ summary, conventions, database }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="Rankings de parceiros exigem a dimensão de parceiro comercial, ainda não disponível nesta fonte." />}
-
       {/* Honest note when the origin-UF filter cannot apply (country-origin banco). */}
       <window.NotApplicableNote note={data.notApplicable} />
 

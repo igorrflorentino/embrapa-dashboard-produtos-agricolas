@@ -4,6 +4,53 @@
 //   • sidebar  → selects the data source ("Banco de dados") + info pages
 //   • topnav   → selects the analytical view (perspective) of the active banco
 
+// Restore the user's saved sidebar width BEFORE first paint (sets the
+// --sidebar-w custom property the .body grid reads). Runs once at import.
+try {
+  const _savedSbW = localStorage.getItem('embrapa:sidebarW');
+  if (_savedSbW) document.documentElement.style.setProperty('--sidebar-w', _savedSbW);
+} catch { /* localStorage unavailable — keep the CSS default (260px) */ }
+
+// Draggable handle on the sidebar's right edge: lets the researcher widen/narrow
+// the sidebar within a sensible range (no fixed width). Persists to localStorage;
+// double-click resets to the default. Drives the same --sidebar-w the grid reads.
+const SIDEBAR_MIN_W = 200;
+const SIDEBAR_MAX_W = 460;
+const SIDEBAR_DEFAULT_W = '260px';
+function SidebarResizer() {
+  const beginResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const root = document.documentElement;
+    const startW = parseInt(getComputedStyle(root).getPropertyValue('--sidebar-w'), 10) || 260;
+    document.body.classList.add('sb-resizing');
+    const onMove = (ev) => {
+      const w = Math.min(SIDEBAR_MAX_W, Math.max(SIDEBAR_MIN_W, startW + (ev.clientX - startX)));
+      root.style.setProperty('--sidebar-w', w + 'px');
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.classList.remove('sb-resizing');
+      try {
+        localStorage.setItem('embrapa:sidebarW',
+          getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim());
+      } catch { /* ignore persistence failure */ }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  const reset = () => {
+    document.documentElement.style.setProperty('--sidebar-w', SIDEBAR_DEFAULT_W);
+    try { localStorage.setItem('embrapa:sidebarW', SIDEBAR_DEFAULT_W); } catch { /* ignore */ }
+  };
+  return (
+    <div className="sidebar-resizer" role="separator" aria-orientation="vertical"
+         title="Arraste para ajustar a largura · duplo clique para o padrão"
+         onPointerDown={beginResize} onDoubleClick={reset} />
+  );
+}
+
 function AppShell({
   children,
   view, setView,
@@ -69,7 +116,13 @@ function AppShell({
     ? `${activeBanco.short} · ${activeBanco.label.replace(/^[^·]+·\s*/, '')}`
     : database;
   const today = new Date();
-  const accessedOn = today.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+  // ABNT NBR 6023:2025 access date: "13 jun. 2026" (abbreviated month + period;
+  // "maio" is NOT abbreviated). toLocaleDateString's "13 de junho de 2026" is
+  // non-compliant, so build it explicitly.
+  const _mesAbnt = ['jan.', 'fev.', 'mar.', 'abr.', 'maio', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
+  const accessedOn = `${today.getDate()} ${_mesAbnt[today.getMonth()]} ${today.getFullYear()}`;
+  // Editora year — derive from the current date so the reference never rots.
+  const editoraYear = today.getFullYear();
   // Recorte temporal: the ACTIVE banco's LIVE coverage \u2014 its snapshot overviewTS
   // span first (window.dataStore.get), then the /api/source-meta coverage
   // (meta().coverage), then '\u2014'. NEVER window.OVERVIEW_TS, which is the synthetic
@@ -104,57 +157,81 @@ function AppShell({
   const crossSourcesLabel = (activeView2?.sources || [])
     .map(id => window.bancoById ? window.bancoById(id)?.short : id).filter(Boolean).join(' · ');
 
-  const citation = isCrossView
-    ? (isPickerCite
-        ? `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 Cruzamento entre fontes \u2014 ` +
-          `${crossLabel()}. Recorte: ${period}. ` +
-          `Bras\u00edlia: Embrapa, 2026. Acesso em: ${accessedOn}.`
-        : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 An\u00e1lise cruzada \u2014 ` +
-          `${VIEW_LABEL[view] || view}${crossSourcesLabel ? ` (fontes: ${crossSourcesLabel})` : ''}. ` +
-          `Recorte: ${period}. Bras\u00edlia: Embrapa, 2026. Acesso em: ${accessedOn}.`)
-    : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-      `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 ` +
-      `${bancoCiteLabel} \u2014 ${VIEW_LABEL[view] || view}. ` +
-      `Recorte: ${period}. Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
-      `Bras\u00edlia: Embrapa, 2026. Acesso em: ${accessedOn}.`;
-
-  const onCite = () => setCiteOpen(true);
-  const onShare = async () => {
-    // Encode the current state in a query string researchers can paste.
-    // Keys + array sentinel rules come from the shared codec (urlState.js) —
-    // the same module the decoder (Dashboard.readStateFromURL) reads — so the
-    // two halves can't drift on the wire format.
-    // Guard the codec globals (same as main.jsx's URL write-back) so a Share
-    // click before urlState.js has loaded degrades to a no-op instead of a
-    // "urlEncodeArr is not a function" throw.
-    if (!window.urlEncodeState) return;
+  // Permalink that reproduces the EXACT panel state \u2014 the ABNT "Dispon\u00edvel em:".
+  // Same codec as onShare (urlState.js); extracted so the citation and the Share
+  // button can't drift. Returns null before the codec has loaded (degrade clean).
+  const buildPermalink = () => {
+    if (!window.urlEncodeState) return null;
     const arrParam = window.urlEncodeArr || (() => '');
     const state = {
       v: view, b: database, ip: infoPage,
       cur: conventions?.currency, corr: conventions?.correction,
       mu: conventions?.units?.mass, vu: conventions?.units?.volume, as: conventions?.autoScale ? 1 : 0,
-      pb: arrParam(summary?.basket),
-      fl: arrParam(summary?.flags),
-      st: arrParam(summary?.states),
+      pb: arrParam(summary?.basket), fl: arrParam(summary?.flags), st: arrParam(summary?.states),
       vmn: summary?.valueMin ?? '', vmx: summary?.valueMax ?? '',
       sd: summary?.startDate || '', ed: summary?.endDate || '',
-      // Cross-source selection: series as "banco:metric|banco:metric",
-      // plus visualization mode and the comparable year window.
       xs: isCrossView && crossState?.series ? crossState.series.map(r => `${r.b}:${r.m}`).join('|') : '',
       xm: isCrossView ? (crossState?.mode || '') : '',
       xy0: isCrossView && crossState?.y0 ? crossState.y0 : '',
       xy1: isCrossView && crossState?.y1 ? crossState.y1 : '',
     };
-    const qs = window.urlEncodeState(state);
-    const url = `${location.origin}${location.pathname}?${qs}`;
+    return `${location.origin}${location.pathname}?${window.urlEncodeState(state)}`;
+  };
+  const _permalink = buildPermalink();
+  const dispoStr = _permalink ? `Dispon\u00edvel em: ${_permalink}. ` : '';
+
+  // Data-scope fragments for the single-banco cite \u2014 so the reference names EXACTLY
+  // what is on screen (products, UFs, quality, value range) and never over-claims a
+  // filtered panel as if it were the full dataset. The chip strings are already
+  // computed by the shell (withChips); restricted-only dims (quality/value) are
+  // included only when an actual filter is set.
+  const scopeBits = [];
+  if (summary?.products) scopeBits.push(`Produtos: ${summary.products}`);
+  if (summary?.geo) scopeBits.push(`UFs: ${summary.geo}`);
+  if (summary?.flags && summary.flags.length && summary.quality) scopeBits.push(`Qualidade: ${summary.quality}`);
+  if ((summary?.valueMin != null || summary?.valueMax != null) && summary.valueRange) scopeBits.push(`Faixa de valor: ${summary.valueRange}`);
+  const scopeStr = scopeBits.length ? `${scopeBits.join('. ')}. ` : '';
+
+  const citation = isCrossView
+    ? (isPickerCite
+        ? `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
+          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 Cruzamento entre fontes \u2014 ` +
+          `${crossLabel()}. Recorte: ${period}. Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
+          `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`
+        : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
+          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 An\u00e1lise cruzada \u2014 ` +
+          `${VIEW_LABEL[view] || view}${crossSourcesLabel ? ` (fontes: ${crossSourcesLabel})` : ''}. ` +
+          `Recorte: ${period}. Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
+          `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`)
+    : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
+      `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 ` +
+      `${bancoCiteLabel} \u2014 ${VIEW_LABEL[view] || view}. ` +
+      `Recorte: ${period}. ${scopeStr}Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
+      `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`;
+
+  // ABNT NBR 10520:2023 in-text citation (chamada autor-data) \u2014 what you insert in
+  // the running text. The 2023 revision renders the author in the parenthetical
+  // with only an initial capital (e.g. "(Embrapa, 2026)"), UNLIKE the reference
+  // body above, which keeps the entity in ALL CAPS per NBR 6023:2025. The two
+  // norms are complementary: 10520 = the in-text call; 6023 = the full reference.
+  const inTextCite = `(Embrapa, ${editoraYear})`;
+
+  const onCite = () => setCiteOpen(true);
+  const onShare = async () => {
+    // Reuse the SAME permalink builder the citation uses (buildPermalink, above) —
+    // one codec path, so the Share URL and the cite's "Disponível em:" can't drift.
+    // Degrades to a no-op before urlState.js has loaded (buildPermalink → null).
+    const url = buildPermalink();
+    if (!url) return;
     try { await navigator.clipboard.writeText(url); } catch (e) {}
     setShared(true);
     setTimeout(() => setShared(false), 1800);
   };
   const onCopyCite = async () => {
     try { await navigator.clipboard.writeText(citation); } catch (e) {}
+  };
+  const onCopyInText = async () => {
+    try { await navigator.clipboard.writeText(inTextCite); } catch (e) {}
   };
 
   return (
@@ -323,7 +400,7 @@ function AppShell({
             })
           )}
 
-          <div className="side-section">Enriquecimento</div>
+          <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                onClick={() => onInfo('enrich_industrial')}>
             <window.Icon name="factory"/>Nível de industrialização
@@ -346,6 +423,7 @@ function AppShell({
                onClick={() => onInfo('health')}>
             <window.Icon name="pulse"/>Saúde do sistema
           </div>
+          <SidebarResizer />
         </aside>
 
         <main className="content">
@@ -359,9 +437,12 @@ function AppShell({
             <header className="cite-head">
               <div>
                 <div className="overline">Citação acadêmica</div>
-                <h2 id="cite-title">Citar painel · ABNT NBR 6023</h2>
+                <h2 id="cite-title">Citar painel</h2>
                 <p className="caption">
-                  Citação do estado atual (banco, view, recorte temporal e convenções métricas).
+                  Do painel exatamente como exibido — banco, perspectiva, recorte temporal,
+                  produtos, UFs, filtros e convenções métricas — com o link permanente que
+                  reproduz a seleção. A <strong>citação no texto</strong> segue a ABNT NBR
+                  10520:2023; a <strong>referência</strong> completa segue a ABNT NBR 6023:2025.
                 </p>
               </div>
               <button className="fm-close" onClick={() => setCiteOpen(false)} aria-label="Fechar">
@@ -369,11 +450,30 @@ function AppShell({
               </button>
             </header>
             <div className="cite-body">
-              <pre className="cite-text">{citation}</pre>
+              <div className="cite-block">
+                <div className="cite-block-head">
+                  <span className="overline">Citação no texto · ABNT NBR 10520:2023</span>
+                  <button className="cite-copy-mini" onClick={onCopyInText} aria-label="Copiar citação no texto">
+                    <window.Icon name="content_copy" size={13}/> Copiar
+                  </button>
+                </div>
+                <pre className="cite-text cite-text-inline">{inTextCite}</pre>
+                <p className="caption cite-hint">Formato autor-data, para inserir no corpo do texto.</p>
+              </div>
+              <div className="cite-block">
+                <div className="cite-block-head">
+                  <span className="overline">Referência · ABNT NBR 6023:2025</span>
+                  <button className="cite-copy-mini" onClick={onCopyCite} aria-label="Copiar referência">
+                    <window.Icon name="content_copy" size={13}/> Copiar
+                  </button>
+                </div>
+                <pre className="cite-text">{citation}</pre>
+                <p className="caption cite-hint">Para a lista de referências ao final do trabalho.</p>
+              </div>
               <div className="cite-actions">
                 <button className="btn-secondary" onClick={() => setCiteOpen(false)}>Fechar</button>
                 <button className="btn-primary" onClick={onCopyCite}>
-                  <window.Icon name="content_copy" size={14}/> Copiar citação
+                  <window.Icon name="content_copy" size={14}/> Copiar referência
                 </button>
               </div>
             </div>
@@ -385,7 +485,7 @@ function AppShell({
         <img src="assets/triade-horizontal-black.png" alt="Embrapa · Ministério da Agricultura e Pecuária · Governo do Brasil" className="triade"/>
         <div className="foot-meta">
           <div>© Empresa Brasileira de Pesquisa Agropecuária</div>
-          <div className="caption">Ministério da Agricultura e Pecuária · Pipeline Bronze → Silver → Gold · BigQuery + Looker Studio</div>
+          <div className="caption">Ministério da Agricultura e Pecuária</div>
           <div className="caption"><a href="#">www.embrapa.br</a> &nbsp;·&nbsp; <a href="#">Serviço de Atendimento ao Cidadão (SAC)</a></div>
         </div>
       </footer>

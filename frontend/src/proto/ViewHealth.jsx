@@ -18,16 +18,26 @@ function ViewHealth() {
   // subscribe so the page re-renders to the REAL Gold metadata once it resolves.
   const [, forceHs] = useHsState(0);
   useHsEffect(() => window.dataStore.subscribe(() => forceHs(n => n + 1)), []);
+  // Resolve the live maturity (/api/source-meta) for EVERY banco — even on a cold
+  // deep link straight to ?ip=health, where no data view loaded first. main.jsx also
+  // eager-loads this; loadMeta dedupes, so the duplicate is free.
   useHsEffect(() => {
     if (!(window.dataStore && window.dataStore.loadMeta)) return;
-    bancos.filter(b => b.status === 'live').forEach(b => window.dataStore.loadMeta(b.id));
-    // The quality-history card + KPI sparkline read the REAL per-banco quality
-    // series (snapshot.qualityTs). Saúde is an info-page reached outside the data
-    // boundary, so no snapshot loads on its own — proactively load IBGE PEVS so
-    // the real series is available instead of leaving the card empty.
-    if (window.dataStore.load) window.dataStore.load('ibge_pevs');
+    bancos.forEach(b => window.dataStore.loadMeta(b.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // ACTUALLY query each in-production banco's Gold (not just its metadata), so the
+  // per-banco "Operação" is a REAL query result: a banco reads "Saudável" only once
+  // its snapshot resolved, "Falha" if the query errored, and "Verificando…" while in
+  // flight — instead of assuming health from the maturity flag alone. Re-runs as
+  // bancos flip to live once maturity resolves (status derives from it). load()
+  // dedupes + caches, and also seeds qualityTs for the quality-history card below.
+  const liveIds = bancos.filter(b => b.status === 'live').map(b => b.id);
+  useHsEffect(() => {
+    if (!(window.dataStore && window.dataStore.load)) return;
+    liveIds.forEach(id => window.dataStore.load(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveIds.join(',')]);
 
   // Real quality-over-time series for IBGE PEVS (snapshot.qualityTs: per-year OK
   // share, 0-1). NEVER the synthetic window.QUALITY_TS the prototype generated —
@@ -41,15 +51,18 @@ function ViewHealth() {
   // real Gold metadata (/api/source-meta): last refresh, coverage counters, table.
   // Until a banco's snapshot has loaded, meta() falls back to the registry prov —
   // the honest pre-resolution value, never a fabricated one.
-  const metaOf = (id) => (window.dataStore && window.dataStore.meta ? window.dataStore.meta(id) : {}) || {};
+  const metaOf = (id) => (window.dataStore && window.dataStore.meta ? window.dataStore.meta(id) : {});
   const provFacts = (id) => {
     const m = metaOf(id);
     const cov = m.coverage || {};
     const prov = m.prov || {};
     return {
       lastRun: m.refresh || '—',
-      goldRows: cov.totalRows != null ? cov.totalRows : prov.totalRows,
-      sourcePublished: prov.lastCropDate || '—',
+      goldRows: cov.totalRows ?? null,
+      // The latest edition/period in the Gold (e.g. "PEVS 2024", "COMEX 2026 · M05").
+      // Its YEAR/months are overlaid live from gold_source_metadata — NOT a frozen
+      // publication date (the seam exposes none, so the page never invents one).
+      lastEdition: prov.lastCrop || '—',
     };
   };
   const STATE = {};
@@ -65,35 +78,40 @@ function ViewHealth() {
   const buildAlerts = () => {
     const out = [];
 
-    // Factual coverage note: the latest published crop, read from live provenance.
+    // Factual coverage note: the latest edition in the Gold, read from live
+    // provenance (lastCrop year is overlaid from gold_source_metadata). No fabricated
+    // publication date — the seam exposes none; the since-stamp is the real refresh.
     const pevMeta = metaOf('ibge_pevs');
     const pevProv = pevMeta.prov || {};
     if (pevProv.lastCrop) {
       out.push({
         level: 'info',
-        title: `Última safra publicada: ${pevProv.lastCrop}`,
-        desc: `O banco IBGE PEVS reflete a safra mais recente divulgada pelo IBGE${pevProv.lastCropDate ? ` (${pevProv.lastCropDate})` : ''}. Edições mais recentes só aparecem após a publicação oficial.`,
-        since: pevProv.lastCropDate || pevMeta.refresh || null,
+        title: `Última safra na Gold: ${pevProv.lastCrop}`,
+        desc: 'O banco IBGE PEVS reflete a safra mais recente já divulgada pelo IBGE. Edições mais recentes só aparecem após a publicação oficial.',
+        since: pevMeta.refresh || null,
       });
     }
 
-    // Real integrity signal from the loaded snapshot, when available. The real
-    // Gold flags carry OK (=integral); the problem share is 1 − OK. A meaningful
-    // jump above the historical mean is a genuine data-quality alert.
+    // Real integrity signal from the loaded snapshot, when available. The real Gold
+    // flags carry OK (=integral); the problem share is 1 − OK. We flag only a
+    // MATERIAL jump above the RECENT baseline (the last few years), NOT the all-time
+    // mean: PEVS revises its newest years (CLAUDE.md · delta/reconcile), so the share
+    // of not-yet-settled rows drifts up gently every year and an all-history mean
+    // would breach 1.5× perpetually — painting the system "Em atenção" on normal
+    // data. Require enough history + both a relative jump AND an absolute increase.
     const qts = qualityTs.length ? qualityTs : null;
-    if (qts && qts.length >= 2) {
+    if (qts && qts.length >= 6) {
       const issueShare = (d) => 1 - (d.ok || 0);
       const latest = qts[qts.length - 1];
-      const hist = qts.slice(0, -1);
-      const histMean = hist.reduce((s, d) => s + issueShare(d), 0) / hist.length;
+      const recent = qts.slice(-6, -1); // the 5 years before the latest = the baseline
+      const recentMean = recent.reduce((s, d) => s + issueShare(d), 0) / recent.length;
       const latestIssue = latest ? issueShare(latest) : 0;
-      // Flag only a meaningful jump (>50% above the historical mean) to avoid noise.
-      if (latest && histMean > 0 && latestIssue > histMean * 1.5) {
+      if (latest && latestIssue > recentMean * 1.5 && latestIssue - recentMean >= 0.02) {
         out.push({
           level: 'warn',
           banco: 'ibge_pevs',
-          title: `Integridade abaixo da média histórica · ${latest.y}`,
-          desc: `${window.fmtPct(latestIssue)} das linhas em ${latest.y} não estão íntegras (flag ≠ OK); média histórica: ${window.fmtPct(histMean)}.`,
+          title: `Integridade abaixo do padrão recente · ${latest.y}`,
+          desc: `${window.fmtPct(latestIssue)} das linhas em ${latest.y} não estão íntegras (flag ≠ OK); média dos últimos ${recent.length} anos: ${window.fmtPct(recentMean)}.`,
           since: pevMeta.refresh || null,
         });
       }
@@ -109,45 +127,53 @@ function ViewHealth() {
       (b) => STATE[b.id] && STATE[b.id].lastRun, { onlyLive: true });
   }
 
-  // ── Operational HEALTH — DERIVED FROM REAL SIGNALS, not from maturity ────
-  // Answers "is it operating well RIGHT NOW?" from the signals we actually have:
-  // load failure, stale cache, an active (real) banco alert. "Source down" is
-  // HEALTH ("Falha"), never a maturity stage. No fabricated run-status feeds this.
+  // ── Operational HEALTH — DERIVED FROM THE REAL GOLD QUERY, not from maturity ──
+  // Answers "is it operating well RIGHT NOW?" from the actual pushdown query the
+  // mount effect fires against each live banco's Gold: 'ready' (responded) → ok,
+  // 'error' → Falha, in-flight → Verificando…, plus any active (real) integrity
+  // alert → Em atenção. "Source down" is HEALTH ("Falha"), never a maturity stage.
+  // No fabricated run-status, and no never-stale guess (staleness isn't monitored).
   const operationalStatus = (b) => {
     const m = window.maturityMeta(b);
     if (!m.hasData) return b.maturity === 'planejado' ? 'planned' : 'pending'; // nothing operating yet
-    if (window.dataStore && window.dataStore.error(b.id)) return 'fail';        // source down / load failure
-    const al = ALERTS.find(a => a.banco === b.id && (a.level === 'warn' || a.level === 'fail'));
-    if (al) return al.level;                                                    // active (real) banco alert
-    if (window.dataStore && window.dataStore.isStale(b.id)) return 'warn';      // stale snapshot
-    return 'ok';
+    const st = window.dataStore ? window.dataStore.status(b.id) : 'idle';
+    if (st === 'error' || (window.dataStore && window.dataStore.error(b.id))) return 'fail'; // query failed
+    if (ALERTS.find(a => a.banco === b.id && a.level === 'warn')) return 'warn'; // active (real) banco alert
+    if (st === 'ready') return 'ok';                                            // Gold query succeeded
+    return 'checking';            // queried, snapshot still in flight — not yet verified
   };
   bancos.forEach(b => { STATE[b.id] = STATE[b.id] || {}; STATE[b.id].status = operationalStatus(b); });
 
   // ── KPI strip aggregates ────────────────────────────────────────────────
   const liveDefined  = bancos.filter(b => b.status === 'live');
-  const liveBancos   = liveDefined.filter(b => STATE[b.id]?.status === 'ok');
+  const liveBancos   = liveDefined.filter(b => STATE[b.id]?.status === 'ok'); // queried & responded
+  const checkingCount = liveDefined.filter(b => STATE[b.id]?.status === 'checking').length;
   const pendingCount = bancos.filter(b => b.status === 'soon').length;
-  const activeAlerts = ALERTS.filter(a => a.level === 'warn' || a.level === 'fail').length;
+  const activeAlerts = ALERTS.filter(a => a.level === 'warn').length; // buildAlerts emits info/warn only
 
-  // Last Gold refresh = the live provenance stamp (real /api/source-meta value,
-  // registry fallback before it resolves). No synthetic duration/error counters.
-  const liveBanco = bancos.find(b => b.id === 'ibge_pevs');
+  // Last Gold refresh of IBGE PEVS specifically (the KPI is scoped to it, mirroring
+  // the quality card). Real /api/source-meta value; "—" before it resolves. The
+  // OTHER bancos' refresh stamps are in the per-banco table — different tables
+  // refresh at different times, so there is no single system-wide "last update".
   const liveRefresh = metaOf('ibge_pevs').refresh || '—';
 
-  // Overall system status = worst of the live bancos + any active (real) warn alert.
+  // Overall system status = worst of the live bancos' REAL query results. 'checking'
+  // (snapshots still in flight) is reported honestly rather than as a premature OK.
   const liveStatuses = liveDefined.map(b => STATE[b.id]?.status).filter(Boolean);
   const overall = liveStatuses.includes('fail') ? 'fail'
-    : (liveStatuses.includes('warn') || ALERTS.some(a => a.level === 'warn')) ? 'warn'
+    : liveStatuses.includes('warn') ? 'warn'
+    : liveStatuses.includes('checking') ? 'checking'
     : 'ok';
   const OVERALL = {
-    ok:   { color: 'var(--ok)',   label: 'Operacional', note: 'todos os bancos em produção respondendo às consultas' },
+    ok:   { color: 'var(--ok)',   label: 'Operacional', note: `os ${liveBancos.length} bancos em produção responderam às consultas` },
     warn: { color: 'var(--warn)', label: 'Em atenção',  note: `${ALERTS.filter(a => a.level === 'warn').length} alerta(s) de atenção em aberto` },
     fail: { color: 'var(--err)',  label: 'Falha',       note: 'há banco com falha de consulta — verifique a tabela por banco' },
+    checking: { color: 'var(--fg-3)', label: 'Verificando…', note: 'consultando as tabelas Gold em produção…' },
   }[overall];
 
   const STATUS_LABEL = {
     ok:      { label: 'Saudável',          color: 'var(--ok)'   },
+    checking:{ label: 'Verificando…',      color: 'var(--fg-3)' },
     warn:    { label: 'Em atenção',        color: 'var(--warn)' },
     fail:    { label: 'Falha',             color: 'var(--err)'  },
     pending: { label: 'Aguardando ingestão', color: 'var(--fg-3)' },
@@ -174,15 +200,12 @@ function ViewHealth() {
         <window.KpiCardSpark
           label="Bancos saudáveis (em produção)"
           value={`${liveBancos.length} / ${liveDefined.length}`}
-          sub={`${liveDefined.length} em produção · ${pendingCount} aguardando ingestão · ${bancos.length} no total`}
-          spark={qualityTs.slice(-12)}
-          sparkKey="ok"
-          sparkColor="var(--ok)"
+          sub={`${checkingCount > 0 ? `${checkingCount} verificando · ` : ''}${pendingCount} aguardando ingestão · ${bancos.length} no total`}
         />
         <window.KpiCardSpark
-          label="Última atualização da Gold"
+          label="Última atualização da Gold · IBGE PEVS"
           value={liveRefresh}
-          sub={`${liveBanco?.id || '—'} · ${window.bancoTable('ibge_pevs') || '—'}`}
+          sub={`gold_pevs_production · refresh por tabela na lista abaixo`}
         />
         <window.KpiCardSpark
           label="Alertas ativos"
@@ -203,17 +226,13 @@ function ViewHealth() {
             <span className="meta-val tnum"><code>{window.bancoTable('ibge_pevs') || '—'}</code></span>
           </div>
           <div className="hs-snap-row">
-            <span className="meta-label">Versão da Gold</span>
-            <span className="meta-val tnum">{metaOf('ibge_pevs').version || '—'}</span>
-          </div>
-          <div className="hs-snap-row">
             <span className="meta-label">Última atualização</span>
             <span className="meta-val tnum">{metaOf('ibge_pevs').refresh || '—'}</span>
           </div>
           <p className="caption hs-snap-note">
             No deploy, o Cloud Run é stateless: cada interação vira uma consulta SQL parametrizada
             empurrada ao BigQuery, e o <strong>flask-caching</strong> memoiza os resultados pequenos por
-            parâmetro + versão da Gold. Os valores acima vêm da própria tabela de metadados da Gold
+            parâmetro de consulta. Os valores acima vêm da própria tabela de metadados da Gold
             (<code>/api/source-meta</code>); antes de resolverem, exibem a declaração do registro como
             fallback honesto.
           </p>
@@ -236,7 +255,7 @@ function ViewHealth() {
                 <th>Operação</th>
                 <th>Última atualização Gold</th>
                 <th>Linhas Gold</th>
-                <th>Fonte publicada</th>
+                <th>Última edição</th>
               </tr>
             </thead>
             <tbody>
@@ -264,7 +283,7 @@ function ViewHealth() {
                     <td className="tnum">
                       {s.goldRows != null ? fmtRows(s.goldRows) : '—'}
                     </td>
-                    <td className="tnum">{s.sourcePublished || '—'}</td>
+                    <td className="tnum">{s.lastEdition || '—'}</td>
                   </tr>
                 );
               })}
@@ -298,11 +317,12 @@ function ViewHealth() {
         </p>
       </div>
 
-      {/* Sources freshness — real provenance per live banco */}
+      {/* Sources freshness — real provenance per live banco (edition + Gold refresh,
+          both live from /api/source-meta; no fabricated publication date). */}
       <div className="card">
         <window.SectionHeader
           overline="Frescor das fontes"
-          title="Quando cada fonte publicou pela última vez"
+          title="Edição e atualização mais recentes por fonte"
           action={<span className="caption">{liveDefined.length} fonte(s) em produção</span>}
         />
         <div className="hs-sources">
@@ -310,7 +330,8 @@ function ViewHealth() {
             const m = metaOf(b.id);
             const prov = m.prov || {};
             const isLive = b.status === 'live';
-            const lastPub = isLive ? (prov.lastCropDate || prov.lastCrop || '—') : '—';
+            const lastEd = isLive ? (prov.lastCrop || '—') : '—';
+            const refresh = isLive ? (m.refresh || '—') : '—';
             return (
               <div key={b.id} className={'hs-source ' + (isLive ? 'live' : 'pending')}>
                 <div className="hs-source-l">
@@ -321,8 +342,10 @@ function ViewHealth() {
                   </div>
                 </div>
                 <div className="hs-source-r">
-                  <span className="meta-label">Última publicação</span>
-                  <span className="meta-val tnum">{lastPub}</span>
+                  <span className="meta-label">Edição mais recente</span>
+                  <span className="meta-val tnum">{lastEd}</span>
+                  <span className="meta-label" style={{ marginTop: 4 }}>Atualização da Gold</span>
+                  <span className="meta-val tnum">{refresh}</span>
                 </div>
               </div>
             );

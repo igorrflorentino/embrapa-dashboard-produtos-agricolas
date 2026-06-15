@@ -1,8 +1,7 @@
 // ViewSeasonality — month × year patterns. Generic via the monthlyData
-// contract. Synthetic preview until a banco with monthly granularity is live.
+// contract (real Gold data).
 
 function ViewSeasonality({ summary, conventions, database }) {
-  const banco = window.bancoById(database);
   const data  = window.monthlyData(database, summary);
 
   // Defensive guards: a real /api/monthly empty frame can ship monthlyAvg: []
@@ -25,8 +24,6 @@ function ViewSeasonality({ summary, conventions, database }) {
   if (!hasData) {
     return (
       <>
-        {data.preview && <window.PreviewBanner banco={banco}
-          capabilityNote="A análise sazonal exige granularidade mensal/diária, ainda não disponível nesta fonte." />}
         <window.NotApplicableNote note={data.notApplicable} />
         <div className="card subtle">
           <window.SectionHeader overline="Mapa de calor · mês × ano" title="Sem dados sazonais para esta seleção" />
@@ -41,9 +38,6 @@ function ViewSeasonality({ summary, conventions, database }) {
 
   return (
     <>
-      {data.preview && <window.PreviewBanner banco={banco}
-        capabilityNote="A análise sazonal exige granularidade mensal/diária, ainda não disponível nesta fonte." />}
-
       {/* The seasonality mart collapses the UF away, so an origin-UF filter cannot
           narrow it on any banco — say so honestly above the (unfiltered) charts. */}
       <window.NotApplicableNote note={data.notApplicable} />
@@ -59,7 +53,7 @@ function ViewSeasonality({ summary, conventions, database }) {
         <window.SectionHeader
           overline="Mapa de calor · mês × ano"
           title="Padrão sazonal ao longo dos anos"
-          action={<span className="caption">{data.unit}{data.preview ? ' · valores ilustrativos' : ''}</span>}
+          action={<span className="caption">{data.unit}</span>}
         />
         <window.MonthYearHeatmap matrix={data.matrix} years={years} unit={data.unit} />
       </div>

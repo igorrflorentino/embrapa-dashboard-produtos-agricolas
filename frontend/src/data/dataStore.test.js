@@ -29,6 +29,9 @@ async function loadStore(fetchImpl) {
   window.UF_DATA = [{ uf: 'PA', col: 7, row: 2, region: 'Norte', name: 'Pará' }];
   window.QUALITY_FLAGS = [{ id: 'OK', label: 'Sem ressalvas', color: 'var(--ok)' }];
   window.REGIONS = [{ id: 'N' }];
+  // Gold table name is sourced from the banco registry (the single static source);
+  // tableOf() reads window.bancoById(id).table.
+  window.bancoById = (id) => ({ id, table: id === 'ibge_pevs' ? 'gold_pevs_production' : null });
   await import('./dataStore.js');
   return window.dataStore;
 }
@@ -45,7 +48,7 @@ describe('dataStore', () => {
     expect(ds.status('ibge_pevs')).toBe('ready');
 
     const data = ds.get('ibge_pevs');
-    expect(data.table).toBe('gold_pevs_production'); // stamped from the table map
+    expect(data.table).toBe('gold_pevs_production'); // stamped from the banco registry (tableOf)
     expect(data.ufData[0]).toMatchObject({ col: 7, region: 'Norte', name: 'Pará' }); // decorated
     expect(data.quality[0]).toMatchObject({ label: 'Sem ressalvas', color: 'var(--ok)' });
 

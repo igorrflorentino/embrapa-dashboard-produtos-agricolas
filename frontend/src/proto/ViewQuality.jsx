@@ -1,6 +1,11 @@
 // ViewQuality — data-quality diagnostics across the banco.
-// Honours active filters: selected flags, selected products (per-product
-// breakdown), selected UFs (geographic quality map), and year window.
+// Scope is stated HONESTLY per panel (the backend exposes quality only as a
+// banco-level summary, not per product/UF/year): the flag KPI strip is the banco's
+// FULL-coverage distribution (all products, UFs and years), narrowed only by the
+// flag chips; the per-product / per-UF panels are a fixed snapshot summary, narrowed
+// by the product / UF chips but NOT year-windowed; only the time-series panels honour
+// the selected year window. We never present a whole-acervo figure as if it were
+// scoped to the active product/UF/year filter.
 
 // Maps each data_quality_flag id to its key in window.QUALITY_TS.
 // Most are just the lowercased id, but BOUNDARY_HISTORIC is stored as
@@ -71,6 +76,13 @@ function ViewQuality({ summary, database }) {
           </div>
         ))}
       </div>
+      {flags.length > 0 && (
+        <p className="caption" style={{ padding: '0 4px 4px', marginTop: -4 }}>
+          Distribuição no <strong>acervo completo</strong> do banco (todos os produtos, UFs e anos),
+          recortada apenas pelas <strong>flags</strong> selecionadas. Os filtros de produto, UF e ano
+          não recortam estes percentuais — a evolução temporal abaixo respeita a janela de anos.
+        </p>
+      )}
 
       {/* Quality over time */}
       <div className="card">
@@ -79,7 +91,7 @@ function ViewQuality({ summary, database }) {
           title={`% de linhas íntegras (flag = OK) · ${filtered.yearStart}–${filtered.yearEnd}`}
           action={
             <span className="caption">
-              {okCount ? okCount.toLocaleString('pt-BR') : '—'} de {total.toLocaleString('pt-BR')} linhas íntegras
+              {okCount ? okCount.toLocaleString('pt-BR') : '—'} de {total.toLocaleString('pt-BR')} linhas íntegras no acervo
             </span>
           }
         />
@@ -101,7 +113,7 @@ function ViewQuality({ summary, database }) {
       {/* Quality flag distribution by product */}
       <div className="card">
         <window.SectionHeader
-          overline={`Distribuição de flags · ${filtered.yearEnd}`}
+          overline="Distribuição de flags · acervo"
           title="Por produto"
           action={<span className="caption">{qaByProduct.length} de {filtered.qualityByProduct.length} produtos</span>}
         />
@@ -126,11 +138,15 @@ function ViewQuality({ summary, database }) {
       {filtered.qualityByUf.length > 0 && (
       <div className="card">
         <window.SectionHeader
-          overline={`Qualidade geográfica · ${filtered.yearEnd}`}
+          overline="Qualidade geográfica · acervo"
           title="% de linhas não-íntegras por UF"
           action={<span className="caption">{qaByUf.length} de {filtered.qualityByUf.length} UFs</span>}
         />
         <window.BrazilTileMap data={qaByUf.map(u => ({ ...u, v: Math.round(u.not_ok * 1000) / 10 }))} valueKey="v" label="% ≠ OK" />
+        <p className="caption" style={{ padding: '8px 4px 0' }}>
+          Participação de linhas não-íntegras no acervo do banco, por UF (todos os anos e produtos);
+          recortada apenas pelo filtro de UF.
+        </p>
       </div>
       )}
 

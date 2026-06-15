@@ -12,18 +12,18 @@ const GLOSSARY = {
     label: 'IBGE PEVS',
     sub:   'Produção da Extração Vegetal e da Silvicultura',
     terms: [
-      { term: 'PEVS',     cat: 'Fonte',    tag: 'IBGE',  short: 'Pesquisa da Extração Vegetal e da Silvicultura — apuração anual do IBGE com quantidade produzida e valor da produção de produtos não-madeireiros e madeireiros nativos.' },
+      { term: 'PEVS',     cat: 'Fonte',    tag: 'IBGE',  short: 'Produção da Extração Vegetal e da Silvicultura — apuração anual do IBGE com a quantidade produzida e o valor da produção de produtos não-madeireiros e madeireiros nativos.' },
       { term: 'SIDRA',    cat: 'Fonte',    tag: 'IBGE',  short: 'Sistema IBGE de Recuperação Automática — portal de tabelas oficiais. Base do ingest Bronze do pipeline.' },
       { term: 'Castanha-do-pará', cat: 'Produto', tag: '49101', short: 'Semente de Bertholletia excelsa, principal produto extrativista da Amazônia. Unidade: toneladas.' },
       { term: 'Açaí (fruto)',     cat: 'Produto', tag: '49103', short: 'Fruto da palmeira Euterpe oleracea. Inclui açaí de várzea e plantios manejados como extrativos.' },
       { term: 'Erva-mate',        cat: 'Produto', tag: '49108', short: 'Folhas e ramos de Ilex paraguariensis para fabricação de chá e chimarrão. Concentrada no Sul.' },
       { term: 'Madeira em tora',  cat: 'Produto', tag: '49215', short: 'Toras de espécies nativas. Unidade: m³. Sujeita a controle de licenciamento ambiental.' },
       { term: 'Lenha',            cat: 'Produto', tag: '49216', short: 'Madeira para combustão direta. Unidade: m³. Principal item em volume da PEVS.' },
-      { term: 'gold_pevs_production', cat: 'Coluna', tag: 'BigQuery', short: 'Tabela Gold desnormalizada. Uma linha por (ano, UF, município, código_produto). Origem de todo o dashboard.' },
+      { term: 'gold_pevs_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e produto. É a origem de todos os números das telas.' },
       { term: 'val_yearfx_*',          cat: 'Coluna', tag: 'gold',     short: 'Valor nominal em moeda corrente convertido pelo câmbio médio do ano. Auditoria histórica — não comparar entre anos.' },
       { term: 'val_real_ipca_*',       cat: 'Coluna', tag: 'gold',     short: 'Valor projetado para hoje pela cadeia IPCA. Padrão deste dashboard para comparações inter-anuais.' },
-      { term: 'val_real_igpm_*',       cat: 'Coluna', tag: 'gold',     short: 'Idem usando IGP-M. Alternativa institucional ao IPCA; maior aderência a séries de commodities.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'gold',     short: 'Flag por linha: OK · MISSING_VALUE · MISSING_QUANTITY · ESTIMATED · BOUNDARY_HISTORIC · OUTLIER.' },
+      { term: 'val_real_igpm_*',       cat: 'Coluna', tag: 'gold',     short: 'Idem usando o IGP-M (FGV). Alternativa ao IPCA, comum em séries de preços no atacado e de commodities.' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (sem ressalva), valor ausente, quantidade ausente, valor estimado, início histórico da série e valor atípico (outlier).' },
     ],
   },
 
@@ -39,8 +39,8 @@ const GLOSSARY = {
       { term: 'Café (grão)',   cat: 'Produto', tag: '54013', short: 'Lavoura permanente; arábica e conilon. Concentrado em MG, ES e SP.' },
       { term: 'Área colhida',  cat: 'Coluna', short: 'Área efetivamente colhida da lavoura, em hectares (ha). Base do denominador do rendimento.' },
       { term: 'Rendimento médio', cat: 'Coluna', short: 'Produtividade da lavoura = produção ÷ área colhida, em kg/ha. Média área-ponderada (nunca somada).' },
-      { term: 'gold_pam_production', cat: 'Coluna', tag: 'BigQuery', short: 'Tabela Gold. Uma linha por (ano, UF, município, lavoura), com área, produção, rendimento e valor.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'gold',     short: 'Flag por linha: OK · MISSING_VALUE · MISSING_QUANTITY · ESTIMATED · BOUNDARY_HISTORIC · OUTLIER.' },
+      { term: 'gold_pam_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e lavoura, com área, produção, rendimento e valor.' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (sem ressalva), valor ausente, quantidade ausente, valor estimado, início histórico da série e valor atípico (outlier).' },
     ],
   },
 
@@ -49,14 +49,14 @@ const GLOSSARY = {
     sub:   'Comércio Exterior brasileiro — exportações e importações por UF e parceiro',
     terms: [
       { term: 'SECEX',     cat: 'Fonte',    tag: 'MDIC',  short: 'Secretaria de Comércio Exterior do MDIC — divulga as estatísticas mensais de comércio exterior brasileiro.' },
-      { term: 'NCM',       cat: 'Classificação', tag: 'OMA', short: 'Nomenclatura Comum do Mercosul — código de 8 dígitos derivado do SH para classificar mercadorias em comércio exterior.' },
+      { term: 'NCM',       cat: 'Classificação', tag: 'Mercosul', short: 'Nomenclatura Comum do Mercosul — código de 8 dígitos derivado do Sistema Harmonizado (SH) para classificar mercadorias em comércio exterior.' },
       { term: 'SH4 · SH6', cat: 'Classificação', tag: 'OMA', short: 'Sistema Harmonizado a 4 ou 6 dígitos. Compatível com classificações internacionais (UN Comtrade).' },
       { term: 'FOB',       cat: 'Termo',    tag: 'Incoterm', short: 'Free On Board — valor da mercadoria posta a bordo no porto de embarque, base padrão para exportação brasileira.' },
       { term: 'CIF',       cat: 'Termo',    tag: 'Incoterm', short: 'Cost, Insurance and Freight — valor da mercadoria + custos de frete e seguro até o porto de destino.' },
       { term: 'UF de origem', cat: 'Coluna', short: 'Unidade da Federação onde está estabelecido o exportador / produtor da mercadoria declarada.' },
       { term: 'Via',          cat: 'Coluna', short: 'Modalidade de transporte utilizada: marítima, aérea, rodoviária, ferroviária, fluvial, dutos.' },
       { term: 'Peso líquido', cat: 'Coluna', short: 'Peso da mercadoria sem embalagem, em quilogramas. Utilizado em cálculos de preço médio.' },
-      { term: 'gold_comex_flows', cat: 'Coluna', tag: 'BigQuery', short: 'Tabela Gold. Uma linha por (ano-mês, UF, NCM, país, via, fluxo).' },
+      { term: 'gold_comex_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano-mês, UF, NCM, país, via e fluxo.' },
     ],
   },
 
@@ -71,7 +71,7 @@ const GLOSSARY = {
       { term: 'HS6',      cat: 'Classificação', tag: 'OMA', short: 'Sistema Harmonizado a 6 dígitos — padrão internacional comum a Brasil (NCM) e ao mundo.' },
       { term: 'BEC',      cat: 'Classificação', tag: 'ONU', short: 'Broad Economic Categories — agrupamento por uso final (bens de consumo, capital, intermediários).' },
       { term: 'Mirror data', cat: 'Método',     short: 'Comparação entre o que um país declara exportar e o que o parceiro declara importar (e vice-versa). Útil para detectar sub-declaração.' },
-      { term: 'gold_comtrade_flows', cat: 'Coluna', tag: 'BigQuery', short: 'Tabela Gold. Uma linha por (ano, reporter, partner, HS6, flow).' },
+      { term: 'gold_comtrade_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, país reporter, país parceiro, HS6 e fluxo.' },
     ],
   },
 
@@ -87,7 +87,7 @@ const GLOSSARY = {
       { term: 'UF origem · destino', cat: 'Coluna', short: 'Localização do remetente e do destinatário da NFe. Permite reconstruir fluxos inter-estaduais.' },
       { term: 'Município', cat: 'Coluna', short: 'IBGE 7 dígitos. Identifica origem e destino com granularidade fina.' },
       { term: 'Agregação privada', cat: 'Método', short: 'Linhas que representariam fluxos com menos de N=5 estabelecimentos são agregadas ou suprimidas para preservar sigilo fiscal.' },
-      { term: 'gold_nfe_flows', cat: 'Coluna', tag: 'BigQuery', short: 'Tabela Gold planejada. Uma linha por (ano-mês, par UF/município, CFOP, NCM).' },
+      { term: 'gold_nfe_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final planejada. Cada linha será uma combinação de ano-mês, par UF/município, CFOP e NCM.' },
     ],
   },
 
@@ -111,17 +111,34 @@ const GLOSSARY = {
 
   curadoria: {
     label: 'Curadoria',
-    sub:   'Enriquecimento — conhecimento do pesquisador sobre os dados',
+    sub:   'Engenharia de atributos — conhecimento do pesquisador sobre os dados',
     kind:  'tema',
     terms: [
-      { term: 'Curadoria (enriquecimento)', cat: 'Conceito', short: 'Camada de anotações institucionais e compartilhadas sobre as dimensões dos bancos. Alimenta as análises curadas no modo multi-fonte.' },
+      { term: 'Curadoria (engenharia de atributos)', cat: 'Conceito', short: 'Camada de anotações institucionais e compartilhadas sobre as dimensões dos bancos. Alimenta as análises curadas no modo multi-fonte.' },
       { term: 'Nível de industrialização', cat: 'Dimensão', short: 'Classificação de cada código de produto como Bruta, Processada ou Misturado. Base da análise de valor agregado.' },
       { term: 'Bruta · Processada · Misturado', cat: 'Dimensão', short: 'Produto sem transformação · produto com beneficiamento industrial · código que agrega os dois (não separável).' },
       { term: 'Finalidade econômica', cat: 'Dimensão', short: 'Finalidade atribuída ao par regime × fluxo: Consumo ou Processamento. Combinada com a direção (importação = comprar, exportação = vender), classifica cada transação.' },
       { term: 'Consumo · Processamento', cat: 'Dimensão', short: 'Os dois destinos do bem: consumo final, ou transformação/beneficiamento industrial. É a finalidade que a curadoria atribui a cada par regime × fluxo.' },
       { term: 'Par regime × fluxo', cat: 'Conceito', short: 'Unidade de classificação da finalidade econômica: um regime aduaneiro cruzado com uma direção de fluxo. Um regime ou fluxo isolado não determina o mercado — só o par.' },
       { term: 'Valor agregado', cat: 'Análise', short: 'Exportação separada entre bruta e processada, com participação do processado no tempo e prêmio de preço do processado sobre o bruto.' },
-      { term: 'Rascunho → aplicado', cat: 'Operação', short: 'As edições da curadoria ficam em rascunho; "Aplicar à base" grava no log de classificação (SCD2) e o JOIN ao vivo atualiza as análises para todos os pesquisadores.' },
+      { term: 'Rascunho → aplicado', cat: 'Operação', short: 'As classificações ficam em rascunho até você clicar em "Aplicar à base"; a partir daí ficam salvas e as análises se atualizam ao vivo para todos os pesquisadores. O histórico de alterações é preservado.' },
+    ],
+  },
+
+  // Statistical methods that surface in the perspective names/descriptions
+  // (views.js) but a low-IT researcher would not know — glossed in plain pt-BR.
+  metodos: {
+    label: 'Métodos estatísticos',
+    sub:   'Conceitos de cálculo usados nas perspectivas analíticas',
+    kind:  'tema',
+    terms: [
+      { term: 'Índice de Gini', cat: 'Método', short: 'Mede a desigualdade de uma distribuição (ex.: a concentração da produção entre as UFs) numa escala de 0 a 1: 0 = tudo igualmente distribuído, 1 = tudo concentrado em um só.' },
+      { term: 'Curva de Lorenz', cat: 'Método', short: 'Gráfico que mostra quanto da produção (ou do valor) está acumulado nas UFs ou produtores. Quanto mais a curva se afasta da diagonal, maior a concentração.' },
+      { term: 'HHI (Herfindahl-Hirschman)', cat: 'Método', short: 'Índice de concentração: soma dos quadrados das participações de cada parte. Quanto maior, mais concentrado em poucos atores.' },
+      { term: 'CAGR', cat: 'Método', short: 'Taxa de crescimento média anual composta — o crescimento percentual equivalente, por ano, entre o início e o fim do período.' },
+      { term: 'Correlação cruzada (defasagem)', cat: 'Método', short: 'Mede se uma série acompanha outra com atraso (ex.: embarques que seguem o pico da safra alguns meses depois) e de quantos meses é esse atraso.' },
+      { term: 'Preço médio implícito', cat: 'Método', short: 'Preço estimado dividindo o valor pela quantidade (ex.: US$ por kg). Não é um preço cotado, e sim a média que resulta dos dados agregados.' },
+      { term: 'Valor nominal × valor real', cat: 'Método', short: 'Nominal = o valor em moeda da época. Real = o mesmo valor trazido a preços de hoje pela inflação (IPCA, IGP-M ou IGP-DI), para comparar anos diferentes de forma justa.' },
     ],
   },
 };

@@ -80,14 +80,21 @@ describe('enrichment — code-level worklist', () => {
 });
 
 describe('enrichment — flow-market matrix', () => {
-  it('exposes the real customs×flow grid (sorted by value) and stages pair edits', async () => {
+  it('exposes the COMPLETE customs×flow grid (material regimes first) and stages pair edits', async () => {
     const e = await load(worklistFetch());
-    expect(e.regimes()).toEqual([]); // cold — regimes() kicks the flow-worklist fetch
-    await vi.waitFor(() => expect(e.regimes().length).toBe(2));
+    // The complete matrix is available immediately — ALL canonical regimes (16) and
+    // ALL ten official UN Comtrade flow codes, so it is ready for any data
+    // granularity even before the flow-worklist resolves. regimes() kicks the fetch.
+    expect(e.regimes().length).toBe(16);
+    expect(e.flowTypes().map((f) => f.id)).toEqual(['M', 'X', 'DX', 'FM', 'MIP', 'MOP', 'RM', 'RX', 'XIP', 'XOP']);
+    // Headers carry the code in parentheses, like the customs rows.
+    expect(e.flowTypes().find((f) => f.id === 'M').term).toBe('Importação (M)');
+    expect(e.flowTypes().find((f) => f.id === 'MIP').term).toBe('Importação para aperfeiçoamento ativo (MIP)');
+    await vi.waitFor(() => expect(e.pairMarket('C04', 'M')).toBe('consumo')); // data loaded
 
-    expect(e.regimes().map((r) => r.id)).toEqual(['C03', 'C04']); // C03 ($3bi) before C04 ($1bi)
-    expect(e.flowTypes().map((f) => f.id)).toEqual(['M', 'X']);
-    expect(e.pairMarket('C04', 'M')).toBe('consumo'); // persisted
+    // Regimes that move value sort to the top; the zero-value canonical tail follows.
+    expect(e.regimes().slice(0, 2).map((r) => r.id)).toEqual(['C03', 'C04']); // C03 ($3bi) > C04 ($1bi)
+    expect(e.regimes().length).toBe(16); // still complete after the data lands
     expect(e.pairMarket('C03', 'X')).toBe(null);
     expect(e.pairValueLabel('C03', 'X')).toBe('US$ 3.0 bi');
 
@@ -119,7 +126,7 @@ describe('enrichment — apply() commit lifecycle', () => {
     });
     const e = await load(fetchImpl);
     await vi.waitFor(() => expect(e.worklist().length).toBe(2));
-    await vi.waitFor(() => expect(e.regimes().length).toBe(2));
+    await vi.waitFor(() => expect(e.pairMarket('C04', 'M')).toBe('consumo')); // flow-worklist loaded
     expect(worklistGets).toBe(1);
 
     e.setCode('ibge_pevs:1.1', { level: 'bruta' });
@@ -186,7 +193,7 @@ describe('enrichment — apply() commit lifecycle', () => {
     });
     const e = await load(fetchImpl);
     await vi.waitFor(() => expect(e.worklist().length).toBe(2));
-    await vi.waitFor(() => expect(e.regimes().length).toBe(2));
+    await vi.waitFor(() => expect(e.pairMarket('C04', 'M')).toBe('consumo')); // flow-worklist loaded
 
     e.setCode('ibge_pevs:1.1', { level: 'bruta' }); // will land
     e.setPair('C03', 'X', 'processamento'); // will 401

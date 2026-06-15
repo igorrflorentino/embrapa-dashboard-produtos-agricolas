@@ -12,6 +12,21 @@ function ViewConcentration({ summary, conventions, database }) {
   const filtered = window.applyFilters(summary || {}, database);
   const hasGeo = filtered.ufDataFull.length > 0;
 
+  // Concentration is a point-in-time cross-section. Label each panel with the year
+  // it is ACTUALLY computed over (never a different year): the geo distribution uses
+  // the latest UF year present in the window (filtered.ufLatestYear, which can lag the
+  // requested yearEnd); the product distribution uses each product's latest in-window
+  // value (≈ yearEnd). Mark "(parcial)" when that latest year is incomplete (a monthly
+  // banco's current year) or when the UF data stops short of the window end.
+  const meta = (window.dataStore && window.dataStore.meta) ? window.dataStore.meta(database) : null;
+  const lm = (meta && meta.latest) || null;
+  const yearPartialCal = !!lm && lm.yearComplete === false && lm.completeYear != null
+    && filtered.yearEnd > lm.completeYear;
+  const prodYearTag = `${filtered.yearEnd}${yearPartialCal ? ' (parcial)' : ''}`;
+  const geoYear = filtered.ufLatestYear;
+  const geoPartial = filtered.ufYearPartial || (yearPartialCal && geoYear === filtered.yearEnd);
+  const geoYearTag = `${geoYear}${geoPartial ? ' (parcial)' : ''}`;
+
   // ── Geographic distribution (by UF) ─────────────────────────────────
   const ufValues = filtered.ufData.map(u => u.value).filter(v => v > 0);
   const ufSorted = filtered.ufData.slice().filter(u => u.value > 0).sort((a, b) => b.value - a.value);
@@ -121,7 +136,7 @@ function ViewConcentration({ summary, conventions, database }) {
         {hasGeo && (
         <div className="card">
           <window.SectionHeader
-            overline={`Curva de Lorenz · geográfica · ${filtered.yearEnd}`}
+            overline={`Curva de Lorenz · geográfica · ${geoYearTag}`}
             title={`Desigualdade entre UFs · Gini ${ufG.value}`}
             action={<span className="caption" style={{ color: ufG.color }}>{ufG.label}</span>}
           />
@@ -130,7 +145,7 @@ function ViewConcentration({ summary, conventions, database }) {
         )}
         <div className="card">
           <window.SectionHeader
-            overline={`Curva de Lorenz · por produto · ${filtered.yearEnd}`}
+            overline={`Curva de Lorenz · por produto · ${prodYearTag}`}
             title={`Desigualdade entre produtos · Gini ${prodG.value}`}
             action={<span className="caption" style={{ color: prodG.color }}>{prodG.label}</span>}
           />
@@ -143,7 +158,7 @@ function ViewConcentration({ summary, conventions, database }) {
         {hasGeo && (
         <div className="card">
           <window.SectionHeader
-            overline={`Participação acumulada · UFs · ${filtered.yearEnd}`}
+            overline={`Participação acumulada · UFs · ${geoYearTag}`}
             title="Quem concentra a produção"
           />
           <div className="conc-list">

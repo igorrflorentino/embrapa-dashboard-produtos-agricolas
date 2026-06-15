@@ -180,6 +180,15 @@
     // old code faked a basket × UF split by scaling every UF uniformly by selected/all
     // (fabricated geography); the cube is the REAL product × UF × year grain instead.
     const notFilteredByBasket = hasGeoData && basketActive && !useCube;
+    // The ONE combination the client cannot aggregate faithfully: BOTH a product
+    // basket AND a UF subset, before the product×UF×year cube has loaded. The
+    // national per-product series has no UF grain; the all-products UF grid has no
+    // basket grain — so the geo-derived `ts` here would sum ALL products over the
+    // selected UFs, SILENTLY dropping the basket from VALOR TOTAL / YoY / acumulada.
+    // We refuse to show that wrong number: flag it so the view holds the value at a
+    // loading state until the cube resolves (then it computes the exact selection),
+    // instead of reporting a figure that disregards the user's product filter.
+    const geoComboPending = hasGeoData && basketActive && stateNarrowing && !useCube;
 
     // Tile-grid (col/row) join for cube-derived UF rows: the snapshot's ufData is
     // already decorated (decorate.js), but cube rows come straight from the serializer,
@@ -352,6 +361,10 @@
       // UF grain in the snapshot). The views render a pt-BR note instead of
       // silently showing all-products territorial figures under a basket chip.
       notFilteredByBasket,
+      // True while VALOR TOTAL/YoY/série cannot honour basket × UF simultaneously
+      // (the product×UF cube is still loading) — the view shows a loading state
+      // instead of a basket-dropped value. See geoComboPending above.
+      geoComboPending,
       _shares: { productShare, valueShare, flagShare, yearShare, stateShare },
     };
   };

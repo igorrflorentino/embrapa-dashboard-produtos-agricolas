@@ -985,15 +985,22 @@ def test_source_meta_returns_first_row_dict(monkeypatch):
     # year_end in this fixture → trivially complete, no months query).
     assert meta["latest_year_complete"] is True
     assert meta["months_in_latest_year"] is None
-    # ...and the lifecycle metadata, falling back to the registry (no override row).
-    assert meta["maturity"] == "estavel"  # ibge_pevs default in registries.py
+    # ...and the lifecycle maturity, sourced SOLELY from the BQ override table:
+    # an empty override row means no maturity (the registry carries none anymore).
+    assert meta["maturity"] is None
 
 
-def test_source_meta_empty_for_absent_or_non_live(monkeypatch):
+def test_source_meta_no_gold_provenance_for_absent_or_non_live(monkeypatch):
+    """A non-live banco or an empty metadata row carries NO Gold provenance (no
+    rows/year span). Maturity still comes solely from BigQuery — with no override
+    row mocked here, that is None (the registry no longer provides a fallback)."""
     seam = _seam()
-    assert seam.source_meta("sefaz_nfe") == {}  # non-live short-circuits
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
+    out = seam.source_meta("sefaz_nf")  # non-live: no Gold table
+    assert "rows" not in out and out.get("maturity") is None
     monkeypatch.setattr(seam.gateway, "fetch_source_metadata", lambda source=None: pd.DataFrame())
-    assert seam.source_meta("ibge_pevs") == {}
+    out2 = seam.source_meta("ibge_pevs")  # empty provenance row
+    assert "rows" not in out2 and out2.get("maturity") is None
 
 
 def test_source_meta_annual_banco_latest_year_always_complete(monkeypatch):
@@ -1093,8 +1100,9 @@ def test_source_meta_override_flips_maturity_and_coverage(monkeypatch):
     assert meta["cobertura"]["granularidade"]  # NULL override → registry default kept
 
 
-def test_source_meta_override_table_absent_uses_registry(monkeypatch):
-    """A missing override table (NotFound) is 'no overrides' → registry default."""
+def test_source_meta_override_table_absent_yields_no_maturity(monkeypatch):
+    """A missing override table (NotFound) is 'no overrides'. Maturity lives ONLY in
+    BigQuery now (the registry carries none), so an absent table → maturity None."""
     from google.api_core.exceptions import NotFound
 
     seam = _seam()
@@ -1109,7 +1117,7 @@ def test_source_meta_override_table_absent_uses_registry(monkeypatch):
 
     monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", _raise)
     meta = seam.source_meta("un_comtrade")
-    assert meta["maturity"] == "estavel"  # un_comtrade registry default (now stable)
+    assert meta["maturity"] is None  # BQ is the single source; no registry fallback
 
 
 def test_product_uf_ranking_pevs_and_comex(monkeypatch):

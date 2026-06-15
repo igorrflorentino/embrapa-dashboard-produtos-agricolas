@@ -5,7 +5,7 @@
 // helpers used to be COPY-PASTED verbatim across those views (growth /
 // pearson / cagr / corrColor) and the 10-stop color array was duplicated in
 // dataFilters.js and ViewValueVolume.jsx. Centralised here so a fix lands in
-// one place. Loaded right after data.js (alongside synthUtils).
+// one place. Loaded right after data.js (see src/main.jsx import order).
 
 // ── Categorical color scale (the 10-stop --viz ramp) ───────────────────
 // Token references only — never raw hex (see colors_and_type.css · --viz-*).

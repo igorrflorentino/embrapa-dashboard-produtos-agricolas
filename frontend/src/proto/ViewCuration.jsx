@@ -19,6 +19,69 @@ function useEnrichmentTick() {
 
 const _bancoShort = (id) => (window.bancoById ? window.bancoById(id)?.short : id) || id;
 
+// ── fast hover tooltip (replaces the native `title`, whose ~1s browser delay made
+// the matrix hints feel "broken"). A single body-level, fixed-position bubble is
+// reused for every hint — fixed position escapes the table's overflow clipping,
+// and a short 90 ms delay makes it feel instant. Shared by the matrix headers and
+// regime rows; any element can opt in via the <CurHint> wrapper below.
+let _tipEl = null;
+let _tipTimer = null;
+let _tipXY = { x: 0, y: 0 };
+function _tipLayer() {
+  if (_tipEl) return _tipEl;
+  _tipEl = document.createElement('div');
+  _tipEl.className = 'cur-tip-pop';
+  _tipEl.setAttribute('role', 'tooltip');
+  document.body.appendChild(_tipEl);
+  // A scroll anywhere should drop the bubble (the anchor moved under it).
+  window.addEventListener('scroll', () => _hideTip(), true);
+  return _tipEl;
+}
+function _placeTip(el) {
+  const pad = 12;
+  const r = el.getBoundingClientRect();
+  let left = _tipXY.x + 14;
+  let top = _tipXY.y + 18;
+  if (left + r.width + pad > window.innerWidth) left = window.innerWidth - r.width - pad;
+  if (top + r.height + pad > window.innerHeight) top = _tipXY.y - r.height - 14;
+  if (top < pad) top = pad;
+  if (left < pad) left = pad;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+function _showTip(text) {
+  const el = _tipLayer();
+  el.textContent = text;
+  el.classList.add('on');
+  _placeTip(el);
+}
+function _hideTip() {
+  if (_tipTimer) {
+    clearTimeout(_tipTimer);
+    _tipTimer = null;
+  }
+  if (_tipEl) _tipEl.classList.remove('on');
+}
+// Wrap any element to give it a fast custom tooltip. `tag` picks the host element
+// (th / div), `tip` is the text; remaining props (className, key…) pass through.
+function CurHint({ tag = 'div', tip, children, ...rest }) {
+  const Tag = tag;
+  const onEnter = (e) => {
+    _tipXY = { x: e.clientX, y: e.clientY };
+    if (_tipTimer) clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(() => _showTip(tip), 90);
+  };
+  const onMove = (e) => {
+    _tipXY = { x: e.clientX, y: e.clientY };
+    if (_tipEl && _tipEl.classList.contains('on')) _placeTip(_tipEl);
+  };
+  return (
+    <Tag onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={_hideTip} {...rest}>
+      {children}
+    </Tag>
+  );
+}
+
 // One code row in the industrialization worklist (the LEFT JOIN result).
 function EnrichmentCodeRow(c, nested) {
   const todo = !c.level;
@@ -64,7 +127,7 @@ function EnrichmentApplyBar({ note }) {
       <div className={'cur-apply ' + (committing ? 'committing' : (pending > 0 ? 'dirty' : (justApplied ? 'done' : '')))}>
         <span className="cur-apply-status">
           {committing
-            ? <><span className="cur-spinner"></span> Gravando no log de classificação (SCD2) e refazendo o JOIN ao vivo…</>
+            ? <><span className="cur-spinner"></span> Salvando suas classificações e atualizando as análises…</>
             : pending > 0
               ? <><span className="cur-apply-dot"></span><strong>{pending}</strong>&nbsp;{pending > 1 ? 'alterações não aplicadas' : 'alteração não aplicada'} à base</>
               : justApplied
@@ -87,8 +150,8 @@ function EnrichmentApplyBar({ note }) {
                       border: '1px solid var(--pres-red-200, #f4c7c3)' }}>
           <window.Icon name="warning" size={16} />
           <span>
-            Falha ao gravar a curadoria (<strong>{writeError}</strong>). As alterações foram
-            <strong> mantidas</strong> — verifique o acesso (autor IAP) e clique em <strong>Aplicar</strong> novamente.
+            Não foi possível salvar (<strong>{writeError}</strong>). Suas alterações foram
+            <strong> mantidas</strong> — verifique seu acesso de curador e clique em <strong>Aplicar à base</strong> novamente.
           </span>
         </div>
       )}
@@ -106,17 +169,16 @@ function ViewEnrichmentIndustrialization() {
     <>
       <EnrichmentApplyBar note={
         <>
-          Curadoria <strong>institucional compartilhada</strong>: o conhecimento adicionado aqui
-          vale para todos os pesquisadores e alimenta as análises curadas. A worklist é um
-          <strong> LEFT JOIN</strong> entre os códigos da Gold e o log de classificação — códigos
-          sem classificação aparecem como <strong>a classificar</strong>. As alterações só entram
-          na base ao clicar em <strong>Aplicar</strong>.
+          O que você marca aqui é <strong>compartilhado</strong>: vale para toda a equipe e
+          alimenta as análises de valor agregado. A tabela abaixo reúne todos os produtos das
+          fontes; os que ainda não têm nível aparecem como <strong>a classificar</strong>. Nada é
+          salvo até você clicar em <strong>Aplicar à base</strong>.
         </>
       } />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Códigos na worklist" value={stats.codesTotal} sub="Gold DISTINCT ⟕ log" />
-        <window.KpiCardSpark label="A classificar" value={stats.unclassified} sub="sem linha no log (NULL)" />
+        <window.KpiCardSpark label="Total de códigos" value={stats.codesTotal} sub="produtos reunidos das fontes" />
+        <window.KpiCardSpark label="A classificar" value={stats.unclassified} sub="ainda sem nível definido" />
         <window.KpiCardSpark label="Bruta" value={stats.byLevel.bruta} sub="códigos classificados" />
         <window.KpiCardSpark label="Processada" value={stats.byLevel.processada} sub="códigos classificados" />
       </div>
@@ -190,23 +252,23 @@ function ViewEnrichmentMarketNature() {
     <>
       <EnrichmentApplyBar note={
         <>
-          Curadoria <strong>institucional compartilhada</strong>: a finalidade econômica de cada
-          par <strong>procedimento aduaneiro × fluxo</strong> vale para todos os pesquisadores e
-          alimenta a análise de <strong>tipo de mercado</strong> (consumo vs. processamento). As
-          alterações só entram na base ao clicar em <strong>Aplicar</strong>.
+          O que você marca aqui é <strong>compartilhado</strong>: vale para toda a equipe e
+          alimenta a análise de tipo de mercado (<strong>consumo</strong> × <strong>processamento</strong>).
+          A finalidade depende da <strong>combinação</strong> entre regime aduaneiro e fluxo — não de
+          cada um isolado. Nada é salvo até você clicar em <strong>Aplicar à base</strong>.
         </>
       } />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Pares classificados" value={`${stats.flowsClassified} / ${stats.flowsTotal}`} sub="regime × fluxo" />
-        <window.KpiCardSpark label="Procedimentos aduaneiros" value={window.enrichment.regimes().length} sub="regimes (linhas)" />
-        <window.KpiCardSpark label="Fluxos comerciais" value={window.enrichment.flowTypes().length} sub="direções (colunas)" />
+        <window.KpiCardSpark label="Combinações classificadas" value={`${stats.flowsClassified} / ${stats.flowsTotal}`} sub="regime × fluxo" />
+        <window.KpiCardSpark label="Regimes aduaneiros" value={window.enrichment.regimes().length} sub="linhas da matriz" />
+        <window.KpiCardSpark label="Fluxos comerciais" value={window.enrichment.flowTypes().length} sub="colunas da matriz" />
       </div>
 
       <div className="card">
         <window.SectionHeader
-          overline="Procedimento aduaneiro × fluxo · finalidade econômica"
-          title="A finalidade depende do par procedimento + fluxo"
+          overline="Regime aduaneiro × fluxo · finalidade econômica"
+          title="A finalidade depende da combinação regime + fluxo"
           action={
             <span className="cur-legend">
               {window.ENRICH_MARKETS.map(m => (
@@ -215,9 +277,10 @@ function ViewEnrichmentMarketNature() {
             </span>
           } />
         <p className="caption" style={{ padding: '0 4px 8px' }}>
-          Linhas = códigos <strong>reais</strong> de procedimento aduaneiro do COMTRADE (<code>customsCode</code>),
-          ordenados por valor transacionado; colunas = fluxos (<code>flowCode</code>). O valor sob cada par é o
-          US$ efetivamente movimentado — classifique primeiro os pares materiais.
+          Cada <strong>linha</strong> é um regime aduaneiro (a forma da operação no comércio
+          exterior) e cada <strong>coluna</strong> é um fluxo (importação, exportação…), ordenados
+          pelos que mais movimentam valor. O número sob cada combinação é o valor em dólar
+          efetivamente negociado — comece pelas combinações de maior valor.
         </p>
         <div className="pc-table-wrap">
           <table className="pc-table cur-table cur-matrix">
@@ -227,15 +290,15 @@ function ViewEnrichmentMarketNature() {
                   <span className="cur-corner-col">Fluxo comercial →</span>
                   <span className="cur-corner-row">Regime aduaneiro ↓</span>
                 </th>
-                {window.enrichment.flowTypes().map(f => <th key={f.id} className="cur-c" title={f.label + ' — ' + f.hint}><span className="cur-hashint">{f.term}</span></th>)}
+                {window.enrichment.flowTypes().map(f => <CurHint key={f.id} tag="th" className="cur-c" tip={f.label + ' — ' + f.hint}><span className="cur-hashint">{f.term}</span></CurHint>)}
               </tr>
             </thead>
             <tbody>
               {window.enrichment.regimes().map(r => (
                 <tr key={r.id}>
-                  <td title={r.label + ' — ' + r.hint}>
+                  <CurHint tag="td" tip={r.label + ' — ' + r.hint}>
                     <div className="cur-regime cur-hashint">{r.term}</div>
-                  </td>
+                  </CurHint>
                   {window.enrichment.flowTypes().map(f => {
                     const v = window.enrichment.pairMarket(r.id, f.id);
                     // Real COMTRADE value for this pair — shown so the researcher

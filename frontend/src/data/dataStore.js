@@ -1,5 +1,5 @@
 // dataStore.js — API-backed pushdown query boundary. Replaces the prototype's
-// synthetic proto/dataStore.js, re-exposing the SAME window.dataStore interface
+// synthetic data store, re-exposing the SAME window.dataStore interface
 // (status/get/isStale/subscribe/load/meta/…) the reused views + DataBoundary
 // call. The only change is the body of load(): instead of reading synthetic
 // globals it FETCHES /api/snapshot (the Flask BFF → parameterized BigQuery,
@@ -33,24 +33,13 @@ let activeConv = { currency: 'BRL', correction: 'IPCA' };
 const convKey = () => `${activeConv.currency}|${activeConv.correction}`;
 const cacheKey = (id) => `${id}|${convKey()}`;
 
-// Provenance/version metadata as the backend would report it. Kept as the
-// prototype had it (static facts + banco-registry fallbacks); the live refresh
-// timestamp can later come from /api/source-meta. Drives bancoMeta()/the page hero.
-const goldVersion = {
-  ibge_pevs: { v: 'pevs-2024.1' },
-  mdic_comex: { v: 'comex-2024.12' },
-  un_comtrade: { v: 'comtrade-2024.1' },
-  ibge_pam: { v: 'pam-2024.1' },
-  sefaz_nf: { v: 'nfe-preview', at: '—' },
-};
-const goldTable = {
-  ibge_pevs: 'gold_pevs_production',
-  mdic_comex: 'gold_comex_flows',
-  un_comtrade: 'gold_comtrade_flows',
-  ibge_pam: 'gold_pam_production',
-  sefaz_nf: 'gold_nfe_flows',
-};
-const tableOf = (id) => goldTable[id] || null;
+// The Gold table name is NOT duplicated here. Single source of truth: the live
+// /api/source-meta payload (gold_source_metadata.gold_table); the banco registry
+// `table` field is the only static fallback (a planejado banco with no Gold table
+// resolves to null → "ainda não publicada"). No hardcoded version map — there is
+// no live version/staleness signal yet, so freshness is reported honestly (never
+// "stale" from a fabricated version).
+const tableOf = (id) => (window.bancoById && window.bancoById(id)?.table) || null;
 
 // Live provenance from /api/source-meta (gold_source_metadata), fetched per banco
 // and cached. This is what makes the hero / Sobre / Saúde provenance + coverage
@@ -91,11 +80,18 @@ function fetchSourceMeta(id) {
       if (m && typeof m === 'object') {
         sourceMeta[id] = m;
         overlayBancoMetadata(id, m); // live maturity/coverage → registry banco
-        notify(); // re-render the hero/Sobre/Saúde with the real values
+      } else {
+        // HTTP error / empty: record an EMPTY resolution so hasMeta() turns true
+        // and the DataGate stops waiting (degrades to "—"/placeholder rather than
+        // an infinite spinner). Source-meta is the only maturity source now.
+        sourceMeta[id] = sourceMeta[id] || {};
       }
+      notify(); // re-render the hero/Sobre/Saúde with the real values (or the fallback)
     })
     .catch(() => {
-      /* provenance is non-critical: keep the registry fallback, never block load() */
+      // Network failure: same honest degrade — mark attempted so the gate proceeds.
+      sourceMeta[id] = sourceMeta[id] || {};
+      notify();
     })
     .finally(() => {
       delete sourceMetaInFlight[id]; // allow a future refresh once this settles
@@ -104,11 +100,10 @@ function fetchSourceMeta(id) {
   return p;
 }
 
+// The Gold refresh stamp comes SOLELY from the live /api/source-meta payload —
+// no fabricated fallback (the registry prov no longer carries a refresh).
 const refreshOf = (id) =>
-  (sourceMeta[id] && sourceMeta[id].lastRefreshLabel) ||
-  (goldVersion[id] && goldVersion[id].at) ||
-  (window.bancoById && window.bancoById(id)?.prov?.refresh) ||
-  null;
+  (sourceMeta[id] && sourceMeta[id].lastRefreshLabel) || null;
 
 // The core BancoSnapshot fields (contracts.js) + their expected JS type. Their
 // presence distinguishes a real snapshot from an error payload or a drifted
@@ -152,7 +147,7 @@ window.dataStore = {
   loadedAt: (id) => (store[cacheKey(id)] && store[cacheKey(id)].loadedAt) || null,
   get: (id) => (store[cacheKey(id)] && store[cacheKey(id)].data) || null,
   error: (id) => (store[cacheKey(id)] && store[cacheKey(id)].error) || null,
-  latestVersion: (id) => (goldVersion[id] && goldVersion[id].v) || null,
+  latestVersion: () => null, // no live Gold version signal yet (see isStale)
   latestAt: (id) => refreshOf(id),
   table: (id) => tableOf(id),
 
@@ -179,15 +174,26 @@ window.dataStore = {
       if (sm.yearEnd != null) prov.yearEnd = sm.yearEnd;
       if (sm.yearStart != null && sm.yearEnd != null) prov.yearsTotal = sm.yearEnd - sm.yearStart + 1;
       if (sm.lastRefreshLabel) prov.refresh = sm.lastRefreshLabel;
-      // Keep the registry "última safra" label but track the real latest year.
+      // Keep the registry "última safra" LABEL but make its period live: overlay the
+      // real latest year, and for monthly bancos (a "· Mnn" suffix) make the month
+      // honest too — the real months elapsed in a still-partial latest year, or drop
+      // the suffix once that year is complete. Without this the frozen literal would
+      // claim e.g. "COMEX 2026 · M12" (December) for a year that only has 5 months.
       if (sm.yearEnd != null && typeof prov.lastCrop === 'string') {
-        prov.lastCrop = prov.lastCrop.replace(/\d{4}/, String(sm.yearEnd));
+        let lc = prov.lastCrop.replace(/\d{4}/, String(sm.yearEnd));
+        if (/·\s*M\d{1,2}/.test(lc)) {
+          lc =
+            sm.latestYearComplete === false && sm.monthsInLatestYear != null
+              ? lc.replace(/·\s*M\d{1,2}/, `· M${String(sm.monthsInLatestYear).padStart(2, '0')}`)
+              : lc.replace(/\s*·\s*M\d{1,2}/, '');
+        }
+        prov.lastCrop = lc;
       }
     }
     return {
       table: (sm && sm.table) || tableOf(id),
       refresh: refreshOf(id),
-      version: (goldVersion[id] && goldVersion[id].v) || null,
+      version: (sm && sm.version) || null,
       coverage: sm
         ? {
             yearStart: sm.yearStart,
@@ -218,7 +224,12 @@ window.dataStore = {
       domain: b.domain,
       cobertura: b.cobertura || null,
       maturity: b.maturity,
-      maturityDate: b.maturity === 'estavel' ? null : b.maturityDate || b.plannedRelease || null,
+      // A forecast date only makes sense for a stage that has NO data yet
+      // (e.g. planejado). Any data-bearing stage — incl. 'desenvolvimento',
+      // which is now in production and consultable — must not surface one.
+      maturityDate: (window.MATURITY?.[b.maturity]?.hasData)
+        ? null
+        : b.maturityDate || b.plannedRelease || null,
       prov,
     };
   },
@@ -235,13 +246,17 @@ window.dataStore = {
     return fetchSourceMeta(id);
   },
 
-  isStale: (id) =>
-    !!(
-      store[cacheKey(id)] &&
-      store[cacheKey(id)].status === 'ready' &&
-      goldVersion[id] &&
-      store[cacheKey(id)].version !== goldVersion[id].v
-    ),
+  // True once /api/source-meta has resolved for this banco — i.e. the live
+  // maturity (the single source of truth, from BigQuery) is known. The DataGate
+  // waits on this before deciding live-vs-placeholder, so a banco never flashes
+  // the "Em breve" placeholder before its real maturity has loaded.
+  hasMeta: (id) => !!sourceMeta[id],
+
+  // Honest staleness: there is no live version/refresh polling yet, so we cannot
+  // know a banco's cached snapshot went stale vs a newer Gold. Report never-stale
+  // rather than drive the FreshnessBanner from a fabricated version. (To enable it
+  // for real, poll /api/source-meta and compare its lastRefresh to the load time.)
+  isStale: () => false,
 
   subscribe(fn) {
     subs.add(fn);
@@ -263,7 +278,7 @@ window.dataStore = {
       .then((data) => {
         store[key] = {
           status: 'ready',
-          version: (goldVersion[id] && goldVersion[id].v) || `${id}-live`,
+          version: `${id}-live`,
           loadedAt: refreshOf(id) || 'agora',
           data,
           error: null,

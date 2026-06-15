@@ -17,36 +17,37 @@ function ViewOverview({ families, summary, database, conventions }) {
   // ts.v is in R$ bi; scale to absolute.
   const ts        = filtered.ts.map(d => ({ ...d, v: d.v * 1e9 }));
 
-  // Partial-latest-year guard (FINDING #3). A monthly banco (COMEX) publishes the
-  // current year month-by-month, so its latest year in `ts` covers only a few
-  // months — anchoring the headline KPI + YoY there reads a partial year vs a
-  // full year as a spurious crash (the live audit caught COMEX "−41,2% 2026 vs
-  // 2025"). The backend flags completeness on /api/source-meta; when the latest
-  // year is partial we anchor the headline value + YoY on the latest COMPLETE
-  // year and surface the partial year only in the time-series chart, marked
-  // "(parcial)". Annual bancos (PEVS/PAM/COMTRADE) report complete → unchanged.
+  // Partial-latest-year detection. A monthly banco (COMEX) publishes the current
+  // year month-by-month, so its latest year covers only a few months; a raw YoY of
+  // that partial year vs a full prior year looks like a crash. We do NOT hide it by
+  // computing on an earlier "complete" year — that would show a value for a period
+  // the researcher did not select. Per the product rule, the KPI/YoY ALWAYS reflect
+  // the user's selected window (latest year included); when that year is partial we
+  // only MARK it "(parcial)" and explain the comparison is not like-for-like.
   const meta        = (window.dataStore && window.dataStore.meta)
     ? window.dataStore.meta(database) : null;
   const latestMeta  = (meta && meta.latest) || null;
   const lastPoint   = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, y: null };
-  // The visible latest year is partial only when the backend says so AND that
-  // year is actually present at the end of the (possibly filtered) window.
   const partialLatest =
     !!latestMeta &&
     latestMeta.yearComplete === false &&
     lastPoint.y != null &&
     (latestMeta.completeYear == null || lastPoint.y > latestMeta.completeYear) &&
     ts.length >= 2;
-  // KPI/YoY anchor: drop the partial trailing year so headline figures compare
-  // full-year vs full-year. The chart below still renders the full `ts`.
-  const tsKpi     = partialLatest ? ts.slice(0, -1) : ts;
   const partialYr = partialLatest ? lastPoint.y : null;
-  const last      = tsKpi[tsKpi.length - 1] || { v: 0, q_mass: 0, q_vol: 0 };
-  const prev      = tsKpi[tsKpi.length - 2] || last;
+  // Compute over EXACTLY the selected window — latest year included, never dropped.
+  const last      = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, y: null };
+  const prev      = ts[ts.length - 2] || last;
   const first     = ts[0] || last;
   const deltaV    = prev.v ? ((last.v - prev.v) / prev.v) * 100 : 0;
   const deltaTotV = first.v ? ((last.v - first.v) / first.v) * 100 : 0;
   const spark12   = ts.slice(-12);
+  // Year tag that marks the latest year "(parcial)" wherever it is shown.
+  const yTag      = (y) => `${y ?? ''}${partialLatest && y === partialYr ? ' (parcial)' : ''}`;
+  // basket × UF can't be combined until the product×UF cube loads (dataFilters.js):
+  // the value would silently drop the basket, so hold it at a loading state instead.
+  const comboPending = !!filtered.geoComboPending;
+  const kpiVal = (fmt) => (comboPending ? '…' : fmt);
 
   // Quality digest from filtered flag set
   const okFlag    = filtered.qualityFlags.find(f => f.id === 'OK');
@@ -95,22 +96,22 @@ function ViewOverview({ families, summary, database, conventions }) {
       <div className="kpi-row">
         <window.KpiCardSpark
           label={`Valor total · ${monLabel}`}
-          value={window.formatValue(last.v, conv)}
-          delta={window.fmtSigned(deltaV)}
+          value={kpiVal(window.formatValue(last.v, conv))}
+          delta={comboPending ? null : window.fmtSigned(deltaV)}
           deltaPositive={deltaV >= 0}
-          sub={`${last.y || ''} vs. ${prev.y || ''}`}
-          spark={window.convertSeries(spark12, conv)}
+          sub={comboPending ? 'cruzando produto × UF…' : `${yTag(last.y)} vs. ${prev.y || ''}`}
+          spark={comboPending ? null : window.convertSeries(spark12, conv)}
           sparkKey="v"
           sparkColor="var(--viz-1)"
         />
         {massFamily && (
           <window.KpiCardSpark
             label={<>Quantidade · <window.UnitFamilyTag family="mass" conv={conv}/></>}
-            value={window.formatMassQty(last.q_mass, conv)}
-            delta={window.fmtSigned(prev.q_mass ? ((last.q_mass - prev.q_mass) / prev.q_mass) * 100 : 0)}
+            value={kpiVal(window.formatMassQty(last.q_mass, conv))}
+            delta={comboPending ? null : window.fmtSigned(prev.q_mass ? ((last.q_mass - prev.q_mass) / prev.q_mass) * 100 : 0)}
             deltaPositive={last.q_mass >= prev.q_mass}
-            sub={`${last.y || ''} vs. ${prev.y || ''}`}
-            spark={spark12}
+            sub={comboPending ? 'cruzando produto × UF…' : `${yTag(last.y)} vs. ${prev.y || ''}`}
+            spark={comboPending ? null : spark12}
             sparkKey="q_mass"
             sparkColor="var(--viz-2)"
           />
@@ -118,11 +119,11 @@ function ViewOverview({ families, summary, database, conventions }) {
         {volFamily && (
           <window.KpiCardSpark
             label={<>Quantidade · <window.UnitFamilyTag family="volume" conv={conv}/></>}
-            value={window.formatVolumeQty(last.q_vol, conv)}
-            delta={window.fmtSigned(prev.q_vol ? ((last.q_vol - prev.q_vol) / prev.q_vol) * 100 : 0)}
+            value={kpiVal(window.formatVolumeQty(last.q_vol, conv))}
+            delta={comboPending ? null : window.fmtSigned(prev.q_vol ? ((last.q_vol - prev.q_vol) / prev.q_vol) * 100 : 0)}
             deltaPositive={last.q_vol >= prev.q_vol}
-            sub={`${last.y || ''} vs. ${prev.y || ''}`}
-            spark={spark12}
+            sub={comboPending ? 'cruzando produto × UF…' : `${yTag(last.y)} vs. ${prev.y || ''}`}
+            spark={comboPending ? null : spark12}
             sparkKey="q_vol"
             sparkColor="var(--viz-4)"
           />
@@ -147,16 +148,22 @@ function ViewOverview({ families, summary, database, conventions }) {
             return (
               <>
                 <window.SectionHeader
-                  overline={`Série histórica · ${filtered.yearStart}–${filtered.yearEnd} · ${monLabel}`}
-                  title={'Variação acumulada: ' + window.fmtSigned(deltaTotV, 0)}
+                  overline={`Série histórica · ${filtered.yearStart}–${yTag(filtered.yearEnd)} · ${monLabel}`}
+                  title={comboPending ? 'Variação acumulada: …' : 'Variação acumulada: ' + window.fmtSigned(deltaTotV, 0)}
                 />
-                <window.LineChart data={data} label={label} valueKey="v" color="var(--viz-1)" height={240} />
-                {partialLatest && (
+                {comboPending ? (
+                  <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
+                    Cruzando o filtro de <strong>produtos</strong> com o de <strong>UFs</strong>…
+                  </p>
+                ) : (
+                  <window.LineChart data={data} label={label} valueKey="v" color="var(--viz-1)" height={240} />
+                )}
+                {!comboPending && partialLatest && (
                   <p className="caption" style={{ padding: '8px 4px 0' }}>
                     <strong>{partialYr} (parcial):</strong> o ano mais recente cobre apenas
                     {' '}{latestMeta?.monthsInLatestYear ? `${latestMeta.monthsInLatestYear} ${latestMeta.monthsInLatestYear === 1 ? 'mês' : 'meses'}` : 'parte do ano'}.
-                    Os indicadores e a variação anual acima usam o último ano <strong>completo</strong> ({last.y});
-                    o ponto parcial aparece apenas na série.
+                    Os valores e a variação anual acima refletem esse ano parcial, conforme o período que você
+                    selecionou — a comparação com o ano anterior (completo) não é direta.
                   </p>
                 )}
               </>
