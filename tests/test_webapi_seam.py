@@ -22,6 +22,27 @@ def _seam():
     return seam
 
 
+def _cross():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.webapi import seam_cross
+
+    return seam_cross
+
+
+def _curation():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.webapi import seam_curation
+
+    return seam_curation
+
+
+def _base():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.webapi import seam_base
+
+    return seam_base
+
+
 def _bind_simplecache():
     """Bind the shared serving cache to a fresh Flask app (SimpleCache)."""
     from flask import Flask
@@ -120,7 +141,7 @@ def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
     # (an empty codes tuple means "no filter" to fetch_comtrade_cpc_value).
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {"manicoba": {"comtrade": [], "comex": ["1"], "pevs": ["2"]}},
     )
@@ -562,14 +583,17 @@ def test_cross_points_exp_price_emits_none_when_weight_missing(monkeypatch):
 # unscoped ALL-commodities totals (empty codes mean "no filter" to the readers)
 
 
-def _no_codes_catalog(seam, monkeypatch):
+def _no_codes_catalog(mod, monkeypatch):
+    # `mod` is the seam_base module (the shared toolkit the cross/curation readers
+    # resolve commodity_catalog/_codes/_xyear through), so a single patch reaches
+    # both the direct calls and the indirect _codes -> commodity_catalog chain.
     monkeypatch.setattr(
-        seam,
+        mod,
         "commodity_catalog",
         lambda: {"manicoba": {"name": "Maniçoba", "pevs": ["9"], "comex": [], "comtrade": []}},
     )
     monkeypatch.setattr(
-        seam,
+        mod,
         "_xyear",
         lambda metric, codes: pytest.fail("must not query the unscoped totals"),
     )
@@ -577,32 +601,32 @@ def _no_codes_catalog(seam, monkeypatch):
 
 def test_market_share_empty_for_commodity_without_codes(monkeypatch):
     seam = _seam()
-    _no_codes_catalog(seam, monkeypatch)
+    _no_codes_catalog(_base(), monkeypatch)
     out = seam.market_share("manicoba")
     assert out == {"unit": "US$ bi", "series": [], "by_product": []}
 
 
 def test_trade_mirror_empty_for_commodity_without_codes(monkeypatch):
     seam = _seam()
-    _no_codes_catalog(seam, monkeypatch)
+    _no_codes_catalog(_base(), monkeypatch)
     out = seam.trade_mirror("manicoba")
     assert out == {"unit": "US$ bi", "series": [], "discrepancy": []}
 
 
 def test_price_spread_empty_for_commodity_without_comex_codes(monkeypatch):
     seam = _seam()
-    _no_codes_catalog(seam, monkeypatch)
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)  # mass PEVS side
+    _no_codes_catalog(_base(), monkeypatch)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)  # mass PEVS side
     out = seam.price_spread("manicoba")
     assert out == {"unit": "US$/kg", "series": []}
 
 
 def test_export_coefficient_empty_for_commodity_without_comex_codes(monkeypatch):
     seam = _seam()
-    _no_codes_catalog(seam, monkeypatch)
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    _no_codes_catalog(_base(), monkeypatch)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
-        seam,
+        _cross(),
         "_pevs_mass_by_year",
         lambda codes: pytest.fail("must not query the unscoped totals"),
     )
@@ -618,9 +642,9 @@ def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
     ratios must cover the SAME window the timeseries intersects, or coefPct is
     systematically understated."""
     seam = _seam()
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -632,10 +656,10 @@ def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        seam, "_pevs_mass_by_year", lambda codes: {1986: 5.0, 1997: 10.0, 2000: 20.0}
+        _cross(), "_pevs_mass_by_year", lambda codes: {1986: 5.0, 1997: 10.0, 2000: 20.0}
     )
     monkeypatch.setattr(  # exp_weight (kg): years 1997/2000/2024
-        seam, "_xyear", lambda metric, codes: {1997: 2e9, 2000: 4e9, 2024: 1e9}
+        _base(), "_xyear", lambda metric, codes: {1997: 2e9, 2000: 4e9, 2024: 1e9}
     )
     recorded = {}
 
@@ -680,7 +704,7 @@ def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
 def test_value_added_batches_codes_per_level(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _curation(),
         "_current_code_levels",
         lambda: {
             ("mdic_comex", "A"): "bruta",
@@ -696,7 +720,7 @@ def test_value_added_batches_codes_per_level(monkeypatch):
         calls.append((metric, codes))
         return {2020: 2e9} if metric.endswith("exp_value") else {2020: 1e9}
 
-    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    monkeypatch.setattr(_base(), "_xyear", fake_xyear)
 
     out = seam.value_added()
 
@@ -733,7 +757,7 @@ def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
         )
 
     monkeypatch.setattr(seam.gateway, "run_query", fake_run)
-    monkeypatch.setattr(seam, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(_base(), "get_settings", lambda: Settings(gcp_project_id="p"))
     app, cache = _bind_simplecache()
 
     with app.app_context():
@@ -765,6 +789,8 @@ def test_unknown_api_path_returns_json_404(monkeypatch):
         assert resp.get_json()["error"] == "endpoint de API não encontrado"
 
     # Registered routes still win over the catch-all.
+    # routes.py calls seam.commodity_catalog (the facade's re-exported binding), so
+    # this route test patches the facade — not seam_base.
     monkeypatch.setattr(seam, "commodity_catalog", lambda: {"x": {"name": "X"}})
     resp = client.get("/api/catalog")
     assert resp.status_code == 200 and resp.get_json() == {"x": {"name": "X"}}
@@ -1313,7 +1339,7 @@ def test_pevs_mass_by_year_empty(monkeypatch):
 def test_is_mass_basis_true_only_for_pure_massa(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _cross(),
         "_pevs_family_by_commodity",
         lambda: {"castanha": {"massa"}, "madeira": {"volume"}, "*": {"massa", "volume"}},
     )
@@ -1328,7 +1354,7 @@ def test_is_mass_basis_true_only_for_pure_massa(monkeypatch):
 def test_market_share_happy_path_with_by_product(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -1343,7 +1369,7 @@ def test_market_share_happy_path_with_by_product(monkeypatch):
     def fake_xyear(metric, codes):
         return {2022: 2e9} if metric.startswith("mdic_comex") else {2022: 8e9}
 
-    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    monkeypatch.setattr(_base(), "_xyear", fake_xyear)
     out = seam.market_share("castanha")
     assert out["unit"] == "US$ bi"
     row = out["series"][0]
@@ -1355,9 +1381,9 @@ def test_market_share_happy_path_with_by_product(monkeypatch):
 
 def test_price_spread_happy_path_markup(monkeypatch):
     seam = _seam()
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -1370,7 +1396,7 @@ def test_price_spread_happy_path_markup(monkeypatch):
     )
     # FOB = 6e9 US$ / 2e9 kg = 3 US$/kg
     monkeypatch.setattr(
-        seam,
+        _base(),
         "_xyear",
         lambda metric, codes: {2022: 6e9} if metric.endswith("exp_value") else {2022: 2e9},
     )
@@ -1393,14 +1419,14 @@ def test_price_spread_happy_path_markup(monkeypatch):
 
 def test_price_spread_incompatible_for_volume_basis(monkeypatch):
     seam = _seam()
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: False)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: False)
     out = seam.price_spread("madeira")
     assert out == {"unit": "US$/kg", "incompatible": True, "series": []}
 
 
 def test_export_coefficient_incompatible_for_volume_basis(monkeypatch):
     seam = _seam()
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: False)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: False)
     out = seam.export_coefficient("madeira")
     assert out["incompatible"] is True and out["by_uf"] == []
 
@@ -1408,14 +1434,14 @@ def test_export_coefficient_incompatible_for_volume_basis(monkeypatch):
 def test_export_coefficient_empty_timeseries_when_no_year_overlap(monkeypatch):
     """Mass basis + codes present, but PEVS and COMEX share no year → empty."""
     seam = _seam()
-    monkeypatch.setattr(seam, "_is_mass_basis", lambda cid: True)
+    monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {"c": {"name": "C", "pevs": ["1"], "comex": ["0801"], "comtrade": ["080121"]}},
     )
-    monkeypatch.setattr(seam, "_pevs_mass_by_year", lambda codes: {1986: 5.0})
-    monkeypatch.setattr(seam, "_xyear", lambda metric, codes: {2022: 1e6})
+    monkeypatch.setattr(_cross(), "_pevs_mass_by_year", lambda codes: {1986: 5.0})
+    monkeypatch.setattr(_base(), "_xyear", lambda metric, codes: {2022: 1e6})
     out = seam.export_coefficient("c")
     assert out == {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
 
@@ -1423,7 +1449,7 @@ def test_export_coefficient_empty_timeseries_when_no_year_overlap(monkeypatch):
 def test_trade_mirror_happy_path_discrepancy(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -1442,7 +1468,7 @@ def test_trade_mirror_happy_path_discrepancy(monkeypatch):
             return {2022: 7e9}
         return {2022: 6e9}
 
-    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    monkeypatch.setattr(_base(), "_xyear", fake_xyear)
     out = seam.trade_mirror("castanha")
     # The third "Reportado pelos parceiros" line (partner=Brazil on imports) must
     # be present so ViewMirror's third series gets data, per the contract.
@@ -1456,7 +1482,7 @@ def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
     partners=None (the front end renders a gap, not a fabricated zero)."""
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -1475,7 +1501,7 @@ def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
             return {}
         return {2022: 6e9}
 
-    monkeypatch.setattr(seam, "_xyear", fake_xyear)
+    monkeypatch.setattr(_base(), "_xyear", fake_xyear)
     out = seam.trade_mirror("castanha")
     assert out["series"][0] == {"y": 2022, "mdic": 4.0, "comtrade": 6.0, "partners": None}
 
@@ -1532,12 +1558,14 @@ def test_current_code_levels_empty_on_notfound(monkeypatch):
 def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _curation(),
         "_current_code_levels",
         lambda: {("mdic_comex", "0801"): "processada"},
     )
-    monkeypatch.setattr(seam, "_code_to_commodity", lambda: {("mdic_comex", "0801"): "castanha"})
-    monkeypatch.setattr(seam, "commodity_catalog", lambda: {"castanha": {"name": "Castanha"}})
+    monkeypatch.setattr(
+        _curation(), "_code_to_commodity", lambda: {("mdic_comex", "0801"): "castanha"}
+    )
+    monkeypatch.setattr(_base(), "commodity_catalog", lambda: {"castanha": {"name": "Castanha"}})
 
     def fake_products(src):
         if src == "mdic_comex":
@@ -1577,7 +1605,7 @@ def test_flow_market_map_empty_on_notfound(monkeypatch):
 
 def test_value_added_empty_when_nothing_classified(monkeypatch):
     seam = _seam()
-    monkeypatch.setattr(seam, "_current_code_levels", lambda: {})
+    monkeypatch.setattr(_curation(), "_current_code_levels", lambda: {})
     out = seam.value_added()
     assert out == {"series": [], "n_codes": 0}
 
@@ -1600,7 +1628,7 @@ def test_xyear_maps_year_to_value(monkeypatch):
 def test_code_to_commodity_reverse_indexes_every_source(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
-        seam,
+        _base(),
         "commodity_catalog",
         lambda: {
             "castanha": {
@@ -1619,7 +1647,7 @@ def test_code_to_commodity_reverse_indexes_every_source(monkeypatch):
 
 def test_pevs_family_by_commodity_indexes_run_query(monkeypatch):
     seam = _seam()
-    monkeypatch.setattr(seam, "get_settings", lambda: Settings(gcp_project_id="p"))
+    monkeypatch.setattr(_cross(), "get_settings", lambda: Settings(gcp_project_id="p"))
     monkeypatch.setattr(
         seam.gateway,
         "run_query",
