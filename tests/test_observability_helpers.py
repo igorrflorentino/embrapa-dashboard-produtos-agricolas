@@ -9,8 +9,10 @@ import pytest
 from embrapa_commodities.core import observability_helpers
 from embrapa_commodities.core.observability_helpers import (
     ChunkOutcome,
+    IngestPartialFailure,
     chunked_run,
     pipeline_run,
+    run_chunks,
 )
 
 
@@ -142,3 +144,69 @@ def test_chunk_tracker_start_chunk_returns_incrementing_index() -> None:
     assert tracker.start_chunk("a") == 1
     tracker.finish(ChunkOutcome("a", "skipped"))
     assert tracker.start_chunk("b") == 2
+
+
+# ── run_chunks: the shared run-loop for the chunked pipelines (COMEX/COMTRADE) ──
+def _outcome(chunk_id, status, *, destination="", detail=""):
+    return lambda: ChunkOutcome(chunk_id, status, destination=destination, detail=detail)
+
+
+def test_run_chunks_returns_last_destination_and_calls_hooks() -> None:
+    starts: list[str] = []
+    seen: list[str] = []
+    chunks = [
+        ("a", _outcome("a", "loaded", destination="p.d.t1")),
+        ("b", _outcome("b", "skipped", detail="unchanged")),
+        ("c", _outcome("c", "loaded", destination="p.d.t2")),
+    ]
+    dest = run_chunks(
+        chunks,
+        on_chunk_start=starts.append,
+        on_chunk=lambda o: seen.append(o.chunk_id),
+    )
+    assert dest == "p.d.t2"  # last NON-EMPTY destination wins
+    assert starts == ["a", "b", "c"]  # on_chunk_start fires before each chunk
+    assert seen == ["a", "b", "c"]  # on_chunk fires after each
+
+
+def test_run_chunks_continues_after_failure_and_raises_when_no_consumer() -> None:
+    ran: list[str] = []
+
+    def proc(cid, status, **kw):
+        def _p():
+            ran.append(cid)
+            return ChunkOutcome(cid, status, **kw)
+
+        return _p
+
+    chunks = [
+        ("a", proc("a", "loaded", destination="p.d.t1")),
+        ("b", proc("b", "failed", detail="boom")),
+        ("c", proc("c", "loaded", destination="p.d.t2")),
+    ]
+    # No on_chunk consumer → the loop still runs EVERY chunk (continue-on-failure),
+    # then raises the aggregated failure at the end.
+    with pytest.raises(IngestPartialFailure) as exc:
+        run_chunks(chunks)
+    assert ran == ["a", "b", "c"]  # the failure did not strand c
+    assert exc.value.failures == [("b", "boom")]
+
+
+def test_run_chunks_with_consumer_does_not_raise_on_failure() -> None:
+    seen: list[tuple[str, str]] = []
+    chunks = [
+        ("a", _outcome("a", "failed", detail="boom")),
+        ("b", _outcome("b", "loaded", destination="p.d.t")),
+    ]
+    # WITH an on_chunk consumer, failures are forwarded, not raised — the caller
+    # (the CLI) decides the exit code from the outcomes it saw.
+    dest = run_chunks(chunks, on_chunk=lambda o: seen.append((o.chunk_id, o.status)))
+    assert dest == "p.d.t"
+    assert seen == [("a", "failed"), ("b", "loaded")]
+
+
+def test_run_chunks_truncates_failure_detail_to_200_chars() -> None:
+    long = "x" * 500
+    with pytest.raises(IngestPartialFailure) as exc:
+        run_chunks([("a", _outcome("a", "failed", detail=long))])
+    assert exc.value.failures == [("a", "x" * 200)]

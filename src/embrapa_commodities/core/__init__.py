@@ -16,6 +16,7 @@ from embrapa_commodities.core.observability_helpers import (
     IngestPartialFailure,
     chunked_run,
     pipeline_run,
+    run_chunks,
 )
 from embrapa_commodities.core.raw import (
     download_raw,
@@ -45,4 +46,5 @@ __all__ = [
     "raw_object_name",
     "raw_provenance",
     "read_raw",
+    "run_chunks",
 ]

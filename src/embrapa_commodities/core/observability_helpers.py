@@ -35,7 +35,7 @@ Single-chunk event sequence emitted by :func:`pipeline_run`:
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +81,45 @@ class IngestPartialFailure(Exception):
         self.failures = failures
         joined = "; ".join(f"{cid}: {err}" for cid, err in failures)
         super().__init__(f"{len(failures)} chunk(s) failed: {joined}")
+
+
+def run_chunks(
+    chunks: Iterable[tuple[str, Callable[[], ChunkOutcome]]],
+    *,
+    on_chunk_start: Callable[[str], None] | None = None,
+    on_chunk: Callable[[ChunkOutcome], None] | None = None,
+) -> str:
+    """Drive an iterable of ``(chunk_id, process)`` units with continue-on-failure.
+
+    The shared run-loop for the chunked pipelines (COMEX, COMTRADE), so the
+    continue-on-failure + aggregate-and-raise contract lives in ONE place instead
+    of being copied per source. Each ``process`` is a zero-arg callable returning a
+    :class:`ChunkOutcome` (it has already captured its own per-chunk args + clients);
+    it must not raise — pipelines wrap their per-chunk work so a transient error
+    becomes a ``failed`` outcome, letting the loop move on instead of stranding the
+    rest. ``on_chunk_start(chunk_id)`` fires before each chunk; ``on_chunk(outcome)``
+    after. Returns the last non-empty ``destination``.
+
+    With **no** ``on_chunk`` consumer (e.g. ``ingest all`` calls ``run`` bare), any
+    failure raises :class:`IngestPartialFailure` at the end so a source-level handler
+    collects them; with a consumer, returns normally and the caller decides the exit
+    code from the outcomes it saw.
+    """
+    last_destination = ""
+    failures: list[tuple[str, str]] = []
+    for chunk_id, process in chunks:
+        if on_chunk_start is not None:
+            on_chunk_start(chunk_id)
+        outcome = process()
+        if outcome.status == "failed":
+            failures.append((chunk_id, outcome.detail[:200]))
+        elif outcome.destination:
+            last_destination = outcome.destination
+        if on_chunk is not None:
+            on_chunk(outcome)
+    if failures and on_chunk is None:
+        raise IngestPartialFailure(failures)
+    return last_destination
 
 
 @contextmanager

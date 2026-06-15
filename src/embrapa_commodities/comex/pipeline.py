@@ -29,12 +29,12 @@ from embrapa_commodities.comex import client
 from embrapa_commodities.config import Settings
 from embrapa_commodities.core import (
     ChunkOutcome,
-    IngestPartialFailure,
     download_raw,
     land_raw_file,
     mark_raw_bronze_loaded,
     raw_bronze_loaded,
     raw_provenance,
+    run_chunks,
 )
 from embrapa_commodities.gcp.bigquery import ensure_dataset, load_dataframe
 from embrapa_commodities.gcp.clients import resolve_clients
@@ -370,33 +370,28 @@ def run(
     bq_client, storage_client = resolve_clients(settings, bq_client, storage_client)
     table_fqn = ensure_destination(settings, bq_client)
 
-    last_destination = ""
-    failures: list[tuple[str, str]] = []
-    for flow, year in all_chunks(settings):
-        chunk_id = _basename(flow, year)
-        if on_chunk_start is not None:
-            on_chunk_start(chunk_id)
-        outcome = _run_one_chunk(
-            settings,
-            flow,
-            year,
-            chunk_id,
-            storage_client=storage_client,
-            bq_client=bq_client,
-            table_fqn=table_fqn,
-            from_raw=from_raw,
-            force=full,
-        )
-        if outcome.status == "failed":
-            failures.append((chunk_id, outcome.detail[:200]))
-        elif outcome.destination:
-            last_destination = outcome.destination
-        if on_chunk is not None:
-            on_chunk(outcome)
+    def _chunks():
+        # One (chunk_id, thunk) per (flow, year). The default-arg binds capture
+        # this iteration's flow/year/chunk_id (avoiding the late-binding closure
+        # trap) so run_chunks can call each thunk lazily.
+        for flow, year in all_chunks(settings):
+            chunk_id = _basename(flow, year)
+            yield (
+                chunk_id,
+                lambda flow=flow, year=year, chunk_id=chunk_id: _run_one_chunk(
+                    settings,
+                    flow,
+                    year,
+                    chunk_id,
+                    storage_client=storage_client,
+                    bq_client=bq_client,
+                    table_fqn=table_fqn,
+                    from_raw=from_raw,
+                    force=full,
+                ),
+            )
 
-    if failures and on_chunk is None:
-        raise IngestPartialFailure(failures)
-    return last_destination
+    return run_chunks(_chunks(), on_chunk_start=on_chunk_start, on_chunk=on_chunk)
 
 
 def _run_one_chunk(
