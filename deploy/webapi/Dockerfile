@@ -13,7 +13,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: build the React SPA (→ /fe/dist) ────────────────────────────────
-FROM node:20-slim AS frontend
+# node 22 (LTS): Vite 8 requires node ^20.19 || >=22.12; 22-slim is comfortably in range.
+FROM node:22-slim AS frontend
 WORKDIR /fe
 # Lockfile-first for a cached install layer; npm ci needs package-lock.json.
 COPY frontend/package.json frontend/package-lock.json ./
