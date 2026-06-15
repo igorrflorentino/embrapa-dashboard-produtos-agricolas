@@ -38,7 +38,11 @@ flask-caching/Werkzeug behaviour, not our bug):
 
 from __future__ import annotations
 
+import logging
+
 from flask_caching import Cache
+
+logger = logging.getLogger(__name__)
 
 # Unbound until init_cache(); decorators in gateway.py reference this instance.
 cache = Cache()
@@ -70,6 +74,38 @@ def init_cache(server, settings=None) -> Cache:
     cache.init_app(server, config=config)
     _bind_classification_ttl(cfg.cache_classification_timeout)
     return cache
+
+
+def init_cache_safely(server) -> Cache:
+    """Bind the cache, falling back to a no-op ``NullCache`` if settings/binding fail.
+
+    A real bind needs GCP settings (project / dataset / TTLs from ``Settings``).
+    In a MISCONFIGURED environment — most commonly a fresh git worktree or sandbox
+    with no ``.env`` (so ``GCP_PROJECT_ID`` is unset and ``Settings()`` raises) — we
+    still bind a ``NullCache`` so the cache is PRESENT on the app.
+
+    Why this matters: without a bound cache, every ``@cache.memoize()`` read in
+    ``gateway`` later explodes with a cryptic ``KeyError: 'cache'`` /
+    ``AttributeError: 'Cache' object has no attribute 'app'`` that *masks* the real
+    cause and sends you debugging the cache instead of your config. With a bound
+    ``NullCache`` the memoized reads simply run UNCACHED and surface the actual
+    underlying error (e.g. ``gcp_project_id Field required``) directly — far more
+    debuggable when running locally under the preview. Returns the bound cache
+    either way; callers need not handle exceptions.
+    """
+    try:
+        return init_cache(server)
+    except Exception:
+        logger.warning(
+            "init_cache failed — binding a no-op NullCache (gateway memoization "
+            "disabled; data endpoints run UNCACHED and will surface the real error). "
+            "Most often this means no .env / GCP_PROJECT_ID is configured, e.g. a "
+            "fresh worktree: copy a working .env into the repo root or run "
+            "`uv run python scripts/setup_dev_env.py`.",
+            exc_info=True,
+        )
+        cache.init_app(server, config={"CACHE_TYPE": "NullCache"})
+        return cache
 
 
 def _bind_classification_ttl(timeout: int) -> None:

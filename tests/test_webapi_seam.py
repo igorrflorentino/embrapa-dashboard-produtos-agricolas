@@ -775,10 +775,16 @@ def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
 
 def test_unknown_api_path_returns_json_404(monkeypatch):
     pytest.importorskip("flask_caching")
+    import embrapa_commodities.config as config_mod
     from embrapa_commodities.webapi import app as app_mod
     from embrapa_commodities.webapi import seam
 
-    monkeypatch.setattr(app_mod, "get_settings", lambda: Settings(gcp_project_id="p"))
+    # create_app binds the cache via init_cache_safely → config.get_settings (a
+    # lazy import), so patch the source module. _env_file=None keeps it hermetic.
+    def _stub_settings():
+        return Settings(_env_file=None, gcp_project_id="p")
+
+    monkeypatch.setattr(config_mod, "get_settings", _stub_settings)
     app = app_mod.create_app()
     app.config.update(TESTING=True)
     client = app.test_client()
