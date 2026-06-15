@@ -130,7 +130,7 @@
 // @typedef {Object} TradeMirror         window.tradeMirror(productCode)
 // @property {boolean} preview
 // @property {string}  unit
-// @property {{y:number,mdic:number,comtrade:number}[]} series   The SAME BR exports seen by MDIC (SECEX) and UN Comtrade (reporter = Brazil); the partner-reported mirror is NOT produced by the seam — do not read d.partners (that field belongs to PartnerConcentration, not here).
+// @property {{y:number,mdic:number,comtrade:number,partners:(number|null)}[]} series   BR exports as seen by MDIC (SECEX), by UN Comtrade (reporter = Brazil), AND the partner-reported mirror (partners = partners' reported imports FROM Brazil, un_comtrade:partner_exp; null when that year has no partner data). All three series are plotted in ViewsMultiSource ("Reportado pelos parceiros").
 // @property {{y:number,v:number}[]} discrepancy
 //
 // ── Cross chain — EXTENDED contracts (src/data/producers.js) ─────────────

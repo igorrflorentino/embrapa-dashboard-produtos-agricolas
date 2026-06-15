@@ -100,6 +100,50 @@ def _check_inflation_pivot_codes(settings: Settings) -> CheckResult:
         return CheckResult("Inflation pivot codes", False, str(exc)[:120])
 
 
+# The SIDRA variable codes silver_ibge_pam pivots, keyed to their dbt role (the
+# pam_variable_* vars in dbt_project.yml). Each MUST be ingested (present in
+# PAM_VARIABLE_CODES) or its Gold column comes out empty. Mirror dbt_project.yml:
+# keep this in sync if a PAM variable is added/removed there.
+_PAM_REQUIRED_VARIABLE_CODES = {
+    "8331": "área plantada",
+    "216": "área colhida",
+    "214": "quantidade",
+    "112": "rendimento",
+    "215": "valor",
+}
+
+
+def _check_pam_variable_codes(settings: Settings) -> CheckResult:
+    """Each PAM variable code the dbt model relies on must be in PAM_VARIABLE_CODES.
+
+    silver_ibge_pam pivots these SIDRA variables (dbt vars pam_variable_*). A code
+    dropped from PAM_VARIABLE_CODES is never fetched into Bronze, so its Gold column
+    (área/quantidade/rendimento/valor) silently comes out empty. The config comment
+    nominates ``embrapa doctor`` as the place for this parity check — this is it.
+    """
+    try:
+        available = set(settings.pam_variable_codes_list)
+        missing = {
+            code: role
+            for code, role in _PAM_REQUIRED_VARIABLE_CODES.items()
+            if code not in available
+        }
+        if missing:
+            return CheckResult(
+                "PAM variable codes",
+                False,
+                f"not in PAM_VARIABLE_CODES: {missing} "
+                f"(available={sorted(available)}) → that Gold column would be empty",
+            )
+        return CheckResult(
+            "PAM variable codes",
+            True,
+            f"all {len(_PAM_REQUIRED_VARIABLE_CODES)} dbt PAM variables present",
+        )
+    except Exception as exc:
+        return CheckResult("PAM variable codes", False, str(exc)[:120])
+
+
 def _check_adc(settings: Settings) -> CheckResult:
     """Application Default Credentials are present; reports impersonation target when set."""
     try:
@@ -484,6 +528,7 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
 _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
     ("inflation-codes", _check_inflation_pivot_codes),
+    ("pam-variable-codes", _check_pam_variable_codes),
     ("adc", _check_adc),
     ("bq", _check_bq),
     ("gcs", _check_gcs),

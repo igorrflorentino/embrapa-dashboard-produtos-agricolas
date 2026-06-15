@@ -15,17 +15,26 @@ function heatColorscale() {
 }
 
 function Heatmap({ rows = [], valueKey = 'v', valueLabel = '', height }) {
-  // No rows (e.g. all UFs filtered out) or an empty first row → empty plot,
-  // never touch rows[0].values.
-  if (!rows.length || !rows[0].values?.length) {
+  // x = a SINGLE sorted year axis built from the UNION of every row's years.
+  // Building x from rows[0] alone (and z from each row's own array) misaligns
+  // columns whenever the rows are ragged — a UF missing an early year would have
+  // every cell shifted one column left onto the wrong year label. Indexing each
+  // row's values into this shared axis (gaps → null) is correct for sparse
+  // per-row coverage (common for trade bancos where a UF lacks early years).
+  const yearSet = new Set();
+  for (const r of rows) for (const d of r.values || []) yearSet.add(d.y);
+  const x = [...yearSet].sort((a, b) => a - b);
+
+  // No rows (e.g. all UFs filtered out) or no year anywhere → empty plot.
+  if (!rows.length || !x.length) {
     return <Plot traces={[]} layout={baseLayout()} height={height || 120} />;
   }
 
-  // x = years (aligned across rows by the first row), y = row labels,
-  // z = a matrix of values aligned by year.
-  const x = rows[0].values.map((d) => d.y);
   const y = rows.map((r) => r.label);
-  const z = rows.map((r) => r.values.map((d) => d[valueKey] ?? null));
+  const z = rows.map((r) => {
+    const byYear = new Map((r.values || []).map((d) => [d.y, d[valueKey] ?? null]));
+    return x.map((yr) => (byYear.has(yr) ? byYear.get(yr) : null));
+  });
 
   const traces = [
     {

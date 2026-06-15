@@ -10,6 +10,11 @@
 
 PY := uv run
 DBT_DIR := dbt
+# Every dbt invocation goes through this wrapper so the repo-root .env is exported
+# first — dbt_project.yml reads its datasets + BCB series codes via env_var(), which
+# only sees the process environment. A bare `dbt build` would silently use the
+# baked-in env_var() defaults and ignore .env (see scripts/dbt-with-env.sh).
+DBT := bash scripts/dbt-with-env.sh
 
 setup:        ## Pin Python and create the virtualenv
 	pyenv local 3.12.11
@@ -42,7 +47,7 @@ reconcile: dbt-deps    ## Deep-refresh: full re-ingest (catches OLD-year revisio
 	@echo "[reconcile]          before running — a drifted local .env will regress Bronze. The deployed Job"
 	@echo "[reconcile]          path (make ingest-job-reconcile-schedule) uses the correct prod config and is unaffected."
 	$(PY) embrapa ingest reconcile
-	cd $(DBT_DIR) && $(PY) dbt build --target prod
+	$(DBT) build --target prod
 	@echo "[reconcile] Done. This may have rewritten HISTORICAL Gold — consider 'make backup-gold'."
 
 ingest-job-deploy:    ## Build + deploy the `embrapa ingest all` Cloud Run Job (reads .env)
@@ -73,13 +78,13 @@ webapi-deploy:    ## Build + deploy the React SPA + Flask REST Cloud Run Service
 	bash deploy/webapi/deploy.sh
 
 dbt-deps:
-	cd $(DBT_DIR) && $(PY) dbt deps
+	$(DBT) deps
 
 dbt-build: dbt-deps    ## Dev: silver+gold in dbt_dev_silver / dbt_dev_gold
-	cd $(DBT_DIR) && $(PY) dbt build
+	$(DBT) build
 
 dbt-build-prod: dbt-deps    ## Prod: silver+gold in silver / gold (real datasets)
-	cd $(DBT_DIR) && $(PY) dbt build --target prod
+	$(DBT) build --target prod
 
 backup-gold:    ## Snapshot prod Gold tables to gs://${GCS_BUCKET}/backups/run=<ts>/
 	$(PY) embrapa backup-gold
@@ -94,13 +99,13 @@ ensure-curation:    ## Create the append-only curation log tables (research_inpu
 	$(PY) python -c "from embrapa_commodities.serving.curation import ensure_code_industrialization_log_table as c, ensure_flow_market_log_table as f, ensure_curators_table as a; print('code log ready:', c()); print('flow-market log ready:', f()); print('curators table ready:', a())"
 
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
-	cd $(DBT_DIR) && $(PY) dbt build --vars 'enable_curation: true'
+	$(DBT) build --vars 'enable_curation: true'
 
 dbt-test:
-	cd $(DBT_DIR) && $(PY) dbt test
+	$(DBT) test
 
 dbt-source-freshness: dbt-deps    ## Check Bronze source staleness vs the freshness thresholds (needs a profile + warehouse)
-	cd $(DBT_DIR) && $(PY) dbt source freshness
+	$(DBT) source freshness
 
 sqlfluff:    ## Lint dbt SQL models with SQLFluff (BigQuery dialect; needs a dbt profile)
 	cd $(DBT_DIR) && $(PY) sqlfluff lint models

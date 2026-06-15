@@ -1,0 +1,18 @@
+# Dependabot keeps the SHA-pinned GitHub Actions current. The workflows pin every
+# action to a full commit SHA (with a `# vX` comment) to prevent a moving-tag
+# supply-chain attack; Dependabot then bumps those SHAs (and the comment) when a
+# new release ships, so pinning doesn't mean going stale. Weekly is plenty for an
+# internal batch/dashboard project.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      # One grouped PR per week instead of one per action — less review churn.
+      github-actions:
+        patterns:
+          - "*"

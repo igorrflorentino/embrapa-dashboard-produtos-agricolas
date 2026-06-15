@@ -458,6 +458,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
     assert [r.name for r in results] == [
         ".env parsed",
         "Inflation pivot codes",
+        "PAM variable codes",
         "ADC credentials",
         "BigQuery reachable",
         "GCS bucket",
@@ -470,3 +471,71 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "Serving marts",
         "Gold backup freshness",
     ]
+
+
+# cli.INGESTS source name → the doctor SOURCE_CHECKS key that covers it. The two
+# registries are independent lists keyed by DIFFERENT names: the CLI uses
+# 'ibge-pam'/'bcb-inflation'/'bcb-currency'; doctor groups them as 'pam'/'bcb'
+# (one probe per upstream API, not per ingest leg). This map IS the documented
+# contract (docs/adding_a_data_source.md, CLAUDE.md) — the test below fails the
+# moment a new IngestSpec is added without wiring up its doctor coverage.
+_INGEST_TO_DOCTOR_CHECK = {
+    "ibge": "ibge",
+    "ibge-pam": "pam",
+    "bcb-inflation": "bcb",
+    "bcb-currency": "bcb",
+    "comex": "comex",
+    "comtrade": "comtrade",
+}
+
+
+def test_every_ingest_source_is_covered_by_a_doctor_check() -> None:
+    """Registry-drift guard. Adding a source means updating cli.INGESTS AND
+    doctor.SOURCE_CHECKS/BRONZE_TARGETS (per docs/adding_a_data_source.md), but the
+    lists don't reference each other, so a missed doctor entry is silent today. This
+    pins the three registries together."""
+    from embrapa_commodities import cli
+
+    ingest_names = {spec.name for spec in cli.INGESTS}
+    doctor_keys = {name for name, _ in doctor.SOURCE_CHECKS}
+
+    # The alias map covers exactly the registered ingest sources (fails if a new
+    # IngestSpec lands without being mapped here).
+    assert ingest_names == set(_INGEST_TO_DOCTOR_CHECK), (
+        "cli.INGESTS drifted from the registry-drift map; "
+        f"symmetric diff: {ingest_names ^ set(_INGEST_TO_DOCTOR_CHECK)}"
+    )
+
+    # Every mapped doctor key actually exists as a SOURCE_CHECK …
+    missing = {k for k in _INGEST_TO_DOCTOR_CHECK.values() if k not in doctor_keys}
+    assert not missing, f"ingest sources map to non-existent doctor checks: {missing}"
+
+    # … and no SOURCE_CHECK is an orphan (unreachable from any ingest source).
+    orphans = doctor_keys - set(_INGEST_TO_DOCTOR_CHECK.values())
+    assert not orphans, f"doctor SOURCE_CHECKS has keys no ingest source maps to: {orphans}"
+
+
+def test_pam_variable_codes_parity_passes_on_defaults(settings: Settings) -> None:
+    """The 5 dbt PAM variable roles (8331/216/214/112/215) are all in the default
+    PAM_VARIABLE_CODES → the parity check passes."""
+    result = doctor._check_pam_variable_codes(settings)
+    assert result.ok is True
+    assert "5" in result.detail
+
+
+def test_pam_variable_codes_parity_fails_when_a_dbt_code_is_dropped(settings_factory) -> None:
+    """Dropping a code the dbt model needs (here 215 valor) must fail the parity
+    check — that column would silently come out empty in Gold."""
+    s = settings_factory(pam_variable_codes="8331,216,214,112")  # no 215 (valor)
+    result = doctor._check_pam_variable_codes(s)
+    assert result.ok is False
+    assert "215" in result.detail
+
+
+def test_bronze_targets_reference_real_settings_fields(settings: Settings) -> None:
+    """Typo guard for the third registry: every (dataset_attr, table_attr) in
+    doctor.BRONZE_TARGETS must name a real Settings field, else _check_bronze_tables
+    would raise AttributeError at runtime instead of probing the table."""
+    for dataset_attr, table_attr in doctor.BRONZE_TARGETS:
+        assert hasattr(settings, dataset_attr), f"BRONZE_TARGETS: no Settings.{dataset_attr}"
+        assert hasattr(settings, table_attr), f"BRONZE_TARGETS: no Settings.{table_attr}"
