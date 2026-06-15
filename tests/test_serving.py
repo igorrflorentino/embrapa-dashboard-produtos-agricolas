@@ -1083,6 +1083,62 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
     assert recorded["params"]["product_codes"].values == ["3405"]
 
 
+def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
+    """fetch_curators gates curation AUTHORIZATION, so pin its SQL exactly: distinct
+    lower(trim(email)) with NULLs excluded, from the research_inputs allowlist table.
+    A typo here would silently widen or empty the curator allowlist."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = params
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_curators()
+
+    assert out == "df"
+    q = recorded["query"].lower()
+    assert "p.research_inputs.curators" in q
+    assert "distinct lower(trim(email))" in q
+    assert "where email is not null" in q
+    assert recorded["params"] == []  # constant table FQN only — no bound params
+
+
+def test_fetch_banco_metadata_binds_banco_id_as_param(monkeypatch):
+    """fetch_banco_metadata reads operator overrides for ONE banco — the banco_id
+    must be a BOUND parameter (not interpolated) and hit the overrides table."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_banco_metadata("ibge_pevs")
+
+    assert "p.research_inputs.banco_metadata" in recorded["query"]
+    assert "where banco_id = @banco_id" in recorded["query"]
+    assert recorded["params"]["banco_id"].value == "ibge_pevs"
+
+
 def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway

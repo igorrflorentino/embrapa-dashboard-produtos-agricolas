@@ -47,6 +47,12 @@ find_python() {
             minor=$(echo "$version" | cut -d. -f2)
 
             if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 8 ]; }; then
+                # The project pins requires-python = "==3.12.*"; a non-3.12 pick
+                # fails later inside `uv sync` with a cryptic message. Warn early
+                # (to stderr so it doesn't pollute the cmd captured via $(...)).
+                if [ "$major" -ne 3 ] || [ "$minor" -ne 12 ]; then
+                    echo "WARNING: selected Python $version, but this project requires 3.12.* — 'uv sync' will fail. Install 3.12 (e.g. 'pyenv install 3.12.11')." >&2
+                fi
                 echo "$cmd"
                 return 0
             fi

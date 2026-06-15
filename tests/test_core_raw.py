@@ -69,6 +69,26 @@ def test_land_raw_writes_parquet_and_returns_uri(settings: Settings, df: pd.Data
     assert uri == "gs://test-bucket/raw/comex/comex_flows/EXP_2023.parquet"
 
 
+def test_land_raw_ensures_bucket_only_once_per_client(settings: Settings, df: pd.DataFrame) -> None:
+    """Landing many chunks through ONE client must ensure the bucket once, not per
+    chunk — the per-client memo avoids hundreds of exists()/reload() round-trips on
+    a full multi-chunk run (e.g. COMTRADE)."""
+    gcs = MagicMock(name="gcs")
+    with patch("embrapa_commodities.core.raw.ensure_bucket") as ensure_bucket:
+        for year in (2021, 2022, 2023):
+            raw.land_raw(
+                df,
+                settings=settings,
+                storage_client=gcs,
+                source="comex",
+                dataset="comex_flows",
+                basename=f"EXP_{year}",
+            )
+    # 3 chunks, same client → exactly ONE ensure_bucket round-trip.
+    ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
+    assert gcs.bucket.return_value.blob.call_count == 3  # but every chunk still uploaded
+
+
 def test_land_raw_stamps_provenance_plus_auto_fields(settings: Settings, df: pd.DataFrame) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value

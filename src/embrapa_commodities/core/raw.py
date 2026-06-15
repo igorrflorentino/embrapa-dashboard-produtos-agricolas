@@ -16,6 +16,7 @@ the BQ load (``gcp/bigquery.load_dataframe``), and the freshness *decision*
 from __future__ import annotations
 
 import logging
+import weakref
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -34,6 +35,31 @@ logger = logging.getLogger(__name__)
 # stalled connection on an unattended Cloud Run ingest should still time out
 # rather than hang the job forever. 300s leaves slack for the largest raw blobs.
 GCS_TIMEOUT_S: float = 300.0
+
+# Per-process record of which (client, bucket) pairs have already been ensured.
+# land_raw* lands ONE object per chunk, so a full COMTRADE run (~hundreds of
+# chunks) would otherwise call ensure_bucket — exists() + reload() (+ maybe a
+# lifecycle patch()) — hundreds of times for a bucket that doesn't change mid-run.
+# Keyed weakly by the storage Client so the memo is naturally scoped to a process
+# (one long-lived client → ensure once) AND drops out when the client is GC'd
+# (so per-test mock clients never collide). See _ensure_bucket_once.
+_bucket_ensured: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _ensure_bucket_once(storage_client: storage.Client, settings: Settings) -> None:
+    """ensure_bucket, but at most ONCE per (process client, bucket) pair.
+
+    The bucket's existence + protections don't change between the chunks of a run,
+    so re-checking on every land_raw* is pure GCS round-trip overhead. The first
+    call per client+bucket does the real ensure; later ones short-circuit."""
+    ensured = _bucket_ensured.get(storage_client)
+    if ensured is None:
+        ensured = set()
+        _bucket_ensured[storage_client] = ensured
+    if settings.gcs_bucket in ensured:
+        return
+    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    ensured.add(settings.gcs_bucket)
 
 
 def raw_object_name(settings: Settings, source: str, dataset: str, basename: str) -> str:
@@ -63,7 +89,7 @@ def land_raw(
     to ``str``); a ``fetched_at`` UTC stamp and ``rows`` count are always added.
     Returns the ``gs://`` URI.
     """
-    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    _ensure_bucket_once(storage_client, settings)
     object_name = raw_object_name(settings, source, dataset, basename)
 
     buffer = BytesIO()
@@ -107,7 +133,7 @@ def land_raw_file(
     (COMEX streams CSV→Parquet to a temp file in chunks). ``rows`` is optional
     since the caller may not have a cheap count; pass it when known.
     """
-    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    _ensure_bucket_once(storage_client, settings)
     object_name = raw_object_name(settings, source, dataset, basename)
     blob = storage_client.bucket(settings.gcs_bucket).blob(object_name)
     blob.metadata = _raw_metadata(provenance, source, rows)

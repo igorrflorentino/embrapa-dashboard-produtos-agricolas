@@ -381,16 +381,16 @@ def geo_yearly(banco_id: str, conv: dict, summary: dict | None = None) -> pd.Dat
     geography-aware hero + map + series — Pushdown Computing at the product × UF ×
     year grain the snapshot deliberately omits).
 
-    Unlike ``snapshot()`` — which fetches ``uf_yearly`` with NO basket so the client
-    can slice it by state/year but NOT by product — this reader pushes the active
-    basket down to the by-UF-yearly mart query (``codes``), so the returned cube IS
-    narrowed to the chosen products. The frontend then sums it over the selected
+    Like ``snapshot()``'s ``uf_yearly``, this pushes the active basket down to the
+    by-UF-yearly mart query (``codes``), so the returned cube IS narrowed to the
+    chosen products. The real difference is the YEAR window: ``snapshot()`` bounds
+    ``uf_yearly`` to the selected period [y0, y1], while this reader leaves the
+    window OPEN (full history) so the cube is cacheable across period changes — the
+    client applies the period slice. The frontend then sums it over the selected
     states + window client-side, making VALOR TOTAL / quantities / the choropleth
     respect state + product + period together. ``None`` when the banco has no geo
-    grain (e.g. COMTRADE: country-pair, no UF). The year window is left OPEN here
-    (full history) so the cube is cacheable across period changes — the client
-    applies the period slice. Same value column + COMEX USD→display rename as the
-    snapshot, so the cube shares the snapshot's currency basis exactly.
+    grain (e.g. COMTRADE: country-pair, no UF). Same value column + COMEX USD→display
+    rename as the snapshot, so the cube shares the snapshot's currency basis exactly.
     """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or not banco or "geo" not in banco.provides:

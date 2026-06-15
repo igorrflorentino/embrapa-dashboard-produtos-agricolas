@@ -384,6 +384,16 @@ class Settings(BaseSettings):
         return codes
 
     @property
+    def pam_variable_codes_list(self) -> list[str]:
+        """Parsed PAM SIDRA variable codes (the substantive 5 fetched into Bronze).
+        Named *_list to avoid shadowing the ``pam_variable_codes`` raw env field.
+        ``embrapa doctor`` cross-checks these against the dbt pam_variable_* roles."""
+        codes = [c.strip() for c in self.pam_variable_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PAM_VARIABLE_CODES is empty.")
+        return codes
+
+    @property
     def inflation_series_map(self) -> dict[str, str]:
         return _parse_code_label(self.bcb_inflation_series)
 

@@ -49,6 +49,11 @@ CPU="${WEBAPI_CPU:-1}"
 CONCURRENCY="${WEBAPI_CONCURRENCY:-16}"
 MIN_INSTANCES="${WEBAPI_MIN_INSTANCES:-0}"
 MAX_INSTANCES="${WEBAPI_MAX_INSTANCES:-4}"
+# Ingress lock (docs/auth_architecture.md § Dashboard ingress — HARD REQUIREMENT):
+# reject direct *.run.app traffic so the external HTTPS LB + IAP is the SOLE path
+# and the X-Goog-Authenticated-User-Email header can't be client-forged. Override
+# only for a deliberate non-IAP topology.
+INGRESS="${WEBAPI_INGRESS:-internal-and-cloud-load-balancing}"
 
 echo "Project=$PROJECT  Region=$REGION  Service=$SERVICE_NAME"
 echo "Image=$IMAGE"
@@ -88,6 +93,21 @@ printf "BQ_GOLD_DATASET: '%s'\n" "${WEBAPI_GOLD_DATASET:-gold}" >> "$ENV_YAML"
 printf "BQ_SERVING_DATASET: '%s'\n" "${WEBAPI_SERVING_DATASET:-serving}" >> "$ENV_YAML"
 grep -q '^GCP_PROJECT_ID:' "$ENV_YAML" || { echo "ERROR: GCP_PROJECT_ID missing in $ENV_FILE"; exit 1; }
 
+# IAP_AUDIENCE arms the in-app IAP JWT verification (serving/iap.py). Without it
+# the app falls back to trusting the PLAINTEXT X-Goog-Authenticated-User-Email
+# header — so a deploy that also slipped its ingress lock would accept a FORGED
+# curation author (`edited_by`). Refuse to deploy without it; override only for a
+# deliberate pre-IAP bootstrap (which is then NOT safe for curation writes).
+if ! grep -q '^IAP_AUDIENCE:' "$ENV_YAML"; then
+  if [ "${ALLOW_NO_IAP_AUDIENCE:-0}" = "1" ]; then
+    echo "WARNING: IAP_AUDIENCE unset — in-app IAP JWT check DISABLED; curation 'edited_by' is forgeable. Bootstrap-only." >&2
+  else
+    echo "ERROR: IAP_AUDIENCE missing in $ENV_FILE — required to verify the IAP JWT (docs/auth_architecture.md)." >&2
+    echo "       Set IAP_AUDIENCE in .env, or re-run with ALLOW_NO_IAP_AUDIENCE=1 for a deliberate pre-IAP bootstrap." >&2
+    exit 1
+  fi
+fi
+
 # 4) Deploy / update the Cloud Run Service (create-or-update), PRIVATE.
 echo "Deploying Cloud Run Service…"
 gcloud run deploy "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
@@ -95,6 +115,7 @@ gcloud run deploy "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
   --service-account "$WEBAPI_SA" \
   --env-vars-file "$ENV_YAML" \
   --no-allow-unauthenticated \
+  --ingress "$INGRESS" \
   --memory "$MEMORY" \
   --cpu "$CPU" \
   --concurrency "$CONCURRENCY" \

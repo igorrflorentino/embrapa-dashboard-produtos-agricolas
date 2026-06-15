@@ -83,19 +83,28 @@
         return { headers, rows, subject: 'series_por_produto' };
       }
       case 'geo': {
-        const headers = ['uf', 'nome', 'regiao', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3'];
+        // The geo snapshot is a SINGLE year (ufLatestYear), not the whole window, and
+        // the basket may not be applied to the map (notFilteredByBasket → all-products).
+        // Emit both as explicit columns so the file carries the same caveats the UI shows
+        // ("no invisible filtering"): an `ano` column (flagged parcial) + an escopo column.
+        const ano = f.ufYearPartial ? `${f.ufLatestYear} (parcial)` : (f.ufLatestYear ?? '');
+        const escopo = f.notFilteredByBasket ? 'todos os produtos' : 'cesta selecionada';
+        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3', 'escopo_produto'];
         const rows = f.ufData.map(u => [
-          u.uf, u.name, u.region,
+          ano, u.uf, u.name, u.region,
           Math.round(dispV(u.value * 1e6)),
           Math.round(u.q_mass * 1e3),
           Math.round(u.q_vol * 1e6),
+          escopo,
         ]);
         return { headers, rows, subject: 'distribuicao_geografica' };
       }
       case 'concentration': {
-        const headers = ['uf', 'nome', 'regiao', `valor_${conv.currency}`];
+        const ano = f.ufYearPartial ? `${f.ufLatestYear} (parcial)` : (f.ufLatestYear ?? '');
+        const escopo = f.notFilteredByBasket ? 'todos os produtos' : 'cesta selecionada';
+        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'escopo_produto'];
         const rows = f.ufData.slice().sort((a, b) => b.value - a.value)
-          .map(u => [u.uf, u.name, u.region, Math.round(dispV(u.value * 1e6))]);
+          .map(u => [ano, u.uf, u.name, u.region, Math.round(dispV(u.value * 1e6)), escopo]);
         return { headers, rows, subject: 'concentracao' };
       }
       case 'quality': {

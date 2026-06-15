@@ -665,3 +665,119 @@ def test_serialize_monthly_empty_emits_twelve_values():
     assert len(out["months"]) == 12 and out["years"] == [] and out["matrix"] == {}
     out_empty_df = s.serialize_monthly(pd.DataFrame())
     assert out_empty_df["monthlyAvg"] == [0.0] * 12
+
+
+def test_serialize_flow_builds_sankey_nodes_links_and_node_value_totals():
+    """serialize_flow is the Sankey builder the route test stubs out — so its
+    node-id assignment, origin/dest dedup, ÷1e6 scaling, and bidirectional
+    per-node value accumulation are exercised here, not at the route layer."""
+    links = pd.DataFrame(
+        [
+            {
+                "origin_code": "SP",
+                "origin_name": "São Paulo",
+                "dest_code": "USA",
+                "dest_name": "Estados Unidos",
+                "value_usd": 2_000_000,
+            },
+            {
+                "origin_code": "SP",
+                "origin_name": "São Paulo",
+                "dest_code": "CHN",
+                "dest_name": "China",
+                "value_usd": 3_000_000,
+            },
+            {
+                "origin_code": "MG",
+                "origin_name": "Minas Gerais",
+                "dest_code": "USA",
+                "dest_name": "Estados Unidos",
+                "value_usd": 1_000_000,
+            },
+        ]
+    )
+    out = s.serialize_flow(
+        {"links": links, "origin_label": "UF de origem", "dest_label": "País de destino"}
+    )
+
+    assert out["preview"] is False and out["unit"] == "US$"
+    assert out["originLabel"] == "UF de origem" and out["destLabel"] == "País de destino"
+
+    by_id = {n["id"]: n for n in out["nodes"]}
+    # Origins/dests get separate id namespaces, assigned in first-seen order.
+    assert by_id["o0"]["label"] == "São Paulo" and by_id["o0"]["side"] == "origin"
+    assert by_id["o1"]["label"] == "Minas Gerais"
+    assert by_id["d0"]["label"] == "Estados Unidos" and by_id["d0"]["side"] == "dest"
+    assert by_id["d1"]["label"] == "China"
+    # A repeated origin/dest must dedup to ONE node (4 nodes, not 6).
+    assert len(out["nodes"]) == 4
+
+    # Links carry the ÷1e6 (US$ mi) value, source/target by node id.
+    assert out["links"] == [
+        {"source": "o0", "target": "d0", "value": 2.0},
+        {"source": "o0", "target": "d1", "value": 3.0},
+        {"source": "o1", "target": "d0", "value": 1.0},
+    ]
+    # Each node's value accumulates EVERY incident link (both sides).
+    assert by_id["o0"]["value"] == 5.0  # 2 + 3
+    assert by_id["o1"]["value"] == 1.0
+    assert by_id["d0"]["value"] == 3.0  # 2 + 1
+    assert by_id["d1"]["value"] == 3.0
+
+
+def test_serialize_flow_truncates_to_max_links():
+    links = pd.DataFrame(
+        [
+            {
+                "origin_code": "SP",
+                "origin_name": "São Paulo",
+                "dest_code": "USA",
+                "dest_name": "EUA",
+                "value_usd": 9_000_000,
+            },
+            {
+                "origin_code": "MG",
+                "origin_name": "Minas",
+                "dest_code": "CHN",
+                "dest_name": "China",
+                "value_usd": 8_000_000,
+            },
+        ]
+    )
+    out = s.serialize_flow({"links": links}, max_links=1)
+    assert len(out["links"]) == 1 and len(out["nodes"]) == 2  # only the first row survived
+    assert out["links"][0]["value"] == 9.0
+
+
+def test_serialize_flow_none_and_empty_are_safe():
+    none_out = s.serialize_flow(None)
+    assert none_out["nodes"] == [] and none_out["links"] == []
+    assert none_out["originLabel"] == "Origem" and none_out["destLabel"] == "Destino"
+    empty_out = s.serialize_flow({"links": pd.DataFrame(), "origin_label": "A", "dest_label": "B"})
+    assert empty_out["nodes"] == [] and empty_out["links"] == []
+    assert empty_out["originLabel"] == "A"  # provided labels survive the empty path
+
+
+def test_serialize_partner_populated_path_scales_and_truncates():
+    """serialize_partner's ÷1e6 exp/imp/value scaling + head(max_rows) truncation
+    (otherwise only the empty path was covered)."""
+    df = pd.DataFrame(
+        [
+            {
+                "partner_name": "China",
+                "exp_value_usd": 5_000_000,
+                "imp_value_usd": 1_000_000,
+                "value_usd": 6_000_000,
+            },
+            {
+                "partner_name": "EUA",
+                "exp_value_usd": 3_000_000,
+                "imp_value_usd": 2_000_000,
+                "value_usd": 5_000_000,
+            },
+        ]
+    )
+    out = s.serialize_partner(df, max_rows=1)
+    assert out["preview"] is False and out["unit"] == "US$"
+    assert len(out["partners"]) == 1  # truncated to max_rows
+    assert out["partners"][0] == {"name": "China", "exp": 5.0, "imp": 1.0, "value": 6.0}

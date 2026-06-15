@@ -144,10 +144,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Auth to GCP via Workload Identity Federation
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed  # v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DBT_BUILD_SERVICE_ACCOUNT }}
@@ -155,12 +155,12 @@ jobs:
       # Pin to the exact interpreter required by pyproject.toml
       # (requires-python = "==3.12.*").
       - name: Set up Python 3.12.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12.11"
 
       - name: Install uv (with cache keyed on uv.lock)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -219,6 +219,20 @@ jobs:
       # tests — keep propagating on every automated build.
       - name: dbt build prod
         working-directory: dbt
+        # dbt_project.yml resolves its datasets + BCB inflation/currency series
+        # codes via env_var(<name>, <default>) — those read the PROCESS env, not
+        # .env (which doesn't exist in CI). Set them explicitly so a change to the
+        # prod config via repo variables takes effect instead of silently using the
+        # baked-in defaults. The `|| '<default>'` fallbacks mirror dbt_project.yml,
+        # so leaving the repo vars unset keeps the current (default) behaviour.
+        env:
+          BQ_SILVER_DATASET: ${{ vars.BQ_SILVER_DATASET || 'silver' }}
+          BQ_GOLD_DATASET: ${{ vars.BQ_GOLD_DATASET || 'gold' }}
+          BQ_SERVING_DATASET: ${{ vars.BQ_SERVING_DATASET || 'serving' }}
+          BCB_INFLATION_SERIES_IPCA_CODE: ${{ vars.BCB_INFLATION_SERIES_IPCA_CODE || '433' }}
+          BCB_INFLATION_SERIES_IGPM_CODE: ${{ vars.BCB_INFLATION_SERIES_IGPM_CODE || '189' }}
+          BCB_INFLATION_SERIES_IGPDI_CODE: ${{ vars.BCB_INFLATION_SERIES_IGPDI_CODE || '190' }}
+          BCB_CURRENCY_SERIES: ${{ vars.BCB_CURRENCY_SERIES || '1:USD,21619:EUR' }}
         run: |
           ARGS=(build --target prod)
           if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then

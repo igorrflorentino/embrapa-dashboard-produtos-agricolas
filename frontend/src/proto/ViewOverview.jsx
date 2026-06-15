@@ -128,10 +128,17 @@ function ViewOverview({ families, summary, database, conventions }) {
             sparkColor="var(--viz-4)"
           />
         )}
+        {/* Quality is a banco-wide (acervo) figure: applyFilters narrows quality
+            ONLY by the flag chips, never by basket/UF/period (the API has no
+            per-basket quality). The other KPIs in this strip ARE filtered, so we
+            mark the scope here rather than present an acervo % as if it were
+            scoped to the active selection ("no invisible filtering"). */}
         <window.KpiCardSpark
           label="Linhas íntegras (flag = OK)"
           value={window.fmtPct(okShare)}
-          sub={okCount ? (okCount / 1e6).toFixed(1).replace('.', ',') + ' mi linhas' : 'OK não selecionada'}
+          sub={okCount
+            ? (okCount / 1e6).toFixed(1).replace('.', ',') + ' mi linhas · acervo do banco'
+            : 'OK não selecionada · acervo do banco'}
           spark={filtered.qualityTs.slice(-12)}
           sparkKey="ok"
           sparkColor="var(--ok)"

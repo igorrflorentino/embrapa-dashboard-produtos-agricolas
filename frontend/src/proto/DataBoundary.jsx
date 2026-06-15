@@ -5,9 +5,6 @@
 
 const { useState: useDBState, useEffect: useDBEffect } = React;
 
-// Poll interval for the "did Gold change?" check (real deploy: server poll).
-const FRESHNESS_POLL_MS = 12000;
-
 function useBancoData(bancoId) {
   const [, force] = useDBState(0);
 
@@ -17,11 +14,13 @@ function useBancoData(bancoId) {
     return unsub;
   }, [bancoId]);
 
-  // Periodic freshness check (mock: re-evaluates isStale; real: fetch version)
-  useDBEffect(() => {
-    const t = setInterval(() => force(n => n + 1), FRESHNESS_POLL_MS);
-    return () => clearInterval(t);
-  }, []);
+  // NOTE: no periodic freshness poll. dataStore.isStale() is intentionally always
+  // false (there is no live Gold-version signal yet — see dataStore.js), so the
+  // FreshnessBanner can never fire; a setInterval(force) here only re-ran
+  // applyFilters + every chart trace build on a fixed cadence for nothing. The
+  // subscribe() above already re-renders on real store changes. Re-introduce a
+  // poll here ONLY alongside a real version check (poll /api/source-meta and
+  // compare lastRefresh to the load time), so the re-render does actual work.
 
   return {
     status:   window.dataStore.status(bancoId),

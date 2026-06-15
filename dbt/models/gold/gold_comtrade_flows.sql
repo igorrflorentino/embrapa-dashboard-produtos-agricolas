@@ -45,7 +45,28 @@
 -- chapter-44 rows with no reported quantity → NULL qty_native/qty_base/weight.
 -- ────────────────────────────────────────────────────────────────────────────
 
-with base_flows as (
+with with_dominant as (
+
+    -- Pick each group's DOMINANT quantity unit (the unit of the largest-quantity
+    -- row) so the qty sums below stay UNIT-SAFE. A (reporter, partner, cmd) whose
+    -- reported HS codes were succession-merged into one cmd_code can span >1
+    -- statistical unit, and summing qty_native/qty_base across units would add
+    -- incompatible quantities under a single label. Mirrors gold_comex_flows'
+    -- dominant_stat_unit_code guard. Today every merged code shares one unit
+    -- ('massa'), so this changes NO numbers — it just makes the latent mixed-unit
+    -- case fail safe (non-dominant-unit qty excluded, not mis-summed). The ORDER BY
+    -- matches the array_agg label picks below, so the summed unit == the labelled unit.
+    select
+        *,
+        first_value(qty_unit_code) over (
+            partition by flow, reference_year, reporter_code, partner_code, cmd_code
+            order by qty_native desc nulls last, qty_unit_code
+        ) as dominant_qty_unit_code
+    from {{ ref('silver_comtrade_flows') }}
+
+),
+
+base_flows as (
 
     select
         flow,
@@ -63,8 +84,10 @@ with base_flows as (
         array_agg(unit_native_symbol order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)] as unit_native_symbol,
         array_agg(family order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]             as family,
         array_agg(base_unit order by qty_native desc nulls last, qty_unit_code limit 1)[offset(0)]          as base_unit,
-        sum(qty_native)                           as qty_native,
-        sum(qty_base)                             as qty_base,
+        -- UNIT-SAFE: sum quantity ONLY for rows in the dominant statistical unit
+        -- (see with_dominant). Weights/values are unit-independent (kg / USD) → full sum.
+        sum(case when qty_unit_code = dominant_qty_unit_code then qty_native end) as qty_native,
+        sum(case when qty_unit_code = dominant_qty_unit_code then qty_base end)   as qty_base,
         sum(net_weight_kg)                        as net_weight_kg,
         sum(gross_weight_kg)                      as gross_weight_kg,
         sum(primary_value_usd)                    as primary_value_usd,
@@ -72,7 +95,7 @@ with base_flows as (
         sum(fob_value_usd)                        as fob_value_usd,
         count(*)                                  as source_rows,
         max(ingestion_timestamp)                  as last_refresh
-    from {{ ref('silver_comtrade_flows') }}
+    from with_dominant
     group by flow, reference_year, reporter_code, partner_code, cmd_code
 
 ),

@@ -26,24 +26,33 @@ SA_EMAIL="sa-claude-code-web-dev@${PROJECT_ID}.iam.gserviceaccount.com"
 echo "✅ Created: $SA_EMAIL"
 echo ""
 
-# 2. Grant BigQuery dataEditor (project-wide; the SA itself is limited scope)
-echo "[2/4] Granting BigQuery dataEditor..."
+# 2. Grant BigQuery read-only on all project data.
+#    NOT dataEditor: a project-wide dataEditor would let this "dbt_dev only, no
+#    prod access" SA WRITE/DELETE prod silver/gold — directly contradicting its
+#    own scope, so a leaked key = full prod-data write. dataViewer is read-only
+#    and lets the dev build read Bronze sources (and inspect prod for debugging)
+#    without being able to mutate any dataset.
+echo "[2/4] Granting BigQuery dataViewer (project read-only)..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/bigquery.dataEditor" \
+  --role="roles/bigquery.dataViewer" \
   --quiet
 
-echo "✅ Granted BigQuery data editor role"
+echo "✅ Granted BigQuery data viewer (read-only) role"
 echo ""
 
-# 3. Grant BigQuery job runner
-echo "[3/4] Granting BigQuery job permissions..."
+# 3. Grant BigQuery user (run jobs + create datasets). The SA becomes OWNER of the
+#    dbt_dev_* datasets it creates, so it has full read/write on its OWN dev
+#    sandbox — but NO write to prod datasets it didn't create. This is the
+#    dev-write path that replaces the project-wide dataEditor above (and it
+#    subsumes jobUser, so no separate jobUser grant is needed).
+echo "[3/4] Granting BigQuery user (jobs + own-dataset create/write)..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/bigquery.jobUser" \
+  --role="roles/bigquery.user" \
   --quiet
 
-echo "✅ Granted BigQuery job user role"
+echo "✅ Granted BigQuery user role"
 echo ""
 
 # 4. Grant GCS read access to landing bucket
