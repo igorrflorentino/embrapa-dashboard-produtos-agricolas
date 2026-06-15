@@ -19,6 +19,7 @@ import './proto/glossary.js';
 import './proto/urlState.js';
 import './proto/chipFmt.js';
 import './proto/filterSummary.js';
+import './proto/useGeoCascade.js';
 import './proto/seriesUtils.js';
 import './proto/dataFilters.js';
 import './proto/csvExport.js';
@@ -461,6 +462,11 @@ function Dashboard() {
           basket). Opening after the view rendered guarantees real data. */}
       {filterOpen && window.FilterMenu && (
         <window.FilterMenu
+          // Key on the banco so a banco switch remounts the menu with the new
+          // banco's product/UF/município universe instead of reusing the prior
+          // one's seeded state (the menu seeds once per mount). Robustness even
+          // though the conditional mount above already gives a fresh menu per open.
+          key={database}
           open
           banco={database}
           value={summary}

@@ -455,10 +455,16 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   // multi-selects (Sets)
   const [products, setProducts] = useState(new Set(PRODS.map(p => p.code)));
   const [flags,    setFlags]    = useState(new Set(QUALITY.map(f => f.flag)));
-  const [nations,  setNations]  = useState(new Set(['BR']));
-  const [regions,  setRegions]  = useState(new Set(FM_REGIONS.map(r => r.id)));
-  const [states,   setStates]   = useState(new Set(STATES.map(s => s.uf)));
-  const [munis,    setMunis]    = useState(new Set(MUNIS.map(m => m.code))); // all by default (0 = none, same as the other dimensions)
+  // Geo selection (nations → regions → states → municípios) + cascade pruning +
+  // eligibility live in a dedicated, unit-tested hook (useGeoCascade.js). Defaults:
+  // nations = {BR} only; regions/states/municípios = all of the banco's universe.
+  const {
+    nations,  setNations,
+    regions,  setRegions,
+    states,   setStates,
+    munis,    setMunis,
+    eligibleRegions, eligibleStates, eligibleMunis,
+  } = window.useGeoCascade({ regionsUniverse: FM_REGIONS, statesUniverse: STATES, munisUniverse: MUNIS });
 
   // search strings, one per multi-select
   const [qProducts, setQProducts] = useState('');
@@ -479,46 +485,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [valueMin, setValueMin] = useState(null);
   const [valueMax, setValueMax] = useState(null);
 
-  // ----- cascade-aware lists (children gated by parent selection)
-  const eligibleRegions = useMemo(
-    () => FM_REGIONS.filter(r => nations.has(r.nation)),
-    [nations]
-  );
-  const eligibleStates = useMemo(
-    () => STATES.filter(s => regions.has(s.region) && eligibleRegions.some(r => r.id === s.region)),
-    [regions, eligibleRegions]
-  );
-  const eligibleMunis = useMemo(
-    () => MUNIS.filter(m => states.has(m.uf) && eligibleStates.some(s => s.uf === m.uf)),
-    [states, eligibleStates, MUNIS]
-  );
-
-  // Cascade pruning — deselecting a parent removes its now-ineligible children
-  // from the selection Sets, so the APPLIED filter matches the visible cascade
-  // (counts never read "27/23", and dropping a region/nation actually excludes
-  // its data). Re-selecting a parent leaves children unselected — re-pick them
-  // or use "Selecionar tudo".
-  React.useEffect(() => {
-    const ok = new Set(eligibleRegions.map(r => r.id));
-    setRegions(prev => {
-      const next = new Set([...prev].filter(id => ok.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [eligibleRegions]);
-  React.useEffect(() => {
-    const ok = new Set(eligibleStates.map(s => s.uf));
-    setStates(prev => {
-      const next = new Set([...prev].filter(uf => ok.has(uf)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [eligibleStates]);
-  React.useEffect(() => {
-    const ok = new Set(eligibleMunis.map(m => m.code));
-    setMunis(prev => {
-      const next = new Set([...prev].filter(c => ok.has(c)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [eligibleMunis]);
+  // (eligibility memos + cascade-pruning effects now live in useGeoCascade above)
 
   // Seed the panel from the currently-APPLIED filter every time it opens, so
   // it mirrors the live state (a shared deep-link, or a prior apply) instead of
