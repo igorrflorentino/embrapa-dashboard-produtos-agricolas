@@ -205,7 +205,13 @@ def list_reporters() -> list[str]:
         results = response.json().get("results", [])
     finally:
         response.close()
-    return [str(r["reporterCode"]) for r in results if not r.get("isGroup")]
+    # Tolerate a schema-drifted reference row: a missing reporterCode is skipped
+    # (not a KeyError that would abort the whole run before any chunk executes).
+    return [
+        str(r["reporterCode"])
+        for r in results
+        if not r.get("isGroup") and r.get("reporterCode") is not None
+    ]
 
 
 @core_http.http_retry_policy(
@@ -245,10 +251,14 @@ def list_hs6_codes(scope_codes: list[str]) -> list[str]:
     if not results:
         # 200 with an empty body — an API hiccup or schema drift; retryable.
         raise ComtradeTransientError("HS reference returned no results")
+    # Tolerate a schema-drifted reference row: an entry missing its id is skipped
+    # (not a KeyError that would abort the whole run before any chunk executes).
     leaves = sorted(
         str(entry["id"])
         for entry in results
-        if entry.get("aggrLevel") == 6 and any(str(entry["id"]).startswith(s) for s in scope_codes)
+        if entry.get("aggrLevel") == 6
+        and entry.get("id") is not None
+        and any(str(entry["id"]).startswith(s) for s in scope_codes)
     )
     if not leaves:
         raise ComtradeRequestError(

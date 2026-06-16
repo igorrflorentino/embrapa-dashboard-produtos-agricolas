@@ -7,10 +7,13 @@ function Donut({ data = [], size = 160, valueKey = 'share' }) {
   const r = size / 2;
   const ir = r * 0.62;
   let acc = 0;
-  const total = data.reduce((s, d) => s + d[valueKey], 0) || 1;
+  // Coerce each datum's value (Number(…) || 0) so a missing/non-numeric valueKey
+  // can't produce NaN% slices or a blank ring.
+  const val = (d) => Number(d[valueKey]) || 0;
+  const total = data.reduce((s, d) => s + val(d), 0) || 1;
   const slices = data.map((d) => {
     const start = acc / total;
-    acc += d[valueKey];
+    acc += val(d);
     const end = acc / total;
     const a0 = start * Math.PI * 2 - Math.PI / 2;
     const a1 = end * Math.PI * 2 - Math.PI / 2;
@@ -42,7 +45,7 @@ function Donut({ data = [], size = 160, valueKey = 'share' }) {
           <li key={i}>
             <span className="ldot" style={{ background: d.color }}></span>
             <span className="lname">{d.name}</span>
-            <span className="lval tnum">{(d[valueKey] * 100).toFixed(0)}%</span>
+            <span className="lval tnum">{(val(d) * 100).toFixed(0)}%</span>
           </li>
         ))}
       </ul>

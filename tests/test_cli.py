@@ -765,6 +765,24 @@ def test_discover_bcb_series_empty_exits_1(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.exit_code == 1
 
 
+def test_discover_bcb_series_rejects_non_positive_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --last has min=1 (same as the chunk-years options); 0 / negative must be
+    # rejected by the CLI as a usage error before any fetch happens.
+    called = False
+
+    def _spy(code: str, n: int) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("sample_bcb_series must not run for an invalid --last")
+
+    monkeypatch.setattr(cli.discover, "sample_bcb_series", _spy)
+
+    result = runner.invoke(cli.app, ["discover", "bcb-series", "433", "--last", "0"])
+
+    assert result.exit_code == 2
+    assert called is False
+
+
 # ─── monitor ─────────────────────────────────────────────────────────────────
 def test_monitor_list_flag_shows_table(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.observability, "list_log_paths", lambda: [])

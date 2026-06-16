@@ -17,6 +17,12 @@ import { decorateSnapshot } from './decorate';
 const API = '/api';
 
 const store = {}; // bancoId -> { status, version, loadedAt, data, error }
+// Per-cache-key monotonic fetch generation. A same-key reload (or a convention
+// flip that re-runs load for an already-loading key) can start a NEWER fetch
+// while an older one is still in flight; without this token the older response
+// (resolving last) could overwrite the newer one. We capture the generation at
+// fetch start and ignore a resolution whose token is stale (FINDING M8).
+const loadGen = {}; // cacheKey -> number (latest started generation)
 const subs = new Set();
 const notify = () => {
   for (const fn of subs) {
@@ -273,9 +279,14 @@ window.dataStore = {
     if (cur && cur.status === 'ready' && !this.isStale(id)) return Promise.resolve(cur);
     if (cur && cur.status === 'loading') return Promise.resolve(cur);
     store[key] = { status: 'loading', version: null, loadedAt: null, data: null, error: null };
+    // Stamp this fetch; a later load()/reload() for the same key bumps it, marking
+    // any in-flight older fetch's resolution stale so it cannot overwrite the newer.
+    const myGen = (loadGen[key] || 0) + 1;
+    loadGen[key] = myGen;
     notify();
     return fetchSnapshot(id)
       .then((data) => {
+        if (loadGen[key] !== myGen) return store[key]; // superseded — keep the newer fetch's state
         store[key] = {
           status: 'ready',
           version: `${id}-live`,
@@ -287,6 +298,7 @@ window.dataStore = {
         return store[key];
       })
       .catch((err) => {
+        if (loadGen[key] !== myGen) return store[key]; // stale failure — don't clobber the newer fetch
         store[key] = {
           status: 'error',
           version: null,

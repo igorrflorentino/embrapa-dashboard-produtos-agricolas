@@ -223,6 +223,59 @@ def test_geo_yearly_route_unfiltered_passes_summary_none(monkeypatch):
     assert captured["summary"] is None
 
 
+# ── convention validation: invalid currency/correction → 400 (not silent BRL/IPCA) ──
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["/api/snapshot", "/api/product-uf", "/api/geo-yearly"],
+)
+@pytest.mark.parametrize(
+    "query",
+    [
+        "correction=ipca",  # wrong case — keys are case-sensitive exact-match
+        "correction=IPC",  # typo
+        "currency=brl",  # wrong case
+        "currency=GBP",  # unsupported currency
+    ],
+)
+def test_convention_routes_reject_invalid_currency_or_correction(monkeypatch, endpoint, query):
+    """An invalid currency/correction must 400 at the route boundary, not silently
+    fall back to BRL/IPCA inside monetary_column (which would hand the user the
+    wrong deflated series with no signal). Covers all three conv-accepting routes."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+
+    # Make the seam blow up if reached, so the test fails loudly if validation is
+    # bypassed and the request is served with a fallback convention.
+    def must_not_run(*a, **k):
+        raise AssertionError("seam was reached despite an invalid convention")
+
+    monkeypatch.setattr(seam, "snapshot", must_not_run)
+    monkeypatch.setattr(seam, "product_uf_ranking", must_not_run)
+    monkeypatch.setattr(seam, "geo_yearly", must_not_run)
+
+    resp = client.get(f"{endpoint}?banco=ibge_pevs&code=3405&{query}")
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_convention_route_accepts_valid_non_default_pair(monkeypatch):
+    """A valid non-default pair (e.g. USD/IGP-M) passes validation and reaches the
+    seam verbatim — the validation only rejects unknown values, not legal ones."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        seam, "snapshot", lambda banco, conv, summary: captured.update(conv=conv) or {}
+    )
+    resp = client.get("/api/snapshot?banco=ibge_pevs&currency=USD&correction=IGP-M")
+    assert resp.status_code == 200
+    assert captured["conv"] == {"currency": "USD", "correction": "IGP-M"}
+
+
 # ── GET read endpoints: route → seam → serializer wiring ──────────────────────
 
 
@@ -719,3 +772,43 @@ def test_auto_create_curators_failure_does_not_block_write(monkeypatch):
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 200
+
+
+# ── JSON sanitization: numpy scalars + datetimes round-trip (no 500) ──────────
+
+
+def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypatch):
+    """A seam payload carrying numpy.integer/floating/bool_ + date/Timestamp (the
+    shapes that reach serialization straight off a pandas DataFrame, e.g.
+    /source-meta maturityDate/cobertura) round-trips through SafeJSONProvider to
+    valid JSON instead of 500-ing on an un-coerced field."""
+    import datetime
+
+    import numpy as np
+    import pandas as pd
+
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog",
+        lambda: {
+            "count": np.int64(7),
+            "ratio": np.float64(1.5),
+            "flag": np.bool_(True),
+            "nan": np.float64("nan"),
+            "maturityDate": datetime.date(2026, 6, 16),
+            "lastRefresh": pd.Timestamp("2026-06-16T12:30:00"),
+        },
+    )
+    resp = client.get("/api/catalog")
+    assert resp.status_code == 200
+    assert resp.content_type.startswith("application/json")
+    body = resp.get_json()  # parses → confirms no bare NaN/unserializable type leaked
+    assert body["count"] == 7 and isinstance(body["count"], int)
+    assert body["ratio"] == 1.5
+    assert body["flag"] is True
+    assert body["nan"] is None  # NaN → null (invalid-JSON literal avoided)
+    assert body["maturityDate"] == "2026-06-16"
+    assert body["lastRefresh"].startswith("2026-06-16T12:30:00")

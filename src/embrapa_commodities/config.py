@@ -28,6 +28,16 @@ def _parse_code_label(raw: str) -> dict[str, str]:
         code, label = code.strip(), label.strip()
         if not code or not label:
             raise ValueError(f"Empty code or label in {item!r}")
+        if not (code.isascii() and code.isdigit()):
+            # SGS/NCM ids are ASCII-numeric; a non-numeric code usually means the
+            # CODE:LABEL pair was transposed (e.g. 'IPCA:433' instead of
+            # '433:IPCA'). `isascii()` also rejects unicode digits (fullwidth
+            # '４３３', superscripts) that pass isdigit() but aren't valid ids.
+            # Fail loudly here instead of downstream.
+            raise ValueError(
+                f"Series code must be numeric, got {code!r} in {item!r} "
+                "(expected 'CODE:LABEL', e.g. '433:IPCA')"
+            )
         if code in result:
             raise ValueError(f"Duplicate series code {code!r}")
         result[code] = label

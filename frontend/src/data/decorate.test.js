@@ -8,9 +8,17 @@ import { decorateSnapshot, isCanonicalUf } from './decorate.js';
 
 describe('decorateSnapshot', () => {
   beforeEach(() => {
-    window.UF_DATA = [{ uf: 'PA', col: 7, row: 2, region: 'Norte', name: 'Pará' }];
+    // UF_DATA registry stores the canonical region CODE ('N'); REGIONS carries the
+    // code id + its pt-BR display label so the normalizer can map a name → code.
+    window.UF_DATA = [{ uf: 'PA', col: 7, row: 2, region: 'N', name: 'Pará' }];
     window.QUALITY_FLAGS = [{ id: 'OK', label: 'Sem ressalvas', color: 'var(--ok)' }];
-    window.REGIONS = [{ id: 'N', name: 'Norte' }];
+    window.REGIONS = [
+      { id: 'N', label: 'Norte' },
+      { id: 'NE', label: 'Nordeste' },
+      { id: 'CO', label: 'Centro-Oeste' },
+      { id: 'SE', label: 'Sudeste' },
+      { id: 'S', label: 'Sul' },
+    ];
   });
 
   it('joins UF tile coords + region/name from the registry', () => {
@@ -20,15 +28,17 @@ describe('decorateSnapshot', () => {
       value: 1.5,
       col: 7,
       row: 2,
-      region: 'Norte',
+      region: 'N', // canonical region CODE from the registry (no API region supplied)
       name: 'Pará',
     });
   });
 
   it('keeps values the API already provided, fills only the gaps', () => {
-    const out = decorateSnapshot({ ufData: [{ uf: 'PA', value: 1, col: 99, region: 'X' }] });
+    // A valid region CODE from the API wins; col is kept verbatim (?? keeps 99);
+    // a missing name is filled from the registry.
+    const out = decorateSnapshot({ ufData: [{ uf: 'PA', value: 1, col: 99, region: 'NE' }] });
     expect(out.ufData[0].col).toBe(99); // API col wins (?? keeps 99)
-    expect(out.ufData[0].region).toBe('X'); // API region wins (|| keeps 'X')
+    expect(out.ufData[0].region).toBe('NE'); // API region is a valid code → kept
     expect(out.ufData[0].name).toBe('Pará'); // missing → filled from the registry
   });
 
@@ -42,7 +52,7 @@ describe('decorateSnapshot', () => {
   it('defaults regions and is null/empty-safe', () => {
     expect(decorateSnapshot(null)).toBe(null);
     const out = decorateSnapshot({});
-    expect(out.regions).toEqual([{ id: 'N', name: 'Norte' }]);
+    expect(out.regions).toEqual(window.REGIONS); // passthrough of the registry
     expect(out.ufData).toBeUndefined(); // no ufData key → left untouched
   });
 
@@ -52,6 +62,57 @@ describe('decorateSnapshot', () => {
     expect(out).toBe(snap); // in-place contract — the views hold this same ref
     expect(out.ufData).toEqual([]); // empty arrays skip the map, stay []
     expect(out.quality).toEqual([]);
+  });
+});
+
+describe('decorateUfRows — region normalized to the canonical CODE (M7)', () => {
+  beforeEach(() => {
+    window.UF_DATA = [
+      { uf: 'PA', col: 7, row: 2, region: 'N', name: 'Pará' },
+      { uf: 'BA', col: 5, row: 3, region: 'NE', name: 'Bahia' },
+      { uf: 'SP', col: 4, row: 6, region: 'SE', name: 'São Paulo' },
+    ];
+    window.QUALITY_FLAGS = [];
+    window.REGIONS = [
+      { id: 'N', label: 'Norte' },
+      { id: 'NE', label: 'Nordeste' },
+      { id: 'CO', label: 'Centro-Oeste' },
+      { id: 'SE', label: 'Sudeste' },
+      { id: 'S', label: 'Sul' },
+    ];
+  });
+
+  it('maps an API display NAME ("Norte") to its 2-letter code so RegionBars matches', () => {
+    const out = decorateSnapshot({ ufData: [{ uf: 'PA', value: 1, region: 'Norte' }] });
+    expect(out.ufData[0].region).toBe('N'); // not the verbatim "Norte"
+  });
+
+  it('keeps an API value that is already a valid code', () => {
+    const out = decorateSnapshot({ ufData: [{ uf: 'BA', value: 1, region: 'NE' }] });
+    expect(out.ufData[0].region).toBe('NE');
+  });
+
+  it('falls back to the registry code when the API region is unknown/absent', () => {
+    // Unknown string → registry code (SP → SE), not the bogus verbatim value.
+    const unknown = decorateSnapshot({ ufData: [{ uf: 'SP', value: 1, region: 'Sudeste/SP' }] });
+    expect(unknown.ufData[0].region).toBe('SE');
+    // Absent region → registry code.
+    const absent = decorateSnapshot({ ufData: [{ uf: 'PA', value: 1 }] });
+    expect(absent.ufData[0].region).toBe('N');
+  });
+
+  it('produces rows whose region matches the REGIONS ids (the RegionBars group key)', () => {
+    // The downstream regionData groups ufData by `region === r.id`; every decorated
+    // row must therefore carry a value present in the REGIONS id set.
+    const codes = new Set(window.REGIONS.map((r) => r.id));
+    const out = decorateSnapshot({
+      ufData: [
+        { uf: 'PA', value: 1, region: 'Norte' }, // display name
+        { uf: 'BA', value: 2, region: 'NE' }, // already a code
+        { uf: 'SP', value: 3 }, // absent
+      ],
+    });
+    out.ufData.forEach((r) => expect(codes.has(r.region)).toBe(true));
   });
 });
 

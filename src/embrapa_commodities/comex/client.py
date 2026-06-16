@@ -97,9 +97,9 @@ def _ca_bundle() -> str:
     global _ca_bundle_path
     if _ca_bundle_path and os.path.exists(_ca_bundle_path):
         return _ca_bundle_path
-    base = Path(certifi.where()).read_text(encoding="ascii")
+    base = Path(certifi.where()).read_text(encoding="utf-8")
     fd, path = tempfile.mkstemp(prefix="comex_ca_", suffix=".pem")
-    with os.fdopen(fd, "w", encoding="ascii") as fh:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(base)
         fh.write("\n")
         fh.write(SECTIGO_INTERMEDIATE_PEM)
@@ -176,6 +176,8 @@ def _download_to_disk(url: str, dest_path: str) -> None:
     hang, :class:`ComexRequestError` on a permanent 4xx (e.g. 404 for a year
     that doesn't exist yet).
     """
+    # Start the wall-clock budget BEFORE issuing the request so it also bounds
+    # the TLS handshake / header trickle, not just the post-200 body stream.
     deadline = time.monotonic() + DOWNLOAD_DEADLINE_S
     logger.info("Comex download %s", url)
     with requests.get(
@@ -185,6 +187,13 @@ def _download_to_disk(url: str, dest_path: str) -> None:
         headers=core_http.DEFAULT_HEADERS,
         verify=_ca_bundle(),
     ) as response:
+        # A slow handshake / header trickle can already blow the budget before
+        # the first byte of body — fail here too, not only inside the loop.
+        if time.monotonic() > deadline:
+            raise ComexTransientError(
+                f"download exceeded {DOWNLOAD_DEADLINE_S}s total budget "
+                f"(slow handshake/headers) for {url}"
+            )
         if response.status_code != 200:
             msg = f"HTTP {response.status_code} for {url}"
             if response.status_code in core_http.RETRYABLE_STATUS_CODES:

@@ -1083,6 +1083,27 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
     assert recorded["params"]["product_codes"].values == ["3405"]
 
 
+def test_quality_readers_return_none_for_unknown_source_without_querying(monkeypatch):
+    """Tri-state contract (documented in gateway's module docstring): the per-source
+    quality readers return None for an UNKNOWN source — short-circuiting BEFORE any
+    BigQuery read — rather than querying or raising. The webapi serializers normalize
+    that None to empty, so this is the intended, lower-risk behavior; pin it so it is
+    not silently changed."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    def boom(query, params):  # must never be reached for an unknown source
+        raise AssertionError("run_query must not run for an unknown source")
+
+    monkeypatch.setattr(gateway, "run_query", boom)
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        assert gateway.fetch_quality_timeseries("not_a_real_source") is None
+        assert gateway.fetch_quality_by_product("not_a_real_source") is None
+
+
 def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
     """fetch_curators gates curation AUTHORIZATION, so pin its SQL exactly: distinct
     lower(trim(email)) with NULLs excluded, from the research_inputs allowlist table.
@@ -1571,6 +1592,38 @@ def test_init_cache_selects_redis_when_configured(monkeypatch):
     assert captured["CACHE_REDIS_URL"] == "redis://cache:6379/0"
 
 
+def test_init_cache_safely_logs_loud_error_and_falls_back_to_nullcache(monkeypatch, caplog):
+    """A misconfigured prod must FAIL LOUD: the NullCache fallback still binds (so
+    the app boots) but the failure is logged at ERROR and the message states that
+    caching is DISABLED and the curation-cache invalidation guarantees are void."""
+    pytest.importorskip("flask_caching")
+    import logging
+
+    from flask import Flask
+
+    from embrapa_commodities.serving import cache as cache_mod
+
+    def boom(server):
+        raise RuntimeError("gcp_project_id Field required")
+
+    monkeypatch.setattr(cache_mod, "init_cache", boom)
+
+    app = Flask(__name__)
+    with caplog.at_level(logging.WARNING, logger=cache_mod.logger.name):
+        cache_mod.init_cache_safely(app)
+
+    # Fallback control flow is unchanged: a NullCache is bound so the app still boots.
+    backend = next(iter(app.extensions["cache"].values()))
+    assert type(backend).__name__ == "NullCache"
+
+    # The failure is now loud (ERROR, not WARNING) and explicit about the impact.
+    record = next(r for r in caplog.records if r.name == cache_mod.logger.name)
+    assert record.levelno == logging.ERROR
+    msg = record.getMessage().lower()
+    assert "disabled" in msg
+    assert "invalidation" in msg  # curation-cache invalidation guarantees are void
+
+
 # ── curation: cache invalidation on save (the "scales without Redis" pillar) ──
 
 
@@ -1734,6 +1787,41 @@ def test_comtrade_cpc_value_filters_cmd_codes_when_scoped():
     query, params = sql.comtrade_cpc_value("t", codes=("0801", "44"))
     assert "cmdcode in unnest(@cmd_codes)" in query.lower()
     assert params[0].name == "cmd_codes" and list(params[0].values) == ["0801", "44"]
+
+
+def test_comtrade_cpc_value_projects_columns_and_keeps_predicates_after_batch_selection():
+    """M5 (byte budget WITHOUT a semantic change): the latest_batch scan must reduce
+    bytes by PROJECTING an explicit column list (never `select *`) — Bronze is wide
+    and all-STRING and this reader runs under maximum_bytes_billed. The row predicates
+    must stay AFTER the max(ingestion_timestamp) batch-selection window (in the
+    deduplicated CTE), byte-for-byte mirroring silver_comtrade_flows — filtering
+    before the window could pick an older generation when the newest one's rows are
+    all predicate-filtered (a retraction-resurrection divergence we must NOT
+    introduce)."""
+    query, _ = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw", codes=("0801",))
+    # Strip SQL line comments first so explanatory prose (which mentions "select *")
+    # can't satisfy or break the STRUCTURAL assertions below — match real SQL only.
+    code_only = "\n".join(line.split("--")[0] for line in query.splitlines())
+    flat = " ".join(code_only.lower().split())  # collapse whitespace for matching
+
+    # Column projection, not select-* — the actual byte lever in columnar BigQuery.
+    assert "select *" not in flat, "latest_batch must project columns, not select *"
+    assert "partner2code, cmdcode, moscode, motcode, qtyunitcode" in flat
+
+    where_pos = flat.find("where customscode != 'c00'")
+    window_pos = flat.find("max(ingestion_timestamp) over (partition by refyear, reportercode)")
+    rownum_pos = flat.find("row_number() over")
+    cmd_pos = flat.find("cmdcode in unnest(@cmd_codes)")
+
+    # Batch selection (the window) comes FIRST; predicates + cmdCode scope apply AFTER
+    # it — the only order that preserves silver_comtrade_flows' retraction semantics.
+    assert window_pos != -1 and where_pos != -1
+    assert window_pos < where_pos, "predicates must filter AFTER the batch-selection window"
+    assert window_pos < cmd_pos, "the cmdCode scope must also apply after the window"
+    # The dedup (row_number) runs on the chosen batch, after the predicates.
+    assert window_pos < rownum_pos
+    # The predicates live in the deduplicated CTE, scanning latest_batch (not the raw table).
+    assert "from latest_batch where customscode != 'c00'" in flat
 
 
 def test_current_flow_market_latest_wins_and_drops_cleared():

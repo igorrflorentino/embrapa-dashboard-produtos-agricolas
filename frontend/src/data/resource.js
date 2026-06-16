@@ -11,6 +11,12 @@
 const cache = new Map(); // key -> { state:'pending'|'ready'|'error', data?, error?, attempts? }
 const subs = new Set();
 
+// Per-key monotonic fetch generation. A reload/invalidate can start a NEWER fetch
+// for the same key while an older one is still in flight; without this token the
+// older response (resolving last) could overwrite the newer one. We capture the
+// generation at fetch start and ignore a resolution whose token is stale.
+const gen = new Map(); // key -> number (latest started generation)
+
 // Producers call ensure() SYNCHRONOUSLY on every render, and each failure
 // notify()s subscribers → another render → another ensure(). If ensure() always
 // re-fetched on 'error', a persistently-failing endpoint would become an
@@ -55,6 +61,10 @@ export function ensure(key, urlFactory) {
   // invalidate(key) clears the entry (resetting attempts) for an explicit retry.
   if (e && e.state === 'error' && (e.attempts || 0) >= MAX_ATTEMPTS) return;
   const attempts = (e?.attempts || 0) + 1;
+  // Stamp this fetch with a fresh generation; a later ensure() for the same key
+  // bumps it, marking any in-flight older fetch's resolution stale.
+  const myGen = (gen.get(key) || 0) + 1;
+  gen.set(key, myGen);
   cache.set(key, { state: 'pending', attempts });
   fetch(urlFactory())
     .then((r) => {
@@ -62,18 +72,23 @@ export function ensure(key, urlFactory) {
       return r.json();
     })
     .then((data) => {
+      if (gen.get(key) !== myGen) return; // a newer fetch superseded this one — drop it
       cache.set(key, { state: 'ready', data });
       notify();
     })
     .catch((error) => {
+      if (gen.get(key) !== myGen) return; // stale failure — don't clobber a newer fetch
       cache.set(key, { state: 'error', error: error.message || String(error), attempts });
       notify();
     });
 }
 
-/** Drop a cached entry (e.g. after a curation write) so the next ensure refetches. */
+/** Drop a cached entry (e.g. after a curation write) so the next ensure refetches.
+ *  Bumps the generation too, so a fetch already in flight for this key cannot
+ *  repopulate it after the invalidation (its resolution is now stale). */
 export function invalidate(key) {
   cache.delete(key);
+  gen.set(key, (gen.get(key) || 0) + 1);
 }
 
 /** Subscribe to cache changes; returns an unsubscribe fn. */

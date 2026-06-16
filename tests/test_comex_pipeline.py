@@ -69,6 +69,28 @@ def test_raw_is_current_etag_takes_precedence_over_last_modified() -> None:
     assert pipeline._raw_is_current(stored, head) is False
 
 
+def test_raw_is_current_never_trusts_content_length_alone(caplog) -> None:
+    """Content-Length is a WEAK signal: a same-byte value correction (upstream
+    edit that keeps the file the same size) must NOT be misread as unchanged.
+    With only Content-Length on both sides — even matching — the function forces a
+    re-download and warns, instead of short-circuiting to current."""
+    import logging
+
+    stored = {"source_content_length": "12345"}
+    head = {"source_content_length": "12345"}  # identical bytes, yet untrusted
+    with caplog.at_level(logging.WARNING):
+        assert pipeline._raw_is_current(stored, head, label="EXP_2026") is False
+    assert any("Content-Length alone is too weak" in r.getMessage() for r in caplog.records)
+
+
+def test_raw_is_current_strong_id_still_wins_over_content_length() -> None:
+    # A matching ETag is still authoritative even when Content-Length is also
+    # present — Content-Length is simply ignored, not blocking.
+    stored = {"source_etag": "a", "source_content_length": "1"}
+    head = {"source_etag": "a", "source_content_length": "2"}
+    assert pipeline._raw_is_current(stored, head) is True
+
+
 # ─── bronze_schema ───────────────────────────────────────────────────────────
 def test_bronze_schema_shape() -> None:
     schema = pipeline.bronze_schema()
@@ -339,6 +361,50 @@ def test_process_chunk_current_year_404_is_skipped_not_failed(settings) -> None:
         )
     assert outcome.status == "skipped"
     assert "404" in outcome.detail
+
+
+def test_process_chunk_does_not_mark_loaded_when_no_product_matched(settings) -> None:
+    """Regression: bronze_one returns "" only when NO configured product matched.
+    Stamping bronze_loaded there would freeze the raw out of Phase 2 forever, so a
+    later product addition could never backfill it. The stamp must be skipped."""
+    with (
+        patch.object(pipeline, "sync_raw", return_value=True),
+        patch.object(pipeline, "needs_bronze", return_value=True),
+        patch.object(pipeline, "bronze_one", return_value=""),  # nothing matched
+        patch.object(pipeline, "mark_bronze_loaded") as mark,
+    ):
+        outcome = pipeline.process_chunk(
+            settings,
+            "export",
+            2022,
+            storage_client=MagicMock(),
+            bq_client=MagicMock(),
+            table_fqn="p.d.t",
+        )
+    assert outcome.status == "skipped"
+    assert "no configured products" in outcome.detail
+    mark.assert_not_called()  # left unmarked so a future product can backfill
+
+
+def test_process_chunk_marks_loaded_when_product_matched(settings) -> None:
+    """The happy path still stamps bronze_loaded after a real load (at-least-once),
+    so an unchanged raw is correctly skipped on the next run."""
+    with (
+        patch.object(pipeline, "sync_raw", return_value=True),
+        patch.object(pipeline, "needs_bronze", return_value=True),
+        patch.object(pipeline, "bronze_one", return_value="p.d.t"),
+        patch.object(pipeline, "mark_bronze_loaded") as mark,
+    ):
+        outcome = pipeline.process_chunk(
+            settings,
+            "export",
+            2022,
+            storage_client=MagicMock(),
+            bq_client=MagicMock(),
+            table_fqn="p.d.t",
+        )
+    assert outcome.status == "loaded"
+    mark.assert_called_once()
 
 
 def test_process_chunk_404_on_past_year_still_raises(settings) -> None:

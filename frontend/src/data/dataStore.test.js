@@ -205,6 +205,37 @@ describe('dataStore', () => {
     });
   });
 
+  it('ignores a stale in-flight snapshot so it cannot overwrite a newer reload (M8)', async () => {
+    // A same-key reload starts a NEWER fetch while the OLD one is still in flight.
+    // The OLD response resolves LAST; without a generation token it would clobber
+    // the newer one. We control resolution order with deferred promises.
+    let resolveOld;
+    const oldSnap = new Promise((res) => { resolveOld = res; });
+    const newSnap = jsonRes(validSnap({ quality: [{ id: 'OK', count: 99 }] }));
+    const f = vi
+      .fn((url) => {
+        if (String(url).includes('/source-meta')) return jsonRes({});
+        // First snapshot call (gen 1) is deferred; the second (gen 2) resolves now.
+        return f.__snap++ === 0 ? oldSnap : newSnap;
+      });
+    f.__snap = 0;
+    const ds = await loadStore(f);
+
+    const p1 = ds.load('ibge_pevs'); // gen 1 — pending (deferred)
+    const p2 = ds.reload('ibge_pevs'); // deletes the entry + starts gen 2 (resolves now)
+    await p2;
+    await settle();
+    expect(ds.status('ibge_pevs')).toBe('ready');
+    expect(ds.get('ibge_pevs').quality[0].count).toBe(99); // gen 2 payload
+
+    // The stale gen-1 fetch finally resolves — it must be dropped.
+    resolveOld({ ok: true, status: 200, json: () => Promise.resolve(validSnap({ quality: [{ id: 'OK', count: 1 }] })) });
+    await p1;
+    await settle();
+    expect(ds.get('ibge_pevs').quality[0].count).toBe(99); // still gen 2, not the stale 1
+    expect(ds.status('ibge_pevs')).toBe('ready');
+  });
+
   it('treats an absent completeness signal as complete (annual bancos)', async () => {
     // An annual banco (PEVS/PAM/COMTRADE) — or an older backend — omits the
     // completeness fields. meta().latest must default to yearComplete:true so the

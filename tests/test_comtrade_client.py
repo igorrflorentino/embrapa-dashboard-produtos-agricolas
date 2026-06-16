@@ -100,6 +100,22 @@ def test_list_reporters_retries_transient_blip_then_succeeds() -> None:
     assert len(responses.calls) == 2
 
 
+@responses.activate
+def test_list_reporters_skips_schema_drifted_row_without_reporter_code() -> None:
+    """A reference row missing reporterCode must be SKIPPED, not crash the whole
+    run with a non-retryable KeyError before any chunk executes."""
+    drifted = {
+        "results": [
+            {"reporterCode": "76", "text": "Brazil", "isGroup": False},
+            {"text": "no code here", "isGroup": False},  # schema drift → skipped
+            {"reporterCode": "842", "text": "USA", "isGroup": False},
+        ]
+    }
+    responses.add(responses.GET, client.REPORTERS_REF_URL, json=drifted, status=200)
+    codes = client.list_reporters()
+    assert codes == ["76", "842"]  # the keyless row is dropped, no KeyError
+
+
 # ─── list_hs6_codes ──────────────────────────────────────────────────────────
 HS_PAYLOAD = {
     "results": [
@@ -138,6 +154,22 @@ def test_list_hs6_codes_raises_permanent_when_scope_has_no_leaves() -> None:
     responses.add(responses.GET, client.HS_REF_URL, json=HS_PAYLOAD, status=200)
     with pytest.raises(client.ComtradeRequestError):
         client.list_hs6_codes(["999999"])
+
+
+@responses.activate
+def test_list_hs6_codes_skips_schema_drifted_row_without_id() -> None:
+    """An aggrLevel-6 reference row missing its id must be SKIPPED, not crash the
+    whole run with a non-retryable KeyError before any chunk executes."""
+    drifted = {
+        "results": [
+            {"id": "080121", "aggrLevel": 6},
+            {"aggrLevel": 6},  # schema drift: no id → skipped, no KeyError
+            {"id": "080122", "aggrLevel": 6},
+        ]
+    }
+    responses.add(responses.GET, client.HS_REF_URL, json=drifted, status=200)
+    out = client.list_hs6_codes(["0801"])
+    assert out == ["080121", "080122"]  # the id-less row is dropped
 
 
 # ─── fetch_chunk ─────────────────────────────────────────────────────────────

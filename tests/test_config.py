@@ -62,6 +62,29 @@ def test_parse_code_label_duplicate_code_raises() -> None:
         _parse_code_label("433:IPCA,433:IGPM")
 
 
+def test_parse_code_label_transposed_pair_raises() -> None:
+    # A transposed 'LABEL:CODE' (e.g. 'IPCA:433') has a non-numeric code and
+    # must fail loudly here, naming the offending item, instead of silently
+    # parsing to {'IPCA': '433'} and failing downstream with a confusing error.
+    with pytest.raises(ValueError, match="must be numeric") as exc_info:
+        _parse_code_label("IPCA:433")
+    assert "IPCA" in str(exc_info.value)
+
+
+def test_parse_code_label_non_numeric_code_raises() -> None:
+    with pytest.raises(ValueError, match="must be numeric"):
+        _parse_code_label("433:IPCA,abc:IGPM")
+
+
+def test_parse_code_label_rejects_unicode_digit_code() -> None:
+    # Fullwidth digits pass str.isdigit() (and even int()), but are not valid
+    # ASCII SGS/NCM ids — the isascii() guard must reject them. (RUF001 ambiguous-
+    # unicode is globally ignored for the pt-BR typography this project uses.)
+    assert "４３３".isdigit()
+    with pytest.raises(ValueError, match="must be numeric"):
+        _parse_code_label("４３３:IPCA")
+
+
 # ─── default bucket derivation ──────────────────────────────────────────────
 def _make_settings(**overrides: object) -> Settings:
     """Build a Settings instance without picking up the user's local .env."""

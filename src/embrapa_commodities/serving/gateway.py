@@ -21,6 +21,20 @@ WITHOUT a shared Redis — see ``serving.cache``):
 
 There is no global lock and no in-memory Gold DataFrame: state lives in BigQuery,
 results are cached, and the process stays stateless and horizontally scalable.
+
+Return-value contract (TRI-STATE — callers must handle all three):
+  * most readers return a DataFrame (possibly empty) for a known source/filter;
+  * the per-source quality readers (``fetch_quality_timeseries`` /
+    ``fetch_quality_by_product``) return ``None`` for an UNKNOWN/unsupported source
+    (not in ``_GOLD_TABLE`` / ``_GOLD_PRODUCT``) — a deliberate "this source has no
+    such reader", distinct from "the query ran and was empty";
+  * the curation reads (``fetch_current_*`` / ``fetch_curators`` /
+    ``fetch_banco_metadata``) RAISE ``NotFound`` when the backing table does not
+    exist yet, which the seam catches and treats as "nothing configured".
+The webapi serializers normalize ``None`` and an empty DataFrame identically (see
+``serializers._empty``), so a ``None`` from the quality readers is safe; the
+distinction is preserved (rather than flattened to an empty frame) to keep the
+"unknown source" signal explicit for any non-serializer caller.
 """
 
 from __future__ import annotations
@@ -481,7 +495,11 @@ _GOLD_TABLE = {
 
 @cache.memoize()
 def fetch_quality_timeseries(source: str):
-    """data_quality_flag counts per year for a source (backs quality-over-time)."""
+    """data_quality_flag counts per year for a source (backs quality-over-time).
+
+    Returns ``None`` for an unknown/unsupported source (the deliberate tri-state
+    documented in the module docstring); the serializers treat that as empty.
+    """
     table_name = _GOLD_TABLE.get(source)
     if table_name is None:
         return None
@@ -562,7 +580,11 @@ def fetch_current_flow_market():
 
 @cache.memoize()
 def fetch_quality_by_product(source: str):
-    """data_quality_flag counts per product for a source (backs per-product FlagBars)."""
+    """data_quality_flag counts per product for a source (backs per-product FlagBars).
+
+    Returns ``None`` for an unknown/unsupported source (the deliberate tri-state
+    documented in the module docstring); the serializers treat that as empty.
+    """
     table_name = _GOLD_TABLE.get(source)
     cols = _GOLD_PRODUCT.get(source)
     if table_name is None or cols is None:
