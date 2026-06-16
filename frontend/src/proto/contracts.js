@@ -49,7 +49,7 @@
 // @property {{uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} ufData  Per-UF tile-map rows. ONLY for bancos providing `geo` (empty otherwise). `region` is the canonical 2-letter region CODE (N/NE/CO/SE/S, window.REGIONS ids) — decorateUfRows normalizes a display-name region ("Norte") to its code so RegionBars matches.
 // @property {{year:number,uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} [ufYearly]  Per-(UF, year) Gold history backing the geography 'ano × UF' heatmap. ONLY for geo bancos with a per-year-by-UF mart (null otherwise). col/row decorated client-side.
 // @property {{id:string,label:string,color:string,count:number,share:number}[]} quality  Quality-flag distribution (shared taxonomy).
-// @property {{y:number,ok:number,missing_value:number,missing_quantity:number,missing_weight?:number,incomplete?:number}[]} [qualityTs]  Quality over coverage years (real Gold flags: OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE; COMEX adds MISSING_WEIGHT).
+// @property {{y:number,ok:number,missing_value:number,missing_quantity:number,missing_weight?:number,incomplete?:number}[]} [qualityTs]  Quality over coverage years. Each flag is a per-year SHARE (fraction 0–1, NOT a raw count) — the views multiply by 100 for %. Flags: OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE; COMEX adds MISSING_WEIGHT.
 // @property {Object[]} [qualityByProduct]  Per-product flag shares (keys = flag ids).
 // @property {Object[]} [qualityByUf]       Per-UF not_ok share (tile-map shaped).
 // @property {Object[]} [topMunis]          Municipality table (may be empty).
