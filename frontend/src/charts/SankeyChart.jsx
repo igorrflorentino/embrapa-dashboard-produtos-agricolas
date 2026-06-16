@@ -17,6 +17,11 @@ function SankeyChart({ nodes = [], links = [], unit = '', height = 420 }) {
   const indexOf = {};
   nodes.forEach((n, i) => { indexOf[n.id] = i; });
 
+  // Drop dangling links (a source/target id with no matching node): an undefined
+  // index makes Plotly throw, which blanks the whole card via the error fallback.
+  // Filtering here degrades a dangling link to a partial diagram instead.
+  const safeLinks = links.filter((l) => indexOf[l.source] != null && indexOf[l.target] != null);
+
   // Color origins from the categorical viz palette; dests a neutral gray (matches
   // the prototype, which painted dest rects in --pres-gray-400).
   const palette = vizPalette();
@@ -28,7 +33,7 @@ function SankeyChart({ nodes = [], links = [], unit = '', height = 420 }) {
 
   // Ribbons inherit their origin node's color (the prototype tinted each flow by
   // its source side).
-  const linkColors = links.map((l) => {
+  const linkColors = safeLinks.map((l) => {
     const si = indexOf[l.source];
     return si == null ? destColor : nodeColors[si];
   });
@@ -47,9 +52,9 @@ function SankeyChart({ nodes = [], links = [], unit = '', height = 420 }) {
         hovertemplate: '<b>%{label}</b>  %{value:,.2f}<extra></extra>',
       },
       link: {
-        source: links.map((l) => indexOf[l.source]),
-        target: links.map((l) => indexOf[l.target]),
-        value: links.map((l) => l.value),
+        source: safeLinks.map((l) => indexOf[l.source]),
+        target: safeLinks.map((l) => indexOf[l.target]),
+        value: safeLinks.map((l) => l.value),
         color: linkColors,
         hovertemplate:
           '%{source.label} → %{target.label}  %{value:,.2f}<extra></extra>',

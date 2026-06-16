@@ -186,6 +186,38 @@ def test_download_to_disk_raises_permanent_on_404(tmp_path: Path) -> None:
     assert not isinstance(exc.value, client.ComexTransientError)  # 404 is not retried
 
 
+def test_download_to_disk_deadline_covers_handshake_before_status_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wall-clock deadline must bound the request issuance / handshake /
+    header trickle, not just the body-streaming loop: a slow response that has
+    already blown the budget by the time headers return is rejected BEFORE the
+    status_code check (so even a 200 with no body iteration fails)."""
+    # monotonic advances past the deadline between deadline-compute and the
+    # post-response check, simulating a slow handshake/header trickle.
+    ticks = iter([0.0, client.DOWNLOAD_DEADLINE_S + 1.0])
+    monkeypatch.setattr(client.time, "monotonic", lambda: next(ticks))
+
+    class _Resp:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, chunk_size):  # pragma: no cover - must not be reached
+            raise AssertionError("body stream must not start after deadline blown")
+
+    monkeypatch.setattr(client.requests, "get", lambda url, **kw: _Resp())
+    with pytest.raises(client.ComexTransientError) as exc:
+        client._download_to_disk.__wrapped__(  # type: ignore[attr-defined]
+            "https://host/EXP_2023.csv", str(tmp_path / "out.csv")
+        )
+    assert "budget" in str(exc.value)
+
+
 # ─── TLS bundle ──────────────────────────────────────────────────────────────
 def test_ca_bundle_appends_intermediate_to_certifi() -> None:
     import certifi
@@ -195,6 +227,24 @@ def test_ca_bundle_appends_intermediate_to_certifi() -> None:
     assert client.SECTIGO_INTERMEDIATE_PEM.strip() in content
     assert len(content) > len(Path(certifi.where()).read_text(encoding="ascii"))
     assert client._ca_bundle() == path  # cached
+
+
+def test_ca_bundle_reads_non_ascii_certifi_comment_via_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """certifi's bundle is read/written as UTF-8: a CA root carrying a non-ASCII
+    byte in a comment (issuer names occasionally do) must not blow up the way the
+    old ascii codec would. The vendored intermediate is still appended."""
+    fake_certifi = tmp_path / "cacert.pem"
+    # 'ã' is non-ASCII; ascii decode would raise UnicodeDecodeError here.
+    fake_certifi.write_text("# Autoridade Certificadora — São Paulo\nPEMBODY\n", encoding="utf-8")
+    monkeypatch.setattr(client.certifi, "where", lambda: str(fake_certifi))
+    monkeypatch.setattr(client, "_ca_bundle_path", None)  # bypass the process cache
+
+    path = client._ca_bundle()
+    content = Path(path).read_text(encoding="utf-8")
+    assert "São Paulo" in content  # comment survived the round-trip
+    assert client.SECTIGO_INTERMEDIATE_PEM.strip() in content
 
 
 def test_download_passes_verify_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

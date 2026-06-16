@@ -717,7 +717,13 @@ def discover_ibge_periods(
 @discover_app.command("bcb-series")
 def discover_bcb_series(
     code: str = typer.Argument(..., help="SGS series code (e.g. 433)"),
-    n: int = typer.Option(5, "--last", "-n", help="Number of latest observations to fetch"),
+    n: int = typer.Option(
+        5,
+        "--last",
+        "-n",
+        help="Number of latest observations to fetch",
+        min=1,  # reject 0 / negative — same min constraint as chunk-years.
+    ),
 ) -> None:
     """Validate an SGS code by printing the most recent N observations."""
     sample = discover.sample_bcb_series(code, n=n)

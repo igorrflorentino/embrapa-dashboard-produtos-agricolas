@@ -669,7 +669,19 @@ def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, l
     the summed value inflates with every re-ingestion — then dedup on the natural
     key, collapsing the duplicate-qtyUnitCode variants that carry an identical
     ``primaryValue``; and drop the World partner aggregate and legacy HS4 rows
-    (both double-count)."""
+    (both double-count).
+
+    Byte budget: this reader runs under ``maximum_bytes_billed`` and a growing
+    Bronze can trip the ceiling and hard-fail the market-nature chart. The lever is
+    **column projection** — ``latest_batch`` selects only the columns the dedup
+    needs (Bronze is a wide all-STRING table), not ``select *``. BigQuery bills by
+    columns/partitions read, so projecting the ~12 needed columns is the real
+    saving. Crucially, projection does **not** change which generation the window
+    picks, so the predicates stay AFTER batch selection (in ``deduplicated``),
+    byte-for-byte mirroring ``silver_comtrade_flows`` — including its retraction
+    semantics (a re-published reporter-year that drops rows correctly retires the
+    prior generation). (A serving mart preserving ``customsCode`` is still the
+    proper fix when this gets hot.)"""
     conditions = [
         "customsCode != 'C00'",
         "customsCode is not null",
@@ -684,13 +696,27 @@ def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, l
         with latest_batch as (
             -- Each Bronze load stamps a (year × reporter-batch) chunk with ONE
             -- ingestion_timestamp; a re-published reporter-year REPLACES the
-            -- previous generation (same two-stage dedup as silver_comtrade_flows).
-            select *
+            -- previous generation. Keep only the newest generation per
+            -- (refYear, reporterCode). Project an EXPLICIT column list (never
+            -- `select *`): BigQuery bills by columns read, Bronze is a wide
+            -- all-STRING table, and this reader runs under maximum_bytes_billed —
+            -- so reading only the ~12 columns the dedup needs is what keeps a
+            -- growing Bronze from tripping the ceiling. Predicates are applied
+            -- AFTER this window (in `deduplicated`), so batch selection is
+            -- byte-for-byte identical to silver_comtrade_flows.
+            select
+                customsCode, flowCode, refYear, reporterCode, partnerCode,
+                partner2Code, cmdCode, mosCode, motCode, qtyUnitCode,
+                primaryValue, ingestion_timestamp
             from `{table}`
             qualify ingestion_timestamp
                 = max(ingestion_timestamp) over (partition by refYear, reporterCode)
         ),
         deduplicated as (
+            -- Same predicates + dedup key/ordering as silver_comtrade_flows, applied
+            -- AFTER batch selection: drop the C00 customs aggregate, the World
+            -- partner aggregate, and legacy HS4 rows; then collapse the duplicate
+            -- qtyUnitCode variants (identical primaryValue) keeping the real unit.
             select customsCode, flowCode, refYear, primaryValue
             from latest_batch
             {_where(conditions)}

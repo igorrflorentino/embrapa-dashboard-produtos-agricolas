@@ -195,10 +195,13 @@
     // so attach col/row/name/region from the UF registry (mirrors decorateUfRows).
     const _ufTiles = {};
     (window.UF_DATA || []).forEach(u => { _ufTiles[u.uf] = u; });
+    const _normRegion = window.normalizeRegion || ((api, tile) => api || tile);
     const _decorateUf = (rows) => rows.map(r => {
       const t = _ufTiles[r.uf] || {};
+      // Normalize region to the canonical CODE — same as decorateUfRows — so the
+      // cube-derived ufData matches the regionData groupBy (`u.region === r.id`).
       return { ...r, col: r.col ?? t.col, row: r.row ?? t.row,
-               region: r.region || t.region, name: r.name || t.name };
+               region: _normRegion(r.region, t.region), name: r.name || t.name };
     });
 
     // The per-(UF, year) grid backing the map + its TRUE data year: the basket cube

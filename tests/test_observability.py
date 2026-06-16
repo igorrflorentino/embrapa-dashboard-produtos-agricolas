@@ -90,6 +90,39 @@ def test_latest_log_path_does_not_prefix_collide_on_hyphenated_pipelines(
     assert observability.latest_log_path("ibge-batch") == batch_path
 
 
+def test_latest_log_path_tolerates_vanished_candidate(
+    isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A log file pruned between glob() and stat() must not crash the lookup.
+
+    Logs are explicitly prunable, so max(..., key=p.stat) could otherwise raise
+    FileNotFoundError (TOCTOU). The vanished file is skipped and the remaining
+    valid candidate is returned.
+    """
+    # Build two DISTINCT log files directly with valid run_id slugs and distinct
+    # mtimes — init_run() stamps the run_id to the second, so two init_run("ibge")
+    # calls in the same wall-clock second would collide on one filename and make
+    # this test flaky. The "newer" file is the one we simulate as pruned.
+    old_path = isolated_log_dir / "ibge-20260101T000000Z.jsonl"
+    new_path = isolated_log_dir / "ibge-20260101T000100Z.jsonl"
+    old_path.write_text("", encoding="utf-8")
+    new_path.write_text("", encoding="utf-8")
+    os.utime(old_path, (old_path.stat().st_atime, old_path.stat().st_mtime - 100))
+
+    real_stat = Path.stat
+
+    def flaky_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        # Simulate new_path being pruned just before its mtime is read.
+        if self == new_path:
+            raise FileNotFoundError(self)
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    # No crash; the surviving (older) candidate wins.
+    assert observability.latest_log_path("ibge") == old_path
+
+
 def test_list_log_paths_sorted_newest_first(isolated_log_dir: Path) -> None:
     _, first = observability.init_run("ibge")
     # Force a measurable mtime gap.

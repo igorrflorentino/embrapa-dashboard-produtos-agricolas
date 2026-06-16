@@ -8,7 +8,20 @@ function ViewFlows({ summary, conventions, database }) {
   const topOrigin = data.nodes.filter(n => n.side === 'origin').sort((a, b) => b.value - a.value)[0];
   const topDest   = data.nodes.filter(n => n.side === 'dest').sort((a, b) => b.value - a.value)[0];
 
-  const fmt = (v) => data.unit + ' ' + (v >= 1000 ? (v / 1000).toFixed(1).replace('.', ',') + ' bi' : v + ' mi');
+  // Magnitude + pt-BR suffix come from the shared autoScaleNum helper (the same
+  // one the migrated charts/views use) keyed off the REAL value, not a hardcoded
+  // ÷1000 + " mi"/" bi" heuristic that assumed the value was already in millions
+  // (M9). The unit prefix is the contract's display unit (e.g. "US$"). The suffix
+  // (bi/mi/mil) stays pt-BR.
+  const fmt = (v) => {
+    const n = Number(v) || 0;
+    const { factor, suffix } = window.autoScaleNum(n);
+    const scaled = n / factor;
+    const txt = scaled.toLocaleString('pt-BR', {
+      maximumFractionDigits: scaled < 10 ? 2 : scaled < 100 ? 1 : 0,
+    });
+    return [data.unit, txt, suffix].filter(Boolean).join(' ');
+  };
 
   return (
     <>

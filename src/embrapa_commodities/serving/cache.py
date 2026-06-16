@@ -96,11 +96,15 @@ def init_cache_safely(server) -> Cache:
     try:
         return init_cache(server)
     except Exception:
-        logger.warning(
-            "init_cache failed — binding a no-op NullCache (gateway memoization "
-            "disabled; data endpoints run UNCACHED and will surface the real error). "
-            "Most often this means no .env / GCP_PROJECT_ID is configured, e.g. a "
-            "fresh worktree: copy a working .env into the repo root or run "
+        logger.error(
+            "init_cache failed — CACHING IS DISABLED: binding a no-op NullCache so "
+            "the app still boots, but gateway memoization is OFF (the mart, "
+            "curator-allowlist, and classification TTLs do nothing) and the "
+            "curation-cache invalidation guarantees are VOID until this is fixed — "
+            "every data endpoint runs UNCACHED and re-queries BigQuery. In prod this "
+            "must be treated as a misconfiguration, not a steady state. Most often it "
+            "means no .env / GCP_PROJECT_ID is configured, e.g. a fresh worktree: "
+            "copy a working .env into the repo root or run "
             "`uv run python scripts/setup_dev_env.py`.",
             exc_info=True,
         )

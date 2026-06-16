@@ -7,6 +7,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { decorateSnapshot } from './decorate.js';
+
 // applyFilters reads the active banco's snapshot from window.dataStore.get and a
 // few registry globals. Stub the minimum so the IIFE runs in isolation (no full
 // proto boot). Each test reloads the module so the IIFE re-binds window.applyFilters.
@@ -209,6 +211,44 @@ describe('applyFilters — geography-aware series (state filter reaches the hero
     const t2020 = f.ts.find((d) => d.y === 2020);
     expect(t2020.v).toBeCloseTo(0.06); // national A+B+C = 60/1000, untouched
     delete window.UF_DATA;
+  });
+});
+
+describe('applyFilters — regionData groups on decorated region CODES (M7)', () => {
+  beforeEach(() => { delete window.applyFilters; });
+
+  // regionData groups ufData by `region === r.id` (a 2-letter code). decorate.js
+  // normalizes an API display-name region ("Norte") to its code BEFORE applyFilters
+  // reads the snapshot — without that, RegionBars would empty. This locks the join.
+  it('populates regionData when the API ufData carries display-NAME regions', async () => {
+    const applyFilters = await loadApplyFilters();
+    // The registries decorateSnapshot reads to normalize regions + fill tiles.
+    window.UF_DATA = [
+      { uf: 'PA', col: 4, row: 1, region: 'N', name: 'Pará' },
+      { uf: 'RS', col: 3, row: 8, region: 'S', name: 'Rio Grande do Sul' },
+    ];
+    window.REGIONS = [
+      { id: 'N', label: 'Norte' },
+      { id: 'S', label: 'Sul' },
+    ];
+    // An API snapshot whose ufData regions arrive as DISPLAY NAMES (the M7 trigger).
+    const decorated = decorateSnapshot({
+      ufData: [
+        { uf: 'PA', value: 100, q_mass: 50, q_vol: 0, region: 'Norte' },
+        { uf: 'RS', value: 40, q_mass: 20, q_vol: 0, region: 'Sul' },
+      ],
+      regions: [{ id: 'N' }, { id: 'S' }],
+    });
+    // decorate must have rewritten the display names to codes.
+    expect(decorated.ufData.map((u) => u.region).sort()).toEqual(['N', 'S']);
+
+    window.dataStore = { get: () => ({ ...SNAP, ufData: decorated.ufData }) };
+    const f = applyFilters({}, 'ibge_pevs');
+    const north = f.regionData.find((r) => r.id === 'N');
+    const south = f.regionData.find((r) => r.id === 'S');
+    expect(north).toBeTruthy(); // would be undefined if region stayed "Norte"
+    expect(north.value).toBe(100);
+    expect(south.value).toBe(40);
   });
 });
 

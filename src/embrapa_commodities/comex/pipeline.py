@@ -89,26 +89,35 @@ def _raw_is_current(
     stored: dict[str, str] | None, head: dict[str, str], *, label: str = ""
 ) -> bool:
     """True when the archived raw matches the live source by the first shared
-    identifier (ETag > Last-Modified > Content-Length). Missing archive or no
-    comparable identifier → not current (re-extract to be safe).
+    *strong* identifier (ETag > Last-Modified). Missing archive or no comparable
+    strong identifier → not current (re-extract to be safe).
 
-    When an archive *does* exist but neither side exposes a comparable freshness
-    identifier, the function returns ``False`` (forcing a full re-download) and
-    emits a WARNING: that silent degradation — a server dropping ETag /
-    Last-Modified / Content-Length — would otherwise re-download every file every
-    run with no visible cause. ``label`` (e.g. ``"EXP_2026"``) tags the warning.
+    Content-Length is deliberately NOT a confirming identifier: a same-byte value
+    correction (an upstream edit that leaves the file the same size) would be
+    misread as unchanged, so it can never short-circuit to "current" on its own.
+    When ETag/Last-Modified are both absent we fall through to the no-identifier
+    branch below, even if Content-Length matches.
+
+    When an archive *does* exist but neither side exposes a comparable strong
+    freshness identifier, the function returns ``False`` (forcing a full
+    re-download) and emits a WARNING: that silent degradation — a server dropping
+    ETag / Last-Modified — would otherwise re-download every file every run with
+    no visible cause. ``label`` (e.g. ``"EXP_2026"``) tags the warning.
     """
     if not stored:
         return False
-    for key in ("source_etag", "source_last_modified", "source_content_length"):
+    # Strong identifiers only: Content-Length is too weak (a same-byte value
+    # correction is misread as unchanged), so it never confirms "current".
+    for key in ("source_etag", "source_last_modified"):
         live, archived = head.get(key), stored.get(key)
         if live is not None and archived is not None:
             return live == archived
     logger.warning(
-        "Comex %s: raw is archived but no comparable freshness identifier "
-        "(ETag/Last-Modified/Content-Length) is present on both sides — "
-        "forcing a full re-download. The source may have stopped sending these "
-        "headers; freshness short-circuiting is degraded until it resumes.",
+        "Comex %s: raw is archived but no comparable strong freshness identifier "
+        "(ETag/Last-Modified) is present on both sides — forcing a full "
+        "re-download (Content-Length alone is too weak to trust). The source may "
+        "have stopped sending these headers; freshness short-circuiting is "
+        "degraded until it resumes.",
         label or "(unknown)",
     )
     return False
@@ -300,8 +309,10 @@ def process_chunk(
     The one per-chunk unit of work, shared by :func:`run` and the CLI so the
     orchestration logic lives in exactly one place. Resume/idempotency is
     preserved verbatim: ``needs_bronze`` still reloads an unchanged-but-unmarked
-    raw (a prior run that aborted before Phase 2), and the load is still followed
-    by :func:`mark_bronze_loaded` (at-least-once — see its docstring).
+    raw (a prior run that aborted before Phase 2), and a *loaded* partition is
+    still followed by :func:`mark_bronze_loaded` (at-least-once — see its
+    docstring). A "" destination (no configured product matched) is intentionally
+    left unmarked so a later product addition can backfill it.
 
     A current-year 404 (file not published yet) is reported as ``skipped``, not
     raised, so the blind cron never aborts on it.
@@ -334,9 +345,16 @@ def process_chunk(
         bq_client=bq_client,
         table_fqn=table_fqn,
     )
-    mark_bronze_loaded(settings, flow, year, storage_client=storage_client)
     if not destination:
+        # ``bronze_one`` returns "" only when NO configured product matched the
+        # raw — never a genuine empty year (the COMEX per-year file always has
+        # rows). Do NOT stamp bronze_loaded here: stamping would freeze this raw
+        # out of Phase 2 forever, so a later product addition could never backfill
+        # it without a --from-raw rebuild. Leaving it unmarked re-runs Phase 2 each
+        # nightly run (a cheap GCS read + in-memory filter, no source re-download),
+        # which is exactly what lets a new product land on the next run.
         return ChunkOutcome(chunk_id, "skipped", detail="no configured products")
+    mark_bronze_loaded(settings, flow, year, storage_client=storage_client)
     return ChunkOutcome(chunk_id, "loaded", destination=destination)
 
 

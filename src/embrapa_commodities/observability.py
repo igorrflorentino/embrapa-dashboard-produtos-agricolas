@@ -103,7 +103,20 @@ def latest_log_path(pipeline: str | None = None) -> Path | None:
         candidates = list(directory.glob("*.jsonl"))
     if not candidates:
         return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+    def _mtime_or_none(p: Path) -> float | None:
+        # Log files are explicitly prunable, so a candidate found by glob may
+        # vanish before we stat it. Treat a missing file as absent rather than
+        # raising FileNotFoundError out of max().
+        try:
+            return p.stat().st_mtime
+        except FileNotFoundError:
+            return None
+
+    rated = [(p, mtime) for p in candidates if (mtime := _mtime_or_none(p)) is not None]
+    if not rated:
+        return None
+    return max(rated, key=lambda item: item[1])[0]
 
 
 def list_log_paths() -> list[Path]:

@@ -10,11 +10,13 @@ gunicorn entrypoint: ``embrapa_commodities.webapi.app:app``.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import math
 import os
 from pathlib import Path
 
+import numpy as np
 from flask import Flask, jsonify, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
@@ -26,12 +28,30 @@ logger = logging.getLogger(__name__)
 
 
 def _json_safe(obj):
-    """Replace NaN/Inf floats with None, recursively. Python's json emits a bare
-    `NaN` literal (invalid JSON that JSON.parse rejects); a single NaN anywhere
-    (e.g. a product with a missing name) would break the entire response. This
-    guarantees every endpoint emits spec-valid JSON."""
+    """Coerce non-JSON-native scalars to JSON-safe values, recursively.
+
+    Backend reads round-trip through pandas DataFrames (gateway.run_query →
+    .to_dataframe → .to_dict), so numpy scalars (numpy.integer / numpy.floating /
+    numpy.bool_) and date/datetime/pandas.Timestamp can reach serialization. The
+    stdlib json encoder rejects all of those (numpy.integer/bool_ and datetimes
+    are not JSON-serializable; a bare NaN/Inf float serializes to an invalid `NaN`
+    literal that JSON.parse rejects). Normalizing here guarantees every endpoint
+    emits spec-valid JSON instead of 500-ing on an un-coerced field (e.g.
+    /source-meta maturityDate/cobertura).
+    """
+    # numpy.bool_ first: it is NOT a subclass of float/int, so it must be caught
+    # before the numeric branches (Python bool is the JSON-native fall-through).
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        obj = float(obj)  # fall through to the NaN/Inf check below
     if isinstance(obj, float):
         return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    # pandas.Timestamp is a datetime subclass, so datetime covers it too.
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
     if isinstance(obj, dict):
         return {k: _json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):

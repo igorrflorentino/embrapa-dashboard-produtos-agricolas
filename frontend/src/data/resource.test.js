@@ -54,3 +54,55 @@ describe('resource ensure() retry cap', () => {
     expect(resource.get('ok')).toEqual({ v: 1 });
   });
 });
+
+describe('resource ensure() generation token — no stale overwrite (M8)', () => {
+  beforeEach(() => {
+    resource.invalidate('g');
+    vi.restoreAllMocks();
+  });
+
+  // A same-key reload can start a NEWER fetch while an OLDER one is in flight; the
+  // older response must NOT clobber the newer one. We make the first fetch resolve
+  // LAST so it would win without the generation guard.
+  it('an OLDER in-flight response cannot overwrite a NEWER one', async () => {
+    let resolveOld;
+    const oldP = new Promise((res) => { resolveOld = res; });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => oldP) // gen 1 — resolves later
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ v: 'new' }) })); // gen 2
+    vi.stubGlobal('fetch', fetchMock);
+
+    resource.ensure('g', () => '/api/g'); // gen 1, pending
+    resource.invalidate('g'); // user-triggered reload bumps the generation
+    resource.ensure('g', () => '/api/g'); // gen 2 — newer fetch
+    await tick();
+    expect(resource.get('g')).toEqual({ v: 'new' }); // gen 2 landed
+
+    // Now the STALE gen-1 fetch finally resolves — it must be dropped.
+    resolveOld({ ok: true, json: () => Promise.resolve({ v: 'old' }) });
+    await tick();
+    expect(resource.get('g')).toEqual({ v: 'new' }); // still the newer payload, not 'old'
+  });
+
+  it('a stale fetch that ERRORS does not clobber a newer ready value', async () => {
+    let rejectOld;
+    const oldP = new Promise((_res, rej) => { rejectOld = rej; });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => oldP) // gen 1 — rejects later
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ v: 'fresh' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    resource.ensure('g', () => '/api/g'); // gen 1
+    resource.invalidate('g');
+    resource.ensure('g', () => '/api/g'); // gen 2
+    await tick();
+    expect(resource.stateOf('g')).toBe('ready');
+
+    rejectOld(new Error('stale boom')); // gen-1 failure arrives late
+    await tick();
+    expect(resource.stateOf('g')).toBe('ready'); // not flipped to 'error'
+    expect(resource.get('g')).toEqual({ v: 'fresh' });
+  });
+});

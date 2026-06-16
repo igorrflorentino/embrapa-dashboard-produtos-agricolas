@@ -26,10 +26,35 @@ from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
 from .auth import current_author
+from .format import _CORRECTION_INFIX, _CURRENCY_SUFFIX
 
 logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__)
+
+# Canonical convention vocabularies (the keys monetary_column matches on). Read
+# straight from the format maps — not duplicated — so a new currency/correction
+# stays validated automatically. Keys are case-sensitive exact-match (e.g.
+# "IPCA"), so a typo or wrong case must 400 here instead of silently deflating
+# with the BRL/IPCA fallback in monetary_column.
+_ALLOWED_CURRENCIES = frozenset(_CURRENCY_SUFFIX)
+_ALLOWED_CORRECTIONS = frozenset(_CORRECTION_INFIX)
+
+
+def _conversion_or_400():
+    """Parse + validate the currency/correction query params into a conv dict.
+
+    Returns ``(conv, None)`` when both are valid (defaulting to BRL/IPCA when
+    absent), else ``(None, (response, 400))`` with a pt-BR error naming the bad
+    value. Without this, an invalid value silently falls back to BRL/IPCA inside
+    monetary_column, so the user sees the wrong deflated series with no signal."""
+    currency = request.args.get("currency", "BRL")
+    correction = request.args.get("correction", "IPCA")
+    if currency not in _ALLOWED_CURRENCIES:
+        return None, (jsonify(error=f"moeda inválida: {currency!r}"), 400)
+    if correction not in _ALLOWED_CORRECTIONS:
+        return None, (jsonify(error=f"correção inválida: {correction!r}"), 400)
+    return {"currency": currency, "correction": correction}, None
 
 
 @api.errorhandler(ValueError)
@@ -145,10 +170,9 @@ def snapshot():
     (the marts are pre-aggregated/small). currency+correction pick the deflated
     value column server-side (the scientific core — see contract map §0.2)."""
     banco = request.args.get("banco", "")
-    conv = {
-        "currency": request.args.get("currency", "BRL"),
-        "correction": request.args.get("correction", "IPCA"),
-    }
+    conv, err = _conversion_or_400()
+    if err:
+        return err
     return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, None)))
 
 
@@ -160,10 +184,9 @@ def product_uf():
     window to match the view's filter. { uf: [] } when the banco has no geo grain."""
     banco = request.args.get("banco", "")
     code = request.args.get("code", "")
-    conv = {
-        "currency": request.args.get("currency", "BRL"),
-        "correction": request.args.get("correction", "IPCA"),
-    }
+    conv, err = _conversion_or_400()
+    if err:
+        return err
     start, end = request.args.get("startDate"), request.args.get("endDate")
     summary = {"startDate": start, "endDate": end} if (start or end) else None
     df = seam.product_uf_ranking(banco, code, conv, summary)
@@ -179,10 +202,9 @@ def geo_yearly():
     selected products. The year window is left open (full history) — the client slices
     period + state. { ufYearly: [] } when the banco has no geo grain."""
     banco = request.args.get("banco", "")
-    conv = {
-        "currency": request.args.get("currency", "BRL"),
-        "correction": request.args.get("correction", "IPCA"),
-    }
+    conv, err = _conversion_or_400()
+    if err:
+        return err
     codes = request.args.get("codes")
     summary = {"basket": codes.split(",")} if codes else None
     df = seam.geo_yearly(banco, conv, summary)
