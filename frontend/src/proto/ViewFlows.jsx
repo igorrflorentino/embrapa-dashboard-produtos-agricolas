@@ -43,7 +43,7 @@ function ViewFlows({ summary, conventions, database }) {
           title="Para onde a produção vai"
           action={<span className="caption">{data.unit}</span>}
         />
-        <window.SankeyChart nodes={data.nodes} links={data.links} unit={data.unit} height={380} />
+        <window.SankeyChart nodes={data.nodes} links={data.links} unit={data.unit} formatValue={fmt} height={380} />
       </div>
 
       <div className="card">

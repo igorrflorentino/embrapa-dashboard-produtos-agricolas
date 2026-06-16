@@ -28,8 +28,15 @@ function ViewConcentration({ summary, conventions, database }) {
   const geoYearTag = `${geoYear}${geoPartial ? ' (parcial)' : ''}`;
 
   // ── Geographic distribution (by UF) ─────────────────────────────────
-  const ufValues = filtered.ufData.map(u => u.value).filter(v => v > 0);
-  const ufSorted = filtered.ufData.slice().filter(u => u.value > 0).sort((a, b) => b.value - a.value);
+  // Count ONLY real Brazilian UFs. Trade bancos (COMEX) carry non-state pseudo-
+  // origins (EX/ND/ZN/MN/RE…) flagged real:false; folding them in would inflate
+  // the unit count and distort the geographic Gini/HHI/top-5/Lorenz. Mirrors the
+  // isRealUf guard ViewOverview already applies; falls back to the canonical 27-UF
+  // registry for older payloads lacking the `real` flag.
+  const isRealUf = u => (u.real != null ? u.real : window.isCanonicalUf(u.uf));
+  const realUf   = filtered.ufData.filter(isRealUf);
+  const ufValues = realUf.map(u => u.value).filter(v => v > 0);
+  const ufSorted = realUf.slice().filter(u => u.value > 0).sort((a, b) => b.value - a.value);
 
   // ── Product distribution (latest year, by product) ──────────────────
   const prodValues = Object.entries(filtered.productTS).map(([code, s]) => {

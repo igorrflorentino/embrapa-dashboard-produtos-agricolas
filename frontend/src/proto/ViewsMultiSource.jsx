@@ -245,7 +245,7 @@ function ViewMirror() {
       <CrossProductPicker value={product} onChange={setProduct} />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Divergência média" value={msPct(avgDisc)} sub="entre a maior e a menor fonte" />
+        <window.KpiCardSpark label="Divergência média" value={msPct(avgDisc)} sub="entre MDIC e Comtrade" />
         <window.KpiCardSpark label="Maior reporte" value="Parceiros" sub="tendem a registrar mais que a origem" />
         <window.KpiCardSpark label="Exportação MDIC" value={'US$ ' + msNum(last?.mdic, 1) + ' bi'} sub={`${last?.y}`} />
         <window.KpiCardSpark label="Janela" value={mirrorWindow} sub="cobertura comparável" />
@@ -264,7 +264,7 @@ function ViewMirror() {
 
       <div className="card">
         <window.SectionHeader overline="Divergência no tempo" title="Quão distantes estão as fontes"
-          action={<span className="caption">% · (máx − mín) ÷ média</span>} />
+          action={<span className="caption">% · |MDIC − Comtrade| ÷ média</span>} />
         <window.LineChart data={data.discrepancy} valueKey="v" label="% divergência" color="var(--status-warn)" height={240} />
         <p className="caption" style={{ padding: '10px 2px 2px' }}>
           Divergências persistentes apontam diferenças de metodologia, defasagem de revisão ou cobertura — um diagnóstico que nenhuma fonte isolada revela.

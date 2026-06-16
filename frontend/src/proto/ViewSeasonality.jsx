@@ -18,7 +18,13 @@ function ViewSeasonality({ summary, conventions, database }) {
   const peakIdx = Math.max(0, avg.indexOf(Math.max(...avg)));
   const lowIdx  = Math.max(0, avg.indexOf(Math.min(...avg)));
   const amplitude = avg[peakIdx] / (avg[lowIdx] || 1);
-  const fmt = (v) => data.unit + ' ' + (Number(v) || 0).toLocaleString('pt-BR');
+  const fmt = (v) => {
+    const n = Number(v) || 0;
+    const { factor, suffix } = window.autoScaleNum(n);
+    const scaled = n / factor;
+    return [data.unit, scaled.toLocaleString('pt-BR', { maximumFractionDigits: scaled < 10 ? 2 : scaled < 100 ? 1 : 0 }), suffix]
+      .filter(Boolean).join(' ');
+  };
   const yearSpan = years.length ? `${years[0]}–${years[years.length - 1]}` : '—';
 
   if (!hasData) {
@@ -55,7 +61,7 @@ function ViewSeasonality({ summary, conventions, database }) {
           title="Padrão sazonal ao longo dos anos"
           action={<span className="caption">{data.unit}</span>}
         />
-        <window.MonthYearHeatmap matrix={data.matrix} years={years} unit={data.unit} />
+        <window.MonthYearHeatmap matrix={data.matrix} years={years} unit={data.unit} formatValue={fmt} />
       </div>
 
       <div className="card">

@@ -73,15 +73,23 @@ function ViewCrossSource({ value, onChange }) {
     return { ...s, v0, vT, cagr: window.cagrPct(v0, vT, pts.length - 1), accum: window.accumPct(v0, vT) };
   });
 
-  // ── Pairwise correlation on YoY growth (shared helpers · seriesUtils.js) ─
-  const growths = items.map(it => window.seriesGrowth(it.points));
-  const corr = items.map((_, i) => items.map((_, j) => window.pearson(growths[i], growths[j])));
+  // ── Pairwise correlation on YoY growth, aligned BY YEAR (point.y), not array
+  //    index — a series with an internal year gap would otherwise correlate
+  //    misaligned years (shared helpers · seriesUtils.js). ─
+  const corr = items.map(a => items.map(b => window.pearsonByYear(a.points, b.points)));
   const corrColor = window.corrColor;
 
   // ── Ratio panel: only when exactly 2 series share an identical unit ───
   const ratioEligible = items.length === 2 && items[0].unit === items[1].unit;
+  // Pair the two series BY YEAR (not array index): align on the years both cover,
+  // so an internal gap in either series cannot shift the ratio onto wrong years.
   const ratioSeries = ratioEligible
-    ? items[0].points.map((d, i) => ({ y: d.y, v: (items[1].points[i]?.v || 0) / (d.v || 1) * 100 }))
+    ? (() => {
+        const num = new Map(items[1].points.map(d => [d.y, d.v]));
+        return items[0].points
+          .filter(d => num.has(d.y))
+          .map(d => ({ y: d.y, v: (num.get(d.y) || 0) / (d.v || 1) * 100 }));
+      })()
     : null;
   const ratioMean = ratioSeries && ratioSeries.length
     ? ratioSeries.reduce((s, d) => s + d.v, 0) / ratioSeries.length : 0;

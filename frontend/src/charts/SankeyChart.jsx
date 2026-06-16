@@ -6,7 +6,7 @@
 
 import { Plot, baseLayout, resolveColor, vizPalette } from './_base';
 
-function SankeyChart({ nodes = [], links = [], unit = '', height = 420 }) {
+function SankeyChart({ nodes = [], links = [], unit = '', height = 420, formatValue = null }) {
   // Guard empty/degenerate input — never throw, just render an empty plot.
   if (!nodes.length || !links.length) {
     return <Plot traces={[]} layout={baseLayout({ xaxis: { visible: false }, yaxis: { visible: false } })} height={height} />;
@@ -38,26 +38,34 @@ function SankeyChart({ nodes = [], links = [], unit = '', height = 420 }) {
     return si == null ? destColor : nodeColors[si];
   });
 
+  // Hover value formatter. Callers pass an autoScaleNum-based fmt so the hover
+  // shows the right magnitude: the serializer pre-scales flow values to millions,
+  // so a bare "%{value}" would read 2.07 instead of "2,07 mi US$". Default keeps a
+  // simple "value + unit".
+  const fmtVal = formatValue || ((v) =>
+    `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ''}`);
+
   const traces = [
     {
       type: 'sankey',
       orientation: 'h',
-      valuesuffix: unit ? ` ${unit}` : '',
       node: {
         label: nodes.map((n) => n.label),
+        customdata: nodes.map((n) => fmtVal(n.value)),
         color: nodeColors,
         pad: 12,
         thickness: 14,
         line: { width: 0 },
-        hovertemplate: '<b>%{label}</b>  %{value:,.2f}<extra></extra>',
+        hovertemplate: '<b>%{label}</b>  %{customdata}<extra></extra>',
       },
       link: {
         source: safeLinks.map((l) => indexOf[l.source]),
         target: safeLinks.map((l) => indexOf[l.target]),
         value: safeLinks.map((l) => l.value),
+        customdata: safeLinks.map((l) => fmtVal(l.value)),
         color: linkColors,
         hovertemplate:
-          '%{source.label} → %{target.label}  %{value:,.2f}<extra></extra>',
+          '%{source.label} → %{target.label}  %{customdata}<extra></extra>',
       },
     },
   ];

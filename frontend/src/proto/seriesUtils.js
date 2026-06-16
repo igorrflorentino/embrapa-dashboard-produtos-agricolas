@@ -34,6 +34,26 @@ window.pearson = (a, b) => {
   return (da && db) ? num / Math.sqrt(da * db) : 0;
 };
 
+// Year-aware Pearson on YoY growth: aligns the two point series by their YEAR
+// (point.y), NOT by array index, then correlates growth over the common,
+// calendar-adjacent year pairs. The plain index pairing (pearson(seriesGrowth(a),
+// seriesGrowth(b))) silently misaligns the moment one series has an internal year
+// gap. For gap-free, same-year series this returns exactly the old result.
+window.pearsonByYear = (ptsA, ptsB, key = 'v') => {
+  const ma = new Map((ptsA || []).map(d => [d.y, d[key]]));
+  const mb = new Map((ptsB || []).map(d => [d.y, d[key]]));
+  const years = [...ma.keys()].filter(y => mb.has(y)).sort((x, y) => x - y);
+  const ga = [], gb = [];
+  for (let i = 1; i < years.length; i++) {
+    if (years[i] - years[i - 1] !== 1) continue;  // growth only across adjacent years
+    const a0 = ma.get(years[i - 1]), a1 = ma.get(years[i]);
+    const b0 = mb.get(years[i - 1]), b1 = mb.get(years[i]);
+    ga.push(a0 ? (a1 - a0) / a0 : 0);
+    gb.push(b0 ? (b1 - b0) / b0 : 0);
+  }
+  return window.pearson(ga, gb);
+};
+
 // Compound annual growth rate, in PERCENT, over `periods` intervals.
 window.cagrPct = (v0, vT, periods) => {
   const p = periods || 1;

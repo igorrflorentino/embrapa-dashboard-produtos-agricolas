@@ -60,9 +60,9 @@ function ViewProductCompare({ summary, conventions, database }) {
     data: it.win.map(d => ({ y: d.y, v: it.v0 ? (d.v / it.v0) * 100 : 0 })),
   }));
 
-  // Pairwise Pearson correlation on YoY growth (shared helpers · seriesUtils.js)
-  const growths = items.map(it => window.seriesGrowth(it.win));
-  const corrMatrix = items.map((_, i) => items.map((_, j) => window.pearson(growths[i], growths[j])));
+  // Pairwise Pearson correlation on YoY growth, aligned BY YEAR (not array index):
+  // a product with an internal year gap would otherwise correlate mismatched years.
+  const corrMatrix = items.map(a => items.map(b => window.pearsonByYear(a.win, b.win)));
   const corrColor = window.corrColor;
 
   return (
