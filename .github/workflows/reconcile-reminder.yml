@@ -1,0 +1,63 @@
+# Monthly nudge to consider a manual `reconcile`. We deliberately do NOT run
+# reconcile on a schedule: a reliable "is a reconcile needed?" pre-check is not
+# feasible for the sources that need it (IBGE/BCB) — detecting whether an OLD year
+# was revised costs about the same as re-fetching it — and COMEX already re-detects
+# old-year revisions every night via its per-file ETag check. So reconcile is
+# operator-triggered (`make reconcile`); this workflow only opens a monthly
+# reminder issue assigned to the repo owner (→ a GitHub notification e-mail).
+name: reconcile reminder
+
+on:
+  schedule:
+    - cron: '0 12 1 * *'   # 1st of the month, 12:00 UTC (09:00 BRT)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  remind:
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open the monthly reconcile-reminder issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          body_file="$(mktemp)"
+          cat > "$body_file" <<'EOF'
+          **Monthly nudge — do we need a `reconcile` this month?**
+
+          `reconcile` fully re-downloads every nightly source (ignoring the
+          delta/ETag short-circuit) to catch upstream revisions to **OLD years**
+          the nightly delta never re-queries.
+
+          **When it is actually warranted** — only if **IBGE (PEVS/PAM)** or **BCB**
+          published a revision to a year *older* than the nightly delta window.
+          COMEX already re-detects old-year revisions every night via its per-file
+          ETag check, so `reconcile` does nothing extra for it. Old-year revisions
+          in IBGE/BCB are rare.
+
+          **If you have reason to think an old year changed** (e.g. IBGE announced a
+          PEVS revision), run it from your terminal:
+
+          ```bash
+          make reconcile          # full re-ingest of Bronze, then a prod dbt build
+          ```
+
+          **If nothing changed:** just close this issue — no action needed.
+
+          ---
+          _Why a reminder instead of a scheduled job: a cheap "is a reconcile needed?"
+          pre-check is not feasible for IBGE/BCB (checking an old year costs ~the same
+          as re-fetching it), so reconcile is operator-triggered. Re-enable the old
+          monthly scheduler any time with `make ingest-job-reconcile-schedule`._
+          EOF
+          gh issue create \
+            --repo "$REPO" \
+            --title "🔄 Reconcile check — $(date -u +'%Y-%m')" \
+            --assignee "$OWNER" \
+            --body-file "$body_file"
