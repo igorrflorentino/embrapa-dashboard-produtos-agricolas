@@ -1,12 +1,14 @@
 {{
     config(
-        materialized='table',
+        materialized='incremental',
+        incremental_strategy='insert_overwrite',
         partition_by={
             'field': 'reference_year',
             'data_type': 'int64',
             'range': {'start': 1960, 'end': 2050, 'interval': 1}
         },
-        cluster_by=['flow', 'cmd_code', 'reporter_code', 'partner_code']
+        cluster_by=['flow', 'cmd_code', 'reporter_code', 'partner_code'],
+        on_schema_change='append_new_columns'
     )
 }}
 
@@ -52,24 +54,62 @@
          new Bronze rows, so the previous generation keeps serving.
       2. deduplicated — row-level dedup on the natural key inside the surviving
          batch (the duplicate-qtyUnitCode collapse below).
-    NOTE: this batch-scoped dedup shipped 2026-06 (audit fix). materialized=
-    table → every dbt build fully rebuilds, so the first build after this
-    change purges any phantom rows (were this model incremental, one
-    --full-refresh would be required).
+    NOTE: this batch-scoped dedup shipped 2026-06 (audit fix). The model is
+    incremental (below), so after any change to the dedup logic run ONE
+    `dbt build --select silver_comtrade_flows --full-refresh` to purge phantom
+    rows — a plain incremental build only reprocesses years with new Bronze.
 
-    Stays materialized=table: the filtered scope (HS 0801 + chapter 44, all
-    reporters × partners, annual) is small. Revisit with insert_overwrite if a
-    full historical backfill over decades makes the rebuild costly.
+    Materialized=incremental (insert_overwrite by reference_year), mirroring
+    silver_ibge_pevs. The all-reporters historical backfill (COMTRADE_REPORTERS=
+    all) makes Bronze tens of GB, so a daily FULL rebuild would scan all of it
+    every run. Instead the build re-scans only the reference_year partitions that
+    received new Bronze ingestions (affected_years, keyed on ingestion_timestamp)
+    and insert_overwrites just those. The latest_batch dedup partitions by
+    (refYear, reporterCode), so pulling the FULL affected year — every reporter —
+    keeps the latest-batch-wins dedup exact. On --full-refresh / first build the
+    is_incremental() branch is skipped and all of Bronze is scanned.
 -#}
 
+{% if is_incremental() %}
+with affected_years as (
+
+    -- Years with Bronze rows newer than the current Silver max. `>=` (not `>`):
+    -- a row appended at a clock-identical timestamp to the Silver max would be
+    -- `> max` = false and skipped forever; re-scanning the boundary year is safe
+    -- (insert_overwrite replaces the whole partition — idempotent) and bounded
+    -- to the year(s) tied at the max, not the full history.
+    select distinct refYear
+    from {{ source('bronze_comtrade', 'comtrade_flows_raw') }}
+    where ingestion_timestamp >= (
+        select coalesce(max(ingestion_timestamp), timestamp '1970-01-01') from {{ this }}
+    )
+
+),
+
+latest_batch as (
+
+    -- Pull EVERY Bronze row for the affected years (all reporters), so the
+    -- per-(refYear, reporterCode) latest-batch dedup below sees the full
+    -- partition; insert_overwrite then replaces only those reference_year
+    -- partitions.
+    select b.*
+    from {{ source('bronze_comtrade', 'comtrade_flows_raw') }} b
+    inner join affected_years ay on b.refYear = ay.refYear
+    qualify ingestion_timestamp
+        = max(ingestion_timestamp) over (partition by refYear, reporterCode)
+
+),
+{% else %}
 with latest_batch as (
 
+    -- First build / --full-refresh: scan all of Bronze.
     select *
     from {{ source('bronze_comtrade', 'comtrade_flows_raw') }}
     qualify ingestion_timestamp
         = max(ingestion_timestamp) over (partition by refYear, reporterCode)
 
 ),
+{% endif %}
 
 deduplicated as (
 
