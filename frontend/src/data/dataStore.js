@@ -64,7 +64,7 @@ const sourceMetaInFlight = {}; // bancoId -> Promise
 
 // Overlay the live, operator-editable maturity/coverage (/api/source-meta, merged
 // from research_inputs.banco_metadata) onto the in-memory registry banco, so the
-// proto's MaturityTag / MaturityBanner / coverage — which read the static banco —
+// the UI's MaturityTag / MaturityBanner / coverage — which read the static banco —
 // reflect a Console flip (e.g. beta→estavel) WITHOUT a rebuild+redeploy. Sparse:
 // each field is overlaid only when the backend sends a non-null value; otherwise the
 // bancos.js literal stands (the backend default IS that literal). maturityMeta(banco)

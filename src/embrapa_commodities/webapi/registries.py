@@ -4,7 +4,7 @@ A Python port of the design system's ``bancos.js`` / ``views.js`` /
 ``filtersSchema.js``. Only ``Banco`` / ``banco_by_id`` are consumed today (by the
 seam, to resolve a banco's capabilities, value column, and dimensions). The UI's
 sidebar, perspective mega-menu, routing and capability gating derive from the
-FRONTEND copies (``frontend/src/proto/{bancos,views,filtersSchema}.js``), which are
+FRONTEND copies (``frontend/src/ui/{bancos,views,filtersSchema}.js``), which are
 the live source of truth — the ``View``/``FILTER_SCHEMAS``/maturity helpers below
 are reference/parity data, NOT a control surface. Keep entries aligned with the
 frontend so the next reader is not misled, but the frontend is authoritative for
@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 # The canonical list of VALID maturity values, ordered Planejado → … →
 # Descontinuado. PER-BANCO maturity is NOT defined here — its single source of
 # truth is BigQuery (``research_inputs.banco_metadata``), served via
-# ``/api/source-meta``. The frontend (``frontend/src/proto/bancos.js``) owns how a
+# ``/api/source-meta``. The frontend (``frontend/src/ui/bancos.js``) owns how a
 # stage renders (``has_data``/``caveat``/``color``). This dict is kept only as a
 # spec/parity reference for the allowed maturity strings.
 MATURITY: dict[str, dict] = {

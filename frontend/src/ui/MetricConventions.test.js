@@ -9,7 +9,7 @@
 // that there is no mock-FX cross-conversion path left — the regression these files
 // used to encode (USD trade values multiplied by a frozen 1/0.205 rate to fake R$).
 //
-// Importing the proto module for side effects installs window.convFactor/
+// Importing the ui module for side effects installs window.convFactor/
 // convFactorFor/CURRENCY_FX under jsdom (the module only assigns on window).
 
 import { describe, expect, it } from 'vitest';

@@ -62,7 +62,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 | Tests | pytest, responses, pytest-cov | HTTP mocks, coverage, custom markers |
 | Configuration | pydantic-settings + `.env` | Typed validation, zero hardcoding |
 | Consumption / Visualization | Looker Studio · React SPA + Flask REST (`webapi`) @ Cloud Run | Two parallel paths over the same Gold tables (see Consumption section) |
-| Frontend | React + Vite + Plotly.js (`frontend/`) | Design System prototype reused verbatim; API-backed data layer; Plotly for the analytical charts (zoom/hover/pan) |
+| Frontend | React + Vite + Plotly.js (`frontend/`) | Design System UI (`src/ui/`, adopted verbatim — runs in prod); API-backed data layer; Plotly for the analytical charts (zoom/hover/pan) |
 | REST API / SPA host | Flask app factory + gunicorn (`webapi` extra) | Serves the built SPA **and** `/api` from one origin behind IAP |
 | Dashboard data access | `google-cloud-bigquery` + `flask-caching` | Pushdown Computing: UI filters → `@param` SQL on `serving`, cached results |
 
@@ -191,7 +191,7 @@ embrapa-dashboard-commodities/
 │   └── tests/                        # Custom dbt tests
 │
 ├── frontend/                         # ⭐ React SPA (Vite) — the dashboard UI
-│   ├── src/proto/                    # Design System prototype, reused verbatim
+│   ├── src/ui/                       # Design System UI (adopted verbatim — runs in prod)
 │   ├── src/data/                     # API-backed data layer (dataStore, producers, resource)
 │   ├── src/charts/                   # Plotly.js chart components (zoom/hover/pan)
 │   ├── vite.config.js                # `npm run dev` (:5173, proxies /api → Flask :8000)
@@ -339,7 +339,7 @@ as a per-run stamped object (append-only trail).
 Two parallel paths, both reading the same Gold tables — they are not exclusive and can coexist:
 
 - **Looker Studio** (no-code): direct connection to the Gold tables (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Good for standardized reports and quick exploration without a deploy. Available now.
-- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](../src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); the SPA in [`frontend/`](../frontend/) (React/Vite prototype + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
+- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](../src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); the SPA in [`frontend/`](../frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
 
 ---
 

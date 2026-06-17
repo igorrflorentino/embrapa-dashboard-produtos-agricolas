@@ -10,7 +10,7 @@ import React from 'react';
 
 import useGeoCascade from './useGeoCascade.js';
 
-// The proto hook reads React as a bare global (window.React in the real boot).
+// The ui hook reads React as a bare global (window.React in the real boot).
 beforeAll(() => {
   globalThis.React = React;
 });

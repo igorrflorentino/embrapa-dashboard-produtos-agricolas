@@ -11,7 +11,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 
 import React from 'react';
 
-// The proto modules read React as a bare global and components as window.X — install
+// The ui modules read React as a bare global and components as window.X — install
 // both BEFORE importing Atoms.jsx (mirrors bootstrap-globals.js in the real boot).
 beforeAll(async () => {
   globalThis.React = React;

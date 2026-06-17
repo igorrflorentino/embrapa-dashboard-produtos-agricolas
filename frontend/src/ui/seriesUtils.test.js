@@ -2,7 +2,7 @@
 // ratio + correlation used to pair series BY ARRAY INDEX, which silently misaligns
 // the moment one series has an internal year gap. pearsonByYear aligns by point.y.
 //
-// seriesUtils.js registers its helpers on `window` (proto-style globals); importing
+// seriesUtils.js registers its helpers on `window` (window-global style); importing
 // it for side-effects under jsdom populates window.pearson / window.pearsonByYear.
 
 import { describe, expect, it } from 'vitest';
