@@ -1,4 +1,4 @@
-.PHONY: setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
+.PHONY: help setup sync auth ingest-all ingest-ibge ingest-bcb-inflation ingest-bcb-currency \
         ingest-ibge-historical reconcile ingest-job-deploy ingest-job-schedule \
         ingest-job-reconcile-schedule ingest-job-comtrade-schedule ingest-job-pam-schedule \
         ingest-job-alert iam-grant \
@@ -16,6 +16,16 @@ DBT_DIR := dbt
 # baked-in env_var() defaults and ignore .env (see scripts/dbt-with-env.sh).
 DBT := bash scripts/dbt-with-env.sh
 
+# A bare `make` lists the annotated targets rather than running the first one — so
+# it never silently mutates the environment (the old default ran `setup`, which
+# pins Python + syncs the venv). Run `make setup` explicitly for that.
+.DEFAULT_GOAL := help
+
+help:         ## List the annotated targets (this screen)
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| sort \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
 setup:        ## Pin Python and create the virtualenv
 	pyenv local 3.12.11
 	uv sync
@@ -26,16 +36,16 @@ sync:         ## Re-sync dependencies from pyproject.toml + uv.lock
 auth:         ## Refresh Application Default Credentials for local dev
 	gcloud auth application-default login
 
-ingest-ibge:
+ingest-ibge:    ## Ingest IBGE PEVS (delta by default) → Bronze
 	$(PY) embrapa ingest ibge
 
-ingest-bcb-inflation:
+ingest-bcb-inflation:    ## Ingest BCB inflation series (IPCA/IGP-M/IGP-DI) → Bronze
 	$(PY) embrapa ingest bcb-inflation
 
-ingest-bcb-currency:
+ingest-bcb-currency:    ## Ingest BCB FX series (USD/EUR) → Bronze
 	$(PY) embrapa ingest bcb-currency
 
-ingest-all:
+ingest-all:    ## Ingest every nightly source (IBGE + BCB + COMEX) → Bronze
 	$(PY) embrapa ingest all
 
 ingest-ibge-historical:    ## Ingest IBGE in safe 5-year chunks (for large historical windows)
@@ -77,7 +87,7 @@ webapi-run:    ## Run the REST API locally on :8000 (needs .env + ADC; serve the
 webapi-deploy:    ## Build + deploy the React SPA + Flask REST Cloud Run Service (reads .env)
 	bash deploy/webapi/deploy.sh
 
-dbt-deps:
+dbt-deps:    ## Install dbt package dependencies (dbt_utils etc.)
 	$(DBT) deps
 
 dbt-build: dbt-deps    ## Dev: silver+gold in dbt_dev_silver / dbt_dev_gold
@@ -101,7 +111,7 @@ ensure-curation:    ## Create the append-only curation log tables (research_inpu
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
 	$(DBT) build --vars 'enable_curation: true'
 
-dbt-test:
+dbt-test:    ## Run dbt schema/data tests (needs a profile + warehouse)
 	$(DBT) test
 
 dbt-source-freshness: dbt-deps    ## Check Bronze source staleness vs the freshness thresholds (needs a profile + warehouse)
@@ -110,10 +120,10 @@ dbt-source-freshness: dbt-deps    ## Check Bronze source staleness vs the freshn
 sqlfluff:    ## Lint dbt SQL models with SQLFluff (BigQuery dialect; needs a dbt profile)
 	cd $(DBT_DIR) && $(PY) sqlfluff lint models
 
-dbt-clean:
+dbt-clean:    ## Remove dbt build artifacts (target/, dbt_packages/, logs/)
 	cd $(DBT_DIR) && $(PY) dbt clean
 
-lint:
+lint:    ## Ruff lint + format check (no writes)
 	$(PY) ruff check .
 	$(PY) ruff format --check .
 
@@ -126,5 +136,5 @@ precommit-install:    ## Install git hooks defined in .pre-commit-config.yaml
 precommit-run:        ## Run all hooks against every file (not just staged)
 	$(PY) pre-commit run --all-files
 
-clean:
+clean:    ## Remove local caches + dbt build artifacts
 	rm -rf .pytest_cache .ruff_cache $(DBT_DIR)/target $(DBT_DIR)/dbt_packages $(DBT_DIR)/logs
