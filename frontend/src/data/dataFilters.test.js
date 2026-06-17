@@ -1,4 +1,4 @@
-// dataFilters.test.js — applyFilters (proto/dataFilters.js) is the single seam
+// dataFilters.test.js — applyFilters (ui/dataFilters.js) is the single seam
 // the geo/value views read filtered datasets through. These lock the F1.5 fix:
 // a product basket must NOT fabricate the per-UF / per-region territorial split
 // by scaling every state uniformly by selected/all (there is no per-product × UF
@@ -11,7 +11,7 @@ import { decorateSnapshot } from './decorate.js';
 
 // applyFilters reads the active banco's snapshot from window.dataStore.get and a
 // few registry globals. Stub the minimum so the IIFE runs in isolation (no full
-// proto boot). Each test reloads the module so the IIFE re-binds window.applyFilters.
+// UI boot). Each test reloads the module so the IIFE re-binds window.applyFilters.
 const SNAP = {
   products: [
     { code: 'A', name: 'Açaí', unit: 't', family: 'mass' },
@@ -50,7 +50,7 @@ async function loadApplyFilters() {
   window.VALUE_PRESETS = [];
   window.MUNI_PICKER_NAMES = new Set();
   window.snapshotFor = () => null;
-  await import('../proto/dataFilters.js');
+  await import('../ui/dataFilters.js');
   return window.applyFilters;
 }
 
@@ -139,7 +139,7 @@ describe('applyFilters — map year follows the DATA, not yearEnd (FINDING #1)',
     window.VALUE_PRESETS = [];
     window.MUNI_PICKER_NAMES = new Set();
     window.snapshotFor = () => null;
-    await import('../proto/dataFilters.js');
+    await import('../ui/dataFilters.js');
     const f = window.applyFilters({ startDate: '2020-01-01', endDate: '2025-01-01' }, 'ibge_pevs');
     expect(f.ufLatestYear).toBe(f.yearEnd); // 2025
     expect(f.ufYearPartial).toBe(false); // no data to prove a shortfall → don't cry partial
@@ -169,7 +169,7 @@ describe('applyFilters — ufDataFull is the ALL-TIME UF universe (heads-up #1)'
     window.VALUE_PRESETS = [];
     window.MUNI_PICKER_NAMES = new Set();
     window.snapshotFor = () => null;
-    await import('../proto/dataFilters.js');
+    await import('../ui/dataFilters.js');
     const f = window.applyFilters({ startDate: '2020-01-01', endDate: '2021-12-01' }, 'ibge_pevs');
     // ufData (latest year) has 1 UF, but the all-time universe has 2 (PA + RS).
     expect(f.ufData.length).toBe(1);

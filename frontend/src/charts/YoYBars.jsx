@@ -21,7 +21,7 @@ function YoYBars({ data = [], valueKey = 'v', height = 200 }) {
     return { y: d.y, pct: noBase ? 0 : ((d[valueKey] - prev) / prev) * 100 };
   });
 
-  // Skip the first point (no prior year to compare against), matching the proto.
+  // Skip the first point (no prior year to compare against), matching the design system.
   const bars = yoy.slice(1);
 
   const ok = resolveColor('var(--ok)');

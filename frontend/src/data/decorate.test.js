@@ -1,5 +1,5 @@
 // decorate.test.js — the registry joins the /api/snapshot deliberately omits.
-// Pure function; we stub the proto registries on window and assert the merge,
+// Pure function; we stub the UI registries on window and assert the merge,
 // including the "API value wins, registry fills the gap" precedence.
 
 import { beforeEach, describe, expect, it } from 'vitest';

@@ -41,29 +41,22 @@
 
     // ── Resolve the in-memory snapshot for the active banco ────────────
     // Banco-aware seam: when a bancoId is given and its snapshot is loaded,
-    // read from it; otherwise fall back to the PEVS globals so EVERY existing
-    // call site — applyFilters(summary) with no bancoId — behaves EXACTLY as
-    // before (zero regression). This is the single function the backend
-    // generalizes: in Dash/Python it becomes apply_filters(banco_id, summary)
-    // reading dataset_for(banco_id). Missing dimensions degrade to empty.
+    // read from it. Every call site passes the active bancoId; the snapshot is
+    // the single data source (src/data/dataStore.js → /api/snapshot).
     const fromStore = (bancoId && window.dataStore && window.dataStore.get)
       ? window.dataStore.get(bancoId) : null;
-    // If the banco isn't loaded into the store yet, fall back to its OWN
-    // synthetic snapshot (banco-aware) — never silently to PEVS. Only when no
-    // bancoId / no snapshot exists do we use the PEVS globals (the live mock).
+    // Optional per-banco fallback hook (window.snapshotFor) — returns null today,
+    // kept as a seam for a future pre-load source.
     const fromSynth = (!fromStore && bancoId && window.snapshotFor)
       ? window.snapshotFor(bancoId) : null;
+    // No snapshot loaded yet (or it errored): degrade to an EMPTY dataset so the
+    // views render blank rather than fabricated figures. (The prototype used to
+    // fall back to synthetic PEVS globals here; those were removed with the move
+    // to the API-backed snapshot — see src/data/.)
     const snap = fromStore || fromSynth || {
-      products:   window.PRODUCTS,
-      productTS:  window.PRODUCT_TS,
-      overviewTS: window.OVERVIEW_TS,
-      ufData:     window.UF_DATA,
-      quality:    window.QUALITY_FLAGS,
-      qualityTs:  window.QUALITY_TS,
-      topMunis:   window.TOP_MUNICIPIOS,
-      regions:    window.REGIONS,
-      qualityByProduct: window.QUALITY_BY_PRODUCT,
-      qualityByUf:      window.QUALITY_BY_UF,
+      products: [], productTS: {}, overviewTS: [], ufData: [], ufYearly: [],
+      quality: [], qualityTs: [], topMunis: [], regions: window.REGIONS || [],
+      qualityByProduct: [], qualityByUf: [],
     };
     const PRODUCTS_T   = snap.products   || [];
     const PRODUCT_TS_T = snap.productTS  || {};
