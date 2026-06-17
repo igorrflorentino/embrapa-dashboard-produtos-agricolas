@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
-// The proto-side shared magnitude helper the migrated views use (same words as
+// The ui-side shared magnitude helper the migrated views use (same words as
 // the charts' ptBrMagnitude). The real implementation under test.
 function autoScaleNum(v) {
   const a = Math.abs(v);

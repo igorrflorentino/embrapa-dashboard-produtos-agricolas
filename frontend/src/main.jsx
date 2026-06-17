@@ -1,29 +1,28 @@
-// main.jsx — application entry. Replaces the prototype's inline HTML boot
-// script. Order matters: bootstrap-globals sets window.React FIRST (proto modules
-// read React as a bare global at eval time), then the modules side-effect-import
-// in dependency order (each assigns window.X). The SYNTHETIC data layer + SVG
-// charts are NOT imported from proto/ — they're replaced by src/data/* (API) and
-// src/charts/* (Plotly). See PLANS/react_migration_contract_map.md §5.
+// main.jsx — application entry. Order matters: bootstrap-globals sets window.React
+// FIRST (the ui/ modules read React as a bare global at eval time), then the
+// modules side-effect-import in dependency order (each assigns window.X). The data
+// layer + analytical charts are NOT in ui/ — they live in src/data/* (API-backed)
+// and src/charts/* (Plotly.js). History: PLANS/react_migration_contract_map.md §5.
 
 import './bootstrap-globals'; // window.React/ReactDOM — must be first
 import React, { useState, useEffect } from 'react';
 import { resolveChipCoverage } from './data/chipCoverage';
 import { subscribe as subscribeResource } from './data/resource';
 
-// ── registries + utils (reused verbatim) ──────────────────────────────────────
-import './proto/data.js'; // static registries (UF tiles, REGIONS, QUALITY_FLAGS, UNIT_FAMILIES) + formatters (+ unused synthetic globals — harmless)
-import './proto/bancos.js';
-import './proto/views.js';
-import './proto/filtersSchema.js';
-import './proto/glossary.js';
-import './proto/urlState.js';
-import './proto/chipFmt.js';
-import './proto/filterSummary.js';
-import './proto/useGeoCascade.js';
-import './proto/seriesUtils.js';
-import './proto/dataFilters.js';
-import './proto/csvExport.js';
-import './proto/MetricConventions.jsx';
+// ── registries + utils ────────────────────────────────────────────────────────
+import './ui/data.js'; // static registries (UF tiles, REGIONS, QUALITY_FLAGS, UNIT_FAMILIES) + pt-BR formatters
+import './ui/bancos.js';
+import './ui/views.js';
+import './ui/filtersSchema.js';
+import './ui/glossary.js';
+import './ui/urlState.js';
+import './ui/chipFmt.js';
+import './ui/filterSummary.js';
+import './ui/useGeoCascade.js';
+import './ui/seriesUtils.js';
+import './ui/dataFilters.js';
+import './ui/csvExport.js';
+import './ui/MetricConventions.jsx';
 
 // ── data layer (NEW — API-backed, replaces the synthetic producers) ───────────
 import './data/dataStore.js';
@@ -51,41 +50,41 @@ import './charts/BrazilTileMap.jsx'; // SVG port (geographic tile grid)
 import './charts/BrazilChoropleth.jsx'; // maplibre choropleth (real UF shapes)
 import './charts/PreviewBanner.jsx'; // non-chart banner the preview/cross views use
 
-// ── atoms + shell (reused) ────────────────────────────────────────────────────
-import './proto/Icon.jsx';
-import './proto/Status.jsx';
-import './proto/Sparkline.jsx';
-import './proto/UnitFamily.jsx';
-import './proto/Atoms.jsx';
-import './proto/DataBoundary.jsx';
-import './proto/Glossary.jsx';
-import './proto/FilterMenu.jsx';
-import './proto/FilterTriggerBar.jsx';
-import './proto/AppShell.jsx';
-import './proto/MainScreen.jsx';
+// ── atoms + shell ─────────────────────────────────────────────────────────────
+import './ui/Icon.jsx';
+import './ui/Status.jsx';
+import './ui/Sparkline.jsx';
+import './ui/UnitFamily.jsx';
+import './ui/Atoms.jsx';
+import './ui/DataBoundary.jsx';
+import './ui/Glossary.jsx';
+import './ui/FilterMenu.jsx';
+import './ui/FilterTriggerBar.jsx';
+import './ui/AppShell.jsx';
+import './ui/MainScreen.jsx';
 
-// ── views (reused) ────────────────────────────────────────────────────────────
-import './proto/ViewOverview.jsx';
-import './proto/ViewValueVolume.jsx';
-import './proto/ViewGeography.jsx';
-import './proto/ViewConcentration.jsx';
-import './proto/ViewQuality.jsx';
-import './proto/ViewProductProfile.jsx';
-import './proto/ViewProductCompare.jsx';
-import './proto/ViewProductivity.jsx';
-import './proto/ViewSeasonality.jsx';
-import './proto/ViewFlows.jsx';
-import './proto/ViewPartners.jsx';
-import './proto/ViewCrossSource.jsx';
-import './proto/ViewsMultiSource.jsx';
-import './proto/ViewsChain.jsx';
-import './proto/ViewCuration.jsx';
-import './proto/ViewCuratedAnalyses.jsx';
-import './proto/ViewAbout.jsx';
-import './proto/ViewHealth.jsx';
-import './proto/ViewComingSoon.jsx';
-import './proto/ViewNotApplicable.jsx';
-import './proto/ViewPerspectiveSoon.jsx';
+// ── views ─────────────────────────────────────────────────────────────────────
+import './ui/ViewOverview.jsx';
+import './ui/ViewValueVolume.jsx';
+import './ui/ViewGeography.jsx';
+import './ui/ViewConcentration.jsx';
+import './ui/ViewQuality.jsx';
+import './ui/ViewProductProfile.jsx';
+import './ui/ViewProductCompare.jsx';
+import './ui/ViewProductivity.jsx';
+import './ui/ViewSeasonality.jsx';
+import './ui/ViewFlows.jsx';
+import './ui/ViewPartners.jsx';
+import './ui/ViewCrossSource.jsx';
+import './ui/ViewsMultiSource.jsx';
+import './ui/ViewsChain.jsx';
+import './ui/ViewCuration.jsx';
+import './ui/ViewCuratedAnalyses.jsx';
+import './ui/ViewAbout.jsx';
+import './ui/ViewHealth.jsx';
+import './ui/ViewComingSoon.jsx';
+import './ui/ViewNotApplicable.jsx';
+import './ui/ViewPerspectiveSoon.jsx';
 
 // ── deep-link decode (the DECODER half of the urlState.js codec contract) ─────
 function readStateFromURL() {

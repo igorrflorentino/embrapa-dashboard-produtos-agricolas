@@ -118,5 +118,5 @@ Or directly:
 
 NOTE: refreshes only BRONZE. Silver/Gold update on the next scheduled dbt build.
 Once Gold covers the advertised window, flip un_comtrade maturity 'beta'→'estavel'
-in frontend/src/proto/bancos.js.
+in frontend/src/ui/bancos.js.
 EOF

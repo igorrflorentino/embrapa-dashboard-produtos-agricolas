@@ -2,7 +2,7 @@
 and its pure lookup helpers.
 
 The registry is Python reference/parity data for the seam (the frontend
-``proto/{bancos,views,filtersSchema}.js`` copies are authoritative for what the UI
+``ui/{bancos,views,filtersSchema}.js`` copies are authoritative for what the UI
 renders). The helpers are trivial dict lookups over static data — low risk, but
 they encode real contracts: a view's capability gate (``view_applies_to`` /
 ``bancos_supporting``), the per-banco currency, and the safe PEVS fallbacks. These

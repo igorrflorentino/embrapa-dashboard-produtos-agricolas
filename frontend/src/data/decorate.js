@@ -3,7 +3,7 @@
 //
 // The API returns the keys to join on (uf, quality-flag id); the presentation
 // metadata — UF tile coordinates (col/row) and quality-flag label/color — lives
-// in the prototype's registries (window.UF_DATA, window.QUALITY_FLAGS), which the
+// in the UI registries (window.UF_DATA, window.QUALITY_FLAGS), which the
 // views also use directly. Joining them server-side would duplicate the
 // registries and invite drift, so we decorate here, in the data layer.
 
@@ -17,7 +17,7 @@ function ufTiles() {
 }
 
 /** Canonical 2-letter region codes (window.REGIONS ids), and a display-name →
- *  code map. Downstream region matching (proto/dataFilters.js regionData groups
+ *  code map. Downstream region matching (ui/dataFilters.js regionData groups
  *  ufData by `region === r.id`) keys off the CODE, so a row whose region arrived
  *  as a display name ("Norte") would never match and RegionBars would empty.
  *  Derived from the live REGIONS registry so it tracks any future region edit. */
@@ -34,7 +34,7 @@ function regionCodeIndex() {
 /** Normalize an API-supplied region to the canonical 2-letter code: keep it if
  *  it is already a valid code; map a known display name ("Norte" → "N");
  *  otherwise fall back to the registry/UF_DATA region (`tileRegion`). Exported +
- *  exposed on window so the proto's parallel cube-row decoration
+ *  exposed on window so the UI's parallel cube-row decoration
  *  (dataFilters._decorateUf) reuses the SAME normalization — both feed the one
  *  region-code groupBy, so they must agree. */
 export function normalizeRegion(apiRegion, tileRegion) {
@@ -43,7 +43,7 @@ export function normalizeRegion(apiRegion, tileRegion) {
   if (apiRegion && byName[apiRegion]) return byName[apiRegion];
   return tileRegion ?? apiRegion;
 }
-// Expose for the reused proto views/filters, which call window.* at render time.
+// Expose for the UI views/filters, which call window.* at render time.
 if (typeof window !== 'undefined') window.normalizeRegion = normalizeRegion;
 
 /** True iff `uf` is one of the 27 canonical Brazilian states (present in the
@@ -72,7 +72,7 @@ export function decorateUfRows(rows) {
       col: r.col ?? t.col,
       row: r.row ?? t.row,
       // Always store the canonical region CODE — downstream region matching keys
-      // off it (proto/dataFilters.js). Prefer the registry/UF_DATA code; map a
+      // off it (ui/dataFilters.js). Prefer the registry/UF_DATA code; map a
       // display name to its code; keep the API value only if it is already a code.
       region: normalizeRegion(r.region, t.region),
       name: r.name || t.name,

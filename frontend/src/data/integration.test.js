@@ -111,11 +111,11 @@ async function boot(fetchImpl) {
     provides: ['product', 'geo', 'quality'],
   });
   // Order matters: dataStore.js (window.dataStore) → producers.js (window.geoYearly,
-  // reads window.dataStore.conv) → proto/dataFilters.js (window.applyFilters, reads
+  // reads window.dataStore.conv) → ui/dataFilters.js (window.applyFilters, reads
   // both). decorate.js (imported by the first two) installs normalizeRegion.
   await import('./dataStore.js');
   await import('./producers.js');
-  await import('../proto/dataFilters.js');
+  await import('../ui/dataFilters.js');
   return { ds: window.dataStore, applyFilters: window.applyFilters };
 }
 
@@ -249,8 +249,8 @@ describe('integration: a drifted snapshot fails loudly instead of rendering blan
     expect(ds.error('ibge_pevs')).toMatch(/contrato.*productTS/i);
     expect(ds.get('ibge_pevs')).toBe(null);
 
-    // applyFilters with an unloaded banco must NOT throw — it degrades to the proto
-    // globals fallback (no store data), proving the gate fails safe rather than
+    // applyFilters with an unloaded banco must NOT throw — it degrades to the empty
+    // dataset fallback (no store data), proving the gate fails safe rather than
     // crashing the view. With no overviewTS/productTS loaded there is no fabricated
     // VALUE series — the hero/series render empty, not a wrong number.
     const view = applyFilters({}, 'ibge_pevs');

@@ -1,11 +1,10 @@
 // ESLint flat config — scoped to the HAND-WRITTEN layer ONLY.
 //
-// The frontend is the design-system's React/Vite prototype reused verbatim
-// (src/proto/, including the 700KB vendored src/proto/_ds_bundle.js). Only the
-// API-backed data layer (src/data/) and the Plotly.js charts (src/charts/) are
-// ours, so those are the only two trees we lint — globally ignoring everything
-// else keeps the vendor prototype's style out of scope (it would drown real
-// findings in noise we don't own).
+// src/ui/ is the design-system's React/Vite UI, adopted verbatim from the handoff
+// and kept close to it (we don't restyle it). Only the API-backed data layer
+// (src/data/) and the Plotly.js charts (src/charts/) are authored here, so those
+// are the only two trees we lint — globally ignoring src/ui/ keeps its imported
+// style out of scope (it would drown real findings in noise we don't own).
 //
 // Ruleset: eslint:recommended (JS correctness) + react-hooks recommended (the
 // charts already carry react-hooks/exhaustive-deps disable comments, so the
@@ -24,9 +23,9 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
   // Lint nothing by default; the scoped block below opts the two owned trees in.
-  // Everything else (proto/, the vendored bundle, dist/, node_modules/) is out.
+  // Everything else (src/ui/, dist/, node_modules/) is out.
   {
-    ignores: ['src/proto/**', 'dist/**', 'node_modules/**', '*.config.js'],
+    ignores: ['src/ui/**', 'dist/**', 'node_modules/**', '*.config.js'],
   },
 
   {
