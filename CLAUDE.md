@@ -35,6 +35,7 @@ Built for **Embrapa researchers** — the purpose is historical/scientific explo
 | `PLANS/` | Detailed feature plans (one .md per feature) |
 | `docs/` | Deep-dive docs (setup, IAM, testing, cost safety, etc.) |
 | `docs/operations_runbook.md` | Occasional prod ops: managing curators (BQ allowlist), backing up prod Gold locally, the destructive-command safety hooks |
+| `docs/comtrade_world_backfill.md` | Runbook for the UN Comtrade all-reporters (world) full-history backfill — the last gap to max granularity; measured volume/time/cost, local + Cloud Run Job paths, cost guard |
 
 ## Code Style
 
