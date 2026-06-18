@@ -57,8 +57,8 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 
 ### Gold — `dbt/models/gold/`
 
-- **Materialization:** `table` (current). One comprehensive table per source — the PEVS model is `gold_pevs_production`. Ad-hoc aggregation is query-time `GROUP BY`; pre-aggregated marts for the Dash dashboard's Pushdown Computing live in the `serving/` layer (they derive from Gold, not replace it).
-- **Columns:** 32 columns per `(reference_year, state_acronym, city_name, product_code)`.
+- **Materialization:** `table` (current). One comprehensive table per source — the PEVS model is `gold_pevs_production`. Ad-hoc aggregation is query-time `GROUP BY`; pre-aggregated marts for the React/webapi dashboard's Pushdown Computing live in the `serving/` layer (they derive from Gold, not replace it).
+- **Columns:** 28 columns per `(reference_year, state_acronym, city_code, product_code)`.
 - **Monetary conventions:**
   - `val_yearfx_*` — raw value ÷ year's average FX. NULL pre-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — value projected to today via chain-linked IPCA/IGP-M/IGP-DI index. **Use this for cross-year comparison.**

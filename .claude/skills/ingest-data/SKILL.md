@@ -18,10 +18,14 @@ uv run embrapa ingest all               # COMTRADE is key-gated → excluded fro
 
 # Individual pipelines
 uv run embrapa ingest ibge              # IBGE PEVS
+uv run embrapa ingest ibge-pam          # IBGE PAM (delta by default; --full to force)
 uv run embrapa ingest bcb-inflation     # BCB inflation (IPCA, IGP-M, IGP-DI)
 uv run embrapa ingest bcb-currency      # BCB FX rates (USD, EUR)
 uv run embrapa ingest comex             # MDIC Comex Stat flows (export + import)
 uv run embrapa ingest comtrade          # UN Comtrade global flows (needs COMTRADE_API_KEY)
+
+# Catch upstream revisions of OLD data (operator-triggered full re-ingest)
+uv run embrapa ingest reconcile         # full re-download of every nightly source
 
 # IBGE large historical windows (auto-chunked)
 make ingest-ibge-historical             # uses --chunk-years 5
@@ -35,7 +39,7 @@ uv run embrapa ingest bcb-currency --full
 ## Architecture
 
 ```
-IBGE SIDRA API ──┐
+IBGE SIDRA API ──┐   (IBGE/BCB shown; COMEX (MDIC) + COMTRADE follow the same Bronze path)
 BCB SGS API    ──┼──► Python (src/embrapa_commodities/) → GCS Parquet (landing/)
                  ┘                                               │
                                                                  ▼
@@ -125,7 +129,8 @@ src/embrapa_commodities/
 │   └── http.py         # Shared HTTP retry policy + drained GET
 ├── ibge/
 │   ├── client.py       # SIDRA API client + auto-chunking
-│   └── pipeline.py     # fetch → raw → Parquet → GCS → BigQuery
+│   ├── pipeline.py     # PEVS: fetch → raw → Parquet → GCS → BigQuery
+│   └── pam_pipeline.py # PAM: fetch → raw → Parquet → GCS → BigQuery
 ├── bcb/
 │   ├── series.py       # Generic SGS pipeline (shared by inflation/currency)
 │   ├── inflation.py    # BCB SGS inflation spec

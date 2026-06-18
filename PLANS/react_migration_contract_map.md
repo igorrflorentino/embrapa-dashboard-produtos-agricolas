@@ -1,10 +1,14 @@
 # React Migration — Contract Map (the single spec)
 
+> **Status: COMPLETE & LIVE** — merged PR #74 (3a3f9bb), deployed to prod Cloud Run behind direct IAP.
+> Kept as the migration spec/history; the design below is the live contract.
+
 > Status: **authoritative**. Replaces the stalled extraction workflow; built from ground
-> truth — `frontend/src/proto/contracts.js` (shapes), `dashboard/seam.py` (BFF output),
+> truth — `frontend/src/ui/contracts.js` (shapes), `webapi/seam.py` (BFF output; since split into
+> `seam_base.py` / `seam_cross.py` / `seam_curation.py`),
 > `serving/sql.py` (exact gateway columns), and a full read of the reused views +
 > producers. Decision of record: migrate the dashboard from Dash to a **React SPA over a
-> Flask REST API**, charts in **Plotly.js** (zoom/hover/pan). Dash is removed at the end.
+> Flask REST API**, charts in **Plotly.js** (zoom/hover/pan). Dash was removed at the end of the cutover.
 
 ## 0. Architecture decisions
 
@@ -293,7 +297,7 @@ is an explicit `"US$"`; they are not part of the convention-driven snapshot path
 
 ## 7. Deploy cutover (task #7)
 
-Multi-stage image in `deploy/dashboard/` (or new `deploy/webapi/`): node stage `npm ci && npm run
+Multi-stage image in `deploy/webapi/`: node stage `npm ci && npm run
 build` → `frontend/dist`; python stage `uv sync --extra webapi`, copy `dist`, set
 `SPA_DIST_DIR=/app/frontend/dist`, run `gunicorn embrapa_commodities.webapi.app:app`. Same Cloud
 Run **Service**, same IAP, same runtime SA `sa-web-dashboard-prod`. User triggers the deploy.
@@ -302,4 +306,4 @@ Run **Service**, same IAP, same runtime SA `sa-web-dashboard-prod`. User trigger
 
 #3 serializers+routes (snapshot+cross+curation) → test vs BQ · #4 `src/data/*` + dataStore patch ·
 #5 `src/charts/*` Plotly · #6 `main.jsx` boot + `npm run build` + E2E (vite proxy → flask) ·
-#7 deploy image · #8 delete `dashboard/` (relocate seam/format/registries to `webapi/`), update docs/memory.
+#7 deploy image · #8 deleted `dashboard/` (relocated seam/format/registries to `webapi/`), updated docs/memory.

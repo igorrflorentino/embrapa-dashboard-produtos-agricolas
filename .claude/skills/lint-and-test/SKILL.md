@@ -65,7 +65,7 @@ def test_something():
     # ... call the function under test ...
 ```
 
-Key test files:
+Key test files (representative subset — the suite has ~31 files; this lists the core ones):
 
 | File | Tests |
 |------|-------|
@@ -78,6 +78,10 @@ Key test files:
 | `tests/test_doctor.py` | Doctor/diagnostics |
 | `tests/test_monitor.py` | Monitoring module |
 | `tests/test_observability.py` | Observability/logging |
+
+The post-migration `webapi`/serving/source suites (e.g. `tests/test_webapi_routes.py`, `tests/test_seam.py`, `tests/test_serializers.py`, `tests/test_format.py`, `tests/test_registries.py`, `tests/test_cache_resilience.py`, `tests/test_serving.py`, `tests/test_comex_*.py`, `tests/test_comtrade_*.py`, `tests/test_pam_pipeline.py`, `tests/test_cli.py`, `tests/test_config.py`, `tests/test_core_*.py`) are not listed above but are part of the same `make test` run.
+
+The frontend has its own Vitest suite: run `npm test` in `frontend/` (test files are `*.test.jsx` / `*.test.js`).
 
 ## Pytest Configuration (from `pyproject.toml`)
 
