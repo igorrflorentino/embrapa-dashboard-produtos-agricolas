@@ -77,11 +77,27 @@ if ! gcloud artifacts repositories describe "$AR_REPO" \
     --description "Embrapa Cloud Run service images"
 fi
 
-# 2) Build + push via Cloud Build (no local Docker required).
-echo "Building image via Cloud Build (node build + python)…"
-gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
-  --config "$REPO_ROOT/deploy/webapi/cloudbuild.yaml" \
-  --substitutions "_IMAGE=${IMAGE}"
+# 2) Build + push via Cloud Build (no local Docker required) — UNLESS deploying a
+#    pre-built image. WEBAPI_SKIP_BUILD=1 skips the build and deploys ${IMAGE}
+#    as-is, e.g. a release tag the CI already published (see
+#    .github/workflows/release.yml): WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=v1.2.3 deploy.sh.
+#    Verify the image exists first so a wrong/absent tag fails loudly HERE rather
+#    than erroring mid-deploy.
+if [ -n "${WEBAPI_SKIP_BUILD:-}" ]; then
+  echo "WEBAPI_SKIP_BUILD set — skipping Cloud Build; deploying pre-built image:"
+  echo "  $IMAGE"
+  if ! gcloud artifacts docker images describe "$IMAGE" --project "$PROJECT" >/dev/null 2>&1; then
+    echo "ERROR: image not found in Artifact Registry: $IMAGE" >&2
+    echo "       Publish it first (push a v* tag / run the 'Release image' workflow)," >&2
+    echo "       or unset WEBAPI_SKIP_BUILD to build from source here." >&2
+    exit 1
+  fi
+else
+  echo "Building image via Cloud Build (node build + python)…"
+  gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
+    --config "$REPO_ROOT/deploy/webapi/cloudbuild.yaml" \
+    --substitutions "_IMAGE=${IMAGE}"
+fi
 
 # 3) Runtime env from .env via an EXPLICIT ALLOWLIST (only what the webapi reads).
 #    Runs AS the SA (ADC, no impersonation) → GCP_IMPERSONATION_SA NOT forwarded.

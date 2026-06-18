@@ -1,0 +1,158 @@
+# Release: build + publish the webapi (React SPA + Flask) image to Artifact
+# Registry. This DECOUPLES build from deploy — CI bakes a versioned, immutable
+# image on every release; deploying to Cloud Run later is just pointing the
+# service at that pre-built tag (no rebuild):
+#
+#   WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=v1.2.3 bash deploy/webapi/deploy.sh
+#
+# Triggers:
+#   • push of a tag matching v*   (e.g. `git tag v1.2.3 && git push origin v1.2.3`,
+#     or publishing a GitHub Release, which creates the tag) → builds + pushes
+#     `…/embrapa-dashboard:v1.2.3` AND `:latest`, then creates/updates the GitHub
+#     Release with auto-generated notes + the image ref.
+#   • workflow_dispatch (manual)  → builds + pushes `…/embrapa-dashboard:<version>`
+#     for an ad-hoc version you type (no `:latest`, no GitHub Release).
+#
+# Same image as deploy/webapi/deploy.sh (the deploy/webapi/Dockerfile, repo-root
+# context) — just built in the runner and pushed, instead of via Cloud Build.
+#
+# ── ONE-TIME GCP SETUP (reuses the WIF pool/provider that dbt-build-prod.yml
+#    already created; only adds a release SA with Artifact Registry write) ──────
+#
+#   PROJECT_ID=<your project>
+#   # 1) A dedicated, least-privilege CI release identity.
+#   gcloud iam service-accounts create sa-release-ci \
+#     --project="${PROJECT_ID}" --display-name="GitHub CI — build+push images"
+#   # 2) Let it PUSH images to the Artifact Registry repo the webapi image lives in
+#   #    (repo 'embrapa-services'; created on first manual deploy if absent).
+#   gcloud artifacts repositories add-iam-policy-binding embrapa-services \
+#     --project="${PROJECT_ID}" --location=us-central1 \
+#     --member="serviceAccount:sa-release-ci@${PROJECT_ID}.iam.gserviceaccount.com" \
+#     --role="roles/artifactregistry.writer"
+#   # 3) Let THIS repo's Actions impersonate it via the existing WIF pool.
+#   PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
+#   gcloud iam service-accounts add-iam-policy-binding \
+#     "sa-release-ci@${PROJECT_ID}.iam.gserviceaccount.com" --project="${PROJECT_ID}" \
+#     --role="roles/iam.workloadIdentityUser" \
+#     --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/igorrflorentino/embrapa-dashboard-commodities"
+#   # 4) Repo → Settings → Secrets and variables → Actions → Variables:
+#   #      GCP_RELEASE_SERVICE_ACCOUNT = sa-release-ci@${PROJECT_ID}.iam.gserviceaccount.com
+#   #    (GCP_PROJECT_ID + GCP_WIF_PROVIDER already exist from dbt-build-prod.yml.)
+#   #    Optional overrides (defaults shown): WEBAPI_REGION=us-central1,
+#   #      WEBAPI_AR_REPO=embrapa-services, WEBAPI_SERVICE_NAME=embrapa-dashboard.
+
+name: Release image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Image tag to build + push (e.g. v1.2.3 or a build label)'
+        required: true
+        type: string
+
+# One build per ref; don't cancel a release build mid-flight (the pushed image
+# should always be complete).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# id-token: write → mint the OIDC token for keyless WIF auth.
+# contents: write → create the GitHub Release on a tag build.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-and-push:
+    name: Build + push image
+    # Forks can't reach the WIF provider (security boundary).
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      # version: the pushed tag (refs/tags/vX → vX) or the manual input.
+      # is_tag: only a real `v*` tag release also moves `:latest` + cuts a Release.
+      - name: Resolve version + image refs
+        id: vars
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.WEBAPI_REGION || 'us-central1' }}
+          AR_REPO: ${{ vars.WEBAPI_AR_REPO || 'embrapa-services' }}
+          SERVICE_NAME: ${{ vars.WEBAPI_SERVICE_NAME || 'embrapa-dashboard' }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"; IS_TAG=false
+          else
+            VERSION="${GITHUB_REF_NAME}"; IS_TAG=true
+          fi
+          HOST="${REGION}-docker.pkg.dev"
+          BASE="${HOST}/${PROJECT_ID}/${AR_REPO}/${SERVICE_NAME}"
+          {
+            echo "version=${VERSION}"
+            echo "host=${HOST}"
+            echo "image=${BASE}:${VERSION}"
+            echo "image_latest=${BASE}:latest"
+            echo "is_tag=${IS_TAG}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building ${BASE}:${VERSION} (is_tag=${IS_TAG})"
+
+      - name: Auth to GCP via Workload Identity Federation
+        id: auth
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed  # v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
+          token_format: 'access_token'
+
+      # Docker login to Artifact Registry with the short-lived access token —
+      # no gcloud needed, no long-lived key.
+      - name: Docker login to Artifact Registry
+        run: |
+          echo '${{ steps.auth.outputs.access_token }}' \
+            | docker login -u oauth2accesstoken --password-stdin "${{ steps.vars.outputs.host }}"
+
+      # Same image as deploy/webapi/deploy.sh: deploy/webapi/Dockerfile, repo-root
+      # context. Build once, push the version tag; also move :latest on a real
+      # tag release (an ad-hoc workflow_dispatch build never touches :latest).
+      - name: Build + push image
+        run: |
+          IMAGE='${{ steps.vars.outputs.image }}'
+          docker build -f deploy/webapi/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          if [ '${{ steps.vars.outputs.is_tag }}' = 'true' ]; then
+            LATEST='${{ steps.vars.outputs.image_latest }}'
+            docker tag "$IMAGE" "$LATEST"
+            docker push "$LATEST"
+          fi
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Release image published"
+            echo ""
+            echo "Pull/deploy this exact tag (no rebuild):"
+            echo '```bash'
+            echo "WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=${{ steps.vars.outputs.version }} bash deploy/webapi/deploy.sh"
+            echo '```'
+            echo ""
+            echo "- Image: \`${{ steps.vars.outputs.image }}\`"
+            [ "${{ steps.vars.outputs.is_tag }}" = "true" ] && echo "- Also tagged: \`${{ steps.vars.outputs.image_latest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only for real `v*` tag releases: cut the GitHub Release with auto notes +
+      # the image ref, so the release page documents exactly what to deploy.
+      - name: Create GitHub Release
+        if: steps.vars.outputs.is_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.vars.outputs.version }}' \
+            --title '${{ steps.vars.outputs.version }}' \
+            --generate-notes \
+            --notes 'Deployable image (no rebuild): ${{ steps.vars.outputs.image }} — deploy with: WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=${{ steps.vars.outputs.version }} bash deploy/webapi/deploy.sh'
