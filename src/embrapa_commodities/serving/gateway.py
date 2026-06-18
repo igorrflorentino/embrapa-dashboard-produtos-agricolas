@@ -146,8 +146,12 @@ def fetch_production_overview(
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
     source: str = "ibge_pevs",
+    uf_codes: Sequence[str] = (),
 ):
-    """Annual production total for a PEVS-shaped source (backs overviewTS)."""
+    """Annual production total for a PEVS-shaped source (backs overviewTS).
+
+    ``uf_codes`` optionally narrows to the producing UFs (cross-source per-UF scoping).
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", _production_mart(source))
     sql, params = sqlbuild.production_overview(
@@ -156,6 +160,7 @@ def fetch_production_overview(
         year_end=year_end,
         product_codes=tuple(product_codes),
         value_column=value_column,
+        uf_codes=tuple(uf_codes),
     )
     return run_query(sql, params)
 
@@ -233,8 +238,12 @@ def fetch_comex_seasonality(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    uf_codes: Sequence[str] = (),
 ):
-    """Monthly COMEX value for the seasonality view (backs monthlyData)."""
+    """Monthly COMEX value for the seasonality view (backs monthlyData).
+
+    ``uf_codes`` optionally narrows to the origin UFs (the mart now keeps
+    ``state_acronym`` in its grain — P6 per-UF scoping)."""
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_seasonality")
     sql, params = sqlbuild.comex_seasonality(
@@ -243,6 +252,7 @@ def fetch_comex_seasonality(
         year_end=year_end,
         ncm_codes=tuple(ncm_codes),
         flow=flow,
+        uf_codes=tuple(uf_codes),
     )
     return run_query(sql, params)
 
@@ -376,11 +386,13 @@ def fetch_comex_partners(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    rank_by: str = "value",
 ):
     """COMEX partner (country) ranking with export/import split (backs partnerData).
 
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``); empty =
     no UF filter. COMTRADE has no origin-UF column, so its partner reader omits it.
+    ``rank_by`` ∈ {value, weight, price} picks the server-side ORDER BY dimension.
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
@@ -393,6 +405,7 @@ def fetch_comex_partners(
         year_end=year_end,
         codes=tuple(ncm_codes),
         uf_codes=tuple(uf_codes),
+        rank_by=rank_by,
     )
     return run_query(sql, params)
 
@@ -402,8 +415,12 @@ def fetch_comtrade_partners(
     year_start: int | None = None,
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
+    rank_by: str = "value",
 ):
-    """COMTRADE partner ranking with export/import split (backs partnerData)."""
+    """COMTRADE partner ranking with export/import split (backs partnerData).
+
+    ``rank_by`` ∈ {value, weight, price} picks the server-side ORDER BY dimension.
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
     sql, params = sqlbuild.trade_by_partner(
@@ -414,6 +431,40 @@ def fetch_comtrade_partners(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(cmd_codes),
+        rank_by=rank_by,
+    )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_products_by_uf(
+    *,
+    table_key: str,
+    code_column: str,
+    name_column: str,
+    year_start: int | None = None,
+    year_end: int | None = None,
+    codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
+    value_column: str = "val_yearfx_usd",
+    flow: str | None = None,
+):
+    """Per-product ranking within a UF selection (backs the 'Base de dados' per-UF
+    product breakdown). ``table_key`` + columns are internal literals the seam picks
+    per banco (PEVS production / COMEX export); the SQL builder validates each
+    interpolated identifier against its allowlist."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_key)
+    sql, params = sqlbuild.products_by_uf(
+        table,
+        code_column=code_column,
+        name_column=name_column,
+        year_start=year_start,
+        year_end=year_end,
+        codes=tuple(codes),
+        uf_codes=tuple(uf_codes),
+        value_column=value_column,
+        flow=flow,
     )
     return run_query(sql, params)
 
@@ -612,8 +663,13 @@ def fetch_product_timeseries(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     value_column: str | None = None,
+    uf_codes: Sequence[str] = (),
 ):
-    """Annual per-product series (value + native quantity) for a source (backs productTS)."""
+    """Annual per-product series (value + native quantity) for a source (backs productTS).
+
+    ``uf_codes`` optionally narrows to the producing/origin UFs (cross-source per-UF
+    scoping: PEVS mass/volume + farm-gate price).
+    """
     table_name, code_col, _, default_value = _product_source(source)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
@@ -624,6 +680,7 @@ def fetch_product_timeseries(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(codes),
+        uf_codes=tuple(uf_codes),
     )
     return run_query(sql, params)
 
@@ -695,6 +752,7 @@ def fetch_cross_series(
     year_start: int | None = None,
     year_end: int | None = None,
     codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
 ):
     """Annual single-metric series for the cross-source view (backs crossSeries).
 
@@ -702,10 +760,16 @@ def fetch_cross_series(
     Brazil's COMTRADE share is exp_value (reporter=Brazil) ÷ world_exp (all reporters);
     partner_exp pins partner=Brazil instead (the mirror perspective). ``exp_price``
     is not served here — it is derived UI-side as exp_value / exp_weight.
+
+    ``uf_codes`` optionally narrows to the origin UFs (cross-source per-UF scoping).
+    Only the COMEX mart carries ``state_acronym``, so the filter is applied ONLY for
+    COMEX metrics; for COMTRADE metrics it is dropped (its origin is a reporter
+    country, not a Brazilian UF), keeping the query valid and the series national.
     """
     table_name, measure, flow, code_column, brazil_column = _cross_metric(metric)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
+    uf = tuple(uf_codes) if table_name == "serving_comex_annual" else ()
     sql, params = sqlbuild.cross_annual(
         table,
         measure_column=measure,
@@ -716,6 +780,7 @@ def fetch_cross_series(
         reporter_value=settings.comtrade_brazil_iso if brazil_column else None,
         year_start=year_start,
         year_end=year_end,
+        uf_codes=uf,
     )
     return run_query(sql, params)
 

@@ -71,7 +71,7 @@ def test_trade_route_threads_basket_and_year_window_to_seam(
     client = _client(monkeypatch)
     captured = {}
 
-    def fake_seam(banco, summary=None):
+    def fake_seam(banco, summary=None, rank_by="value"):  # rank_by: partner route only
         captured["banco"] = banco
         captured["summary"] = summary
         return None
@@ -115,13 +115,39 @@ def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        seam, "partner_data", lambda banco, summary=None: captured.update(summary=summary)
+        seam,
+        "partner_data",
+        lambda banco, summary=None, rank_by="value": captured.update(
+            summary=summary, rank_by=rank_by
+        ),
     )
     monkeypatch.setattr(serializers, "serialize_partner", lambda *a, **k: {})
     resp = client.get("/api/partners?banco=mdic_comex&codes=&y0=2020")
     assert resp.status_code == 200
     assert captured["summary"] == {"startDate": "2020"}
     assert "basket" not in captured["summary"]
+    assert captured["rank_by"] == "value"  # default metric
+
+
+def test_partners_route_metric_param(monkeypatch):
+    """/api/partners?metric= threads value|weight|price to the seam (rank_by) and
+    400s on an unknown metric (never silently falls back to value)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        seam,
+        "partner_data",
+        lambda banco, summary=None, rank_by="value": captured.update(rank_by=rank_by),
+    )
+    monkeypatch.setattr(serializers, "serialize_partner", lambda *a, **k: {})
+    assert client.get("/api/partners?banco=mdic_comex&metric=weight").status_code == 200
+    assert captured["rank_by"] == "weight"
+    assert client.get("/api/partners?banco=mdic_comex&metric=price").status_code == 200
+    assert captured["rank_by"] == "price"
+    bad = client.get("/api/partners?banco=mdic_comex&metric=bogus")
+    assert bad.status_code == 400
 
 
 @pytest.mark.parametrize(
@@ -138,7 +164,9 @@ def test_trade_route_threads_origin_uf_filter_to_seam(monkeypatch, endpoint, sea
 
     client = _client(monkeypatch)
     captured = {}
-    monkeypatch.setattr(seam, seam_fn, lambda banco, summary=None: captured.update(summary=summary))
+    monkeypatch.setattr(
+        seam, seam_fn, lambda banco, summary=None, rank_by="value": captured.update(summary=summary)
+    )
     monkeypatch.setattr(serializers, serialize_fn, lambda *a, **k: {})
     resp = client.get(f"{endpoint}?banco=mdic_comex&states=PA,SP&y0=2020")
     assert resp.status_code == 200
@@ -417,8 +445,8 @@ def test_cross_series_get_coerces_year_bounds_to_int(monkeypatch):
     client = _client(monkeypatch)
     captured = {}
 
-    def fake_series(banco, metric, y0, y1):
-        captured.update(banco=banco, metric=metric, y0=y0, y1=y1)
+    def fake_series(banco, metric, y0, y1, uf_codes=()):
+        captured.update(banco=banco, metric=metric, y0=y0, y1=y1, uf_codes=uf_codes)
         return None  # serialize_cross_series(None) → None
 
     monkeypatch.setattr(seam, "cross_series", fake_series)
@@ -437,11 +465,37 @@ def test_cross_series_get_missing_year_bounds_are_none(monkeypatch):
     monkeypatch.setattr(
         seam,
         "cross_series",
-        lambda banco, metric, y0, y1: captured.update(y0=y0, y1=y1),
+        lambda banco, metric, y0, y1, uf_codes=(): captured.update(y0=y0, y1=y1, uf_codes=uf_codes),
     )
     resp = client.get("/api/cross/series?banco=mdic_comex&metric=exp_value")
     assert resp.status_code == 200
     assert captured["y0"] is None and captured["y1"] is None
+    assert captured["uf_codes"] == ()  # no states param → national
+
+
+def test_cross_routes_thread_states_to_seam(monkeypatch):
+    """P6: the ``states`` param reaches each cross seam as uf_codes (per-UF scoping)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    cap = {}
+    monkeypatch.setattr(
+        seam, "cross_series", lambda b, m, y0, y1, uf_codes=(): cap.update(series=uf_codes)
+    )
+    monkeypatch.setattr(
+        seam, "price_spread", lambda c, uf_codes=(): cap.update(price=uf_codes) or {}
+    )
+    monkeypatch.setattr(seam, "value_added", lambda c, uf_codes=(): cap.update(va=uf_codes) or {})
+    monkeypatch.setattr(serializers, "serialize_cross_series", lambda *a, **k: {})
+    monkeypatch.setattr(serializers, "serialize_price_spread", lambda *a, **k: {})
+    monkeypatch.setattr(serializers, "serialize_value_added", lambda *a, **k: {})
+
+    client.get("/api/cross/series?banco=mdic_comex&metric=exp_value&states=AC")
+    assert cap["series"] == ("AC",)
+    client.get("/api/cross/price-spread?commodity=castanha&states=AC,PA")
+    assert cap["price"] == ("AC", "PA")
+    client.get("/api/cross/value-added?states=AC")
+    assert cap["va"] == ("AC",)
 
 
 def test_cross_metric_refs_get_returns_seam_list(monkeypatch):
@@ -480,7 +534,9 @@ def test_cross_analytics_get_threads_commodity_and_shapes_payload(
 
     client = _client(monkeypatch)
     captured = {}
-    monkeypatch.setattr(seam, seam_fn, lambda commodity: captured.update(commodity=commodity) or {})
+    monkeypatch.setattr(
+        seam, seam_fn, lambda commodity, uf_codes=(): captured.update(commodity=commodity) or {}
+    )
     resp = client.get(f"{endpoint}?commodity=castanha")
     assert resp.status_code == 200
     assert captured["commodity"] == "castanha"
@@ -517,7 +573,9 @@ def test_cross_analytics_get_unknown_commodity_passes_none(monkeypatch, endpoint
         "value_added": "value_added",
         "market_nature": "market_nature",
     }[seam_fn]
-    monkeypatch.setattr(seam, name, lambda commodity: captured.update(commodity=commodity) or {})
+    monkeypatch.setattr(
+        seam, name, lambda commodity, uf_codes=(): captured.update(commodity=commodity) or {}
+    )
     resp = client.get(f"{endpoint}?commodity=")  # blank → None
     assert resp.status_code == 200
     assert captured["commodity"] is None
@@ -531,7 +589,7 @@ def test_trade_get_endpoints_shape_empty_seam_payload(monkeypatch):
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "flow_data", lambda banco, summary=None: None)
-    monkeypatch.setattr(seam, "partner_data", lambda banco, summary=None: None)
+    monkeypatch.setattr(seam, "partner_data", lambda banco, summary=None, rank_by="value": None)
     monkeypatch.setattr(seam, "monthly_data", lambda banco, summary=None: None)
 
     flow = client.get("/api/flow?banco=mdic_comex").get_json()

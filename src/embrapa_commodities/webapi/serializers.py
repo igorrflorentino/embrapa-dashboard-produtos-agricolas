@@ -559,69 +559,131 @@ def serialize_flow(d: dict | None, max_links: int = 40) -> dict:
 
 
 def serialize_partner(df: pd.DataFrame | None, max_rows: int = 30) -> dict:
-    """seam.partner_data() → PartnerData. Partner ranking with exp/imp split (mi)."""
+    """seam.partner_data() → PartnerData. Partner ranking with exp/imp split.
+
+    Each partner carries three comparable measures so the view can rank/display by
+    Capital / Volume / Preço médio without a re-fetch when the row set is unchanged:
+    ``value``/``exp``/``imp`` in US$ mi, ``weight`` in mil t (net weight), and
+    ``price`` in US$/kg (value ÷ net weight; ``None`` when the partner has no weight,
+    so the view shows "—" instead of a divide-by-zero artefact). The row ORDER is
+    the server-side ranking dimension (seam ``rank_by``), so ``df.head`` is the
+    correct top-N for whichever metric was requested."""
     if _empty(df):
         return {"preview": False, "flowLabel": "Parceiro", "unit": "US$", "partners": []}
-    partners = [
-        {
-            "name": r.partner_name,
-            "exp": _num(r.exp_value_usd) / 1e6,
-            "imp": _num(r.imp_value_usd) / 1e6,
-            "value": _num(r.value_usd) / 1e6,
-        }
-        for r in df.head(max_rows).itertuples()
-    ]
+    partners = []
+    for r in df.head(max_rows).itertuples():
+        price = getattr(r, "price_usd_per_kg", None)
+        partners.append(
+            {
+                "name": r.partner_name,
+                "exp": _num(r.exp_value_usd) / 1e6,
+                "imp": _num(r.imp_value_usd) / 1e6,
+                "value": _num(r.value_usd) / 1e6,
+                "weight": _num(getattr(r, "total_weight_kg", 0)) / 1e6,  # kg → mil t
+                "price": None if price is None or pd.isna(price) else _num(price),  # US$/kg
+            }
+        )
     return {"preview": False, "flowLabel": "Parceiro", "unit": "US$", "partners": partners}
 
 
+def serialize_products_by_uf(df: pd.DataFrame | None, max_rows: int = 100) -> dict:
+    """seam.products_by_uf() → { products: [{code,name,value,q_mass,q_vol}] }.
+
+    value in currency mi (the deflated column the conventions resolved), q_mass in
+    mil t, q_vol in mi m³ — the SAME magnitudes the snapshot's productTS/ufData use,
+    so the view's UnitFamily formatters apply unchanged. Rows arrive value-ranked;
+    the view re-sorts client-side by the chosen metric over the (small) product set."""
+    if _empty(df):
+        return {"products": []}
+    products = [
+        {
+            "code": str(r.product_code),
+            "name": r.product_name,
+            "value": _num(r.total_value) / 1e6,
+            "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
+            "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+        }
+        for r in df.head(max_rows).itertuples()
+    ]
+    return {"products": products}
+
+
+def _monthly_avg(matrix: dict[int, list[float | None]], years: list[int]) -> list[float]:
+    """Per-calendar-month mean over the coverage years, excluding ABSENT (None)
+    months only — a truthiness filter would silently drop genuine 0.0 months and
+    bias the average upward."""
+    out: list[float] = []
+    for mi in range(12):
+        vals = [matrix[y][mi] for y in years if matrix[y][mi] is not None]
+        out.append(sum(vals) / len(vals) if vals else 0.0)
+    return out
+
+
 def serialize_monthly(df: pd.DataFrame | None) -> dict:
-    """seam.monthly_data() → MonthlyData. year→12 monthly values + the 12-month avg."""
-    base = {"preview": False, "unit": "US$", "months": list(range(1, 13))}
+    """seam.monthly_data() → MonthlyData. year→12 monthly values + the 12-month avg,
+    for BOTH Capital (value, US$ mi) and Volume (net weight, mil t), so the seasonal
+    profile can overlay the two metrics on one month axis."""
+    base = {"preview": False, "unit": "US$", "weightUnit": "mil t", "months": list(range(1, 13))}
     if _empty(df):
         # Always 12 values, even with no data: ViewSeasonality computes peak/low/
         # amplitude over monthlyAvg and would crash on an empty list (indexOf max of
         # [] = -1 → monthlyAvg[-1] = undefined → fmt throws). 12 zeros match the
         # loading shell producers.js ships, so the empty state renders honestly.
-        return {**base, "years": [], "matrix": {}, "monthlyAvg": [0.0] * 12, "series": []}
+        return {
+            **base,
+            "years": [],
+            "matrix": {},
+            "monthlyAvg": [0.0] * 12,
+            "weightMatrix": {},
+            "weightMonthlyAvg": [0.0] * 12,
+            "series": [],
+        }
     # Seed absent months as None (not 0.0) so the 12-month average can tell a
-    # genuine 0-export month from a month with no data row. The emitted `matrix`
-    # still uses 0.0 for absent months (the contract is 12 numbers per year).
-    matrix: dict[int, list[float | None]] = {}
+    # genuine 0-export month from a month with no data row. The emitted matrices
+    # still use 0.0 for absent months (the contract is 12 numbers per year).
+    v_matrix: dict[int, list[float | None]] = {}
+    w_matrix: dict[int, list[float | None]] = {}
     series: list[dict] = []
     for r in df.itertuples():
         y, m = int(r.reference_year), int(r.reference_month)
-        v = _num(r.total_value_usd) / 1e6
-        matrix.setdefault(y, [None] * 12)[m - 1] = v
-        series.append({"ym": f"{y}-{m:02d}", "y": y, "m": m, "v": v})
-    years = sorted(matrix)
-    monthly_avg = []
-    for mi in range(12):
-        # Count real zeros; exclude only absent (None) cells — a truthiness
-        # filter would silently drop genuine 0.0 months and bias the avg upward.
-        vals = [matrix[y][mi] for y in years if matrix[y][mi] is not None]
-        monthly_avg.append(sum(vals) / len(vals) if vals else 0.0)
+        v = _num(r.total_value_usd) / 1e6  # US$ mi
+        w = _num(getattr(r, "total_weight_kg", 0)) / 1e6  # kg → mil t
+        v_matrix.setdefault(y, [None] * 12)[m - 1] = v
+        w_matrix.setdefault(y, [None] * 12)[m - 1] = w
+        series.append({"ym": f"{y}-{m:02d}", "y": y, "m": m, "v": v, "w": w})
+    years = sorted(v_matrix)
+    fill = lambda mx: {str(y): [c if c is not None else 0.0 for c in mx[y]] for y in years}  # noqa: E731
     return {
         **base,
         "years": years,
-        "matrix": {str(y): [c if c is not None else 0.0 for c in matrix[y]] for y in years},
-        "monthlyAvg": monthly_avg,
+        "matrix": fill(v_matrix),
+        "monthlyAvg": _monthly_avg(v_matrix, years),
+        "weightMatrix": fill(w_matrix),
+        "weightMonthlyAvg": _monthly_avg(w_matrix, years),
         "series": series,
     }
 
 
 def serialize_value_added(d: dict) -> dict:
-    """seam.value_added() → ValueAddedAnalysis. Derive years + byLevel from the
-    flat series (the seam returns brutaV/procV per year; the view's StackedArea
-    wants byLevel.{bruta,processada} = [{y,v}])."""
+    """seam.value_added() → ValueAddedAnalysis. Derive years + byLevel (value, US$ bi)
+    AND byLevelWeight (volume, mil t) from the flat series (the seam returns
+    brutaV/procV + brutaW/procW per year; the view's composition charts want
+    byLevel*.{bruta,processada} = [{y,v}]). The flat ``series`` also carries the
+    absolute per-level prices (priceBruta/priceProc, US$/kg) for the price bars."""
     series = d.get("series", [])
     by_level = {
         "bruta": [{"y": r["y"], "v": r["brutaV"]} for r in series],
         "processada": [{"y": r["y"], "v": r["procV"]} for r in series],
     }
+    by_level_weight = {
+        "bruta": [{"y": r["y"], "v": r.get("brutaW", 0)} for r in series],
+        "processada": [{"y": r["y"], "v": r.get("procW", 0)} for r in series],
+    }
     return {
         "preview": False,
         "years": [r["y"] for r in series],
         "byLevel": by_level,
+        "byLevelWeight": by_level_weight,
         "series": series,
         "nCodes": d.get("n_codes", 0),
     }

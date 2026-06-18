@@ -173,13 +173,19 @@ def production_overview(
     year_end: int | None = None,
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
-    """Annual production total from ``serving_pevs_annual`` (backs overviewTS)."""
+    """Annual production total from ``serving_pevs_annual`` (backs overviewTS).
+
+    ``uf_codes`` optionally narrows to the producing UFs (``state_acronym``) — the
+    PEVS mart carries it; empty/absent = national (no filter). Used by the
+    cross-source views' per-UF scoping."""
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, "product_code", "product_codes", product_codes)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     sql = f"""
         select
             reference_year,
@@ -321,6 +327,52 @@ def productivity(
     return sql, params
 
 
+def products_by_uf(
+    table: str,
+    *,
+    code_column: str,
+    name_column: str,
+    year_start: int | None = None,
+    year_end: int | None = None,
+    codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
+    value_column: str = "val_yearfx_usd",
+    flow: str | None = None,
+) -> tuple[str, list]:
+    """Per-PRODUCT ranking WITHIN a UF selection (backs the "Base de dados" per-UF
+    product breakdown). This is the INVERSE of production_by_uf / comex_by_uf (which
+    GROUP BY state and sum products away): here we GROUP BY the product and constrain
+    ``state_acronym`` to the selected UFs (``uf_codes``).
+
+    Works for PEVS production (``flow`` None, code_column=product_code) and COMEX
+    export (``flow='export'``, code_column=ncm_code). Each row carries value plus the
+    family-split ``q_mass`` (t) / ``q_vol`` (m³) so the view can rank by Capital,
+    Volume(massa) or Volume(volume) — quantities only ever sum WITHIN a family.
+    """
+    code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    name_column = _validate_column(name_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
+    conditions: list[str] = []
+    params: list = []
+    _year_bounds(conditions, params, year_start, year_end)
+    _in_array(conditions, params, code_column, "codes", codes)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
+    _flow(conditions, params, flow)
+    sql = f"""
+        select
+            {code_column}                                      as product_code,
+            any_value({name_column})                           as product_name,
+            sum({value_column})                                as total_value,
+            sum(case when family = 'massa'  then qty_base end) as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol
+        from `{table}`
+        {_where(conditions)}
+        group by {code_column}
+        order by total_value desc
+    """
+    return sql, params
+
+
 def comex_seasonality(
     table: str,
     *,
@@ -328,19 +380,28 @@ def comex_seasonality(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     flow: str | None = None,
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
-    """Monthly COMEX value from ``serving_comex_seasonality`` (backs monthlyData)."""
+    """Monthly COMEX value + net weight from ``serving_comex_seasonality`` (backs
+    monthlyData). Both metrics are carried so the seasonal profile can overlay
+    Volume (peso) and Capital (US$) on the same month axis.
+
+    ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — the mart
+    now keeps it in the grain (P6), so the seasonal profile can be scoped to one
+    state; empty/absent = national."""
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, "ncm_code", "ncm_codes", ncm_codes)
     _flow(conditions, params, flow)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     sql = f"""
         select
             reference_year,
             reference_month,
             any_value(month_abbr_pt) as month_abbr_pt,
-            sum(val_yearfx_usd)      as total_value_usd
+            sum(val_yearfx_usd)      as total_value_usd,
+            sum(net_weight_kg)       as total_weight_kg
         from `{table}`
         {_where(conditions)}
         group by reference_year, reference_month
@@ -534,6 +595,19 @@ def comex_by_uf_yearly(
     return sql, params
 
 
+# Partner-ranking metric → the SELECT alias to ORDER BY. The ranking dimension
+# MUST be applied server-side (not by re-sorting a top-N-by-value page): a niche
+# high-unit-price buyer — top of the "preço médio" ranking — has a small total
+# value and would never appear in the value-ranked page, so a client-side re-sort
+# would silently drop it. Keys are an exact-match enum (validated below); the
+# values are trusted literal expressions, never user input.
+_PARTNER_RANK_EXPR = {
+    "value": "value_usd",
+    "weight": "total_weight_kg",
+    "price": "price_usd_per_kg",
+}
+
+
 def trade_by_partner(
     table: str,
     *,
@@ -544,6 +618,7 @@ def trade_by_partner(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    rank_by: str = "value",
 ) -> tuple[str, list]:
     """Partner ranking with export/import split (backs partnerData).
 
@@ -553,6 +628,13 @@ def trade_by_partner(
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
     COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
     origin is a reporter country, not a Brazilian UF). Empty/absent = no filter.
+
+    ``rank_by`` ∈ {value, weight, price} picks the ORDER BY dimension so the
+    top-N cut (applied by the serializer) is the top-N *by that metric*: ``value``
+    = total traded US$, ``weight`` = net weight (kg), ``price`` = implied unit
+    price (US$/kg = value ÷ weight). Each row carries all three measures regardless,
+    so the view can switch the displayed metric without a re-fetch when the cut is
+    unaffected — but a re-fetch with the new ``rank_by`` is needed to re-rank.
     """
     partner_code_column = _validate_column(
         partner_code_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
@@ -560,6 +642,7 @@ def trade_by_partner(
     partner_name_column = _validate_column(
         partner_name_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
     )
+    order_expr = _PARTNER_RANK_EXPR.get(rank_by, "value_usd")
     conditions: list[str] = []
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
@@ -571,11 +654,13 @@ def trade_by_partner(
             any_value({partner_name_column})                       as partner_name,
             sum(case when flow = 'export' then val_yearfx_usd end) as exp_value_usd,
             sum(case when flow = 'import' then val_yearfx_usd end) as imp_value_usd,
-            sum(val_yearfx_usd)                                    as value_usd
+            sum(val_yearfx_usd)                                    as value_usd,
+            sum(net_weight_kg)                                     as total_weight_kg,
+            safe_divide(sum(val_yearfx_usd), sum(net_weight_kg))   as price_usd_per_kg
         from `{table}`
         {_where(conditions)}
         group by {partner_code_column}
-        order by value_usd desc
+        order by {order_expr} desc nulls last
     """
     return sql, params
 
@@ -834,6 +919,7 @@ def product_timeseries(
     year_start: int | None = None,
     year_end: int | None = None,
     codes: Sequence[str] = (),
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
 
@@ -842,6 +928,10 @@ def product_timeseries(
     is the ONE the snapshot scales for display — native units differ per code
     (kg vs t NCMs in COMEX), so only the base quantity is summable/scalable.
     ``family`` rides along for the UI.
+
+    ``uf_codes`` optionally narrows to the producing/origin UFs (``state_acronym``)
+    — the PEVS/COMEX marts carry it; empty/absent = national. Used by the
+    cross-source views' per-UF scoping (PEVS prod_mass/volume + farm-gate price).
     """
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
@@ -849,6 +939,7 @@ def product_timeseries(
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     sql = f"""
         select
             {code_column}       as code,
@@ -901,6 +992,7 @@ def cross_annual(
     reporter_value: str | None = None,
     year_start: int | None = None,
     year_end: int | None = None,
+    uf_codes: Sequence[str] = (),
 ) -> tuple[str, list]:
     """Annual single-measure series for the cross-source view (backs crossSeries points).
 
@@ -910,6 +1002,10 @@ def cross_annual(
     COMTRADE metrics — exp/imp_value filter the reporter, partner_exp the partner;
     ``world_exp`` omits it to sum over every reporter. (``exp_price`` is derived
     UI-side as value ÷ weight, so it has no builder.)
+
+    ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — ONLY the
+    COMEX mart carries it, so callers pass it solely for ``mdic_comex`` metrics
+    (the per-UF cross-source scoping); COMTRADE callers leave it empty.
     """
     measure_column = _validate_column(measure_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
@@ -918,6 +1014,7 @@ def cross_annual(
     if code_column is not None:
         _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
+    _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     if reporter_value is not None:
         reporter_column = _validate_column(
             reporter_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"

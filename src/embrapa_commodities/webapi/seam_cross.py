@@ -60,9 +60,17 @@ def cross_metric_refs() -> list[dict]:
 
 
 def cross_series(
-    banco_id: str, metric_id: str, y0: int | None = None, y1: int | None = None
+    banco_id: str,
+    metric_id: str,
+    y0: int | None = None,
+    y1: int | None = None,
+    uf_codes: tuple = (),
 ) -> dict | None:
-    """Comparable annual series for (banco, metric), in its DISPLAY_UNIT magnitude."""
+    """Comparable annual series for (banco, metric), in its DISPLAY_UNIT magnitude.
+
+    ``uf_codes`` optionally narrows to origin UFs (the cross-source per-UF scoping).
+    It only affects the UF-capable bancos (IBGE PEVS production, MDIC COMEX export);
+    a COMTRADE metric ignores it (no UF column) — the view notes that honestly."""
     key = f"{banco_id}:{metric_id}"
     unit = CROSS_DISPLAY_UNIT.get(key)
     banco = banco_by_id(banco_id)
@@ -83,25 +91,29 @@ def cross_series(
         "unit": unit,
         "family": metric["family"],
         "coverage": cov,
-        "points": _cross_points(banco_id, metric_id, yy0, yy1, unit),
+        "points": _cross_points(banco_id, metric_id, yy0, yy1, unit, uf_codes),
     }
 
 
-def _cross_points(banco_id: str, metric_id: str, y0: int, y1: int, unit: str) -> list[dict]:
+def _cross_points(
+    banco_id: str, metric_id: str, y0: int, y1: int, unit: str, uf_codes: tuple = ()
+) -> list[dict]:
     if banco_id == "ibge_pevs":
-        return _pevs_cross_points(metric_id, y0, y1)
+        return _pevs_cross_points(metric_id, y0, y1, uf_codes)
     if metric_id == "exp_price":
-        return _exp_price_cross_points(y0, y1)
-    df = gateway.fetch_cross_series(f"{banco_id}:{metric_id}", year_start=y0, year_end=y1)
+        return _exp_price_cross_points(y0, y1, uf_codes)
+    df = gateway.fetch_cross_series(
+        f"{banco_id}:{metric_id}", year_start=y0, year_end=y1, uf_codes=uf_codes
+    )
     scale = 1e9 if unit.endswith("bi") else (1e6 if unit == "mil t" else 1.0)
     return [{"y": int(r.reference_year), "v": float(r.value or 0) / scale} for r in df.itertuples()]
 
 
-def _pevs_cross_points(metric_id: str, y0: int, y1: int) -> list[dict]:
+def _pevs_cross_points(metric_id: str, y0: int, y1: int, uf_codes: tuple = ()) -> list[dict]:
     """PEVS cross points: value (÷1e9) or per-family native quantity (÷1e3 / ÷1e6)."""
     if metric_id == "prod_value":
         df = gateway.fetch_production_overview(
-            year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
+            year_start=y0, year_end=y1, value_column="val_real_ipca_brl", uf_codes=uf_codes
         )
         return [
             {"y": int(r.reference_year), "v": float(r.total_value or 0) / 1e9}
@@ -110,16 +122,20 @@ def _pevs_cross_points(metric_id: str, y0: int, y1: int) -> list[dict]:
     fam = "massa" if metric_id == "prod_mass" else "volume"
     scale = 1e3 if metric_id == "prod_mass" else 1e6
     pts = gateway.fetch_product_timeseries(
-        "ibge_pevs", year_start=y0, year_end=y1, value_column="val_real_ipca_brl"
+        "ibge_pevs", year_start=y0, year_end=y1, value_column="val_real_ipca_brl", uf_codes=uf_codes
     )
     sub = pts[pts["family"] == fam].groupby("reference_year")["total_qty_native"].sum()
     return [{"y": int(y), "v": float(v) / scale} for y, v in sub.items()]
 
 
-def _exp_price_cross_points(y0: int, y1: int) -> list[dict]:
+def _exp_price_cross_points(y0: int, y1: int, uf_codes: tuple = ()) -> list[dict]:
     """Derived COMEX export price: value(US$) ÷ weight(kg) = US$/kg."""
-    val = gateway.fetch_cross_series("mdic_comex:exp_value", year_start=y0, year_end=y1)
-    wt = gateway.fetch_cross_series("mdic_comex:exp_weight", year_start=y0, year_end=y1)
+    val = gateway.fetch_cross_series(
+        "mdic_comex:exp_value", year_start=y0, year_end=y1, uf_codes=uf_codes
+    )
+    wt = gateway.fetch_cross_series(
+        "mdic_comex:exp_weight", year_start=y0, year_end=y1, uf_codes=uf_codes
+    )
     wmap = {int(r.reference_year): float(r.value or 0) for r in wt.itertuples()}
     # A year with no (or zero) weight has no defined price: emit None (a gap
     # in the chart) — NEVER divide by 1, which would plot the year's raw
@@ -328,17 +344,17 @@ def _export_coef_national(by_uf: list[dict]) -> dict:
     return {"production": tp, "exportV": te, "coefPct": (te / tp * 100) if tp else 0}
 
 
-def _fob_price_by_year(ncms: tuple) -> dict:
+def _fob_price_by_year(ncms: tuple, uf_codes: tuple = ()) -> dict:
     """FOB export unit price (US$/kg) = COMEX value ÷ weight, per common year."""
-    val = seam_base._xyear("mdic_comex:exp_value", ncms)
-    wt = seam_base._xyear("mdic_comex:exp_weight", ncms)
+    val = seam_base._xyear("mdic_comex:exp_value", ncms, uf_codes)
+    wt = seam_base._xyear("mdic_comex:exp_weight", ncms, uf_codes)
     return {y: (val[y] / wt[y]) for y in (set(val) & set(wt)) if wt[y]}
 
 
-def _gate_price_by_year(pevs_codes: tuple) -> dict:
+def _gate_price_by_year(pevs_codes: tuple, uf_codes: tuple = ()) -> dict:
     """Farm-gate implied price (US$/kg) = PEVS value ÷ (quantity × 1000), per year."""
     pts = gateway.fetch_product_timeseries(
-        "ibge_pevs", codes=pevs_codes, value_column="val_yearfx_usd"
+        "ibge_pevs", codes=pevs_codes, value_column="val_yearfx_usd", uf_codes=uf_codes
     )
     if pts is None or pts.empty:
         return {}
@@ -346,8 +362,11 @@ def _gate_price_by_year(pevs_codes: tuple) -> dict:
     return {int(y): (row.v / (row.q * 1000)) if row.q else 0 for y, row in g.iterrows()}
 
 
-def price_spread(commodity_id: str | None) -> dict:
-    """Farm-gate implied price (PEVS, US$/kg) vs FOB export price (COMEX, US$/kg)."""
+def price_spread(commodity_id: str | None, uf_codes: tuple = ()) -> dict:
+    """Farm-gate implied price (PEVS, US$/kg) vs FOB export price (COMEX, US$/kg).
+
+    ``uf_codes`` optionally narrows BOTH sides to the same origin UF(s) — the
+    porteira-vs-FOB spread for a single state (cross-source per-UF scoping)."""
     if not _is_mass_basis(commodity_id):
         # Gate price = PEVS value ÷ PEVS quantity; for a volume commodity that is
         # US$/m³, not the US$/kg the FOB price uses — markup/spread would be invalid.
@@ -357,8 +376,8 @@ def price_spread(commodity_id: str | None) -> dict:
         # No NCM codes for this commodity: empty payload, never the unscoped
         # ALL-commodities FOB price (empty codes mean "no filter" to the reader).
         return {"unit": "US$/kg", "series": []}
-    fob = _fob_price_by_year(ncms)
-    gate = _gate_price_by_year(seam_base._codes(commodity_id, "pevs"))
+    fob = _fob_price_by_year(ncms, uf_codes)
+    gate = _gate_price_by_year(seam_base._codes(commodity_id, "pevs"), uf_codes)
     series = [
         {
             "y": y,

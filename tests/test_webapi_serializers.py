@@ -194,13 +194,39 @@ def test_serialize_cross_camelcase_and_preview():
 def test_serialize_value_added_derives_bylevel():
     out = s.serialize_value_added(
         {
-            "series": [{"y": 2020, "brutaV": 2.0, "procV": 3.0, "procShare": 60.0, "premium": 1.5}],
+            "series": [
+                {
+                    "y": 2020,
+                    "brutaV": 2.0,
+                    "procV": 3.0,
+                    "brutaW": 8.0,
+                    "procW": 2.0,
+                    "procShare": 60.0,
+                    "procShareW": 20.0,
+                    "priceBruta": 0.25,
+                    "priceProc": 1.5,
+                    "premium": 6.0,
+                }
+            ],
             "n_codes": 4,
         }
     )
     assert out["years"] == [2020] and out["nCodes"] == 4
     assert out["byLevel"]["bruta"] == [{"y": 2020, "v": 2.0}]
     assert out["byLevel"]["processada"] == [{"y": 2020, "v": 3.0}]
+    # volume composition (mil t) derived alongside the value composition
+    assert out["byLevelWeight"]["bruta"] == [{"y": 2020, "v": 8.0}]
+    assert out["byLevelWeight"]["processada"] == [{"y": 2020, "v": 2.0}]
+    # absolute per-level prices + weights survive on the flat series (for the bars)
+    assert out["series"][0]["priceBruta"] == 0.25 and out["series"][0]["priceProc"] == 1.5
+
+
+def test_serialize_value_added_weight_defaults_when_absent():
+    """A pre-existing series row without weights → byLevelWeight 0 (back-compat)."""
+    out = s.serialize_value_added(
+        {"series": [{"y": 2019, "brutaV": 1.0, "procV": 1.0}], "n_codes": 1}
+    )
+    assert out["byLevelWeight"]["bruta"] == [{"y": 2019, "v": 0}]
 
 
 def test_cross_series_none_passthrough():
@@ -659,12 +685,53 @@ def test_serialize_source_meta_empty_is_empty_dict():
 
 def test_serialize_monthly_empty_emits_twelve_values():
     """serialize_monthly must always emit 12 monthlyAvg entries — an empty list
-    crashed ViewSeasonality's peak/low/amplitude math."""
+    crashed ViewSeasonality's peak/low/amplitude math. Both metrics (value +
+    weight) ship the 12-value contract."""
     out = s.serialize_monthly(None)
     assert out["monthlyAvg"] == [0.0] * 12
+    assert out["weightMonthlyAvg"] == [0.0] * 12  # volume metric, same contract
+    assert out["weightUnit"] == "mil t"
     assert len(out["months"]) == 12 and out["years"] == [] and out["matrix"] == {}
+    assert out["weightMatrix"] == {}
     out_empty_df = s.serialize_monthly(pd.DataFrame())
     assert out_empty_df["monthlyAvg"] == [0.0] * 12
+    assert out_empty_df["weightMonthlyAvg"] == [0.0] * 12
+
+
+def test_serialize_monthly_populated_emits_value_and_weight():
+    """A populated frame yields BOTH the Capital (US$ mi) and Volume (mil t)
+    monthly matrices + 12-month averages, plus per-row v/w on the series."""
+    df = pd.DataFrame(
+        [
+            {
+                "reference_year": 2020,
+                "reference_month": 1,
+                "total_value_usd": 6_000_000,
+                "total_weight_kg": 2_000_000,
+            },
+            {
+                "reference_year": 2021,
+                "reference_month": 1,
+                "total_value_usd": 12_000_000,
+                "total_weight_kg": 4_000_000,
+            },
+            {
+                "reference_year": 2020,
+                "reference_month": 7,
+                "total_value_usd": 3_000_000,
+                "total_weight_kg": 1_000_000,
+            },
+        ]
+    )
+    out = s.serialize_monthly(df)
+    assert out["years"] == [2020, 2021]
+    # January value avg = (6+12)/2 = 9 (US$ mi); weight avg = (2+4)/2 = 3 (mil t)
+    assert out["monthlyAvg"][0] == 9.0
+    assert out["weightMonthlyAvg"][0] == 3.0
+    # July only in 2020 → its own value (no averaging over an absent 2021 cell)
+    assert out["monthlyAvg"][6] == 3.0 and out["weightMonthlyAvg"][6] == 1.0
+    assert out["matrix"]["2020"][0] == 6.0 and out["weightMatrix"]["2020"][0] == 2.0
+    assert out["series"][0]["v"] == 6.0 and out["series"][0]["w"] == 2.0
 
 
 def test_serialize_flow_builds_sankey_nodes_links_and_node_value_totals():
@@ -759,8 +826,9 @@ def test_serialize_flow_none_and_empty_are_safe():
 
 
 def test_serialize_partner_populated_path_scales_and_truncates():
-    """serialize_partner's ÷1e6 exp/imp/value scaling + head(max_rows) truncation
-    (otherwise only the empty path was covered)."""
+    """serialize_partner's exp/imp/value ÷1e6 (US$ mi) + weight ÷1e6 (mil t) +
+    price (US$/kg) scaling, and head(max_rows) truncation (otherwise only the
+    empty path was covered)."""
     df = pd.DataFrame(
         [
             {
@@ -768,16 +836,80 @@ def test_serialize_partner_populated_path_scales_and_truncates():
                 "exp_value_usd": 5_000_000,
                 "imp_value_usd": 1_000_000,
                 "value_usd": 6_000_000,
+                "total_weight_kg": 2_000_000,
+                "price_usd_per_kg": 3.0,
             },
             {
                 "partner_name": "EUA",
                 "exp_value_usd": 3_000_000,
                 "imp_value_usd": 2_000_000,
                 "value_usd": 5_000_000,
+                "total_weight_kg": 1_000_000,
+                "price_usd_per_kg": 5.0,
             },
         ]
     )
     out = s.serialize_partner(df, max_rows=1)
     assert out["preview"] is False and out["unit"] == "US$"
     assert len(out["partners"]) == 1  # truncated to max_rows
-    assert out["partners"][0] == {"name": "China", "exp": 5.0, "imp": 1.0, "value": 6.0}
+    assert out["partners"][0] == {
+        "name": "China",
+        "exp": 5.0,
+        "imp": 1.0,
+        "value": 6.0,
+        "weight": 2.0,  # 2_000_000 kg ÷1e6 → mil t
+        "price": 3.0,  # US$/kg, passthrough
+    }
+
+
+def test_serialize_partner_null_weight_yields_none_price():
+    """A partner with no net weight (e.g. a COMTRADE row with missing quantity) →
+    weight 0 and price None, so the view renders '—' instead of a div-by-zero."""
+    df = pd.DataFrame(
+        [
+            {
+                "partner_name": "X",
+                "exp_value_usd": 0,
+                "imp_value_usd": 0,
+                "value_usd": 10,
+                "total_weight_kg": None,
+                "price_usd_per_kg": None,
+            }
+        ]
+    )
+    out = s.serialize_partner(df)
+    assert out["partners"][0]["weight"] == 0.0
+    assert out["partners"][0]["price"] is None
+
+
+def test_serialize_products_by_uf_scales_value_and_quantities():
+    """serialize_products_by_uf → value ÷1e6 (mi), q_mass ÷1e3 (mil t), q_vol ÷1e6
+    (mi m³) — the SAME magnitudes the snapshot's productTS/ufData use; empty → []."""
+    assert s.serialize_products_by_uf(None) == {"products": []}
+    df = pd.DataFrame(
+        [
+            {
+                "product_code": "4407",
+                "product_name": "Madeira serrada",
+                "total_value": 19_000_000,
+                "q_mass": 2_000,
+                "q_vol": 19_000_000,
+            },
+            {
+                "product_code": "4403",
+                "product_name": "Madeira em tora",
+                "total_value": 5_000_000,
+                "q_mass": None,
+                "q_vol": 5_000_000,
+            },
+        ]
+    )
+    out = s.serialize_products_by_uf(df)
+    assert out["products"][0] == {
+        "code": "4407",
+        "name": "Madeira serrada",
+        "value": 19.0,  # 19_000_000 ÷1e6 → mi
+        "q_mass": 2.0,  # 2_000 ÷1e3 → mil t
+        "q_vol": 19.0,  # 19_000_000 ÷1e6 → mi m³
+    }
+    assert out["products"][1]["q_mass"] == 0.0  # None → 0

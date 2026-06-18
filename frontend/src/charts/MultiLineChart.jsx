@@ -6,7 +6,7 @@
 
 import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
 
-function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200 }) {
+function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200, trend = false }) {
   const palette = vizPalette();
   // One scatter line per series; fall back to the categorical palette when a
   // series omits its color so concurrent lines stay visually distinct.
@@ -19,6 +19,24 @@ function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200 
     name: s.name,
     hovertemplate: '<b>%{x}</b>  %{y:,.2f}<extra>%{fullData.name}</extra>',
   }));
+  // Optional per-series linear (OLS) trend overlay — a thin dashed line matching
+  // each series' colour, so divergence/convergence of the fitted slopes is visible.
+  if (trend && window.linearFit) {
+    series.forEach((s, i) => {
+      const fit = window.linearFit(s.data || [], valueKey);
+      if (!fit) return;
+      traces.push({
+        x: fit.line.map((d) => d.y),
+        y: fit.line.map((d) => d[valueKey]),
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: resolveColor(s.color, palette[i % palette.length]), width: 1.5, dash: 'dash' },
+        opacity: 0.5,
+        hoverinfo: 'skip',
+        showlegend: false,
+      });
+    });
+  }
 
   // pt-BR magnitude ticks ("15 bi" not the SI "15G") so every value axis matches the
   // dashboard's labels and is consistent across cards (FINDING #9) — max over all

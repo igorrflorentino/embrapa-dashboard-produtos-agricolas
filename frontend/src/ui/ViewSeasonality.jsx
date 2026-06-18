@@ -12,6 +12,11 @@ function ViewSeasonality({ summary, conventions, database }) {
   const avg = Array.isArray(data.monthlyAvg) && data.monthlyAvg.length === 12
     ? data.monthlyAvg
     : Array.from({ length: 12 }, (_, m) => (data.monthlyAvg && data.monthlyAvg[m]) || 0);
+  // Volume (net weight) profile — the second seasonal metric, same 12-month shape.
+  const wavg = Array.isArray(data.weightMonthlyAvg) && data.weightMonthlyAvg.length === 12
+    ? data.weightMonthlyAvg
+    : Array.from({ length: 12 }, (_, m) => (data.weightMonthlyAvg && data.weightMonthlyAvg[m]) || 0);
+  const hasWeight = wavg.some(v => v > 0);
   const years = Array.isArray(data.years) ? data.years : [];
   const hasData = avg.some(v => v > 0);
 
@@ -68,10 +73,31 @@ function ViewSeasonality({ summary, conventions, database }) {
         <window.SectionHeader
           overline="Perfil sazonal médio"
           title="Média de cada mês no período"
+          action={<span className="caption">{hasWeight ? `Volume (${data.weightUnit || 'mil t'}) · Capital (${data.unit})` : data.unit}</span>}
         />
-        <window.BarChart
-          data={avg.map((v, m) => ({ name: window.MONTH_LABELS[m], value: v }))}
-          valueKey="value" color="var(--viz-3)" height={300} />
+        {hasWeight ? (
+          <>
+            {/* Dual metric: Volume (peso) on the left axis, Capital (US$) on the
+                right — the two move together but on very different scales. */}
+            <window.DualAxisLineChart
+              height={300}
+              series={[
+                { label: 'Volume', color: 'var(--viz-3)', unit: data.weightUnit || 'mil t',
+                  data: wavg.map((v, m) => ({ y: window.MONTH_LABELS[m], v })) },
+                { label: 'Capital', color: 'var(--viz-2)', unit: data.unit || 'US$',
+                  data: avg.map((v, m) => ({ y: window.MONTH_LABELS[m], v })) },
+              ]}
+            />
+            <div className="pc-legend">
+              <span className="pc-legend-item"><span className="pc-legend-dot" style={{ background: 'var(--viz-3)' }}></span>Volume ({data.weightUnit || 'mil t'})</span>
+              <span className="pc-legend-item"><span className="pc-legend-dot" style={{ background: 'var(--viz-2)' }}></span>Capital ({data.unit})</span>
+            </div>
+          </>
+        ) : (
+          <window.BarChart
+            data={avg.map((v, m) => ({ name: window.MONTH_LABELS[m], value: v }))}
+            valueKey="value" color="var(--viz-3)" height={300} />
+        )}
       </div>
     </>
   );

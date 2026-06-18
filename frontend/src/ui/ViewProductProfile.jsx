@@ -207,7 +207,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
             overline="Preço médio implícito · valor ÷ quantidade"
             title={`${fx.symbol} por ${prod.unit} · ${yearStart}–${yearEnd}`}
           />
-          <window.LineChart data={priceSeries} label={fx.symbol + '/' + prod.unit} valueKey="v" color="var(--viz-7)" height={220} />
+          <window.LineChart data={priceSeries} label={fx.symbol + '/' + prod.unit} valueKey="v" color="var(--viz-7)" height={220} trend />
         </div>
         <div className="card">
           <window.SectionHeader

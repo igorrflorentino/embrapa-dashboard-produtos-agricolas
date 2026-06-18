@@ -46,3 +46,37 @@ describe('pearsonByYear — aligns two series BY YEAR, not by array index (M2)',
     expect(r).toBeLessThanOrEqual(1);
   });
 });
+
+describe('linearFit — OLS trend line (the "linha de tendência" overlay)', () => {
+  it('recovers the slope/intercept of a perfectly linear series', () => {
+    // v = 2·y - 4000 over 2000..2003
+    const pts = [{ y: 2000, v: 0 }, { y: 2001, v: 2 }, { y: 2002, v: 4 }, { y: 2003, v: 6 }];
+    const fit = window.linearFit(pts);
+    expect(fit.slope).toBeCloseTo(2, 6);
+    expect(fit.predict(2004)).toBeCloseTo(8, 6);
+    // line endpoints span the x-range and lie on the fit
+    expect(fit.line[0]).toMatchObject({ y: 2000 });
+    expect(fit.line[1].y).toBe(2003);
+    expect(fit.line[1].v).toBeCloseTo(6, 6);
+  });
+
+  it('fits a least-squares slope through noisy points', () => {
+    const pts = [{ y: 1, v: 1 }, { y: 2, v: 3 }, { y: 3, v: 2 }, { y: 4, v: 5 }, { y: 5, v: 4 }];
+    const fit = window.linearFit(pts);
+    expect(fit.slope).toBeCloseTo(0.8, 6); // classic textbook OLS result
+  });
+
+  it('returns null on fewer than 2 finite points or zero x-variance', () => {
+    expect(window.linearFit([])).toBeNull();
+    expect(window.linearFit([{ y: 2000, v: 5 }])).toBeNull();
+    expect(window.linearFit([{ y: 2000, v: 1 }, { y: 2000, v: 9 }])).toBeNull(); // all x equal
+    expect(window.linearFit([{ y: 2000, v: NaN }, { y: 2001, v: 3 }])).toBeNull();
+  });
+
+  it('honours a custom value key', () => {
+    const pts = [{ y: 2000, q: 10 }, { y: 2001, q: 20 }];
+    const fit = window.linearFit(pts, 'q');
+    expect(fit.slope).toBeCloseTo(10, 6);
+    expect(fit.line[0].q).toBeDefined();
+  });
+});

@@ -281,6 +281,31 @@ function ViewGeography({ families, conventions, summary, database }) {
           <window.RegionBars data={regScaled.data} valueKey={valueKey} label={regScaled.label} height={320} />
         </div>
       </div>
+
+      {/* Base de dados — products ranked WITHIN the selected UF(s). The inverse of
+          "onde X é produzido": here a state is fixed and the products are ranked.
+          Only shown when a UF is selected (the per-(product × UF) grain the rest of
+          this view lacks comes from the dedicated /api/products-by-uf reader). */}
+      {summary && Array.isArray(summary.states) && summary.states.length > 0 && (() => {
+        const pbu = window.productsByUf(database, summary, conv);
+        const rows = (pbu.products || [])
+          .map(p => ({ ...p, [valueKey]: (p[valueKey] || 0) * mul }))
+          .filter(r => (r[valueKey] || 0) > 0)
+          .sort((a, b) => b[valueKey] - a[valueKey])
+          .slice(0, 20);
+        if (!rows.length) return null;
+        const scaled = window.scaleSeries(rows, Math.max(...rows.map(r => r[valueKey] || 0)), conv, valueKey, unit);
+        return (
+          <div className="card">
+            <window.SectionHeader
+              overline={`Base de dados · ${activeDim.label} · ${scaled.label}`}
+              title={`Produtos do estado (${summary.states.join(', ')})`}
+              action={<span className="caption">{rows.length} produtos · ranking por {activeDim.label.toLowerCase()}</span>}
+            />
+            <window.BarChart data={scaled.data} valueKey={valueKey} color="var(--viz-4)" height={Math.max(240, rows.length * 26)} />
+          </div>
+        );
+      })()}
     </>
   );
 }

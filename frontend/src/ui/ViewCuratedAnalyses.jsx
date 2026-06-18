@@ -18,13 +18,25 @@ const caNum = window.numBR, caPct = window.pctBR;
 function ViewValueAdded() {
   useEnrichmentTick();
   const [group, setGroup] = useCaState(null);
-  const data = window.valueAddedAnalysis(group);
+  // Per-UF scoping ('' = Brasil). The COMEX export side honours it.
+  const [uf, setUf] = useCaState('');
+  const data = window.valueAddedAnalysis(group, uf ? [uf] : undefined);
   const last = data.series[data.series.length - 1];
   const first = data.series[0];
 
   const areaSeries = [
     { name: 'Bruta', color: 'var(--viz-3)', data: data.byLevel.bruta },
     { name: 'Processada', color: 'var(--viz-2)', data: data.byLevel.processada },
+  ];
+  // Volume composition (mil t) — the same bruta×processada split, by weight.
+  const areaSeriesW = [
+    { name: 'Bruta', color: 'var(--viz-3)', data: (data.byLevelWeight || { bruta: [] }).bruta },
+    { name: 'Processada', color: 'var(--viz-2)', data: (data.byLevelWeight || { processada: [] }).processada },
+  ];
+  // Absolute unit price per level (US$/kg) — not just the premium ratio.
+  const priceSeries = [
+    { name: 'Bruta', color: 'var(--viz-3)', data: data.series.map(d => ({ y: d.y, v: d.priceBruta })) },
+    { name: 'Processada', color: 'var(--viz-2)', data: data.series.map(d => ({ y: d.y, v: d.priceProc })) },
   ];
   const shareTs = data.series.map(d => ({ y: d.y, v: d.procShare }));
 
@@ -44,6 +56,8 @@ function ViewValueAdded() {
           })}
         </div>
       </div>
+
+      <window.UfScopePicker value={uf} onChange={setUf} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Exportação processada" value={caPct(last?.procShare)} sub={`${last?.y ?? '—'} · do valor exportado`} />
@@ -70,6 +84,30 @@ function ViewValueAdded() {
           </>
         )}
       </div>
+
+      {data.nCodes >= 1 && (
+        <div className="card">
+          <window.SectionHeader overline="Volume exportado por nível · mil t" title="Quanto sai bruto e quanto sai processado (em peso)"
+            action={<span className="caption">{caPct(last?.procShareW)} processado em {last?.y ?? '—'}</span>} />
+          <window.StackedArea series={areaSeriesW} valueKey="v" label="mil t" height={260} />
+          <div className="pc-legend">
+            {areaSeriesW.map(s => (
+              <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data.nCodes >= 1 && (
+        <div className="card">
+          <window.SectionHeader overline="Preço médio por nível · US$/kg" title="Quanto vale o quilo bruto vs. processado"
+            action={<span className="caption">prêmio ×{caNum(last?.premium, 1)}</span>} />
+          <window.MultiLineChart series={priceSeries} valueKey="v" label="US$/kg" height={260} trend />
+          <p className="caption" style={{ padding: '8px 4px 0' }}>
+            O prêmio do processado é o quociente destes dois preços — agregar valor é vender o quilo mais caro.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <window.SectionHeader overline="Participação do processado no tempo" title="A pauta está agregando mais valor?"
