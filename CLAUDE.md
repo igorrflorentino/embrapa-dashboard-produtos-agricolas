@@ -85,9 +85,14 @@ delta, a correction the source publishes to an *old* year (e.g. IBGE revising a
 1999 value) is **never re-queried** by the nightly run. `embrapa ingest reconcile`
 (`make reconcile`) is the escape hatch: a full re-download of every nightly
 source (IBGE year-chunked for deadline-safety, BCB + COMEX `--full`), ignoring
-the delta/ETag short-circuit. It runs **monthly** on Cloud Run
-(`make ingest-job-reconcile-schedule` — the same Job with args overridden to
-`reconcile`). `reconcile` refreshes only **Bronze**; the **daily scheduled
+the delta/ETag short-circuit. It is **operator-triggered** — a cheap
+"is-a-reconcile-needed?" pre-check isn't feasible for IBGE/BCB (checking an old
+year costs ~the same as re-fetching it) and COMEX already catches old-year
+revisions nightly via its per-file ETag check, so a **monthly reminder issue**
+(`.github/workflows/reconcile-reminder.yml`) nudges instead of an unconditional
+scheduled run. (Re-enable a monthly Cloud Run trigger any time with
+`make ingest-job-reconcile-schedule` — the same Job with args overridden to
+`reconcile`.) `reconcile` refreshes only **Bronze**; the **daily scheduled
 `dbt build`** (`.github/workflows/dbt-build-prod.yml`) propagates it to
 Silver/Gold. No `--full-refresh` is needed: `silver_ibge_pevs` is incremental but
 **year-agnostic** (it re-scans whatever Bronze years got a newer

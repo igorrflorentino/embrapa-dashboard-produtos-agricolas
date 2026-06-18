@@ -101,7 +101,7 @@ echo "${ACTION^} scheduler '$SCHED_NAME': '$CRON' ($SCHED_TZ) → run '$JOB_NAME
 gcloud scheduler jobs "$ACTION" http "$SCHED_NAME" --project "$PROJECT" --location "$REGION" \
   --schedule "$CRON" --time-zone "$SCHED_TZ" \
   --uri "$URI" --http-method POST \
-  --headers "Content-Type=application/json" \
+  $( [ "$ACTION" = update ] && printf -- --update-headers || printf -- --headers ) "Content-Type=application/json" \
   --message-body-from-file "$BODY_FILE" \
   --oauth-service-account-email "$SCHED_SA"
 
