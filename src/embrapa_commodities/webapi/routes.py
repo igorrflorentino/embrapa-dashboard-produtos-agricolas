@@ -375,9 +375,7 @@ def cross_market_share():
 @api.get("/cross/price-spread")
 def cross_price_spread():
     """``states`` optionally narrows the porteira-vs-FOB spread to one origin UF(s)."""
-    return jsonify(
-        serializers.serialize_price_spread(seam.price_spread(_commodity(), _uf_codes()))
-    )
+    return jsonify(serializers.serialize_price_spread(seam.price_spread(_commodity(), _uf_codes())))
 
 
 @api.get("/cross/mirror")
@@ -388,9 +386,7 @@ def cross_mirror():
 @api.get("/cross/value-added")
 def cross_value_added():
     """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""
-    return jsonify(
-        serializers.serialize_value_added(seam.value_added(_commodity(), _uf_codes()))
-    )
+    return jsonify(serializers.serialize_value_added(seam.value_added(_commodity(), _uf_codes())))
 
 
 @api.get("/cross/market-nature")
