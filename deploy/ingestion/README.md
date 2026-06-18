@@ -40,6 +40,8 @@ feeds Silver → Gold → the `serving` marts.
 | `deploy.sh` | Build + create/update the Cloud Run Job. Reads `.env`. |
 | `schedule.sh` | Create/update the nightly (delta) Cloud Scheduler trigger. |
 | `schedule_reconcile.sh` | Create/update the MONTHLY deep-refresh trigger (same Job, args overridden to `reconcile`). |
+| `schedule_comtrade.sh` | Per-source UN Comtrade world-backfill scheduler (see `docs/comtrade_world_backfill.md`). |
+| `schedule_pam.sh` | IBGE PAM manual scheduler. |
 | `alert.sh` | Create the Cloud Monitoring alert (email channel + policy) for job failures. |
 | `alert_policy.json` | The alert-policy template `alert.sh` applies (`__JOB_NAME__` substituted in). |
 

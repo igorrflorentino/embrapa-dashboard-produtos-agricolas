@@ -62,4 +62,4 @@ It reuses the `GCP_PROJECT_ID` / `GCP_WIF_PROVIDER` repo vars from
   SPA for non-`/api` routes (client-side deep-links resolve to `index.html`).
 - Same Pushdown model: parameterized BigQuery via the serving BFF, memoized by
   flask-caching; `WEB_CONCURRENCY=1` keeps the per-instance SimpleCache coherent.
-- The old Dash deploy (`deploy/dashboard/`) is removed once the cutover is verified.
+- The old Dash deploy (`deploy/dashboard/`) was removed at cutover.

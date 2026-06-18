@@ -10,27 +10,27 @@
 Focus: **stabilization, observability and basic automation**.
 
 ### Pipeline & Data
-- [~] **Ingestion orchestration**: `embrapa ingest all` packaged as a **Cloud Run Job** (batch, not Service) + a **Cloud Scheduler** trigger overnight (off-peak) — artifacts in [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); the operator still needs to run the deploy on GCP. Leverages the resilience from `tenacity` (retry/slow-byte) + the BCB/COMEX delta. See [ARCHITECTURE § Ingestion orchestration](ARCHITECTURE.md#ingestion-orchestration-cloud-run-job--cloud-scheduler).
+- [x] **Ingestion orchestration**: `embrapa ingest all` packaged as a **Cloud Run Job** (batch, not Service) + a **Cloud Scheduler** trigger overnight (off-peak) — artifacts in [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); re-run `make ingest-job-deploy` after schema/arg changes. Leverages the resilience from `tenacity` (retry/slow-byte) + the BCB/COMEX delta. See [ARCHITECTURE § Ingestion orchestration](ARCHITECTURE.md#ingestion-orchestration-cloud-run-job--cloud-scheduler).
 - [ ] Ingestion failure notifications (email or Slack webhook)
-- [ ] Integrate SQLFluff into CI (currently run manually)
+- [x] Integrate SQLFluff into CI (dedicated gating `sqlfluff` CI job)
 - [ ] End-to-end integrity tests (row counts Bronze → Silver → Gold)
 
 ### Visualization (two parallel paths)
 
 > Gold is consumed by **Looker Studio** (no-code, direct on Gold) **and** by a
-> **dedicated Dash + HTML/CSS dashboard on Cloud Run** (under reconstruction in the
-> Claude Design System). The items below apply to the dedicated dashboard; Looker
-> covers the no-code path in parallel. See [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumption.
+> **React SPA + Flask webapi (live)** on Cloud Run. The items below apply to the
+> dedicated dashboard; Looker covers the no-code path in parallel. See
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) § Consumption.
 
 - [x] **Pushdown Computing** — **stateless** dashboard: UI filters → SQL `@param` on the `serving` layer, with `flask-caching` (TTL) on the results. Replaces the in-memory/Pandas design (OOM/concurrency risk). Backend (BFF) already in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/).
 - [x] **Dynamic curation (SCD Type 2)** — append-only log `code_industrialization_log` + view `dim_code_industrialization_scd2` (`lead()`); live current-classification read in the UI; author via IAP header. Without overwriting Gold.
-- [ ] Curation UI components + CSV/Excel export (arriving with the Design System handoff)
+- [x] Curation UI components + CSV/Excel export (`ViewCuration.jsx` + `csvExport.js`)
 - [ ] UX improvements based on researcher feedback
 
 ### Quality
 - [ ] Increase test coverage to ≥ 80%
 - [ ] Contract tests for external APIs (IBGE SIDRA, BCB SGS)
-- [ ] Operations / troubleshooting runbook
+- [x] Operations / troubleshooting runbook — [`docs/operations_runbook.md`](docs/operations_runbook.md)
 
 ### Documentation
 - [ ] Document the CLI API (auto-generated via `embrapa --help`)
@@ -51,21 +51,22 @@ Focus: **new data sources, IaC and dashboard improvements**.
 
 ### Infrastructure
 - [ ] Terraform / Pulumi for provisioning the GCP project (IaC)
-- [ ] Workload Identity Federation for CI/CD (eliminate secrets)
+- [~] Workload Identity Federation for CI/CD (eliminate secrets) — already partially in place (`release.yml` + `dbt-build-prod.yml` + the `sqlfluff` job authenticate via WIF/OIDC, no long-lived keys); remaining: extend to any CI paths still using keys
 - [ ] Separate staging environment (between local dev and prod)
-- [ ] Automated deploy pipeline (CI/CD → Cloud Run)
+- [~] Automated deploy pipeline (CI/CD → Cloud Run) — build/publish DONE (`release.yml` publishes a versioned image to Artifact Registry; v1.0.0 released + deployed); remaining: auto-deploy the released tag to Cloud Run
 
 ### Dashboard
-- [ ] Product comparison page
-- [ ] Interactive geographic maps (choropleth by state/municipality)
+- [x] Product comparison page (`ViewProductCompare.jsx`)
+- [x] Interactive geographic maps — state-level (UF) choropleth (`BrazilChoropleth.jsx`)
+  - [ ] Municipality-level choropleth
 - [ ] Configurable light/dark theme
 - [ ] Internationalization (i18n) — English support
 
 ### Data
 - [ ] Optimized partitioning of the Gold tables (clustering by product_code + state_acronym)
-- [x] **`serving/` layer (Pushdown Computing)** — marts pre-aggregated at the exact chart grains + conformed dimensions (`dim_date`, `dim_geo_br`), reducing the scan from **GB → MB** for the dashboard. Replaces the previous "deliberately never pre-aggregate" stance; Gold remains the comprehensive per-source table and `serving` derives from it (see [`ARCHITECTURE.md`](ARCHITECTURE.md#serving-layer--pushdown-computing-dash-dashboard) § Serving Layer)
+- [x] **`serving/` layer (Pushdown Computing)** — marts pre-aggregated at the exact chart grains + conformed dimensions (`dim_date`, `dim_geo_br`), reducing the scan from **GB → MB** for the dashboard. Replaces the previous "deliberately never pre-aggregate" stance; Gold remains the comprehensive per-source table and `serving` derives from it (see [`ARCHITECTURE.md`](ARCHITECTURE.md#serving-layer--pushdown-computing-webapi-dashboard) § Serving Layer)
 - [ ] Incremental materializations in the serving marts **if** the volume grows (today `table` full-refresh in the overnight rebuild)
-- [ ] Data freshness monitoring (dbt source freshness)
+- [x] Data freshness monitoring (dbt source freshness) — `dbt-source-freshness.yml` runs daily
 
 ---
 

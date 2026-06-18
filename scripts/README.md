@@ -11,12 +11,11 @@ Two groups, distinguished by audience:
 - **Local dev / setup** — run once per machine when you start contributing.
 - **GCP IAM / service accounts** — one-shots run by the project owner.
 
-> ⚠️ **Frontend under reconstruction.** The run / build / deploy scripts for the
+> ℹ️ **Frontend tooling moved to `frontend/`.** The run / build / deploy scripts for the
 > Dash dashboard (`dashboard-*.ps1`, `dashboard_smoke.py`,
 > `dashboard_visual_check.py`, `check_dashboard_size.py`,
-> `dashboard-setup-sa.ps1`) were removed on 2026-05-29 along with the UI.
-> The next Claude Design System handoff will bring the new frontend
-> tooling layer.
+> `dashboard-setup-sa.ps1`) were removed at the 2026-05-29 cutover along with the
+> Dash UI. Frontend tooling now lives in `frontend/` (Vite/npm).
 
 The `.ps1` files are **Windows PowerShell** wrappers that exist as a
 convenience for this Windows-first repo. They all delegate to the same Python
@@ -32,6 +31,8 @@ macOS/Linux you can ignore them and go straight to `make <target>` or
 |---|---|---|---|---|
 | [`setup_dev_env.py`](setup_dev_env.py) | Cross-platform (Python 3) | Cross-platform development environment setup. Auto-detects auth mode (SA impersonation → `GOOGLE_APPLICATION_CREDENTIALS` → `--credentials-file` → interactive paste) and generates `.env`, `~/.dbt/profiles.yml`, and credential files for the detected mode. | Once per machine, immediately after cloning, to bootstrap the dev environment. Also re-run after switching auth modes. | `setup.sh`, `setup.ps1`, `init_dev_env.sh`; documented in [docs/setup.md](../docs/setup.md). |
 | [`test_setup.py`](test_setup.py) | Cross-platform (Python 3) | Comprehensive test suite that validates the development environment after `setup_dev_env.py` ran — checks `.env`, dbt profile, ADC credentials, BigQuery connectivity, and required Python modules. | After running setup (manually or via `setup.sh`/`setup.ps1`) to confirm everything works before you start writing code. | `test.sh`, `test.bat`, `init_dev_env.sh`; documented in [docs/testing.md](../docs/testing.md). |
+| [`refresh_comtrade_country_seed.py`](refresh_comtrade_country_seed.py) | Cross-platform (Python 3) | Refreshes the COMTRADE country seed. | As needed, when the upstream country list changes. | Standalone. |
+| [`dbt-with-env.sh`](dbt-with-env.sh) | Bash (macOS / Linux / Cloud Shell) | Runs dbt with the project `.env` exported. | When invoking dbt directly and you need the project's `.env` loaded into the environment. | Standalone. |
 
 ## GCP IAM / service accounts
 
@@ -50,3 +51,6 @@ macOS/Linux you can ignore them and go straight to `make <target>` or
   is the source of truth — please update both.
 - **Idempotent IAM.** Both SA scripts are safe to re-run; they detect
   existing SAs / bindings and skip them.
+- **`claude-hooks/`.** Claude Code safety hooks
+  (`block-dangerous-commands.js`, `protect-secrets.js`) — not part of the data
+  pipeline; wired in via the repo's Claude Code settings.

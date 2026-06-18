@@ -16,9 +16,11 @@ deflated value matrix — see [§ Value columns](#value-columns)).
 ```mermaid
 erDiagram
     gold_commodity_crosswalk ||--o{ gold_pevs_production : "source=pevs · code=product_code"
+    gold_commodity_crosswalk ||--o{ gold_pam_production  : "source=pam · code=product_code"
     gold_commodity_crosswalk ||--o{ gold_comex_flows     : "source=comex · code=ncm_code"
     gold_commodity_crosswalk ||--o{ gold_comtrade_flows  : "source=comtrade · code=cmd_code"
     dim_geo_br               ||--o{ gold_pevs_production : "state_acronym"
+    dim_geo_br               ||--o{ gold_pam_production  : "state_acronym"
     dim_geo_br               ||--o{ gold_comex_flows     : "state_acronym (UF of NCM)"
     dim_code_industrialization_scd2  |o--o| gold_commodity_crosswalk : "(source, code) · is_current (gated)"
 
@@ -30,6 +32,21 @@ erDiagram
         date     reference_date         "Dec 31 of year"
         string   family                 "massa / volume / … — never SUM qty_base across families"
         float    qty_base               "qty_native to the family base_unit (t / m3 / …)"
+        float    val_real_ipca_brl      "deflated R$; plus the full val_ matrix"
+        string   data_quality_flag      "OK / MISSING_VALUE / MISSING_QUANTITY / INCOMPLETE"
+        timestamp last_refresh
+    }
+    gold_pam_production {
+        int      reference_year     PK
+        string   state_acronym      PK "→ dim_geo_br"
+        string   city_code          PK "IBGE 7-digit municipality"
+        string   product_code       PK "→ crosswalk.code"
+        date     reference_date         "Dec 31 of year"
+        string   family                 "massa / volume / … — never SUM qty_base across families"
+        float    qty_base               "qty_native to the family base_unit (t / m3 / …)"
+        float    area_planted_ha        "PAM-only: planted area (ha)"
+        float    area_harvested_ha      "PAM-only: harvested area (ha)"
+        float    yield_kg_ha            "PAM-only: yield (kg/ha)"
         float    val_real_ipca_brl      "deflated R$; plus the full val_ matrix"
         string   data_quality_flag      "OK / MISSING_VALUE / MISSING_QUANTITY / INCOMPLETE"
         timestamp last_refresh
@@ -82,7 +99,7 @@ erDiagram
         bool     is_current
     }
     gold_source_metadata {
-        string   source             PK "ibge_pevs / mdic_comex / un_comtrade"
+        string   source             PK "ibge_pevs / ibge_pam / mdic_comex / un_comtrade"
         string   gold_table
         string   cadence                "annual / monthly"
         int      year_start
@@ -119,6 +136,7 @@ erDiagram
 flowchart LR
     subgraph sources["External sources"]
         ibge["IBGE PEVS (SIDRA)"]
+        pam["IBGE PAM (SIDRA)"]
         bcb["BCB SGS (FX + inflation)"]
         comex["MDIC Comex Stat"]
         comtrade["UN Comtrade"]
@@ -141,10 +159,11 @@ dashboard scans MB not GB. They derive **from** Gold, they don't replace it.
 | Mart | Grain | From | Backs |
 |------|-------|------|-------|
 | `serving_pevs_annual` | year × UF × product × family | `gold_pevs_production` (municipality dropped) | overviewTS / productTS / ufData |
+| `serving_pam_annual` | year × UF × product × family | `gold_pam_production` (municipality dropped) | overviewTS / productTS / ufData |
 | `serving_comex_annual` | year × flow × NCM × UF × country | `gold_comex_flows` (month + via dropped) | overview / product / uf / partner / flow |
-| `serving_comex_seasonality` | year × **month** × flow × NCM | `gold_comex_flows` (joins `dim_date`) | seasonality (the only mart keeping month) |
+| `serving_comex_seasonality` | year × **month** × flow × NCM × UF | `gold_comex_flows` (joins `dim_date`; country + via dropped) | seasonality (the only mart keeping month) |
 | `serving_comtrade_annual` | year × flow × cmd × reporter × partner | `gold_comtrade_flows` (column-pruned) | partner / flow / market-share |
-| `serving_quality_by_source` | source × data_quality_flag (+ share) | all three Gold facts | quality donut |
+| `serving_quality_by_source` | source × data_quality_flag (+ share) | all four Gold facts | quality donut |
 
 ## Value columns
 

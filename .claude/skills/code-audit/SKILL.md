@@ -112,5 +112,5 @@ After presenting the report, propose a **prioritised refactoring plan** in order
 ## Important constraints
 
 - **Do not auto-fix.** Every change must be proposed and approved explicitly.
-- **The custom Dash frontend is currently removed (in reconstruction).** There is no `dashboard/` package or `GoldRepository` class in the tree today — do not expect them. When the rebuilt UI lands, its rendering pages won't be unit-tested by design; revisit this carve-out then.
+- **The custom Dash frontend was removed and replaced by a live React SPA (`frontend/`) + Flask `webapi` (`src/embrapa_commodities/webapi/`).** There is no `dashboard/` package or `GoldRepository` class in the tree today — do not expect them, and there is no pending reconstruction to revisit. This audit's Python scope is the ingestion/transform backend **plus** the `webapi`/serving Python (already covered by `test_webapi_*` / `test_serving`); the React frontend has its own Vitest harness.
 - **dbt SQL is out of scope** for this audit — use `make dbt-test` + `sqlfluff` for SQL quality.

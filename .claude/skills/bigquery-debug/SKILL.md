@@ -15,8 +15,11 @@ description: >-
 |-------|-------------|-------------|-------------|
 | Bronze IBGE | `bronze_ibge` | `bronze_ibge` | Append-only, all STRING except `ingestion_timestamp` |
 | Bronze BCB | `bronze_bcb` | `bronze_bcb` | Append-only, all STRING except `ingestion_timestamp` |
+| Bronze COMEX | `bronze_comex` | `bronze_comex` | Append-only, all STRING except `ingestion_timestamp` |
+| Bronze COMTRADE | `bronze_comtrade` | `bronze_comtrade` | Append-only, all STRING except `ingestion_timestamp` |
+| Bronze PAM | `bronze_pam` | `bronze_pam` | Append-only, all STRING except `ingestion_timestamp` |
 | Silver | `silver` | `dbt_dev_silver` | Typed, deduped, currency-adjusted |
-| Gold | `gold` | `dbt_dev_gold` | Denormalized commodity matrix |
+| Gold | `gold` | `dbt_dev_gold` | One comprehensive table per source (gold_<source>_<form>) + serving marts |
 
 ## Authentication
 
@@ -104,7 +107,7 @@ HAVING n > 1;
 
 ### Verify IPCA chain index
 ```sql
-SELECT series_code, reference_date, percent_change, chain_index
+SELECT series_code, reference_date, monthly_pct_change, index_value
 FROM `<project>.silver.silver_bcb_inflation`
 WHERE series_code = '433'
 ORDER BY reference_date DESC
