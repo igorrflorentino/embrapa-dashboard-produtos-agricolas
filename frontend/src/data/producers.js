@@ -121,9 +121,12 @@ window.geoYearly = function geoYearly(bancoId, summary) {
 
 // ── cross-source comparable series ────────────────────────────────────────────
 window.crossSeries = function crossSeries(bancoId, metricId, opts = {}) {
-  const { y0, y1 } = opts;
-  const key = `cross:series:${bancoId}:${metricId}:${y0 ?? ''}:${y1 ?? ''}`;
-  ensure(key, () => `${API}/cross/series?${qs({ banco: bancoId, metric: metricId, y0, y1 })}`);
+  const { y0, y1, states } = opts;
+  // states = origin-UF array (cross-source per-UF scoping); undefined/empty = national.
+  // Only the UF-capable bancos (IBGE PEVS, MDIC COMEX) honour it server-side.
+  const st = states && states.length ? states.join(',') : undefined;
+  const key = `cross:series:${bancoId}:${metricId}:${y0 ?? ''}:${y1 ?? ''}:${st ?? ''}`;
+  ensure(key, () => `${API}/cross/series?${qs({ banco: bancoId, metric: metricId, y0, y1, states: st })}`);
   // bancoMeta/metricMeta are registry objects (bancos.js) joined client-side —
   // the contract (SeriesResult) carries them, and the view reads bancoMeta.short.
   const bancoMeta = window.bancoById ? window.bancoById(bancoId) : null;
@@ -189,9 +192,12 @@ window.crossCatalog = function crossCatalog() {
 
 // ── cross-source analytics (crosswalk-joined) ─────────────────────────────────
 const crossAnalytic = (name, path, shell) =>
-  function (commodityId) {
-    const key = `cross:${name}:${commodityId || '*'}`;
-    ensure(key, () => `${API}/cross/${path}?${qs({ commodity: commodityId })}`);
+  function (commodityId, states) {
+    // states = origin-UF array (per-UF scoping for price-spread / value-added);
+    // undefined/empty = national. The COMEX/PEVS sides honour it server-side.
+    const st = states && states.length ? states.join(',') : undefined;
+    const key = `cross:${name}:${commodityId || '*'}:${st ?? ''}`;
+    ensure(key, () => `${API}/cross/${path}?${qs({ commodity: commodityId, states: st })}`);
     return get(key) || shell;
   };
 
@@ -222,7 +228,10 @@ window.tradeMirror = crossAnalytic('mirror', 'mirror', {
   preview: false, unit: 'US$ bi', series: [], discrepancy: [],
 });
 window.valueAddedAnalysis = crossAnalytic('value-added', 'value-added', {
-  preview: false, years: [], byLevel: { bruta: [], processada: [] }, series: [], nCodes: 0,
+  preview: false, years: [],
+  byLevel: { bruta: [], processada: [] },
+  byLevelWeight: { bruta: [], processada: [] },
+  series: [], nCodes: 0,
 });
 
 // ── data-blocked producers (no upstream source — honest preview shells) ───────
@@ -282,46 +291,66 @@ window.flowData = function flowData(bancoId, summary) {
     ? { ...data, ...labels, notApplicable }
     : { preview: false, unit: 'US$', ...labels, notApplicable, nodes: [], links: [] };
 };
-window.partnerData = function partnerData(bancoId, summary) {
+window.partnerData = function partnerData(bancoId, summary, metric) {
   const codes = filterCodes(summary);
   const y0 = filterYear(summary && summary.startDate);
   const y1 = filterYear(summary && summary.endDate);
   const applies = bancoOriginIsUf(bancoId);
   const states = applies ? filterStates(summary) : undefined;
   const notApplicable = ufNote(bancoId, summary, applies);
-  const key = `trade:partners:${bancoId}:${filterSig(summary)}`;
-  ensure(key, () => `${API}/partners?${qs({ banco: bancoId, codes, states, y0, y1 })}`);
+  // metric ∈ value|weight|price → the server-side ranking dimension (Capital /
+  // Volume / Preço médio). It is part of the cache key so switching the metric
+  // re-ranks server-side rather than re-sorting a value-ranked page (which would
+  // drop niche high-price buyers — see serving/sql.trade_by_partner).
+  const m = metric || 'value';
+  const key = `trade:partners:${bancoId}:${m}:${filterSig(summary)}`;
+  ensure(key, () => `${API}/partners?${qs({ banco: bancoId, codes, states, y0, y1, metric: m })}`);
   const data = get(key);
   const flowLabel = (window.bancoDim && window.bancoDim(bancoId, 'partner').label) || 'Parceiro';
   return data
     ? { ...data, flowLabel, notApplicable }
     : { preview: false, flowLabel, unit: 'US$', notApplicable, partners: [] };
 };
-window.monthlyData = function monthlyData(bancoId, summary) {
+// Per-product ranking WITHIN the selected UF(s) — the "Base de dados" per-UF
+// product breakdown (inverse of ViewProductProfile's "onde X é produzido"). The
+// backend returns [] unless a UF is selected; currency/correction pick the
+// deflated value column server-side (same as /snapshot), so the conv is part of
+// the cache key.
+window.productsByUf = function productsByUf(bancoId, summary, conv) {
   const codes = filterCodes(summary);
+  const states = filterStates(summary);
   const y0 = filterYear(summary && summary.startDate);
   const y1 = filterYear(summary && summary.endDate);
-  // The seasonality mart collapses UF away (grain = year × month × flow × NCM), so
-  // the UF (`states`) filter cannot narrow it on any banco — never send it, and
-  // surface an honest note when one is active (mirrors flow/partner above).
-  const notApplicable = ufFilterActive(summary)
-    ? { states: 'O filtro de UF de origem não se aplica à sazonalidade — o recorte mensal soma todas as UFs.' }
-    : undefined;
+  const currency = conv && conv.currency;
+  const correction = conv && conv.correction;
+  const key = `pbu:${bancoId}:${filterSig(summary)}:${currency || ''}:${correction || ''}`;
+  ensure(key, () => `${API}/products-by-uf?${qs({ banco: bancoId, codes, states, y0, y1, currency, correction })}`);
+  return get(key) || { products: [] };
+};
+window.monthlyData = function monthlyData(bancoId, summary) {
+  const codes = filterCodes(summary);
+  const states = filterStates(summary);
+  const y0 = filterYear(summary && summary.startDate);
+  const y1 = filterYear(summary && summary.endDate);
+  // The seasonality mart now KEEPS state_acronym in its grain (P6), so the UF
+  // (`states`) filter narrows the seasonal profile to one origin state — send it.
   const key = `trade:monthly:${bancoId}:${filterSig(summary)}`;
-  ensure(key, () => `${API}/monthly?${qs({ banco: bancoId, codes, y0, y1 })}`);
+  ensure(key, () => `${API}/monthly?${qs({ banco: bancoId, codes, states, y0, y1 })}`);
   const data = get(key);
   return data
-    ? { ...data, notApplicable }
+    ? { ...data }
     : {
         preview: false,
         unit: 'US$',
-        notApplicable,
+        weightUnit: 'mil t',
         years: [],
         months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         matrix: {},
         // 12 zeros (not []) so the view's peak/low/amplitude math survives the
         // loading render; real values replace it when the fetch resolves.
         monthlyAvg: new Array(12).fill(0),
+        weightMatrix: {},
+        weightMonthlyAvg: new Array(12).fill(0),
         series: [],
       };
 };

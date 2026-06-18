@@ -26,6 +26,12 @@ function ViewCrossSource({ value, onChange }) {
   const cs = value || window.DEFAULT_CROSS_STATE;
   const set = (patch) => onChange && onChange({ ...cs, ...patch });
 
+  // Per-UF scoping (ephemeral, local — the cross views have no global filter bar).
+  // '' = Brasil (national). Only the UF-capable series (IBGE PEVS, MDIC COMEX)
+  // honour it; a COMTRADE series stays national (noted near the chart).
+  const [uf, setUf] = React.useState('');
+  const ufStates = uf ? [uf] : undefined;
+
   const refs = cs.series || [];
   const refKey = (r) => r.b + ':' + r.m;
   const selectedKeys = refs.map(refKey);
@@ -41,7 +47,7 @@ function ViewCrossSource({ value, onChange }) {
   // Resolve each selected ref to an aligned series within the window.
   const seriesResults = refs
     .map((r, i) => {
-      const s = window.crossSeries(r.b, r.m, { y0: effY0, y1: effY1 });
+      const s = window.crossSeries(r.b, r.m, { y0: effY0, y1: effY1, states: ufStates });
       if (!s) return null;
       return { ...s, color: CS_COLORS[i % CS_COLORS.length], bancoShort: s.bancoMeta.short };
     })
@@ -174,6 +180,7 @@ function ViewCrossSource({ value, onChange }) {
           title="Evolução histórica comparada"
           action={
             <div className="xs-controls">
+              <window.UfScopePicker value={uf} onChange={setUf} />
               <div className="xs-years">
                 <select className="xs-select" value={effY0}
                   onChange={(e) => set({ y0: Math.min(Number(e.target.value), effY1) })}>
@@ -202,7 +209,14 @@ function ViewCrossSource({ value, onChange }) {
           {mode === 'panels' && <>Um painel por série, alinhados no eixo de tempo — leitura fiel das unidades nativas, sem forçar escala comum.</>}
         </div>
 
-        {mode === 'base100' && <window.MultiLineChart series={base100} label={`índice (${effY0}=100)`} valueKey="v" height={320} />}
+        {uf && refs.some(r => r.b === 'un_comtrade') && (
+          <div className="xs-mode-note">
+            <strong>Nota:</strong> séries do <strong>UN Comtrade</strong> são por país de origem — o
+            recorte por UF não se aplica a elas, que permanecem nacionais ({uf} afeta só IBGE/MDIC).
+          </div>
+        )}
+
+        {mode === 'base100' && <window.MultiLineChart series={base100} label={`índice (${effY0}=100)`} valueKey="v" height={320} trend />}
         {mode === 'dual' && <window.DualAxisLineChart series={axisSeries} height={320} />}
         {mode === 'panels' && <window.StackedPanels series={axisSeries} />}
 

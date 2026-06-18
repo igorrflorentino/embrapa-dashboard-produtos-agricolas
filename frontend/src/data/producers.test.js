@@ -237,18 +237,18 @@ describe('trade producers thread the origin-UF (states) filter', () => {
     expect(data.notApplicable.states).toContain('UF');
   });
 
-  it('monthlyData never sends states and flags it not-applicable when narrowed', async () => {
+  it('monthlyData now sends states (P6: the seasonality mart keeps state_acronym)', async () => {
     const f = vi.fn(() => jsonRes({}));
     const w = await loadAll(f);
     stubRegistry(w);
 
-    // A proper-subset UF selection on the seasonality grain (no UF column).
+    // The seasonality mart now keeps state_acronym in its grain, so a UF selection
+    // narrows the seasonal profile — the producer sends it (no more "não se aplica").
     const data = w.monthlyData('mdic_comex', { states: ['PA'] });
     const url = urlOf(f);
     expect(url).toContain('/api/monthly');
-    expect(url).not.toContain('states=');
-    expect(data.notApplicable).toBeTruthy();
-    expect(data.notApplicable.states).toContain('sazonalidade');
+    expect(url).toContain('states=PA');
+    expect(data.notApplicable).toBeUndefined();
   });
 
   it('the all-UFs-selected default is not a narrowing → no note', async () => {

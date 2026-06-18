@@ -62,6 +62,31 @@ window.cagrPct = (v0, vT, periods) => {
 // Accumulated change from v0 to vT, in PERCENT.
 window.accumPct = (v0, vT) => (v0 > 0 ? ((vT - v0) / v0) * 100 : 0);
 
+// Ordinary-least-squares linear trend over points keyed by `.y` (x = year) and a
+// value key. Returns { slope, intercept, predict(x), line } where `line` is the
+// two endpoints [{y:xmin,…},{y:xmax,…}] ready to plot as a straight dashed trace
+// (the "linha de tendência" overlay). Returns null when fewer than 2 finite points
+// or zero x-variance — the caller then simply draws no trend line.
+window.linearFit = (pts, key = 'v') => {
+  const xs = [], ys = [];
+  (pts || []).forEach((d) => {
+    const x = Number(d.y), y = Number(d[key]);
+    if (Number.isFinite(x) && Number.isFinite(y)) { xs.push(x); ys.push(y); }
+  });
+  const n = xs.length;
+  if (n < 2) return null;
+  const mx = xs.reduce((s, x) => s + x, 0) / n;
+  const my = ys.reduce((s, y) => s + y, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { const dx = xs[i] - mx; num += dx * (ys[i] - my); den += dx * dx; }
+  if (!den) return null;
+  const slope = num / den;
+  const intercept = my - slope * mx;
+  const predict = (x) => slope * x + intercept;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  return { slope, intercept, predict, line: [{ y: x0, [key]: predict(x0) }, { y: x1, [key]: predict(x1) }] };
+};
+
 // Correlation-cell tint. Positive → institutional green, negative → terracotta
 // error token, alpha scaled by |r| (0.12 floor → 0.72 at |r|=1). Token-driven
 // via color-mix so it tracks the palette — never a raw rgba() literal.

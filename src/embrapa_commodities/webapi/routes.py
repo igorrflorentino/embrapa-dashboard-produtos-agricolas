@@ -211,6 +211,23 @@ def geo_yearly():
     return jsonify(serializers.serialize_geo_yearly(df))
 
 
+@api.get("/products-by-uf")
+def products_by_uf():
+    """Per-product ranking WITHIN the selected UF(s) — the "Base de dados" per-UF
+    product breakdown (inverse of /product-uf, which ranks UFs for ONE product).
+
+    currency+correction pick the deflated value column server-side; codes/states/
+    y0/y1 scope basket + UF + year window. ``{ products: [] }`` when no UF is
+    selected or the banco has no geo grain (the view then shows a "selecione uma UF"
+    hint)."""
+    banco = request.args.get("banco", "")
+    conv, err = _conversion_or_400()
+    if err:
+        return err
+    df = seam.products_by_uf(banco, _filter_summary(), conv)
+    return jsonify(serializers.serialize_products_by_uf(df))
+
+
 @api.get("/productivity")
 def productivity():
     """Área × rendimento for one crop (backs ViewProductivity, IBGE PAM only).
@@ -280,12 +297,23 @@ def flow():
     return jsonify(serializers.serialize_flow(seam.flow_data(banco, _filter_summary())))
 
 
+_ALLOWED_PARTNER_METRICS = frozenset({"value", "weight", "price"})
+
+
 @api.get("/partners")
 def partners():
     """Partner ranking with export/import split (basket + origin-UF + year window
-    via ``codes``/``states``/``y0``/``y1``; ``states`` applies to COMEX only)."""
+    via ``codes``/``states``/``y0``/``y1``; ``states`` applies to COMEX only).
+
+    ``metric`` ∈ {value, weight, price} (default ``value``) ranks by Capital /
+    Volume / Preço médio server-side, so the top-N is by the chosen dimension."""
     banco = request.args.get("banco", "")
-    return jsonify(serializers.serialize_partner(seam.partner_data(banco, _filter_summary())))
+    metric = request.args.get("metric", "value")
+    if metric not in _ALLOWED_PARTNER_METRICS:
+        return jsonify(error=f"métrica inválida: {metric!r}"), 400
+    return jsonify(
+        serializers.serialize_partner(seam.partner_data(banco, _filter_summary(), rank_by=metric))
+    )
 
 
 @api.get("/monthly")
@@ -306,14 +334,25 @@ def cross_metric_refs():
     return jsonify(seam.cross_metric_refs())
 
 
+def _uf_codes() -> tuple[str, ...]:
+    """Origin-UF acronyms from the ``states`` param (cross-source per-UF scoping).
+
+    Empty = national (no UF filter). Only the UF-capable sides (IBGE PEVS, MDIC
+    COMEX) honour it; COMTRADE-origin series ignore it (the view notes that)."""
+    return tuple(_csv_param(request.args.get("states")))
+
+
 @api.get("/cross/series")
 def cross_series():
-    """One comparable annual series for (banco, metric), in its display unit."""
+    """One comparable annual series for (banco, metric), in its display unit.
+    ``states`` optionally narrows to origin UF(s) for the UF-capable bancos."""
     banco = request.args.get("banco", "")
     metric = request.args.get("metric", "")
     y0 = request.args.get("y0", type=int)
     y1 = request.args.get("y1", type=int)
-    return jsonify(serializers.serialize_cross_series(seam.cross_series(banco, metric, y0, y1)))
+    return jsonify(
+        serializers.serialize_cross_series(seam.cross_series(banco, metric, y0, y1, _uf_codes()))
+    )
 
 
 # ── cross-source analytics (crosswalk-joined) ──────────────────────────────────
@@ -335,7 +374,10 @@ def cross_market_share():
 
 @api.get("/cross/price-spread")
 def cross_price_spread():
-    return jsonify(serializers.serialize_price_spread(seam.price_spread(_commodity())))
+    """``states`` optionally narrows the porteira-vs-FOB spread to one origin UF(s)."""
+    return jsonify(
+        serializers.serialize_price_spread(seam.price_spread(_commodity(), _uf_codes()))
+    )
 
 
 @api.get("/cross/mirror")
@@ -345,7 +387,10 @@ def cross_mirror():
 
 @api.get("/cross/value-added")
 def cross_value_added():
-    return jsonify(serializers.serialize_value_added(seam.value_added(_commodity())))
+    """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""
+    return jsonify(
+        serializers.serialize_value_added(seam.value_added(_commodity(), _uf_codes()))
+    )
 
 
 @api.get("/cross/market-nature")

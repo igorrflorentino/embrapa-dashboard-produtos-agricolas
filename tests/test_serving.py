@@ -419,11 +419,57 @@ def test_comex_seasonality_filters_flow_and_ncm():
     )
     assert "group by reference_year, reference_month" in query
     assert "sum(val_yearfx_usd)" in query
+    assert "sum(net_weight_kg)" in query  # Volume metric for the dual-metric profile
     assert "flow = @flow" in query
     assert "ncm_code in unnest(@ncm_codes)" in query.lower()
     by_name = {p.name: p for p in params}
     assert by_name["flow"].value == "export"
     assert by_name["ncm_codes"].values == ["08012100"]
+
+
+def test_products_by_uf_groups_by_product_and_filters_state():
+    """The inverse of *_by_uf: GROUP BY product, constrain state_acronym to the
+    selected UFs, carry value + family-split q_mass/q_vol (COMEX export form)."""
+    query, params = sql.products_by_uf(
+        "p.serving.serving_comex_annual",
+        code_column="ncm_code",
+        name_column="ncm_description",
+        year_start=2018,
+        year_end=2024,
+        uf_codes=("AC",),
+        value_column="val_yearfx_usd",
+        flow="export",
+    )
+    low = query.lower()
+    assert "group by ncm_code" in low
+    assert "any_value(ncm_description)" in low
+    assert "state_acronym in unnest(@uf_codes)" in low
+    assert "sum(val_yearfx_usd)" in low
+    assert "case when family = 'massa'  then qty_base end" in query
+    assert "case when family = 'volume' then qty_base end" in query
+    assert "flow = @flow" in low
+    by_name = {p.name: p for p in params}
+    assert by_name["uf_codes"].values == ["AC"]
+    assert by_name["flow"].value == "export"
+
+
+def test_products_by_uf_pevs_form_has_no_flow_and_validates_columns():
+    """PEVS form: product_code/product_description, no flow predicate. An identifier
+    outside the product allowlist is rejected (injection guard)."""
+    query, _ = sql.products_by_uf(
+        "p.serving.serving_pevs_annual",
+        code_column="product_code",
+        name_column="product_description",
+        uf_codes=("PA",),
+    )
+    assert "flow = @flow" not in query.lower()
+    assert "group by product_code" in query.lower()
+    with pytest.raises(ValueError, match="not allowed"):
+        sql.products_by_uf(
+            "p.serving.serving_pevs_annual",
+            code_column="product_code); drop table x; --",
+            name_column="product_description",
+        )
 
 
 # ── trade marts: overview / ufData / partner / flows / quality ─────────────────
@@ -532,6 +578,25 @@ def test_trade_by_partner_splits_export_and_import():
     assert "any_value(country_name)" in query
     assert "order by value_usd desc" in query
     assert {p.name: p for p in params}["codes"].values == ["08012100"]
+    # quantity + implied unit price always present so the view can switch metric
+    assert "sum(net_weight_kg)" in query
+    assert "safe_divide(sum(val_yearfx_usd), sum(net_weight_kg))" in query
+
+
+def test_trade_by_partner_rank_by_switches_order_clause():
+    """rank_by picks the ORDER BY dimension server-side (Capital/Volume/Preço)."""
+    base = dict(
+        partner_code_column="country_code",
+        partner_name_column="country_name",
+        code_column="ncm_code",
+    )
+    q_weight, _ = sql.trade_by_partner("p.s.t", rank_by="weight", **base)
+    assert "order by total_weight_kg desc nulls last" in q_weight
+    q_price, _ = sql.trade_by_partner("p.s.t", rank_by="price", **base)
+    assert "order by price_usd_per_kg desc nulls last" in q_price
+    # an unknown metric falls back to value (never an unvalidated literal)
+    q_bad, _ = sql.trade_by_partner("p.s.t", rank_by="; drop table x", **base)
+    assert "order by value_usd desc" in q_bad
 
 
 def test_trade_flows_groups_by_origin_and_dest():
@@ -1935,3 +2000,60 @@ def test_gateway_pam_in_product_and_gold_registries():
     assert gateway._product_source("ibge_pam")[0] == "serving_pam_annual"
     assert gateway._GOLD_TABLE["ibge_pam"] == "gold_pam_production"
     assert gateway._GOLD_PRODUCT["ibge_pam"] == ("product_code", "product_description")
+
+
+# ── P6: per-UF scoping of the cross-source / seasonality readers ────────────────
+
+
+def test_cross_source_builders_narrow_to_uf_when_uf_codes_given():
+    """production_overview / product_timeseries / cross_annual / comex_seasonality
+    all add a bound ``state_acronym IN UNNEST(@uf_codes)`` predicate (P6 per-UF)."""
+    q_prod, p_prod = sql.production_overview("p.s.pevs", uf_codes=("AC",))
+    assert "state_acronym in unnest(@uf_codes)" in q_prod.lower()
+    assert {p.name: p for p in p_prod}["uf_codes"].values == ["AC"]
+
+    q_ts, _ = sql.product_timeseries("p.s.pevs", code_column="product_code", uf_codes=("AC", "PA"))
+    assert "state_acronym in unnest(@uf_codes)" in q_ts.lower()
+
+    q_cross, _ = sql.cross_annual(
+        "p.s.comex", measure_column="val_yearfx_usd", code_column="ncm_code", uf_codes=("AC",)
+    )
+    assert "state_acronym in unnest(@uf_codes)" in q_cross.lower()
+
+    q_seas, _ = sql.comex_seasonality("p.s.seas", uf_codes=("AC",))
+    assert "state_acronym in unnest(@uf_codes)" in q_seas.lower()
+
+
+def test_cross_source_builders_no_uf_predicate_when_empty():
+    """No uf_codes → no state predicate (national, the unchanged default)."""
+    q_prod, _ = sql.production_overview("p.s.pevs")
+    assert "state_acronym" not in q_prod.lower()
+    q_seas, _ = sql.comex_seasonality("p.s.seas")
+    assert "state_acronym" not in q_seas.lower()
+
+
+def test_fetch_cross_series_drops_uf_for_comtrade(monkeypatch):
+    """The gateway applies uf_codes ONLY for the COMEX mart — a COMTRADE metric has
+    no state_acronym column, so the UF filter is dropped (query stays valid)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import cache, gateway
+    from embrapa_commodities.webapi.app import create_app
+
+    recorded = {}
+
+    def fake_run(sql_text, params):
+        recorded["sql"] = sql_text
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", fake_run)
+    app = create_app()
+    with app.app_context():
+        cache.cache.clear()
+        # COMEX metric → UF predicate present
+        gateway.fetch_cross_series("mdic_comex:exp_value", uf_codes=("AC",))
+        assert "state_acronym in unnest(@uf_codes)" in recorded["sql"].lower()
+        cache.cache.clear()
+        # COMTRADE metric → UF dropped (no state_acronym on that mart)
+        gateway.fetch_cross_series("un_comtrade:world_exp", uf_codes=("AC",))
+        assert "state_acronym" not in recorded["sql"].lower()

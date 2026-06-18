@@ -164,7 +164,9 @@ function ViewMarketShare() {
 // ── (3) Price: farm-gate vs. FOB ──────────────────────────────────────
 function ViewPriceSpread() {
   const [product, setProduct] = useMSState(null);
-  const data = window.priceSpread(product);
+  // Per-UF scoping ('' = Brasil). Both sides (PEVS farm-gate + COMEX FOB) honour it.
+  const [uf, setUf] = useMSState('');
+  const data = window.priceSpread(product, uf ? [uf] : undefined);
 
   // Same mass-basis requirement as the export coefficient: the gate price is
   // value ÷ mass, undefined for volume/mixed selections. The seam refuses with
@@ -173,6 +175,7 @@ function ViewPriceSpread() {
     return (
       <>
         <CrossProductPicker value={product} onChange={setProduct} />
+        <window.UfScopePicker value={uf} onChange={setUf} />
         <div className="card subtle">
           <window.SectionHeader overline="Spread de preço" title="Indicador indisponível para esta seleção" />
           <p className="caption" style={{ padding: '16px 4px' }}>
@@ -196,6 +199,7 @@ function ViewPriceSpread() {
   return (
     <>
       <CrossProductPicker value={product} onChange={setProduct} />
+      <window.UfScopePicker value={uf} onChange={setUf} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Preço FOB atual" value={'US$ ' + msNum(last?.fob, 2) + '/kg'} sub={`${last?.y ?? '—'} · no porto`} />
@@ -207,7 +211,7 @@ function ViewPriceSpread() {
       <div className="card">
         <window.SectionHeader overline="Porteira vs. porto · US$/kg" title="Onde o valor é capturado"
           action={<span className="caption">IBGE × MDIC</span>} />
-        <window.MultiLineChart series={lineSeries} valueKey="v" label="US$/kg" height={300} />
+        <window.MultiLineChart series={lineSeries} valueKey="v" label="US$/kg" height={300} trend />
         <div className="pc-legend">
           {lineSeries.map(s => (
             <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>

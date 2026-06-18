@@ -5,7 +5,7 @@
 
 import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, withAlpha } from './_base';
 
-function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = '', valueKey = 'v' }) {
+function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = '', valueKey = 'v', trend = false }) {
   const c = resolveColor(color);
   const traces = [
     {
@@ -20,6 +20,21 @@ function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = ''
       name: label,
     },
   ];
+  // Optional linear (OLS) trend overlay — a thin dashed line of the fitted slope.
+  const fit = trend && window.linearFit ? window.linearFit(data, valueKey) : null;
+  if (fit) {
+    traces.push({
+      x: fit.line.map((d) => d.y),
+      y: fit.line.map((d) => d[valueKey]),
+      type: 'scatter',
+      mode: 'lines',
+      line: { color: c, width: 1.5, dash: 'dash' },
+      opacity: 0.55,
+      hoverinfo: 'skip',
+      name: 'Tendência',
+      showlegend: false,
+    });
+  }
   // pt-BR magnitude ticks ("15 bi" not the SI "15G") so a value axis matches the
   // dashboard's "R$ bi/mi/mil" labels and is consistent across cards (FINDING #9).
   // Falls back to Plotly's SI `~s` when the data has no usable positive max.

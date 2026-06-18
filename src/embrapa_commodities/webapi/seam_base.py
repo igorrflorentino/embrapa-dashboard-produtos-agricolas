@@ -59,7 +59,10 @@ def _codes(commodity_id: str | None, source: str) -> tuple:
     return tuple(c[source]) if c else ()
 
 
-def _xyear(metric: str, codes: tuple) -> dict:
-    """{year: raw value} from the gateway cross reader for a metric, scoped to codes."""
-    df = gateway.fetch_cross_series(metric, codes=codes)
+def _xyear(metric: str, codes: tuple, uf_codes: tuple = ()) -> dict:
+    """{year: raw value} from the gateway cross reader for a metric, scoped to codes.
+
+    ``uf_codes`` optionally narrows to origin UFs (cross-source per-UF scoping); it
+    only affects COMEX metrics — the gateway drops it for COMTRADE (no UF column)."""
+    df = gateway.fetch_cross_series(metric, codes=codes, uf_codes=uf_codes)
     return {int(r.reference_year): float(r.value or 0) for r in df.itertuples()}

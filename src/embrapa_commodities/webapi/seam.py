@@ -487,13 +487,18 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
     }
 
 
-def partner_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | None:
+def partner_data(
+    banco_id: str, summary: dict | None = None, rank_by: str = "value"
+) -> pd.DataFrame | None:
     """Partner ranking with export/import split (backs Parceiros comerciais).
 
     The active UF (``states``) filter narrows the COMEX partner ranking to those
     origin UFs (``state_acronym``). COMTRADE has no origin-UF column (its origin is
     a reporter country), so the UF selection does not reach its reader — the
     frontend producer surfaces that as an honest "não se aplica" note.
+
+    ``rank_by`` ∈ {value, weight, price} chooses the ranking dimension (Capital /
+    Volume / Preço médio), applied server-side so the top-N is by that metric.
     """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "partner" not in banco.provides:
@@ -502,18 +507,65 @@ def partner_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | N
     codes = _basket(summary)
     if banco_id == "mdic_comex":
         return gateway.fetch_comex_partners(
-            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary)
+            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary), rank_by=rank_by
         )
-    return gateway.fetch_comtrade_partners(year_start=y0, year_end=y1, cmd_codes=codes)
+    return gateway.fetch_comtrade_partners(
+        year_start=y0, year_end=y1, cmd_codes=codes, rank_by=rank_by
+    )
+
+
+def products_by_uf(
+    banco_id: str, summary: dict | None = None, conv: dict | None = None
+) -> pd.DataFrame | None:
+    """Per-product ranking WITHIN the selected UF(s) — the "Base de dados" per-UF
+    product breakdown (the inverse of the by-UF rankings, which sum products away).
+
+    Only meaningful with a geo banco AND an explicit UF selection (``states``). With
+    no UF selected it returns None so the view shows its "selecione uma UF" hint
+    instead of a nationwide product ranking (which Visão geral already covers).
+    Supported for IBGE PEVS (production) and MDIC COMEX (export); other geo bancos
+    return None (honest not-yet-wired)."""
+    banco = banco_by_id(banco_id)
+    if banco_id not in _LIVE_SOURCES or "geo" not in banco.provides:
+        return None
+    states = _states(summary)
+    if not states:
+        return None
+    value_col, _ = effective_value_column(banco, conv or {})
+    y0, y1 = _years_from_summary(summary)
+    codes = _basket(summary)
+    if banco_id == "mdic_comex":
+        return gateway.fetch_products_by_uf(
+            table_key="serving_comex_annual",
+            code_column="ncm_code",
+            name_column="ncm_description",
+            year_start=y0,
+            year_end=y1,
+            codes=codes,
+            uf_codes=states,
+            value_column=value_col,
+            flow="export",
+        )
+    if banco_id == "ibge_pevs":
+        return gateway.fetch_products_by_uf(
+            table_key="serving_pevs_annual",
+            code_column="product_code",
+            name_column="product_description",
+            year_start=y0,
+            year_end=y1,
+            codes=codes,
+            uf_codes=states,
+            value_column=value_col,
+        )
+    return None
 
 
 def monthly_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | None:
     """Monthly seasonality value (backs Sazonalidade). COMEX only (monthly grain).
 
-    The seasonality mart (``serving_comex_seasonality``) collapses UF away — its
-    grain is (year × month × flow × NCM) — so a UF (``states``) filter cannot be
-    honoured here. The frontend producer surfaces it as an honest "não se aplica"
-    note rather than the seam silently dropping it; the basket + year window apply.
+    The seasonality mart (``serving_comex_seasonality``) now KEEPS ``state_acronym``
+    in its grain (P6), so the active UF (``states``) selection narrows the seasonal
+    profile to one origin state; empty = national. The basket + year window apply too.
     """
     banco = banco_by_id(banco_id)
     if banco_id not in _LIVE_SOURCES or "monthly" not in banco.provides:
@@ -521,7 +573,9 @@ def monthly_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | N
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
     if banco_id == "mdic_comex":
-        return gateway.fetch_comex_seasonality(year_start=y0, year_end=y1, ncm_codes=codes)
+        return gateway.fetch_comex_seasonality(
+            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary)
+        )
     return None
 
 

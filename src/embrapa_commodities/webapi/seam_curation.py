@@ -132,7 +132,7 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
     return curation.record_code_industrialization(source, code, level, headers, change_id=change_id)
 
 
-def value_added(commodity_id: str | None = None) -> dict:
+def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
     """COMEX exports split by the curated industrialization level over the years.
 
     For each mdic_comex code currently classified bruta/processada, sum its annual
@@ -143,9 +143,11 @@ def value_added(commodity_id: str | None = None) -> dict:
     Set-based: ONE value + ONE weight query per level (the reader's ``codes``
     filter is an ``IN UNNEST`` over the whole level), so the request cost stays
     flat as curators classify more codes — never 2 BigQuery round-trips per code.
-    """
+
+    ``uf_codes`` optionally narrows the export side to one origin UF(s) — the
+    bruta×processada split for a single state (cross-source per-UF scoping)."""
     by_level = _value_added_codes_by_level(commodity_id)
-    acc, n = _value_added_accumulate(by_level)
+    acc, n = _value_added_accumulate(by_level, uf_codes)
     series = [_value_added_series_point(y, acc[y]) for y in sorted(acc)]
     return {"series": series, "n_codes": n}
 
@@ -163,12 +165,15 @@ def _value_added_codes_by_level(commodity_id: str | None) -> dict[str, list[str]
     return by_level
 
 
-def _value_added_accumulate(by_level: dict[str, list[str]]) -> tuple[dict, int]:
+def _value_added_accumulate(
+    by_level: dict[str, list[str]], uf_codes: tuple = ()
+) -> tuple[dict, int]:
     """Sum export value (US$ bi) + weight (mil t) per year per level; (acc, n_codes).
 
     ONE value + ONE weight query per level (the reader's ``codes`` filter is an
     ``IN UNNEST`` over the whole level), so the cost stays flat as more codes are
-    classified — never 2 BigQuery round-trips per code.
+    classified — never 2 BigQuery round-trips per code. ``uf_codes`` narrows the
+    export side to one origin UF(s) (cross-source per-UF scoping).
     """
     acc: dict = {}
     n = 0
@@ -176,10 +181,10 @@ def _value_added_accumulate(by_level: dict[str, list[str]]) -> tuple[dict, int]:
         if not lvl_codes:
             continue
         codes = tuple(sorted(lvl_codes))
-        val = seam_base._xyear("mdic_comex:exp_value", codes)
+        val = seam_base._xyear("mdic_comex:exp_value", codes, uf_codes)
         if not val:
             continue
-        wt = seam_base._xyear("mdic_comex:exp_weight", codes)
+        wt = seam_base._xyear("mdic_comex:exp_weight", codes, uf_codes)
         n += len(lvl_codes)
         for y, v in val.items():
             slot = acc.setdefault(
@@ -191,16 +196,31 @@ def _value_added_accumulate(by_level: dict[str, list[str]]) -> tuple[dict, int]:
 
 
 def _value_added_series_point(y: int, slot: dict) -> dict:
-    """One year's processed share + price premium (price_processada / price_bruta)."""
+    """One year per level: value (US$ bi), weight (mil t), absolute unit price
+    (US$/kg), the processed shares (by value and by weight), and the price premium
+    (price_processada ÷ price_bruta).
+
+    The absolute per-level prices and weights were always computed here but
+    previously collapsed into the single dimensionless ``premium`` ratio; the
+    "Processado vs Bruto" view needs them un-collapsed to draw the volume
+    composition and the side-by-side US$/kg bars.
+    """
     b, p = slot["bruta"], slot["processada"]
-    total = (b["v"] + p["v"]) or 1
-    price_b = (b["v"] / b["w"]) if b["w"] else 0
-    price_p = (p["v"] / p["w"]) if p["w"] else 0
+    total_v = (b["v"] + p["v"]) or 1
+    total_w = (b["w"] + p["w"]) or 1
+    # price = value(US$ bi) ÷ weight(mil t); ×1e3 → US$/kg (the COMEX exp_price unit).
+    price_b = (b["v"] / b["w"] * 1e3) if b["w"] else 0
+    price_p = (p["v"] / p["w"] * 1e3) if p["w"] else 0
     return {
         "y": y,
         "brutaV": b["v"],
         "procV": p["v"],
-        "procShare": p["v"] / total * 100,
+        "brutaW": b["w"],
+        "procW": p["w"],
+        "procShare": p["v"] / total_v * 100,
+        "procShareW": p["w"] / total_w * 100,
+        "priceBruta": price_b,
+        "priceProc": price_p,
         "premium": (price_p / price_b) if price_b else 0,
     }
 

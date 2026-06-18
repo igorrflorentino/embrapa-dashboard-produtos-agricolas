@@ -504,8 +504,8 @@ def test_partner_data_comex_threads_uf_filter(monkeypatch):
     seam = _seam()
     recorded = {}
 
-    def fake_partners(year_start=None, year_end=None, ncm_codes=(), uf_codes=()):
-        recorded.update(uf_codes=uf_codes)
+    def fake_partners(year_start=None, year_end=None, ncm_codes=(), uf_codes=(), rank_by="value"):
+        recorded.update(uf_codes=uf_codes, rank_by=rank_by)
         return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
 
     monkeypatch.setattr(seam.gateway, "fetch_comex_partners", fake_partners)
@@ -514,6 +514,10 @@ def test_partner_data_comex_threads_uf_filter(monkeypatch):
     recorded.clear()
     seam.partner_data("mdic_comex", {"basket": ["0801"]})
     assert recorded["uf_codes"] == ()
+    # rank_by defaults to value and is threaded to the reader
+    recorded.clear()
+    seam.partner_data("mdic_comex", {}, rank_by="price")
+    assert recorded["rank_by"] == "price"
 
 
 def test_partner_data_comtrade_ignores_uf_filter(monkeypatch):
@@ -522,7 +526,7 @@ def test_partner_data_comtrade_ignores_uf_filter(monkeypatch):
     seam = _seam()
     recorded = {}
 
-    def fake_partners(year_start=None, year_end=None, cmd_codes=()):
+    def fake_partners(year_start=None, year_end=None, cmd_codes=(), rank_by="value"):
         recorded["called"] = True
         return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
 
@@ -571,7 +575,7 @@ def test_cross_points_exp_price_emits_none_when_weight_missing(monkeypatch):
     )
     wt = pd.DataFrame([{"reference_year": 2020, "value": 1e9}])  # 2021 missing
 
-    def fake_cross(metric, year_start=None, year_end=None):
+    def fake_cross(metric, year_start=None, year_end=None, codes=(), uf_codes=()):
         return val if metric == "mdic_comex:exp_value" else wt
 
     monkeypatch.setattr(seam.gateway, "fetch_cross_series", fake_cross)
@@ -595,7 +599,7 @@ def _no_codes_catalog(mod, monkeypatch):
     monkeypatch.setattr(
         mod,
         "_xyear",
-        lambda metric, codes: pytest.fail("must not query the unscoped totals"),
+        lambda metric, codes, uf_codes=(): pytest.fail("must not query the unscoped totals"),
     )
 
 
@@ -659,7 +663,7 @@ def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
         _cross(), "_pevs_mass_by_year", lambda codes: {1986: 5.0, 1997: 10.0, 2000: 20.0}
     )
     monkeypatch.setattr(  # exp_weight (kg): years 1997/2000/2024
-        _base(), "_xyear", lambda metric, codes: {1997: 2e9, 2000: 4e9, 2024: 1e9}
+        _base(), "_xyear", lambda metric, codes, uf_codes=(): {1997: 2e9, 2000: 4e9, 2024: 1e9}
     )
     recorded = {}
 
@@ -716,7 +720,7 @@ def test_value_added_batches_codes_per_level(monkeypatch):
     )
     calls = []
 
-    def fake_xyear(metric, codes):
+    def fake_xyear(metric, codes, uf_codes=()):
         calls.append((metric, codes))
         return {2020: 2e9} if metric.endswith("exp_value") else {2020: 1e9}
 
@@ -732,6 +736,10 @@ def test_value_added_batches_codes_per_level(monkeypatch):
     assert out["n_codes"] == 3
     row = out["series"][0]
     assert row["y"] == 2020 and row["brutaV"] == 2.0 and row["procV"] == 2.0
+    # weight (mil t) + absolute unit price (US$/kg) are now surfaced, not just the ratio
+    assert row["brutaW"] == 1000.0 and row["procW"] == 1000.0  # 1e9 kg ÷1e6 → mil t
+    assert row["priceBruta"] == 2.0 and row["priceProc"] == 2.0  # (2 US$bi ÷ 1000 mil t)×1e3
+    assert row["procShareW"] == 50.0 and row["premium"] == 1.0
 
 
 # ── catalog caching: flask-caching TTL (refreshable), not process-lifetime ─────
@@ -861,7 +869,7 @@ def test_snapshot_pevs_threads_basket_window_and_value_column(monkeypatch):
     def fake_products(banco_id):
         return pd.DataFrame([{"code": "1", "name": "Açaí"}])
 
-    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None):
+    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None, uf_codes=()):
         recorded["pts"] = dict(
             source=source, y0=year_start, y1=year_end, codes=codes, value_column=value_column
         )
@@ -959,7 +967,7 @@ def test_snapshot_comex_brl_request_serves_real_brl_column_not_usd(monkeypatch):
             [{"state_acronym": "SP", "reference_year": 2022, "total_value_usd": 3.0}]
         )
 
-    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None):
+    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None, uf_codes=()):
         recorded["pts"] = value_column
         return pd.DataFrame()
 
@@ -1241,6 +1249,45 @@ def test_partner_data_none_without_partner_capability():
     assert seam.partner_data("ibge_pevs") is None
 
 
+def test_products_by_uf_gates_on_uf_and_dispatches_by_banco(monkeypatch):
+    """products_by_uf returns None without a UF selection, and dispatches to the
+    right mart/columns/flow per banco when a UF is selected."""
+    seam = _seam()
+    recorded = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_products_by_uf",
+        lambda **k: recorded.update(k) or pd.DataFrame([{"product_code": "4407"}]),
+    )
+    # No UF → None (Visão geral already covers the nationwide product ranking)
+    assert seam.products_by_uf("mdic_comex", {}) is None
+    assert seam.products_by_uf("mdic_comex", {"states": []}) is None
+    # COMEX export form: USD/Nominal → val_yearfx_usd, flow=export, UF pushed down
+    out = seam.products_by_uf(
+        "mdic_comex",
+        {"states": ["AC"], "basket": ["4407"]},
+        {"currency": "USD", "correction": "Nominal"},
+    )
+    assert out is not None
+    assert recorded["table_key"] == "serving_comex_annual"
+    assert recorded["code_column"] == "ncm_code" and recorded["name_column"] == "ncm_description"
+    assert recorded["flow"] == "export"
+    assert recorded["uf_codes"] == ("AC",) and recorded["codes"] == ("4407",)
+    assert recorded["value_column"] == "val_yearfx_usd"
+    # PEVS production form: product columns, NO flow predicate
+    recorded.clear()
+    seam.products_by_uf("ibge_pevs", {"states": ["PA"]})
+    assert recorded["table_key"] == "serving_pevs_annual"
+    assert recorded["code_column"] == "product_code"
+    assert recorded.get("flow") is None
+
+
+def test_products_by_uf_none_without_geo_capability():
+    seam = _seam()
+    # un_comtrade has no `geo` (origin is a reporter country, not a UF)
+    assert seam.products_by_uf("un_comtrade", {"states": ["AC"]}) is None
+
+
 def test_monthly_data_comex_only(monkeypatch):
     seam = _seam()
     recorded = {}
@@ -1310,7 +1357,7 @@ def test_cross_series_comex_exp_value_scales_to_bi(monkeypatch):
     monkeypatch.setattr(
         seam.gateway,
         "fetch_cross_series",
-        lambda metric, year_start=None, year_end=None: pd.DataFrame(
+        lambda metric, year_start=None, year_end=None, codes=(), uf_codes=(): pd.DataFrame(
             [{"reference_year": 2022, "value": 3e9}]
         ),
     )
@@ -1372,7 +1419,7 @@ def test_market_share_happy_path_with_by_product(monkeypatch):
         },
     )
 
-    def fake_xyear(metric, codes):
+    def fake_xyear(metric, codes, uf_codes=()):
         return {2022: 2e9} if metric.startswith("mdic_comex") else {2022: 8e9}
 
     monkeypatch.setattr(_base(), "_xyear", fake_xyear)
@@ -1404,7 +1451,9 @@ def test_price_spread_happy_path_markup(monkeypatch):
     monkeypatch.setattr(
         _base(),
         "_xyear",
-        lambda metric, codes: {2022: 6e9} if metric.endswith("exp_value") else {2022: 2e9},
+        lambda metric, codes, uf_codes=(): (
+            {2022: 6e9} if metric.endswith("exp_value") else {2022: 2e9}
+        ),
     )
     # gate = value(US$) / (q(t) * 1000) = 2e6 / (1e3 * 1000) = 2 US$/kg
     monkeypatch.setattr(
@@ -1447,7 +1496,7 @@ def test_export_coefficient_empty_timeseries_when_no_year_overlap(monkeypatch):
         lambda: {"c": {"name": "C", "pevs": ["1"], "comex": ["0801"], "comtrade": ["080121"]}},
     )
     monkeypatch.setattr(_cross(), "_pevs_mass_by_year", lambda codes: {1986: 5.0})
-    monkeypatch.setattr(_base(), "_xyear", lambda metric, codes: {2022: 1e6})
+    monkeypatch.setattr(_base(), "_xyear", lambda metric, codes, uf_codes=(): {2022: 1e6})
     out = seam.export_coefficient("c")
     assert out == {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
 
@@ -1467,7 +1516,7 @@ def test_trade_mirror_happy_path_discrepancy(monkeypatch):
         },
     )
 
-    def fake_xyear(metric, codes):
+    def fake_xyear(metric, codes, uf_codes=()):
         if metric.startswith("mdic_comex"):
             return {2022: 4e9}
         if metric == "un_comtrade:partner_exp":
@@ -1500,7 +1549,7 @@ def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
         },
     )
 
-    def fake_xyear(metric, codes):
+    def fake_xyear(metric, codes, uf_codes=()):
         if metric.startswith("mdic_comex"):
             return {2022: 4e9}
         if metric == "un_comtrade:partner_exp":
@@ -1624,7 +1673,7 @@ def test_xyear_maps_year_to_value(monkeypatch):
     monkeypatch.setattr(
         seam.gateway,
         "fetch_cross_series",
-        lambda metric, codes=(): pd.DataFrame(
+        lambda metric, codes=(), uf_codes=(): pd.DataFrame(
             [{"reference_year": 2021, "value": 3.0}, {"reference_year": 2022, "value": 5.0}]
         ),
     )
@@ -1713,3 +1762,65 @@ def test_record_flow_market_forwards_headers_to_writer(monkeypatch):
     assert out == {"ok": True}
     assert captured["customs_code"] == "C04" and captured["market"] == "processamento"
     assert captured["change_id"] == "k1"
+
+
+# ── P6: per-UF scoping threads through the cross-source / curated / seasonality seam ──
+
+
+def test_cross_series_threads_uf_to_uf_capable_readers(monkeypatch):
+    """cross_series passes uf_codes to the PEVS production + COMEX cross readers."""
+    seam = _seam()
+    rec = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_production_overview",
+        lambda **k: (
+            rec.update(pevs=k.get("uf_codes"))
+            or pd.DataFrame([{"reference_year": 2020, "total_value": 1e9}])
+        ),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_cross_series",
+        lambda metric, **k: (
+            rec.update(comex=k.get("uf_codes"))
+            or pd.DataFrame([{"reference_year": 2020, "value": 2e9}])
+        ),
+    )
+    seam.cross_series("ibge_pevs", "prod_value", 2019, 2021, ("AC",))
+    assert rec["pevs"] == ("AC",)
+    seam.cross_series("mdic_comex", "exp_value", 2019, 2021, ("AC",))
+    assert rec["comex"] == ("AC",)
+
+
+def test_value_added_threads_uf_to_export_side(monkeypatch):
+    """value_added narrows the bruta/processada export split to the UF via _xyear."""
+    seam = _seam()
+    monkeypatch.setattr(_curation(), "_current_code_levels", lambda: {("mdic_comex", "A"): "bruta"})
+    seen = []
+    monkeypatch.setattr(
+        _base(),
+        "_xyear",
+        lambda metric, codes, uf_codes=(): (
+            seen.append(uf_codes) or ({2020: 2e9} if metric.endswith("exp_value") else {2020: 1e9})
+        ),
+    )
+    seam.value_added(None, ("AC",))
+    assert seen and all(u == ("AC",) for u in seen)
+
+
+def test_monthly_data_threads_uf_to_seasonality_reader(monkeypatch):
+    """monthly_data now passes the active UF selection to the seasonality reader
+    (the mart keeps state_acronym in its grain — P6)."""
+    seam = _seam()
+    rec = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_seasonality",
+        lambda **k: rec.update(uf_codes=k.get("uf_codes")) or pd.DataFrame(),
+    )
+    seam.monthly_data("mdic_comex", {"states": ["AC"]})
+    assert rec["uf_codes"] == ("AC",)
+    rec.clear()
+    seam.monthly_data("mdic_comex", {})  # no UF → national
+    assert rec["uf_codes"] == ()

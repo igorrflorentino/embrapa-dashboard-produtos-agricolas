@@ -101,8 +101,9 @@ models:
   - name: serving_comex_seasonality
     description: |
       Monthly COMEX mart — the only serving mart that keeps reference_month.
-      Backs the seasonality view (matrix[year][1..12], monthlyAvg). Joined to
-      dim_date for the pt-BR month label.
+      Backs the seasonality view (matrix[year][1..12], monthlyAvg). `state_acronym`
+      is KEPT in the grain so the seasonal profile can be narrowed to one origin UF
+      (P6 per-UF scoping). Joined to dim_date for the pt-BR month label.
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -111,6 +112,7 @@ models:
               - reference_month
               - flow
               - ncm_code
+              - state_acronym
     columns:
       - name: reference_month
         tests:

@@ -67,20 +67,23 @@
 // @property {{id:string,label:string,side:'origin'|'dest',value:number}[]} nodes
 // @property {{source:string,target:string,value:number}[]} links
 //
-// @typedef {Object} PartnerData         window.partnerData(bancoId, summary)
+// @typedef {Object} PartnerData         window.partnerData(bancoId, summary, metric)
 // @property {boolean} preview
 // @property {string}  flowLabel
 // @property {string}  unit
-// @property {{name:string,exp:number,imp:number,value:number}[]} partners
+// @property {{name:string,exp:number,imp:number,value:number,weight:number,price:(number|null)}[]} partners  value/exp/imp = US$ mi · weight = mil t (net) · price = US$/kg (value÷weight; null when no weight). Row order = the server-side ranking metric (Capital/Volume/Preço médio).
 //
 // @typedef {Object} MonthlyData         window.monthlyData(bancoId, summary)
 // @property {boolean} preview
-// @property {string}  unit
+// @property {string}  unit               Value (Capital) unit — 'US$'.
+// @property {string}  weightUnit         Volume unit — 'mil t' (net weight).
 // @property {number[]} years
 // @property {number[]} months           [1..12]
-// @property {Object.<number,number[]>} matrix   year → 12 monthly values.
-// @property {number[]} monthlyAvg       12 values.
-// @property {{ym:string,y:number,m:number,v:number}[]} series
+// @property {Object.<number,number[]>} matrix         year → 12 monthly VALUE (US$ mi) values.
+// @property {number[]} monthlyAvg       12 value (US$ mi) values.
+// @property {Object.<number,number[]>} weightMatrix   year → 12 monthly WEIGHT (mil t) values.
+// @property {number[]} weightMonthlyAvg 12 weight (mil t) values.
+// @property {{ym:string,y:number,m:number,v:number,w:number}[]} series   v = value (US$ mi), w = weight (mil t).
 //
 // @typedef {Object} ProductivityData    window.productivityData(bancoId, cropCode, summary)
 // @property {boolean} preview
@@ -167,8 +170,9 @@
 // @typedef {Object} ValueAddedAnalysis  window.valueAddedAnalysis(groupId)
 // @property {boolean}  preview
 // @property {number[]} years
-// @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevel
-// @property {{y:number,brutaV:number,procV:number,procShare:number,premium:number}[]} series   premium = price_processada ÷ price_bruta (the per-kg prices themselves are NOT emitted).
+// @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevel        Value (US$ bi) per level.
+// @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevelWeight  Volume (mil t) per level — backs the 100% volume composition.
+// @property {{y:number,brutaV:number,procV:number,brutaW:number,procW:number,procShare:number,procShareW:number,priceBruta:number,priceProc:number,premium:number}[]} series   brutaV/procV = value (US$ bi); brutaW/procW = weight (mil t); procShare/procShareW = processed share by value/weight (%); priceBruta/priceProc = absolute unit price (US$/kg); premium = priceProc ÷ priceBruta.
 // @property {number}   nCodes   Count of classified COMEX codes included in the analysis (the "Códigos na análise" KPI).
 //
 // @typedef {Object} MarketNatureAnalysis  window.marketNatureAnalysis()
@@ -212,7 +216,8 @@
       },
       monthly: {
         typedef: 'MonthlyData',
-        required: ['preview', 'unit', 'years', 'months', 'matrix', 'monthlyAvg', 'series'],
+        required: ['preview', 'unit', 'years', 'months', 'matrix', 'monthlyAvg',
+          'weightMatrix', 'weightMonthlyAvg', 'series'],
         appliesTo: (b) => has(b, 'monthly'),
         produce: (b) => (window.monthlyData ? window.monthlyData(b.id, {}) : null),
       },
@@ -269,7 +274,7 @@
       },
       valueAddedAnalysis: {
         typedef: 'ValueAddedAnalysis',
-        required: ['preview', 'years', 'byLevel', 'series'],
+        required: ['preview', 'years', 'byLevel', 'byLevelWeight', 'series'],
         produce: () => (window.valueAddedAnalysis ? window.valueAddedAnalysis(null) : null),
       },
       marketNatureAnalysis: {
