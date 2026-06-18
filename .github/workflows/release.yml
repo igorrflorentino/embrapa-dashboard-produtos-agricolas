@@ -9,7 +9,8 @@
 #   • push of a tag matching v*   (e.g. `git tag v1.2.3 && git push origin v1.2.3`,
 #     or publishing a GitHub Release, which creates the tag) → builds + pushes
 #     `…/embrapa-dashboard:v1.2.3` AND `:latest`, then creates/updates the GitHub
-#     Release with auto-generated notes + the image ref.
+#     Release whose body is the curated CHANGELOG.md `## [1.2.3]` section + the
+#     deployable-image ref + an auto-generated PR appendix.
 #   • workflow_dispatch (manual)  → builds + pushes `…/embrapa-dashboard:<version>`
 #     for an ad-hoc version you type (no `:latest`, no GitHub Release).
 #
@@ -145,14 +146,53 @@ jobs:
             [ "${{ steps.vars.outputs.is_tag }}" = "true" ] && echo "- Also tagged: \`${{ steps.vars.outputs.image_latest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Only for real `v*` tag releases: cut the GitHub Release with auto notes +
-      # the image ref, so the release page documents exactly what to deploy.
+      # Only for real `v*` tag releases: cut the GitHub Release. CHANGELOG.md is the
+      # single source of truth — the body LEADS with the curated `## [X.Y.Z]` section
+      # for this version, then the deployable-image hint, then an auto-generated PR
+      # appendix. So the Release renders the changelog (no double-maintenance) and
+      # still credits the PRs. Falls back to the PR list alone if the version has no
+      # CHANGELOG section yet.
       - name: Create GitHub Release
         if: steps.vars.outputs.is_tag == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          IMAGE: ${{ steps.vars.outputs.image }}
         run: |
-          gh release create '${{ steps.vars.outputs.version }}' \
-            --title '${{ steps.vars.outputs.version }}' \
-            --generate-notes \
-            --notes 'Deployable image (no rebuild): ${{ steps.vars.outputs.image }} — deploy with: WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=${{ steps.vars.outputs.version }} bash deploy/webapi/deploy.sh'
+          VER_NO_V="${VERSION#v}"
+          NOTES="${RUNNER_TEMP}/release_notes.md"
+
+          # 1) Lead with the curated "## [X.Y.Z]" CHANGELOG section (up to the next
+          #    "## [" heading), then trim a trailing "---" separator. Placeholder if
+          #    the version has no section yet (keeps the release from being empty).
+          awk -v hdr="## [${VER_NO_V}]" '
+            index($0, hdr) == 1 { insec = 1; print; next }
+            insec && /^## \[/   { exit }
+            insec               { print }
+          ' CHANGELOG.md \
+          | awk 'NF { last = NR } { buf[NR] = $0 }
+                 END { n = last; if (buf[n] == "---") n--; for (i = 1; i <= n; i++) print buf[i] }' \
+          > "$NOTES"
+          if [ ! -s "$NOTES" ]; then
+            echo "No CHANGELOG section for ${VER_NO_V}; release body will be the PR list only." >&2
+            printf '_No hand-written CHANGELOG entry for %s — see the pull requests below._\n' "$VERSION" > "$NOTES"
+          fi
+
+          # 2) Deployable-image hint — operators deploy this exact tag, no rebuild.
+          {
+            printf '\n---\n\n'
+            printf '**Deployable image (no rebuild):** `%s`\n\n' "$IMAGE"
+            printf '```bash\nWEBAPI_SKIP_BUILD=1 WEBAPI_TAG=%s bash deploy/webapi/deploy.sh\n```\n' "$VERSION"
+          } >> "$NOTES"
+
+          # 3) Append the auto-generated PR list (generate-notes API). Best effort —
+          #    never fail the release if it can't be generated.
+          PR_NOTES="$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${VERSION}" --jq '.body' 2>/dev/null || true)"
+          if [ -n "$PR_NOTES" ]; then
+            { printf '\n---\n\n'; printf '%s\n' "$PR_NOTES"; } >> "$NOTES"
+          fi
+
+          # 4) Cut the Release with the composed body.
+          gh release create "$VERSION" --title "$VERSION" --notes-file "$NOTES"
