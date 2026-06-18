@@ -34,7 +34,9 @@ versioned, immutable image into Artifact Registry on every release, so a later
 deploy is just pointing Cloud Run at that tag — no rebuild.
 
 **Cut a release** (builds + pushes `…/embrapa-dashboard:vX.Y.Z` + `:latest`, then
-creates the GitHub Release with auto notes):
+creates the GitHub Release whose body is the curated `CHANGELOG.md` `## [vX.Y.Z]`
+section + the deployable-image ref + an auto-generated PR appendix — so add the
+version's CHANGELOG entry before tagging):
 
 ```bash
 git tag v1.2.3 && git push origin v1.2.3      # or publish a Release in the GitHub UI
