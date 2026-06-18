@@ -1,17 +1,12 @@
 # COMEX source — `gold_comex_flows`
 
-> **Status:** **FEATURE COMPLETE AND VALIDATED IN DEV** (2026-05-30, Claude Code
-> local). PR-1/2/3 implemented, 274 Python tests green. Real
-> Bronze→Silver→Gold→tests path validated against the user's BQ with a
-> 2024-2026 slice (`embrapa ingest comex` → `dbt build --select +gold_comex_flows`,
-> **PASS=37/0 errors**; Gold = 44.3k rows; only ch. 08+44, castanha only in 08).
-> Recorded findings: IMP = EXP + `VL_FRETE`/`VL_SEGURO` (schema-union); host
-> omits the TLS intermediate (chain in `comex/_ca.py`); delta by `(flow,year)`
-> + continue-on-failure absorbed a transient BrokenPipe on the re-run.
-> **Pending operational notes:** (1) full historical backfill 1997-2026
-> (multi-GB, ~1h — optional, run whenever you like); (2) `val_real_*`/FX for the
-> months after Jan/2025 come out NULL until the BCB FX Bronze is re-ingested (SGS
-> currently 502); (3) `dbt build-prod` whenever you want to materialize into `gold`.
+> **Status:** **IMPLEMENTED & IN PROD.** PR-1/2/3 shipped; the real
+> Bronze→Silver→Gold→tests path is validated against the user's BQ, and the
+> 1997-2026 full historical backfill (multi-GB) has been ingested and
+> materialized into `gold`. Recorded findings: IMP = EXP + `VL_FRETE`/`VL_SEGURO`
+> (schema-union); host omits the TLS intermediate (chain in `comex/_ca.py`);
+> delta by `(flow,year)` + continue-on-failure absorbed a transient BrokenPipe on
+> the re-run.
 
 ## Context
 

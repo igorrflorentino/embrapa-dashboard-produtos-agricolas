@@ -24,6 +24,7 @@ cross-source layer. Everything here feeds those; no view/chart/router changes.
 | Table | Grain | Backs |
 |---|---|---|
 | `gold.gold_pevs_production` | year × UF × city × product | IBGE PEVS (production) |
+| `gold.gold_pam_production` | year × UF × city × product | IBGE PAM (production), with area/yield columns `area_planted_ha`, `area_harvested_ha`, `yield_kg_ha`, served via the `/api/productivity` seam |
 | `gold.gold_comex_flows` | flow × year × **month** × NCM × country × UF × **via** | MDIC COMEX (Brazil trade) |
 | `gold.gold_comtrade_flows` | flow × year × reporter × partner × cmd(HS6) | UN Comtrade (global trade) |
 | `gold.gold_commodity_crosswalk` | (source, code) → commodity | cross-source product bridge |
@@ -31,11 +32,12 @@ cross-source layer. Everything here feeds those; no view/chart/router changes.
 
 **Capabilities** (drive the brief's view gating; match `bancos.js`):
 
-| bank | geo (UF) | monthly | product detail | flows/partners |
-|---|---|---|---|---|
-| `ibge_pevs` | ✅ (UF+city) | ❌ annual | product_code | ❌ (production, not flows) |
-| `mdic_comex` | ✅ (UF origin) | ✅ (`reference_month`) | NCM8 | ✅ |
-| `un_comtrade` | ❌ (country↔country) | ❌ annual | HS6 | ✅ |
+| bank | geo (UF) | monthly | product detail | flows/partners | productivity/yield |
+|---|---|---|---|---|---|
+| `ibge_pevs` | ✅ (UF+city) | ❌ annual | product_code | ❌ (production, not flows) | ❌ |
+| `ibge_pam` | ✅ (UF+city) | ❌ annual | product_code | ❌ (production, not flows) | ✅ |
+| `mdic_comex` | ✅ (UF origin) | ✅ (`reference_month`) | NCM8 | ✅ | ❌ |
+| `un_comtrade` | ❌ (country↔country) | ❌ annual | HS6 | ✅ | ❌ |
 
 → COMTRADE has **no** `ufData` and **no** `monthlyData` (Geografia / Concentração-
 geográfica / Sazonalidade resolve to "Não se aplica"). COMEX has both.
@@ -176,9 +178,10 @@ GROUP BY reference_year
 This is the denominator for `cross_market_share` (Brazil ÷ world). `exp_price` is
 derived (value ÷ weight), kept internally consistent with `exp_value`/`exp_weight`.
 
-> `crossSeries.preview` **derives from the source banks' status** — true if any
-> source is not `funcional`, not a hardcoded literal (see §9). Flip the real builder
-> and the source's `implStatus` together so a synthetic series never reads as real.
+> `crossSeries.preview` **derives from the source banks' maturity** — true if any
+> source lacks real data (`MATURITY[b.maturity].hasData` is false), not a hardcoded
+> literal (see §9). Flip the real builder and the source's `maturity` together so a
+> synthetic series never reads as real.
 
 ---
 
@@ -282,19 +285,22 @@ status-agnostic; what follows is what the BFF must report and how to derive it.
 
 | Axis | What | Source |
 |---|---|---|
-| `implStatus` | backend readiness, one of `funcional · incompleto · manutencao · em_breve · um_dia · desconectado · depreciado` (+ optional `implNote`, `implDate`) | BFF/`bancos.js` runtime config |
+| `maturity` | backend readiness, one of `planejado · desenvolvimento · beta · estavel · manutencao · descontinuado` (+ optional `implNote`, `implDate`) | BFF/`bancos.js` runtime config |
 | `visible` | bool — hide the bank from the whole UI when false | BFF/`bancos.js` |
 | *uso* (active) | derived at runtime (the bank feeding the current view) | not a field |
 
-Per-source `implStatus` for this project (config, not data):
+Per-source `maturity` for this project (config, not data):
 
-| source | implStatus | implDate |
+| source | maturity | implDate |
 |---|---|---|
-| `ibge_pevs` · `mdic_comex` · `un_comtrade` | `funcional` | — (a **funcional** bank never carries a completion date) |
-| `sefaz_nfe` | `um_dia` (planned, no deadline; no Gold table yet) | none |
+| `ibge_pevs` | `estavel` | — |
+| `mdic_comex` | `estavel` | — |
+| `un_comtrade` | `beta` | — |
+| `ibge_pam` | `beta` | — |
+| `sefaz_nfe` | `planejado` (planned, no deadline; no Gold table yet) | none |
 
-`status:'live'` is derived from `implStatus.hasData`; `crossSeries.preview` derives
-from the **source banks' status** — true if any source isn't `funcional`.
+`status:'live'` is derived from `MATURITY[b.maturity].hasData`; `crossSeries.preview` derives
+from the **source banks' maturity** — true if any source lacks real data (`MATURITY[b.maturity].hasData` is false).
 
 ### 9.2 Provenance seam — `dataStore.meta(id)` ← `gold_source_metadata`
 
@@ -314,6 +320,6 @@ rename / new cadence / extended coverage / fresh load propagates to the whole UI
 | `lastCrop` (PEVS) | `year_end` |
 | `refresh` / `goldVersion.at` / `isStale` | `last_refresh` |
 
-`implStatus` / `visible` / `implNote` / `implDate` are **not** in this table — they
+`maturity` / `visible` are **not** in this table — they
 are runtime config (§9.1). `source`, `granularity/scope`, and the human source name
 are constants the BFF maps from `source` + this contract.

@@ -1,5 +1,13 @@
 # Full Codebase Audit — 2026-06-12
 
+> ⚠️ **HISTORICAL — SUPERSEDED.** Point-in-time audit report. Its fix campaign
+> already merged (see the `CHANGELOG`), and it was re-audited in PRs #124/#125/#126.
+> Kept for provenance only — notably the **5 refuted false-positives** below, which
+> exist nowhere else. Paths/structure here describe the 2026-06-12 tree (e.g. the
+> pre-split `webapi/seam.py`, the `frontend/src/proto/` dir later renamed to
+> `frontend/src/ui/`) and are **frozen** — do not treat them as current. Moved from
+> `PLANS/` to `docs/audits/` because it is a historical report, not a feature plan.
+
 Two-phase audit: (1) automated metrics pass (radon/ruff/pytest-cov), (2) manual
 deep-review sweep by 12 area reviewers, with every finding adversarially
 verified by an independent reviewer that read the code and tried to refute it.

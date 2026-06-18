@@ -106,7 +106,10 @@ embrapa-dashboard-commodities/
 │   ├── webapi/                       # ⭐ Flask REST API + SPA host (one origin/IAP)
 │   │   ├── app.py                    # App factory; serves the built SPA + /api; /healthz
 │   │   ├── routes.py                 # /api blueprint (snapshot, cross/*, curation writers)
-│   │   ├── seam.py                   # Composes the gateway readers per view
+│   │   ├── seam.py                   # Composes seam_base/seam_cross/seam_curation per view
+│   │   ├── seam_base.py              # Per-view gateway readers (base snapshot)
+│   │   ├── seam_cross.py             # Cross-source seam readers (cross/*)
+│   │   ├── seam_curation.py          # Curation seam readers (classification state)
 │   │   ├── serializers.py            # Shapes seam output to the SPA's contracts.js
 │   │   ├── auth.py                   # Curation author via serving/iap.py
 │   │   ├── format.py                 # pt-BR formatting + monetary column naming
@@ -314,10 +317,10 @@ as a per-run stamped object (append-only trail).
 ### 2. Silver (dbt, `materialized=table` / `incremental`)
 
 - `silver_ibge_pevs`: **incremental** (`insert_overwrite` by `reference_year`). Dedup via `qualify row_number() ... order by ingestion_timestamp desc`.
+- `silver_comtrade_flows`: **incremental** (`insert_overwrite` by `reference_year`). Products at the **HS6** level; **4 regimes** (X/M/RX/RM → export/import/re-export/re-import). Keeps **only the fully aggregated record** (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) — the breakdowns by transport mode/customs/2nd partner **sum into the aggregate**, so re-summing them would double-count (~2.5×). Drops the World partner (`0`); quantity sentinel `0.0` → NULL.
 - `silver_bcb_inflation`: **table** (needs the full window to compute the IPCA chain index).
 - `silver_bcb_currency`: **table** (small table).
 - `silver_comex_flows`: **table** (dedup at the full source grain via `qualify`, incl. transport route `CO_VIA`; `safe_numeric` on VL_FOB/KG/QT/freight/insurance). A candidate for incremental if the chapter-44 volume grows over the decades.
-- `silver_comtrade_flows`: **table**. Products at the **HS6** level; **4 regimes** (X/M/RX/RM → export/import/re-export/re-import). Keeps **only the fully aggregated record** (`motCode=0`/`customsCode=C00`/`partner2Code=0`/`mosCode=0`) — the breakdowns by transport mode/customs/2nd partner **sum into the aggregate**, so re-summing them would double-count (~2.5×). Drops the World partner (`0`); quantity sentinel `0.0` → NULL.
 - **Seed `historical_currency_factors`**: a multiplier factor that absorbs Brazilian currency reforms (Cz$ → NCz$ → Cr$ → CR$ → R$). Without it, pre-1994 values are 10⁶–10⁹× inflated.
 
 ### 3. Gold (dbt, `materialized=table`)
@@ -327,7 +330,7 @@ as a per-run stamped object (append-only trail).
 - MDIC COMEX table: `gold_comex_flows` — one row per `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym, transport_route_code)` (the transport route `via` is part of the grain; `via_name` via the `comex_via` seed). The 4 currency conventions are applied over `VL_FOB` (US$): `val_yearfx_*` at the registration month's FX, and `val_real_*` converting US$→BRL at the month's FX, deflating by the BCB chain and reconverting at the current FX (**monthly** deflation, not annual, because the grain is monthly).
 - UN Comtrade table: `gold_comtrade_flows` — **global** bilateral trade, one row per `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Same 4 conventions over `primaryValue` (US$), but **annual** deflation (year-average FX, year-end inflation index — like PEVS) because the grain is annual. Bilateral geography: `reporter` + `partner` (both M49 → name/ISO3). No double-counting (World dropped in Silver), so `SUM` over partners is the true bilateral total.
 - **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the `commodity_crosswalk` seed (prefix-based links) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
-- **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `implStatus`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
+- **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `maturity`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
 - **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Four currency conventions (applicable to any monetary Gold table):
   - `val_yearfx_*` — nominal value converted at the year-average FX. NULL for foreign currencies pre-1994.
@@ -358,7 +361,7 @@ Does not live in `core/`: source-specific logic (IBGE's per-UF parallelism, BCB'
 
 ---
 
-<a id="serving-layer--pushdown-computing-dash-dashboard"></a>
+<a id="serving-layer--pushdown-computing-webapi-dashboard"></a>
 
 ## Serving Layer — Pushdown Computing (webapi dashboard)
 
@@ -381,7 +384,7 @@ materialized pre-aggregation, partitioned by year and clustered by the filters.
 | `serving_pevs_annual` | year × UF × produto × família | overviewTS · productTS · ufData (PEVS) |
 | `serving_pam_annual` | year × UF × produto × família | overview · produtividade (área × rendimento) (PAM) |
 | `serving_comex_annual` | year × flow × NCM × UF × country | overview · produto · UF · partner · flow (COMEX) |
-| `serving_comex_seasonality` | year × month × flow × NCM | monthlyData / sazonalidade |
+| `serving_comex_seasonality` | year × month × flow × NCM × UF | monthlyData / sazonalidade (dual-metric value\|weight) |
 | `serving_comtrade_annual` | year × flow × cmd × reporter × partner | partner · flow · market-share (COMTRADE) |
 | `serving_quality_by_source` | source × data_quality_flag | quality donut |
 
@@ -574,6 +577,8 @@ A push to `main` that touches `dbt/**` or `config.py` triggers a prod Silver/Gol
 
 - `dbt-source-freshness.yml` — daily Bronze staleness check against the dbt freshness thresholds.
 - `gitleaks.yml` — server-side secret scanning on every push/PR (full history).
+- `release.yml` — on a `v*` tag, builds a versioned image to Artifact Registry; deploy without rebuild via `WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=vX deploy/webapi/deploy.sh`.
+- `reconcile-reminder.yml` — monthly reminder issue; reconcile is operator-triggered, not a scheduled run.
 
 ---
 
@@ -607,12 +612,16 @@ typical failures of a public source:
 > image — distinct from the dashboard *Service*'s Dockerfile in `deploy/webapi/`),
 > `cloudbuild.yaml`, `deploy.sh` (build + create/update the Job by reading the `.env`),
 > `schedule.sh` (nightly trigger), `schedule_reconcile.sh` (monthly deep-refresh),
-> `schedule_comtrade.sh` (monthly UN Comtrade backfill) and `alert.sh` (failure alert).
+> `schedule_comtrade.sh` (monthly UN Comtrade backfill), `schedule_pam.sh` (monthly
+> IBGE PAM trigger) and `alert.sh` (failure alert).
 > Shortcuts: `make ingest-job-deploy`, `make ingest-job-schedule`,
 > `make ingest-job-reconcile-schedule`, `make ingest-job-comtrade-schedule`,
-> `make ingest-job-alert`. The actual deploy (running the scripts in the GCP project) is
+> `make ingest-job-pam-schedule`, `make ingest-job-alert`. The actual deploy
+> (running the scripts in the GCP project) is
 > an operator step — the backend they invoke (`embrapa ingest all`) is already
-> ready and is the same path tested locally.
+> ready and is the same path tested locally. Note: `reconcile` is **operator-triggered**
+> with a monthly reminder issue (`.github/workflows/reconcile-reminder.yml`), **not**
+> wired as an active cron — `schedule_reconcile.sh` re-enables a monthly trigger on demand.
 
 ---
 

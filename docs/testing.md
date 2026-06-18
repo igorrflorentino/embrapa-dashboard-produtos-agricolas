@@ -74,6 +74,8 @@ legacy keyfile mode):
   - BigQuery reachable ✓
   - GCS bucket accessible ✓
   - IBGE SIDRA API reachable ✓
+  - IBGE PAM SIDRA (5457) reachable ✓
+  - PAM variable codes ✓
   - BCB SGS API reachable ✓
   - COMEX Stat (MDIC) reachable ✓
   - UN Comtrade API reachable ✓

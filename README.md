@@ -116,7 +116,7 @@ embrapa ingest ibge-batch [--chunk-years 5]        # chunked IBGE historical bac
 embrapa ingest ibge-pam [--full]                   # IBGE PAM (SIDRA table 5457, annual crops); excluded from `ingest all`
 embrapa ingest comex [--full]                      # COMEX re-downloads only when the ETag changes; --full ignores the check
 embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumable by daily quota. Outside `ingest all` (key/quota-gated)
-embrapa ingest reconcile                            # monthly deep-refresh: full re-ingest of every nightly source (catches OLD-year revisions)
+embrapa ingest reconcile                            # operator-triggered deep-refresh: full re-ingest of every nightly source (catches OLD-year revisions; a monthly reminder issue nudges)
 embrapa discover ibge-periods   [--table-id 289]
 embrapa discover ibge-products  --keywords castanha,madeira
 embrapa discover bcb-series     <code>            # e.g.: 433
@@ -226,6 +226,8 @@ See [docs/ownership_transfer.md](docs/ownership_transfer.md). Nothing is hardcod
 | [docs/gold_data_model.md](docs/gold_data_model.md) | Gold ER diagram + join guide (tables, dims, marts) |
 | [docs/frontend_data_contract.md](docs/frontend_data_contract.md) | Gold → frontend snapshot data contract (handoff) |
 | [docs/operations_runbook.md](docs/operations_runbook.md) | Occasional prod ops: curators, IAP audience, curation activation, Gold backups |
+| [docs/comtrade_world_backfill.md](docs/comtrade_world_backfill.md) | UN Comtrade world/all-reporters full-history backfill runbook |
+| [docs/adding_a_data_source.md](docs/adding_a_data_source.md) | How to add a new data source (registries, Bronze/Silver/Gold) |
 | [docs/migration_history.md](docs/migration_history.md) | Migration history |
 | [scripts/README.md](scripts/README.md) | Auxiliary scripts documentation |
 

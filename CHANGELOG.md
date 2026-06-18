@@ -9,7 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+_Nada ainda — `1.0.0` é o release atual._
+
+---
+
+## [1.0.0] — 2026-06-18
+
+### Added
+- **Dedicated dashboard rebuilt as a React SPA + Flask REST `webapi`** (Plotly.js
+  charts), replacing the Dash UI entirely — served from one origin behind Cloud Run
+  direct IAP (`src/embrapa_commodities/webapi/`, `frontend/`). The Dash package was
+  removed at cutover.
+- **Decoupled release CI** — `.github/workflows/release.yml` (#132) builds a
+  versioned, immutable `webapi` image to Artifact Registry on a `v*` tag; deploy
+  without rebuild via `WEBAPI_SKIP_BUILD=1 WEBAPI_TAG=vX deploy/webapi/deploy.sh`.
+  Pinned action SHAs bumped to Node-24 majors (#133). `v1.0.0` released + deployed.
+- **Per-UF chart scoping + new chart metrics (P1–P6, #131)** — partner metric
+  toggle (value|weight|price), OLS trendlines, value-added volume+price, and a
+  dual-metric seasonality; `serving_comex_seasonality` grain now includes
+  `state_acronym` (×UF).
+- **UN Comtrade world/all-reporters full-history backfill runbook** —
+  `docs/comtrade_world_backfill.md` (#128), with a daily Cloud Run Job scheduler.
+
 ### Changed
+- **IAP-only ingress + scale-to-zero, no load balancer (#122).** The dashboard runs
+  Cloud Run direct IAP (`ingress=all` + IAP, `min-instances=0`) — the zero-fixed-cost
+  posture; an external HTTPS LB stays future-only / out of scope.
+- **`silver_comtrade_flows` is now incremental** (`insert_overwrite` by
+  `reference_year`, #127) — caps the cost of the all-reporters backfill.
+- **`reconcile` is operator-triggered + a monthly reminder issue**
+  (`.github/workflows/reconcile-reminder.yml`, #130) — no longer an unconditional
+  scheduled run.
 - **Enrichment is now a sidebar SECTION with one screen per tool** (was a single
   "Curadoria" item opening one window with internal tabs). The "Enriquecimento"
   section holds **Nível de industrialização** (`?ip=enrich_industrial`) and **Tipo
@@ -70,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   price for volume-family products (1000× overstatement), and COMEX/COMTRADE mass
   quantities (kg summed and scaled as tonnes). Decomposed all radon grade-C
   functions and added ~210 tests (Python 497→701, frontend 47→103); full suite
-  green. Detailed report: `PLANS/codebase_audit_2026-06-12.md`.
+  green. Detailed report: `docs/audits/codebase_audit_2026-06-12.md`.
 - **Geografia choropleth ("Mapa" mode) rendered blank.** Confirmed in production
   (not a headless artifact): `brazilUfGeo` shipped **143 empty `[]` sub-polygons**
   inside its MultiPolygons (a shape-simplification artifact), and maplibre-gl 4.x's
@@ -112,8 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   (`gcp/bigquery.py`) + `IBGE_DELTA_OVERLAP_YEARS` knob. Motivated by a Cloud Run
   Job smoke-run that failed on exactly this IBGE full-history fetch.
 - **Architectural pivot — Pushdown Computing in the dashboard (replaces the
-  in-memory/Pandas design, with its OOM/concurrency risk).** The Dash dashboard
-  becomes **stateless**: UI filters turn into **parameterized SQL** (`@param`) on
+  in-memory/Pandas design, with its OOM/concurrency risk).** The dashboard (now the
+  React SPA + Flask `webapi`) is **stateless**: UI filters turn into **parameterized SQL** (`@param`) on
   BigQuery, cached by **flask-caching**, instead of loading Gold tables into memory.
   - **dbt `serving/`**: marts pre-aggregated at the chart grains
     (`serving_pevs_annual`, `serving_comex_annual`, `serving_comex_seasonality`,
@@ -186,15 +216,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   feeds the frontend `dataStore.meta(id)` seam (provenance comes from the backend,
   not from literals); `implStatus`/`visible` stay as runtime config, documented in
   the contract.
-- **BRL/CNY FX via an external source (ECB/Frankfurter) — a yuan column in Gold.**
-  The BCB does not publish BRL/CNY (PTAX quotes only 10 currencies, no yuan), so CNY
-  is obtained from the ECB reference rates via [Frankfurter](https://frankfurter.dev)
-  (free, no key). Monthly seed `extfx_cny_brl` (regenerable with
-  `scripts/refresh_cny_seed.py`) → `silver_extfx_currency` (same schema as
-  `silver_bcb_currency`) → `silver_currency` (UNION BCB ∪ external). The Gold tables
-  now read `silver_currency`, so the `val_*_cny` columns fill again in
-  `gold_comex_flows` (100%) **and** `gold_pevs_production` (from ~2005 onward, when
-  the ECB CNY data begins). Implied USD/CNY ≈ 6.7 (historically correct).
 
 ### Changed
 - **Quantities by physical unit family (schema break, no backward
