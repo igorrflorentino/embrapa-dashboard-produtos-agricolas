@@ -2034,26 +2034,28 @@ def test_cross_source_builders_no_uf_predicate_when_empty():
 
 def test_fetch_cross_series_drops_uf_for_comtrade(monkeypatch):
     """The gateway applies uf_codes ONLY for the COMEX mart — a COMTRADE metric has
-    no state_acronym column, so the UF filter is dropped (query stays valid)."""
+    no state_acronym column, so the UF filter is dropped (query stays valid).
+
+    Uses _isolated_settings + _bind_simplecache (NOT create_app) so it runs in CI
+    without a real .env / GCP_PROJECT_ID."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import cache, gateway
-    from embrapa_commodities.webapi.app import create_app
+    from embrapa_commodities.serving import gateway
 
     recorded = {}
 
     def fake_run(sql_text, params):
         recorded["sql"] = sql_text
-        recorded["params"] = {p.name: p for p in params}
         return "df"
 
     monkeypatch.setattr(gateway, "run_query", fake_run)
-    app = create_app()
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
     with app.app_context():
-        cache.cache.clear()
+        cache.clear()
         # COMEX metric → UF predicate present
         gateway.fetch_cross_series("mdic_comex:exp_value", uf_codes=("AC",))
         assert "state_acronym in unnest(@uf_codes)" in recorded["sql"].lower()
-        cache.cache.clear()
+        cache.clear()
         # COMTRADE metric → UF dropped (no state_acronym on that mart)
         gateway.fetch_cross_series("un_comtrade:world_exp", uf_codes=("AC",))
         assert "state_acronym" not in recorded["sql"].lower()
