@@ -413,3 +413,36 @@ def test_run_stops_on_quota_and_propagates(settings) -> None:
 
     # Broke on the FIRST chunk's quota error — 2023 was never attempted.
     assert seen_years == [2022]
+
+
+def test_run_one_chunk_marks_truncation_failed_without_stopping(settings, caplog) -> None:
+    """A permanent ComtradeTruncationError is converted to a 'failed' outcome (the
+    run keeps going for OTHER chunks, unlike quota which stops) but logged DISTINCTLY
+    at error level with an 'operator action required' framing, so it surfaces as an
+    action-required anomaly instead of blending into retryable noise."""
+    import logging
+
+    from embrapa_commodities.comtrade.client import ComtradeTruncationError
+
+    def truncate(*_a, **_k):
+        raise ComtradeTruncationError("truncated at 100000 rows for reporters=['276']")
+
+    with (
+        patch.object(pipeline, "process_chunk", side_effect=truncate),
+        caplog.at_level(logging.ERROR),
+    ):
+        outcome = pipeline._run_one_chunk(
+            settings,
+            2022,
+            ["276"],
+            "2022/276",
+            storage_client=None,
+            bq_client=None,
+            table_fqn="p.d.t",
+            from_raw=False,
+            force=False,
+        )
+
+    assert outcome.status == "failed"  # NOT re-raised (run continues), unlike quota
+    assert "permanent truncation" in outcome.detail
+    assert any("PERMANENTLY truncated" in r.getMessage() for r in caplog.records)
