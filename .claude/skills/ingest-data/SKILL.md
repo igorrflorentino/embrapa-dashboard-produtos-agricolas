@@ -40,7 +40,7 @@ uv run embrapa ingest bcb-currency --full
 
 ```
 IBGE SIDRA API ──┐   (IBGE/BCB shown; COMEX (MDIC) + COMTRADE follow the same Bronze path)
-BCB SGS API    ──┼──► Python (src/embrapa_commodities/) → GCS Parquet (landing/)
+BCB SGS API    ──┼──► Python (src/embrapa_commodities/) → GCS Parquet (raw/)
                  ┘                                               │
                                                                  ▼
                                              BigQuery Bronze (WRITE_APPEND)
@@ -98,8 +98,7 @@ All configuration flows through `src/embrapa_commodities/config.py` (pydantic-se
 | Key env var | Purpose |
 |-------------|---------|
 | `GCP_PROJECT_ID` | BigQuery project |
-| `GCS_BUCKET` | Landing zone bucket |
-| `GCS_LANDING_PREFIX` | Parquet prefix in bucket |
+| `GCS_BUCKET` | Data lake bucket |
 | `IBGE_PRODUCT_CODES` | Comma-separated SIDRA codes |
 | `BCB_INFLATION_SERIES` | `CODE:LABEL,CODE:LABEL` |
 | `BCB_CURRENCY_SERIES` | `CODE:LABEL,CODE:LABEL` |

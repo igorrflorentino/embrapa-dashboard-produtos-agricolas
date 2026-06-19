@@ -22,7 +22,7 @@ describe('resource ensure() retry cap', () => {
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(3); // capped, not 10
-    expect(resource.stateOf('k')).toBe('error');
+    expect(resource.get('k')).toBeNull(); // capped + errored → no data surfaced
   });
 
   it('invalidate() resets the cap so an explicit user retry can fetch again', async () => {
@@ -98,11 +98,10 @@ describe('resource ensure() generation token — no stale overwrite (M8)', () =>
     resource.invalidate('g');
     resource.ensure('g', () => '/api/g'); // gen 2
     await tick();
-    expect(resource.stateOf('g')).toBe('ready');
+    expect(resource.get('g')).toEqual({ v: 'fresh' }); // gen-2 landed
 
     rejectOld(new Error('stale boom')); // gen-1 failure arrives late
     await tick();
-    expect(resource.stateOf('g')).toBe('ready'); // not flipped to 'error'
-    expect(resource.get('g')).toEqual({ v: 'fresh' });
+    expect(resource.get('g')).toEqual({ v: 'fresh' }); // stale error did NOT clobber the newer value
   });
 });

@@ -193,8 +193,8 @@ uv run embrapa discover bcb-series 433
 
 ### Test database connectivity
 ```bash
-# Test BigQuery directly
-uv run dbt run-operation validate_connection
+# Test BigQuery directly (connection + auth)
+cd dbt && uv run dbt debug
 ```
 
 ## CI/CD Integration

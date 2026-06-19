@@ -2,8 +2,8 @@
 
 **Audience:** anyone maintaining the dashboard's data-access layer (the Flask BFF
 in `src/embrapa_commodities/serving/` + `webapi/`). **Purpose:** spell out, field
-by field, how the frontend's in-memory snapshot shapes (from the frontend brief,
-`dataStore.js` / `previewData.js` / `crossSource.js`) are produced from the
+by field, how the frontend's in-memory snapshot shapes (defined in
+`dataStore.js` / `contracts.js`) are produced from the
 **Gold** tables — so the BFF is a thin mapping and the UI lights up without rework.
 
 > This is a **data contract**. **Update (2026-06 Dash→React migration):** both

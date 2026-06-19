@@ -264,7 +264,9 @@ embrapa-dashboard-commodities/
 │   ├── ci.yml                        # PR gate: lint + pytest + dbt parse + Vitest + SQLFluff
 │   ├── dbt-build-prod.yml            # Prod build: push to main + daily schedule + manual
 │   ├── dbt-source-freshness.yml      # Daily Bronze staleness check
-│   └── gitleaks.yml                  # Server-side secret scanning on every push/PR
+│   ├── gitleaks.yml                  # Server-side secret scanning on every push/PR
+│   ├── reconcile-reminder.yml        # Monthly issue: nudge an operator-run reconcile
+│   └── release.yml                   # GitHub Release notes from the CHANGELOG on v* tags
 │
 ├── .claude/                          # Claude Code configuration
 │   ├── settings.json

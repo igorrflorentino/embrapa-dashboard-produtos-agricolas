@@ -4,7 +4,8 @@
 
 | Version | Support |
 |---|---|
-| 1.0.x | ✅ Actively supported |
+| 1.1.x | ✅ Actively supported |
+| 1.0.x | ⚠️ Critical fixes only |
 | 0.1.x | ❌ No longer supported |
 
 ---
