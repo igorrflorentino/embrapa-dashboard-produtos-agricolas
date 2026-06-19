@@ -80,6 +80,16 @@ models:
     description: |
       Monthly inflation series with chain-linked 100-base index_value, so any
       historical Brazilian-currency amount can be deflated correctly.
+    tests:
+      # The chain-linked index assumes EXACTLY one row per (series, month): a
+      # duplicate would double-count a month's factor and silently corrupt every
+      # downstream val_real_* deflation. The model dedups via a qualify; this
+      # asserts the grain actually holds post-build.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - series_code
+              - reference_date
     columns:
       - name: reference_date
         tests: [not_null]
@@ -97,6 +107,15 @@ models:
 
   - name: silver_bcb_currency
     description: "Daily FX rates: BRL per foreign currency unit (BCB SGS: USD, EUR)."
+    tests:
+      # One row per (series, day): a duplicate PTAX row would skew the per-year
+      # (PEVS) / per-month (COMEX) FX average the Gold val_yearfx_* columns use.
+      # The model dedups via a qualify; this asserts the grain holds post-build.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - series_code
+              - reference_date
     columns:
       - name: reference_date
         tests: [not_null]
