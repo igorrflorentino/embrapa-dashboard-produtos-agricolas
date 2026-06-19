@@ -34,7 +34,7 @@ function ViewAbout() {
   useAbEffect(() => window.dataStore.subscribe(() => forceAb(n => n + 1)), []);
   useAbEffect(() => {
     bancos.forEach(b => window.dataStore && window.dataStore.loadMeta && window.dataStore.loadMeta(b.id));
-  }, []); // eslint-disable-line
+  }, []);
 
   // Perspectives grouped by the 8 categories (views.js · VIEW_GROUPS) — registry
   // driven, so it never goes stale. Glossary is a reference tool, not a perspective,

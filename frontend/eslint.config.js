@@ -1,20 +1,23 @@
-// ESLint flat config — scoped to the HAND-WRITTEN layer ONLY.
+// ESLint flat config — the hand-maintained app code.
 //
-// src/ui/ is the design-system's React/Vite UI, adopted verbatim from the handoff
-// and kept close to it (we don't restyle it). Only the API-backed data layer
-// (src/data/) and the Plotly.js charts (src/charts/) are authored here, so those
-// are the only two trees we lint — globally ignoring src/ui/ keeps its imported
-// style out of scope (it would drown real findings in noise we don't own).
+// src/ui/ began as the design-system's React/Vite UI (adopted from the handoff),
+// but it is now the LIVE production UI the team actively edits (the synthetic data
+// layer was replaced with API calls, proto/→ui/, new views added), so it is linted
+// too — the same correctness ruleset as the data/charts layers. Earlier it was
+// globally ignored as "imported style we don't own"; that rationale lapsed once it
+// became maintained prod code, and the gap was hiding real dead-code + hook-deps
+// findings.
 //
-// Ruleset: eslint:recommended (JS correctness) + react-hooks recommended (the
-// charts already carry react-hooks/exhaustive-deps disable comments, so the
+// Ruleset: eslint:recommended (JS correctness) + react-hooks recommended (some
+// chart/view files carry react-hooks/exhaustive-deps disable comments, so the
 // plugin is the one we expect to fire). React itself is a runtime global
 // (main.jsx sets window.React; the Vite plugin injects the automatic JSX
 // runtime) — see vite.config.js — so we don't run eslint-plugin-react's
-// component rules. The ONE react rule we DO need is jsx-uses-vars: components
-// referenced only in JSX (e.g. <Plot/>, <BarChart/>) look "unused" to core
-// no-unused-vars without it. The browser globals below cover
-// window/document/fetch/etc.
+// component rules and we declare `React` as a global below to avoid false
+// no-undef on the import-less UI files. The ONE react rule we DO need is
+// jsx-uses-vars: components referenced only in JSX (e.g. <Plot/>, <BarChart/>)
+// look "unused" to core no-unused-vars without it. The browser globals below
+// cover window/document/fetch/etc.
 
 import js from '@eslint/js';
 import globals from 'globals';
@@ -22,20 +25,21 @@ import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
-  // Lint nothing by default; the scoped block below opts the two owned trees in.
-  // Everything else (src/ui/, dist/, node_modules/) is out.
+  // Lint nothing by default; the scoped block below opts the owned trees in.
   {
-    ignores: ['src/ui/**', 'dist/**', 'node_modules/**', '*.config.js'],
+    ignores: ['dist/**', 'node_modules/**', '*.config.js'],
   },
 
   {
-    files: ['src/data/**/*.{js,jsx}', 'src/charts/**/*.{js,jsx}'],
+    files: ['src/data/**/*.{js,jsx}', 'src/charts/**/*.{js,jsx}', 'src/ui/**/*.{js,jsx}'],
     ...js.configs.recommended,
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
         ...globals.browser,
+        // main.jsx assigns window.React; the import-less UI/chart files read it.
+        React: 'readonly',
       },
       parserOptions: {
         ecmaFeatures: { jsx: true },

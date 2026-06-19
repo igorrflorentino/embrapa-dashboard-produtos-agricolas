@@ -24,7 +24,6 @@ function ViewHealth() {
   useHsEffect(() => {
     if (!(window.dataStore && window.dataStore.loadMeta)) return;
     bancos.forEach(b => window.dataStore.loadMeta(b.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // ACTUALLY query each in-production banco's Gold (not just its metadata), so the
   // per-banco "Operação" is a REAL query result: a banco reads "Saudável" only once
@@ -36,7 +35,6 @@ function ViewHealth() {
   useHsEffect(() => {
     if (!(window.dataStore && window.dataStore.load)) return;
     liveIds.forEach(id => window.dataStore.load(id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveIds.join(',')]);
 
   // Real quality-over-time series for IBGE PEVS (snapshot.qualityTs: per-year OK

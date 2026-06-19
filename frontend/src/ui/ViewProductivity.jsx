@@ -2,16 +2,16 @@
 // for bancos that provide the 'yield' capability (IBGE PAM). Pick a crop and
 // see its national yield/area trajectory plus the per-UF productivity geography.
 //
-// Self-data view: it reads its own synthetic adapter (window.productivityData),
-// exactly like ViewFlows/ViewSeasonality. To go live, swap that adapter's body
-// for a real query against the PAM Gold table — this component does not change.
+// Self-data view: it reads its own data producer (window.productivityData),
+// exactly like ViewFlows/ViewSeasonality. That producer is API-backed — it queries
+// the real /api/productivity endpoint (rendimento = produção ÷ área colhida,
+// computed server-side from the PAM Gold table) — so this is live, not synthetic.
 // The beta caveat banner is rendered globally by MainScreen (window.MaturityBanner),
 // so it is intentionally NOT repeated here.
 
 const { useState: useProdState } = React;
 
 function ViewProductivity({ summary, conventions, database }) {
-  const banco = window.bancoById(database);
   const [crop, setCrop] = useProdState(null);
   const data = window.productivityData(database, crop, summary);
 
