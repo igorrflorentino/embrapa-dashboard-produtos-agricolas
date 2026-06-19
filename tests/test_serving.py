@@ -1492,6 +1492,77 @@ def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
     assert "reporter" not in recorded["params"]
 
 
+@pytest.mark.parametrize(
+    ("call", "expect_table"),
+    [
+        # PEVS/PAM production readers resolve the mart via _PRODUCTION_MART[source].
+        (
+            lambda g: g.fetch_production_by_uf_yearly(
+                year_start=2020, product_codes=("1",), source="ibge_pevs"
+            ),
+            "serving_pevs_annual",
+        ),
+        (
+            lambda g: g.fetch_productivity("2713", source="ibge_pam", year_start=2020),
+            "serving_pam_annual",
+        ),
+        # Trade annual/by-uf/flow readers pin their hard-coded mart.
+        (
+            lambda g: g.fetch_comtrade_overview(year_start=2020, cmd_codes=("44",)),
+            "serving_comtrade_annual",
+        ),
+        (
+            lambda g: g.fetch_comex_by_uf_yearly(year_start=2020, ncm_codes=("44",)),
+            "serving_comex_annual",
+        ),
+        (
+            lambda g: g.fetch_comex_flows(year_start=2020, ncm_codes=("44",), flow="export"),
+            "serving_comex_annual",
+        ),
+        (
+            lambda g: g.fetch_products_by_uf(
+                table_key="serving_comex_annual",
+                code_column="ncm_code",
+                name_column="ncm_description",
+            ),
+            "serving_comex_annual",
+        ),
+        # Quality readers' KNOWN-source branch hits the Gold table (the None branch
+        # for an unknown source is covered separately).
+        (lambda g: g.fetch_quality_timeseries("ibge_pevs"), "gold_pevs_production"),
+        (lambda g: g.fetch_quality_by_product("ibge_pevs"), "gold_pevs_production"),
+        # CPC value reads Bronze (the only place the customs dimension survives).
+        (lambda g: g.fetch_comtrade_cpc_value(codes=("0801",)), "comtrade_flows_raw"),
+        # Curation flow-market log lives in research_inputs.
+        (lambda g: g.fetch_current_flow_market(), "flow_market_log"),
+    ],
+)
+def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_table):
+    """Each cache-backed reader builds a query against the EXPECTED table — running
+    the table/column wiring that was otherwise never executed in tests. A wrong
+    mart/dataset name is a silent prod 404/400, so this locks the source→table
+    mapping. Mirrors the per-reader gateway tests above."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        result = call(gateway)
+
+    assert result == "df"
+    assert expect_table in recorded["query"]
+
+
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway
