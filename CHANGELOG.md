@@ -9,7 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.0.0` é o release atual._
+_Nada ainda — `1.1.0` é o release atual._
+
+---
+
+## [1.1.0] — 2026-06-19
+
+Full remediation of the 2026-06-18 repository audit (#138) — **0 critical / 0 high**;
+the focus was displayed-number correctness, plus security/robustness hardening and
+test coverage. Verified live in production (dashboard reads + curation writes).
+
+### Added
+- **Security hardening** — `current_author()` fails CLOSED on Cloud Run without
+  `IAP_AUDIENCE` (refuses to stamp a forgeable curation author); `deploy/webapi/deploy.sh`
+  hard-fails post-deploy if `invoker-iam-disabled=true` or `iap-enabled≠true`; the
+  `release.yml` `version` input is env-indirected + validated. New `embrapa doctor`
+  **`currency-codes`** probe guards `BCB_CURRENCY_SERIES` against a stale-`.env` FX
+  regression.
+- **dbt numeric + grain tests** — a deflation/FX `unit_test` on `gold_pevs_production`
+  (the scientific core, previously untested numerically; validated on BigQuery),
+  uniqueness tests on the `silver_bcb_inflation`/`silver_bcb_currency` grain, and an
+  `if: failure()` stale-marts alert on the nightly prod build.
+- **Test coverage** — `serving/gateway.py` 80% → 99% (parametrized reader-wiring
+  tests), frontend View render tests (ViewQuality/Overview/Concentration), and
+  nested snapshot-contract drift detection.
+- **Dependabot** now also covers the `pip` (Python) and `npm` (frontend) trees.
+
+### Changed
+- **ESLint now lints `frontend/src/ui/`** (the live production UI), fixing the
+  previously-hidden dead code, stale `eslint-disable` directives, and hook deps.
+- **Sidebar + modal accessibility** — sidebar items are keyboard/screen-reader
+  operable (role/tabindex/Enter), and the filter + citation modals close on Escape
+  with `aria-modal`.
+- **`v1.1.0` deployed** — `IAP_AUDIENCE` is now set on the prod Cloud Run service, so
+  curation uses the cryptographic IAP-JWT verification (no longer the spoofable
+  plaintext header).
+
+### Fixed
+- **Quality-flag taxonomy** — the frontend registry now matches the real Gold flags
+  (`OK/MISSING_VALUE/MISSING_QUANTITY/MISSING_WEIGHT/INCOMPLETE`). The stale prototype
+  taxonomy was silently dropping `INCOMPLETE`/`MISSING_WEIGHT` from the Quality view +
+  filter and leaking raw English ids in place of the pt-BR labels.
+- **Physical-quantity scaling** — `product_timeseries` emits per-family base sums
+  (`q_mass`/`q_vol`) so mass and volume are never blended and count/energy/area
+  quantities are no longer mis-scaled (no more `count ÷ 1e6`).
+- **COMTRADE partner ranking + flow Sankey** pin the reporter to Brazil, fixing the
+  2022–2023 all-reporters multi-count.
+- **COMEX freshness** — only the ETag confirms "current" (Last-Modified is too weak
+  for a same-second republish); **COMTRADE** permanent truncations are logged
+  distinctly (operator action required) instead of buried as a generic failure.
+- **Docs** — a stale `src/proto` reference, 5 repo-escaping `../` links in
+  `ARCHITECTURE.md`, the renamed curation SCD2 view/log-table names, the CONTRIBUTING
+  CI-checks list, and the BCB delta-overlap granularity wording.
 
 ---
 
