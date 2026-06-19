@@ -131,7 +131,7 @@ make dbt-test
 
 ### 4. Code Review
 
-- CI (GitHub Actions) must pass: **`Lint, test, dbt parse`**.
+- CI (GitHub Actions) must pass — all three status checks: **`Lint, test, dbt parse`** (Python lint + pytest + dbt parse), **`Frontend tests (Vitest)`** (ESLint + Vitest), and **`SQLFluff (dbt templater, BigQuery)`** (dbt SQL style).
 - The branch must be **up to date with `main`** before merging (branch protection requires this).
 - Review approvals are recommended but not required by the current branch protection.
 - Use **Squash and Merge** to keep the history clean.

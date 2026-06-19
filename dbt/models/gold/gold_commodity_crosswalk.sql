@@ -40,6 +40,14 @@ with xwalk as (
 
 source_codes as (
 
+    -- NOTE: gold_pam_production is intentionally NOT unioned here yet, so the
+    -- `source='pam'` rows in the commodity_crosswalk seed currently resolve to
+    -- nothing (they are RESERVED for when PAM cross-source linkage is wired in,
+    -- not a bug). Enabling it is a coordinated change: union gold_pam_production
+    -- below, add 'pam' to the accepted_values test in _gold.yml, AND add a 'pam'
+    -- bucket to commodity_catalog in webapi/seam_base.py (which would KeyError on
+    -- an unexpected source). Until then PAM does not participate in the
+    -- market-share / export-coefficient / price-spread cross-source views.
     select distinct 'pevs' as source, product_code as code
     from {{ ref('gold_pevs_production') }}
     union all

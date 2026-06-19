@@ -127,8 +127,8 @@ jobs:
       - name: Install dependencies (reproducible via package-lock.json)
         run: npm ci
 
-      # ESLint is scoped to the HAND-WRITTEN layer only (src/data + src/charts);
-      # the vendored prototype (src/proto/) is deliberately out of scope. See
+      # ESLint covers the app code: src/data + src/charts + src/ui (the latter is
+      # the live, maintained production UI, so it is linted too). See
       # frontend/eslint.config.js. The `lint` script runs exactly those dirs.
       - name: Frontend lint (ESLint)
         run: npm run lint

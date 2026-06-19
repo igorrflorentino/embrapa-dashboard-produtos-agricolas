@@ -69,8 +69,11 @@ uv run embrapa ingest ibge-batch --chunk-years 5
 ```
 
 **IBGE and BCB pipelines are delta by default.** Each queries the max reference
-already in Bronze and re-fetches only a small recent window. BCB rewinds an
-overlap (12 months inflation, 30 days FX). **IBGE** re-fetches from
+already in Bronze and re-fetches only a small recent window. BCB rewinds a
+**year-granular** overlap (it rewinds to the start of a calendar year, not a
+precise month/day window — so inflation re-fetches up to ~24 months and FX up to
+a full year of daily PTAX; strictly an over-fetch, never under-covering). **IBGE**
+re-fetches from
 `latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS` forward — absorbing PEVS revisions
 of recent years and a newly published year — instead of the whole 1986→today
 window, a huge SIDRA request that can blow the slow-byte deadline on an
