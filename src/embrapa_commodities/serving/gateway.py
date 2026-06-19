@@ -431,6 +431,11 @@ def fetch_comtrade_partners(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(cmd_codes),
+        # Pin the reporter to Brazil: the mart is multi-reporter (incl. the
+        # all-reporters years), so without this the ranking would sum Brazil's
+        # bilateral flows together with every other reporter's under each partner.
+        reporter_column="reporter_iso_a3",
+        reporter_value=settings.comtrade_brazil_iso,
         rank_by=rank_by,
     )
     return run_query(sql, params)
@@ -521,6 +526,11 @@ def fetch_comtrade_flows(
         year_end=year_end,
         codes=tuple(cmd_codes),
         flow=flow,
+        # Pin the reporter to Brazil so the Sankey shows Brazil's own export/import
+        # links, not every reporter's flows blended (the all-reporters years would
+        # otherwise surface non-Brazil origin nodes in a Brazil-perspective view).
+        reporter_column="reporter_iso_a3",
+        reporter_value=settings.comtrade_brazil_iso,
     )
     return run_query(sql, params)
 

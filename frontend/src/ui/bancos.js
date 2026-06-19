@@ -437,7 +437,7 @@ window.auditBancoCoverage = (mapLabel, hasEntry, opts) => {
   const list = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
   const missing = list
     .filter(b => !opts.onlyLive || b.status === 'live')
-    .filter(b => { try { return !hasEntry(b); } catch (e) { return true; } })
+    .filter(b => { try { return !hasEntry(b); } catch { return true; } })
     .map(b => b.id);
   if (missing.length) {
     console.warn(

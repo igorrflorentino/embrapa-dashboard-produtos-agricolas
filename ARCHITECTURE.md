@@ -301,7 +301,7 @@ metadata: URL, ETag/Last-Modified, `fetched_at`, `rows`). Bronze derives
 from that raw. This way, re-filtering / changing products / re-deriving Bronze
 **does not hit the source again** — only a real data revision triggers a re-fetch. Each
 `embrapa ingest <source>` has `--from-raw` (rebuilds Bronze from raw, with no
-internet). Shared contract in [`core/raw.py`](../src/embrapa_commodities/core/raw.py);
+internet). Shared contract in [`core/raw.py`](src/embrapa_commodities/core/raw.py);
 details in [`PLANS/raw_zone_architecture.md`](PLANS/raw_zone_architecture.md).
 Per source: COMEX re-downloads only when the ETag changes (filters in Phase 2 via
 `iter_batches`); IBGE archives the SIDRA response; BCB archives each delta window
@@ -342,7 +342,7 @@ as a per-run stamped object (append-only trail).
 Two parallel paths, both reading the same Gold tables — they are not exclusive and can coexist:
 
 - **Looker Studio** (no-code): direct connection to the Gold tables (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Good for standardized reports and quick exploration without a deploy. Available now.
-- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](../src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/); the SPA in [`frontend/`](../frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
+- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/); the SPA in [`frontend/`](frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
 
 ---
 
@@ -399,7 +399,7 @@ its cross-source commodity.
 (`BQ_SERVING_DATASET`), separate from Gold, so that the dashboard's SA
 (`sa-web-dashboard-prod`) is scoped **only** to the serving surface.
 
-**Data-access layer (Python).** [`src/embrapa_commodities/serving/`](../src/embrapa_commodities/serving/)
+**Data-access layer (Python).** [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/)
 is the **UI-agnostic** BFF that the `webapi` Flask app imports — **no
 pages/charts** (those live in `frontend/`; `webapi/seam.py` composes these
 readers per view and `webapi/serializers.py` shapes them to the SPA's

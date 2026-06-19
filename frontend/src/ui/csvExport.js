@@ -40,7 +40,6 @@
     const { view, summary, conventions, database } = ctx;
     const conv = conventions || window.DEFAULT_CONVENTIONS;
     const f = window.applyFilters(summary || {}, database);
-    const sym = (window.CURRENCY_FX[conv.currency] || { symbol: 'R$' }).symbol;
     const PRODS = f.products;
     const nameOf = (c) => (PRODS.find(p => p.code === c) || {}).name || c;
 

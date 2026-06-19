@@ -23,7 +23,7 @@ const GLOSSARY = {
       { term: 'val_yearfx_*',          cat: 'Coluna', tag: 'gold',     short: 'Valor nominal em moeda corrente convertido pelo câmbio médio do ano. Auditoria histórica — não comparar entre anos.' },
       { term: 'val_real_ipca_*',       cat: 'Coluna', tag: 'gold',     short: 'Valor projetado para hoje pela cadeia IPCA. Padrão deste dashboard para comparações inter-anuais.' },
       { term: 'val_real_igpm_*',       cat: 'Coluna', tag: 'gold',     short: 'Idem usando o IGP-M (FGV). Alternativa ao IPCA, comum em séries de preços no atacado e de commodities.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (sem ressalva), valor ausente, quantidade ausente, valor estimado, início histórico da série e valor atípico (outlier).' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (com quantidade e valor), valor ausente, quantidade ausente ou incompleta (sem quantidade nem valor).' },
     ],
   },
 
@@ -40,7 +40,7 @@ const GLOSSARY = {
       { term: 'Área colhida',  cat: 'Coluna', short: 'Área efetivamente colhida da lavoura, em hectares (ha). Base do denominador do rendimento.' },
       { term: 'Rendimento médio', cat: 'Coluna', short: 'Produtividade da lavoura = produção ÷ área colhida, em kg/ha. Média área-ponderada (nunca somada).' },
       { term: 'gold_pam_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e lavoura, com área, produção, rendimento e valor.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (sem ressalva), valor ausente, quantidade ausente, valor estimado, início histórico da série e valor atípico (outlier).' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK (com quantidade e valor), valor ausente, quantidade ausente ou incompleta (sem quantidade nem valor).' },
     ],
   },
 

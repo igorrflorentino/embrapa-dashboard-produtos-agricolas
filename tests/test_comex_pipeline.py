@@ -57,9 +57,18 @@ def test_raw_is_current_false_on_changed_etag() -> None:
     assert pipeline._raw_is_current({"source_etag": "a"}, {"source_etag": "b"}) is False
 
 
-def test_raw_is_current_falls_back_to_last_modified() -> None:
+def test_raw_is_current_does_not_trust_last_modified_alone(caplog) -> None:
+    """Last-Modified is a WEAK validator (1-second granularity, RFC 7232): a
+    same-second republish of a corrected file must NOT be misread as unchanged.
+    With only Last-Modified on both sides — even matching — force a re-download
+    and warn, instead of short-circuiting to current (only the ETag may)."""
+    import logging
+
     stored = {"source_last_modified": "Mon, 01 Jan 2024"}
-    assert pipeline._raw_is_current(stored, {"source_last_modified": "Mon, 01 Jan 2024"}) is True
+    head = {"source_last_modified": "Mon, 01 Jan 2024"}
+    with caplog.at_level(logging.WARNING):
+        assert pipeline._raw_is_current(stored, head, label="EXP_2026") is False
+    assert any("no ETag is present on both sides" in r.getMessage() for r in caplog.records)
 
 
 def test_raw_is_current_etag_takes_precedence_over_last_modified() -> None:
@@ -80,7 +89,7 @@ def test_raw_is_current_never_trusts_content_length_alone(caplog) -> None:
     head = {"source_content_length": "12345"}  # identical bytes, yet untrusted
     with caplog.at_level(logging.WARNING):
         assert pipeline._raw_is_current(stored, head, label="EXP_2026") is False
-    assert any("Content-Length alone is too weak" in r.getMessage() for r in caplog.records)
+    assert any("too weak to trust" in r.getMessage() for r in caplog.records)
 
 
 def test_raw_is_current_strong_id_still_wins_over_content_length() -> None:
@@ -438,5 +447,5 @@ def test_raw_is_current_warns_when_no_comparable_identifier(caplog) -> None:
             {"some_other_meta": "x"}, {"source_url": "u"}, label="EXP_2026"
         )
     assert result is False
-    assert any("freshness identifier" in r.message for r in caplog.records)
+    assert any("no ETag is present on both sides" in r.message for r in caplog.records)
     assert any("EXP_2026" in r.getMessage() for r in caplog.records)

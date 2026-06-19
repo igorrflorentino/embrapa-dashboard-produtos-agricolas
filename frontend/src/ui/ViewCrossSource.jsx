@@ -5,8 +5,6 @@
 // derived analytics. Controlled via { value, onChange } so the selection
 // travels in the shared URL / citation (see src/main.jsx + AppShell).
 
-const { useMemo: useCSMemo } = React;
-
 // Default landing selection — the flagship cross-source question:
 // IBGE annual production value × MDIC annual export value.
 window.DEFAULT_CROSS_STATE = {

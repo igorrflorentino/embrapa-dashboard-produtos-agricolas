@@ -86,11 +86,21 @@ jobs:
           REGION: ${{ vars.WEBAPI_REGION || 'us-central1' }}
           AR_REPO: ${{ vars.WEBAPI_AR_REPO || 'embrapa-services' }}
           SERVICE_NAME: ${{ vars.WEBAPI_SERVICE_NAME || 'embrapa-dashboard' }}
+          # Pass the free-text manual-dispatch input via env, NOT interpolated into
+          # the script: a `${{ }}` expansion would splice the raw value into the
+          # shell text, so a value with metacharacters could inject commands.
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"; IS_TAG=false
+            VERSION="$DISPATCH_VERSION"; IS_TAG=false
           else
             VERSION="${GITHUB_REF_NAME}"; IS_TAG=true
+          fi
+          # The version becomes a Docker image tag, so constrain it to tag-safe
+          # characters — this also hard-stops any injection attempt at the source.
+          if ! printf '%s' "$VERSION" | grep -qE '^[A-Za-z0-9._-]+$'; then
+            echo "ERROR: invalid version '$VERSION' (allowed: letters, digits, . _ -)" >&2
+            exit 1
           fi
           HOST="${REGION}-docker.pkg.dev"
           BASE="${HOST}/${PROJECT_ID}/${AR_REPO}/${SERVICE_NAME}"

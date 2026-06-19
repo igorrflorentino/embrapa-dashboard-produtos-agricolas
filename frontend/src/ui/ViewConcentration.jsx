@@ -7,8 +7,6 @@
 //       concentrated (US DoJ convention).
 
 function ViewConcentration({ summary, conventions, database }) {
-  const conv  = conventions || window.DEFAULT_CONVENTIONS;
-
   const filtered = window.applyFilters(summary || {}, database);
   const hasGeo = filtered.ufDataFull.length > 0;
 

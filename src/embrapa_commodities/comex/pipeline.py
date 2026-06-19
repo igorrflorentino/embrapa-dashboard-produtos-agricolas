@@ -88,35 +88,39 @@ def all_chunks(settings: Settings) -> list[tuple[str, int]]:
 def _raw_is_current(
     stored: dict[str, str] | None, head: dict[str, str], *, label: str = ""
 ) -> bool:
-    """True when the archived raw matches the live source by the first shared
-    *strong* identifier (ETag > Last-Modified). Missing archive or no comparable
-    strong identifier → not current (re-extract to be safe).
+    """True when the archived raw matches the live source by the ETag (the only
+    STRONG validator). Missing archive or no ETag on both sides → not current
+    (re-extract to be safe).
 
-    Content-Length is deliberately NOT a confirming identifier: a same-byte value
-    correction (an upstream edit that leaves the file the same size) would be
-    misread as unchanged, so it can never short-circuit to "current" on its own.
-    When ETag/Last-Modified are both absent we fall through to the no-identifier
-    branch below, even if Content-Length matches.
+    Neither Content-Length NOR Last-Modified is a confirming identifier:
+    Content-Length is too weak (a same-byte value correction is misread as
+    unchanged), and Last-Modified is a WEAK validator too (1-second granularity,
+    RFC 7232) — a corrected file republished within the same wall-clock second, or
+    without bumping Last-Modified, would be misread as unchanged. So only the ETag
+    may short-circuit to "current"; when it is absent on either side we fall
+    through to the re-download branch below even if Last-Modified/Content-Length
+    match.
 
-    When an archive *does* exist but neither side exposes a comparable strong
-    freshness identifier, the function returns ``False`` (forcing a full
-    re-download) and emits a WARNING: that silent degradation — a server dropping
-    ETag / Last-Modified — would otherwise re-download every file every run with
-    no visible cause. ``label`` (e.g. ``"EXP_2026"``) tags the warning.
+    When an archive *does* exist but no ETag is present on both sides, the function
+    returns ``False`` (forcing a full re-download) and emits a WARNING: that silent
+    degradation — a server dropping the ETag — would otherwise re-download every
+    file every run with no visible cause. The cost is at most a redundant download
+    when the server drops ETag, which is the safe direction. ``label`` (e.g.
+    ``"EXP_2026"``) tags the warning.
     """
     if not stored:
         return False
-    # Strong identifiers only: Content-Length is too weak (a same-byte value
-    # correction is misread as unchanged), so it never confirms "current".
-    for key in ("source_etag", "source_last_modified"):
-        live, archived = head.get(key), stored.get(key)
-        if live is not None and archived is not None:
-            return live == archived
+    # ONLY the ETag confirms "current". Content-Length (same-byte correction) and
+    # Last-Modified (1-second granularity, same-second republish) are both too weak
+    # to trust, so a present-but-ETag-less archive is re-downloaded, not trusted.
+    etag_live, etag_archived = head.get("source_etag"), stored.get("source_etag")
+    if etag_live is not None and etag_archived is not None:
+        return etag_live == etag_archived
     logger.warning(
-        "Comex %s: raw is archived but no comparable strong freshness identifier "
-        "(ETag/Last-Modified) is present on both sides — forcing a full "
-        "re-download (Content-Length alone is too weak to trust). The source may "
-        "have stopped sending these headers; freshness short-circuiting is "
+        "Comex %s: raw is archived but no ETag is present on both sides — forcing a "
+        "full re-download (Last-Modified and Content-Length are too weak to trust: a "
+        "same-second republish or same-byte correction would be misread as unchanged). "
+        "The source may have stopped sending the ETag; freshness short-circuiting is "
         "degraded until it resumes.",
         label or "(unknown)",
     )

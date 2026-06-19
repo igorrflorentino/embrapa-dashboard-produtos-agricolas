@@ -193,13 +193,20 @@ window.UF_DATA = [
 // Quality dimension — flag taxonomy (id → label + colour). The per-flag
 // COUNTS come from the API (snapshot.quality); this is just the display map.
 // ────────────────────────────────────────────────────────────────────
+// The REAL Gold data_quality_flag taxonomy (dbt/macros/data_quality_flag.sql
+// emits OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE for PEVS/PAM/COMTRADE; the
+// COMEX inline CASE in gold_comex_flows.sql adds MISSING_WEIGHT). Labels mirror
+// the backend's _FLAG_LABEL_PT (serializers.py) so the donut/legend stays pt-BR.
+// The earlier ESTIMATED/BOUNDARY_HISTORIC/OUTLIER ids were the prototype's
+// synthetic taxonomy — Gold never emits them, and listing them here silently
+// dropped the real INCOMPLETE/MISSING_WEIGHT rows out of the quality charts and
+// the quality filter. Keep this in sync with serializers._FLAG_LABEL_PT.
 window.QUALITY_FLAGS = [
   { id: 'OK',                 label: 'OK',                  color: 'var(--ok)'   },
-  { id: 'ESTIMATED',          label: 'Estimado',            color: 'var(--viz-4)' },
   { id: 'MISSING_VALUE',      label: 'Valor ausente',       color: 'var(--warn)' },
   { id: 'MISSING_QUANTITY',   label: 'Quantidade ausente',  color: 'var(--info)' },
-  { id: 'BOUNDARY_HISTORIC',  label: 'Limite histórico',    color: 'var(--viz-7)' },
-  { id: 'OUTLIER',            label: 'Outlier',             color: 'var(--err)'  },
+  { id: 'MISSING_WEIGHT',     label: 'Peso ausente',        color: 'var(--viz-4)' },
+  { id: 'INCOMPLETE',         label: 'Incompleto',          color: 'var(--viz-7)' },
 ];
 
 // ────────────────────────────────────────────────────────────────────

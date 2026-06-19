@@ -16,3 +16,29 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # Python deps (pyproject.toml + uv.lock). Keeps the ingestion/transform/webapi
+  # libraries current with security + feature bumps; grouped into one weekly PR.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  # Frontend deps (frontend/package.json + package-lock.json). The bundle ships
+  # plotly + maplibre, so security bumps matter; grouped into one weekly PR.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      npm:
+        patterns:
+          - "*"

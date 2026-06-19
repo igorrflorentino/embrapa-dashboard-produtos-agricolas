@@ -1,8 +1,11 @@
 """Bronze pipeline for BCB inflation indices — codes configurable via .env.
 
 Thin variant over the generic BCB SGS pipeline in :mod:`bcb.series`: only the
-12-month delta overlap, the ``series_name`` label column and the Bronze schema
-differ from the FX variant.
+delta overlap, the ``series_name`` label column and the Bronze schema differ
+from the FX variant. NOTE: the overlap is YEAR-GRANULAR (it computes a start
+*year*, not a precise month window) — see ``overlap_start_year`` below — so a
+delta run re-fetches from the start of the prior calendar year, i.e. up to ~24
+months for a December load, not exactly "12 months".
 """
 
 from __future__ import annotations
@@ -13,9 +16,12 @@ from embrapa_commodities.bcb.series import BcbSeriesSpec
 from embrapa_commodities.bcb.series import run as _run
 from embrapa_commodities.config import Settings
 
-# Overlap (in months) re-fetched on each delta run to absorb BCB revisions
-# without missing them. BCB occasionally re-publishes the trailing few months
-# of IPCA (preliminary → final reading).
+# Nominal overlap (in months) re-fetched on each delta run to absorb BCB
+# revisions without missing them — BCB occasionally re-publishes the trailing
+# few months of IPCA (preliminary → final reading). NOTE: this is only the FLOOR;
+# overlap_start_year rounds it down to a whole-year rewind (start of last.year-1),
+# so the real re-fetch is up to ~24 months. It is strictly an OVER-fetch, so it
+# never under-covers a revision.
 DELTA_OVERLAP_MONTHS = 12
 
 BRONZE_SCHEMA: list[bigquery.SchemaField] = [

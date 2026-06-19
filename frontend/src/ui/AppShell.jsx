@@ -11,6 +11,24 @@ try {
   if (_savedSbW) document.documentElement.style.setProperty('--sidebar-w', _savedSbW);
 } catch { /* localStorage unavailable — keep the CSS default (260px) */ }
 
+// a11y: make a non-<button> clickable element behave like a button for keyboard +
+// screen-reader users. The sidebar items are styled <div>s (kept that way for the
+// design-system layout), so spread this onto each to add role/tabindex + an
+// Enter/Space key handler that mirrors the onClick — without changing the DOM/CSS.
+function clickable(onActivate) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
+
 // Draggable handle on the sidebar's right edge: lets the researcher widen/narrow
 // the sidebar within a sensible range (no fixed width). Persists to localStorage;
 // double-click resets to the default. Drives the same --sidebar-w the grid reads.
@@ -64,6 +82,14 @@ function AppShell({
   const [citeOpen, setCiteOpen] = React.useState(false);
   const [shared,   setShared]   = React.useState(false);
   const [navOpen,  setNavOpen]  = React.useState(false);
+
+  // a11y: Escape closes the citation modal (mirrors its backdrop click + Fechar).
+  React.useEffect(() => {
+    if (!citeOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setCiteOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [citeOpen]);
 
   const groups = window.VIEW_GROUPS || [];
   const activeView = window.viewById ? window.viewById(view) : null;
@@ -223,15 +249,15 @@ function AppShell({
     // Degrades to a no-op before urlState.js has loaded (buildPermalink → null).
     const url = buildPermalink();
     if (!url) return;
-    try { await navigator.clipboard.writeText(url); } catch (e) {}
+    try { await navigator.clipboard.writeText(url); } catch {}
     setShared(true);
     setTimeout(() => setShared(false), 1800);
   };
   const onCopyCite = async () => {
-    try { await navigator.clipboard.writeText(citation); } catch (e) {}
+    try { await navigator.clipboard.writeText(citation); } catch {}
   };
   const onCopyInText = async () => {
-    try { await navigator.clipboard.writeText(inTextCite); } catch (e) {}
+    try { await navigator.clipboard.writeText(inTextCite); } catch {}
   };
 
   return (
@@ -390,7 +416,7 @@ function AppShell({
               return (
               <div key={b.id}
                    className={'side-item ' + (active ? (onInfoPage ? 'selected' : 'active') : '')}
-                   onClick={() => onBanco(b.id)}
+                   {...clickable(() => onBanco(b.id))}
                    title={b.label}>
                 <window.UsageDot active={active} />
                 <span className="side-item-l">{b.short}</span>
@@ -402,25 +428,25 @@ function AppShell({
 
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
-               onClick={() => onInfo('enrich_industrial')}>
+               {...clickable(() => onInfo('enrich_industrial'))}>
             <window.Icon name="factory"/>Nível de industrialização
           </div>
           <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
-               onClick={() => onInfo('enrich_market')}>
+               {...clickable(() => onInfo('enrich_market'))}>
             <window.Icon name="trending_up"/>Tipo de Mercado
           </div>
 
           <div className="side-section">Informações</div>
           <div className={'side-item ' + (infoPage === 'about' ? 'active' : '')}
-               onClick={() => onInfo('about')}>
+               {...clickable(() => onInfo('about'))}>
             <window.Icon name="info"/>Sobre o dashboard
           </div>
           <div className={'side-item ' + (infoPage === 'glossary' ? 'active' : '')}
-               onClick={() => onInfo('glossary')}>
+               {...clickable(() => onInfo('glossary'))}>
             <window.Icon name="menu_book"/>Glossário global
           </div>
           <div className={'side-item ' + (infoPage === 'health' ? 'active' : '')}
-               onClick={() => onInfo('health')}>
+               {...clickable(() => onInfo('health'))}>
             <window.Icon name="pulse"/>Saúde do sistema
           </div>
           <SidebarResizer />
@@ -433,7 +459,7 @@ function AppShell({
 
       {citeOpen && (
         <div className="cite-backdrop" onClick={() => setCiteOpen(false)}>
-          <div className="cite-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="cite-title">
+          <div className="cite-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="cite-title">
             <header className="cite-head">
               <div>
                 <div className="overline">Citação acadêmica</div>

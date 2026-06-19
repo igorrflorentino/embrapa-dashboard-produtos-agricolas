@@ -28,7 +28,7 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.comtrade import client
-from embrapa_commodities.comtrade.client import ComtradeQuotaError
+from embrapa_commodities.comtrade.client import ComtradeQuotaError, ComtradeTruncationError
 from embrapa_commodities.config import Settings
 from embrapa_commodities.core import (
     ChunkOutcome,
@@ -451,5 +451,20 @@ def _run_one_chunk(
     except ComtradeQuotaError:
         logger.warning("Comtrade quota exhausted at %s — stopping run.", chunk_id)
         raise
+    except ComtradeTruncationError as exc:
+        # A single (reporter, flow, cmd, year) exceeds the per-call row cap and
+        # CANNOT be split further — it will truncate IDENTICALLY every run, so this
+        # is a PERMANENT gap, not a transient failure. The outcome is still "failed"
+        # (the chunk is left un-archived for an operator to address), but log it
+        # DISTINCTLY at error level so it surfaces as an action-required anomaly
+        # rather than blending into retryable noise: it will NOT self-heal on retry
+        # (the fix is widening the split scope, e.g. a partner enumeration tier).
+        logger.error(
+            "Comtrade chunk %s PERMANENTLY truncated (un-splittable dense key) — "
+            "operator action required; it will not self-heal on the next run. %s",
+            chunk_id,
+            exc,
+        )
+        return ChunkOutcome(chunk_id, "failed", detail=f"permanent truncation: {exc}")
     except Exception as exc:
         return ChunkOutcome(chunk_id, "failed", detail=str(exc))

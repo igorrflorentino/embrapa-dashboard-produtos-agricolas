@@ -45,8 +45,16 @@ describe('decorateSnapshot', () => {
   it('joins quality flag label + color, falling back when the id is unknown', () => {
     const out = decorateSnapshot({ quality: [{ id: 'OK', count: 5 }, { id: 'WEIRD', count: 1 }] });
     expect(out.quality[0]).toMatchObject({ label: 'Sem ressalvas', color: 'var(--ok)' });
-    expect(out.quality[1].label).toBe('WEIRD'); // unknown id → id as its own label
+    expect(out.quality[1].label).toBe('WEIRD'); // unknown id, no server label → id as its own label
     expect(out.quality[1].color).toBe('var(--pres-gray-400)'); // fallback color
+  });
+
+  it('prefers the SERVER-supplied pt-BR label over the raw id for a registry-absent flag', () => {
+    // serializers._FLAG_LABEL_PT emits a label for flags the client registry may
+    // lack (e.g. INCOMPLETE/MISSING_WEIGHT). decorate must use it, not leak the id.
+    const out = decorateSnapshot({ quality: [{ id: 'INCOMPLETE', count: 2, label: 'Incompleto' }] });
+    expect(out.quality[0].label).toBe('Incompleto'); // server label wins over q.id
+    expect(out.quality[0].color).toBe('var(--pres-gray-400)'); // still gets the fallback color
   });
 
   it('defaults regions and is null/empty-safe', () => {

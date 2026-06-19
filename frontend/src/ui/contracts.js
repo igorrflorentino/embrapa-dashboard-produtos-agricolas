@@ -44,7 +44,7 @@
 //
 // @typedef {Object} BancoSnapshot
 // @property {{code:string,name:string,unit:string,family:string}[]} products       Product universe (family ∈ mass|volume|…).
-// @property {Object.<string,{y:number,v:number,q:number,family:string}[]>} productTS  Per-product annual series, keyed by code. v=value (canonical), q=quantity.
+// @property {Object.<string,{y:number,v:number,q:(number|null),family:string}[]>} productTS  Per-product annual series, keyed by code. v=value (canonical), q=quantity in the family base unit (mass→mil t, volume→mi m³); q is null for families with no display scale (contagem/energia/área).
 // @property {{y:number,v:number,q:number,q_mass:number,q_vol?:number}[]} overviewTS  Annual aggregate (v in bi; q_* per family — NEVER summed across families).
 // @property {{uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} ufData  Per-UF tile-map rows. ONLY for bancos providing `geo` (empty otherwise). `region` is the canonical 2-letter region CODE (N/NE/CO/SE/S, window.REGIONS ids) — decorateUfRows normalizes a display-name region ("Norte") to its code so RegionBars matches.
 // @property {{year:number,uf:string,name:string,region:string,col:number,row:number,value:number,q_mass:number,q_vol?:number}[]} [ufYearly]  Per-(UF, year) Gold history backing the geography 'ano × UF' heatmap. ONLY for geo bancos with a per-year-by-UF mart (null otherwise). col/row decorated client-side.

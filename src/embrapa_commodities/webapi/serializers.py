@@ -237,20 +237,32 @@ def _products(df: pd.DataFrame | None) -> list[dict]:
 
 
 def _product_ts(df: pd.DataFrame | None) -> dict:
-    """GROUP BY code → {code: [{y, v(mi), q(mil t | mi m³), family}]}."""
+    """GROUP BY code → {code: [{y, v(mi), q(mil t | mi m³ | None), family}]}.
+
+    ``q`` is the display quantity in the code's family base unit (massa → mil t,
+    volume → mi m³), read from the per-family ``q_mass`` / ``q_vol`` CASE columns
+    so mass and volume are never blended. A count/energy/area family has no
+    display convention, so ``q`` is None — NOT a count divided by 1e6, which was
+    dimensionless nonsense — and such families are simply absent from the
+    quantity charts/overview rather than silently mis-scaled.
+    """
     if _empty(df):
         return {}
     out: dict[str, list[dict]] = {}
     for r in df.itertuples():
-        q_scale = 1e3 if r.family == "massa" else 1e6  # t→mil t, m³→mi m³
+        fam_raw = getattr(r, "family", "")
+        if fam_raw == "massa":
+            q: float | None = _num(getattr(r, "q_mass", 0)) / 1e3  # t → mil t
+        elif fam_raw == "volume":
+            q = _num(getattr(r, "q_vol", 0)) / 1e6  # m³ → mi m³
+        else:
+            q = None  # contagem/energia/area/desconhecida: no display scale
         out.setdefault(str(r.code), []).append(
             {
                 "y": int(r.reference_year),
                 "v": _num(r.total_value) / 1e6,
-                # qty_base (t / m³), NOT qty_native: trade codes are mostly
-                # kg-native, so scaling native as if tonnes would be ~1000× off.
-                "q": _num(r.total_qty_base) / q_scale,
-                "family": _fam(r.family),
+                "q": q,
+                "family": _fam(fam_raw),
             }
         )
     return out

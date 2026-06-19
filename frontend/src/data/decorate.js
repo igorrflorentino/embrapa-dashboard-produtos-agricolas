@@ -100,7 +100,11 @@ export function decorateSnapshot(snap) {
     const tax = qualityTaxonomy();
     snap.quality = snap.quality.map((q) => {
       const f = tax[q.id] || {};
-      return { ...q, label: f.label || q.id, color: f.color || 'var(--pres-gray-400)' };
+      // Prefer the client registry label, then the SERVER-supplied pt-BR label
+      // (serializers._FLAG_LABEL_PT emits it precisely so a flag the registry
+      // hasn't caught up to — e.g. a newly added Gold flag — still renders in
+      // pt-BR instead of leaking the raw English id), then the id as last resort.
+      return { ...q, label: f.label || q.label || q.id, color: f.color || 'var(--pres-gray-400)' };
     });
   }
 

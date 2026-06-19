@@ -244,3 +244,29 @@ jobs:
             ARGS+=(--vars 'enable_curation: true')
           fi
           uv run dbt "${ARGS[@]}"
+
+      # Alerting (intentionally GitHub-native, like dbt-source-freshness.yml): this
+      # build is the ONLY stage that carries Bronze → the Silver/Gold/serving marts
+      # the dashboard reads, so a silent failure here leaves the marts STALE while
+      # the freshness check keeps PASSING (Bronze is fresh; only the marts lag), and
+      # `dbt build` runs tests inline so one failing test now also blocks the
+      # rebuild. A failed SCHEDULED run emails the user who last edited the cron on
+      # the default branch (GitHub's documented notification) — that is the page.
+      # This step makes it LOUD + actionable in the run's Job Summary too, so a red
+      # nightly build names the stale-marts consequence up front instead of just a
+      # red dot in the Actions tab. (To add a secondary channel — Slack, an
+      # auto-filed Issue — extend this `if: failure()` step.)
+      - name: Flag stale marts on failure
+        if: failure()
+        run: |
+          {
+            echo "## 🚨 prod dbt build FAILED — serving marts may be STALE"
+            echo ""
+            echo "Bronze is unaffected (and source-freshness will keep passing), but"
+            echo "Silver/Gold/serving did **not** finish rebuilding, so the dashboard"
+            echo "may serve data from the previous successful build until this is fixed."
+            echo ""
+            echo "**Check:** the failing step's log above — a dbt **test** failure (run"
+            echo "inline by \`dbt build\`) also blocks the model rebuild. Re-run after the"
+            echo "fix; use the \`full_refresh\` dispatch input only after schema changes."
+          } >> "$GITHUB_STEP_SUMMARY"

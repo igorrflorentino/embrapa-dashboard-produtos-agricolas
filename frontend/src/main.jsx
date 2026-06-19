@@ -206,6 +206,13 @@ class ViewErrorBoundary extends React.Component {
     return { error };
   }
 
+  componentDidCatch(error, info) {
+    // Surface the error + component stack to the console so a view's render
+    // failure is diagnosable, instead of being silently swallowed by
+    // getDerivedStateFromError (which only sets state for the fallback UI).
+    console.error('ViewErrorBoundary caught a render error:', error, info?.componentStack);
+  }
+
   componentDidUpdate(prev) {
     // Reset the error when navigating to a different view/banco.
     if (prev.resetKey !== this.props.resetKey && this.state.error) {

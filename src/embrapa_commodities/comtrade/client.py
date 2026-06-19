@@ -317,12 +317,25 @@ def fetch_chunk(
                 # APIM answers 429 for both the per-second burst limiter and the
                 # daily quota; a short Retry-After disambiguates the former —
                 # transient, so the shared policy backs off and re-attempts.
+                #
+                # CONSERVATIVE classification when the header is ABSENT (or long):
+                # treat it as the daily quota and STOP. This trades a small,
+                # self-healing cost (a header-less *burst* 429 — if APIM ever omits
+                # the header on a burst — would end the run early; the next
+                # scheduled run resumes from the un-archived chunks with NO data
+                # loss) for the safe default of never burning the whole daily
+                # keyed-call budget retrying an exhausted quota. The two-phase raw
+                # zone makes either case fully resumable, so erring toward "stop and
+                # resume" is correct for an unattended batch job. (If a header-less
+                # burst is ever observed in practice, switch this to a bounded
+                # transient retry before escalating to quota.)
                 retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
                 if retry_after is not None and retry_after <= RATE_LIMIT_RETRY_AFTER_MAX_S:
                     raise ComtradeTransientError(
                         f"rate limited (Retry-After={retry_after:g}s): {msg}"
                     )
-                # Daily keyed-call quota — stop, don't retry (see ComtradeQuotaError).
+                # Daily keyed-call quota (long or absent Retry-After) — stop, don't
+                # retry (see ComtradeQuotaError); the next run resumes, no data lost.
                 raise ComtradeQuotaError(f"quota exhausted ({msg}) — re-run to resume")
             if response.status_code in core_http.RETRYABLE_STATUS_CODES:
                 raise ComtradeTransientError(msg)

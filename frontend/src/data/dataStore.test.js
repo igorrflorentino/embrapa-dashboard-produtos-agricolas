@@ -129,6 +129,18 @@ describe('dataStore', () => {
     expect(ds.get('ibge_pevs')).toBe(null);
   });
 
+  it('rejects NESTED-row drift (a renamed field), not just top-level keys', async () => {
+    // overviewTS is a non-empty array (top-level check passes) but its row is
+    // missing the load-bearing `v` — exactly the silent drift a backend field
+    // rename would cause. The row-shape check must catch it.
+    const f = vi.fn(() => jsonRes(validSnap({ overviewTS: [{ y: 2020, value: 1 }] })));
+    const ds = await loadStore(f);
+
+    const res = await ds.load('ibge_pevs');
+    expect(res.status).toBe('error');
+    expect(ds.error('ibge_pevs')).toMatch(/linhas fora do contrato.*overviewTS/i);
+  });
+
   it('rejects a non-object snapshot payload (e.g. null / an error string)', async () => {
     const f = vi.fn(() => jsonRes(null));
     const ds = await loadStore(f);

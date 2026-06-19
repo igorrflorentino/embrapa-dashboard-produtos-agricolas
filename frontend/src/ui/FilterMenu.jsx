@@ -62,8 +62,8 @@ function buildQuickRanges(yearStart, yearEnd) {
 }
 
 const QUALITY_CHIP = {
-  OK: 'ok', ESTIMATED: 'info', MISSING_VALUE: 'warn',
-  MISSING_QUANTITY: 'info', BOUNDARY_HISTORIC: 'muted', OUTLIER: 'err',
+  OK: 'ok', MISSING_VALUE: 'warn', MISSING_QUANTITY: 'info',
+  MISSING_WEIGHT: 'warn', INCOMPLETE: 'muted',
 };
 const QUALITY = (window.QUALITY_FLAGS || []).map(f => ({
   flag: f.id,
@@ -361,6 +361,14 @@ function GeoColumn({
 // what's live (incl. a shared deep-link) instead of silently resetting to all.
 function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply }) {
   const close = () => { if (typeof onClose === 'function') onClose(); };
+  // a11y: Escape closes the modal (mirrors the backdrop click). Listener is bound
+  // only while the modal is open and torn down on close/unmount.
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape' && typeof onClose === 'function') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
   const bancoMeta = window.bancoById ? window.bancoById(banco) : null;
   const schema    = window.filterSchemaFor ? window.filterSchemaFor(banco) : null;
@@ -379,8 +387,6 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const dims      = (schema && schema.dims) || [];
   const prodDim   = dims.find(d => d.type === 'products' || d.type === 'multi-tree');
   const prodLabel = (prodDim && prodDim.label) || `Produtos · ${bancoMeta ? bancoMeta.short : 'PEVS'}`;
-  const valDim    = dims.find(d => d.type === 'value-range' || d.type === 'period-value');
-  const valColumn = (valDim && valDim.column ? valDim.column.split('·').pop().trim() : null) || 'val_real_ipca_brl';
   // Dimensions declared for this banco that the functional sections above do
   // not yet expose (e.g. fluxo, via, país, reporter). Shown read-only so the
   // schema is never silently ignored on a live banco.
@@ -511,6 +517,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       setValueMax(null);
     }
     wasOpen.current = open;
+    // Intentionally keyed ONLY on `open`: this re-syncs the DRAFT filter state from
+    // props each time the menu opens, so the user's in-progress edits are not
+    // clobbered by unrelated prop changes (value/year/basket) while it is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // products / flags filtered by search
@@ -576,7 +586,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       muniSliceable,
     });
     return { prodTxt, period, geoTxt };
-  }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, muniSliceable, MUNIS]);
+  }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, muniSliceable, MUNIS, PRODS.length]);
 
   // chip-bar summary published on apply (display strings only)
   const buildChipSummary = (vMin = valueMin, vMax = valueMax) => {
@@ -645,7 +655,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
 
   return (
     <div className="fm-backdrop" onClick={close}>
-      <div className="fm-modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="fm-title">
+      <div className="fm-modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fm-title">
         {/* HEADER */}
             <header className="fm-head">
               <div className="fm-head-text">

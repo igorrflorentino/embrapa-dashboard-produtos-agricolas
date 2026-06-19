@@ -162,18 +162,20 @@ def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
 
 
 def test_with_overview_quantities_sums_qty_base_per_family():
-    """q_mass/q_vol come from total_qty_base: trade sources mix kg- and t-native
-    codes inside 'massa', so summing/scaling the native quantity was ~1000× off."""
+    """q_mass/q_vol are the per-family base CASE columns: trade sources mix kg- and
+    t-native codes inside 'massa', so summing/scaling the native quantity was
+    ~1000× off, and mass and volume are never blended into one total."""
     seam = _seam()
     overview = pd.DataFrame([{"reference_year": 2022, "total_value": 1e9}])
     pts = pd.DataFrame(
         [
-            # kg-native NCM: 5e9 kg native, 5e6 t base
+            # kg-native NCM: 5e9 kg native, 5e6 t base → q_mass (massa CASE column)
             {
                 "code": "08012100",
                 "reference_year": 2022,
                 "total_qty_native": 5e9,
-                "total_qty_base": 5e6,
+                "q_mass": 5e6,
+                "q_vol": float("nan"),
                 "family": "massa",
             },
             # t-native NCM in the same family (native == base)
@@ -181,21 +183,23 @@ def test_with_overview_quantities_sums_qty_base_per_family():
                 "code": "44012200",
                 "reference_year": 2022,
                 "total_qty_native": 3e3,
-                "total_qty_base": 3e3,
+                "q_mass": 3e3,
+                "q_vol": float("nan"),
                 "family": "massa",
             },
             {
                 "code": "44071100",
                 "reference_year": 2022,
                 "total_qty_native": 7e6,
-                "total_qty_base": 7e6,
+                "q_mass": float("nan"),
+                "q_vol": 7e6,
                 "family": "volume",
             },
         ]
     )
     out = seam._with_overview_quantities(overview, pts)
     assert float(out.loc[0, "q_mass"]) == 5_003_000.0  # t — never 5e9 + 3e3
-    assert float(out.loc[0, "q_vol"]) == 7_000_000.0  # m³
+    assert float(out.loc[0, "q_vol"]) == 7_000_000.0  # m³ — never blended with mass
 
 
 # ── snapshot: a REAL per-(UF, year) frame backs the ano × UF heatmap ───────────
@@ -879,7 +883,8 @@ def test_snapshot_pevs_threads_basket_window_and_value_column(monkeypatch):
                     "code": "1",
                     "reference_year": 2020,
                     "total_qty_native": 2e3,
-                    "total_qty_base": 2e3,
+                    "q_mass": 2e3,
+                    "q_vol": float("nan"),
                     "family": "massa",
                 }
             ]
@@ -909,7 +914,7 @@ def test_snapshot_pevs_threads_basket_window_and_value_column(monkeypatch):
     assert recorded["pts"]["y0"] == 2018 and recorded["pts"]["y1"] == 2021
     assert recorded["pts"]["value_column"] == "val_real_ipca_brl"
     assert recorded["ov"]["source"] == "ibge_pevs"
-    # overview carries the q_mass derived from product_ts.total_qty_base.
+    # overview carries the q_mass summed from product_ts' per-family q_mass column.
     assert float(out["overview_ts"].loc[0, "q_mass"]) == 2e3
     assert out["value_column"] == "val_real_ipca_brl"
 
@@ -991,9 +996,9 @@ def test_snapshot_comex_brl_request_serves_real_brl_column_not_usd(monkeypatch):
     assert "R$" in out["value_label"] and "FOB" in out["value_label"]
 
 
-def test_with_overview_quantities_none_when_product_ts_has_no_family():
-    """When product_ts lacks the 'family' column (or is empty), q_mass/q_vol fall
-    back to None rather than crashing the groupby."""
+def test_with_overview_quantities_none_when_product_ts_has_no_quantity_columns():
+    """When product_ts lacks the q_mass/q_vol columns (or is empty), q_mass/q_vol
+    fall back to None rather than crashing the groupby."""
     seam = _seam()
     overview = pd.DataFrame([{"reference_year": 2022, "total_value": 1.0}])
     out = seam._with_overview_quantities(overview, pd.DataFrame([{"reference_year": 2022}]))

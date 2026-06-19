@@ -60,7 +60,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
     return () => {
       alive = false;
     };
-  }, [database, activeCode, hasGeo, conv.currency, conv.correction, summary?.startDate, summary?.endDate]);
+  }, [database, activeCode, hasGeo, conv.currency, conv.correction, summary?.startDate, summary?.endDate, setUfRank]);
 
   if (!activeCode) {
     return (

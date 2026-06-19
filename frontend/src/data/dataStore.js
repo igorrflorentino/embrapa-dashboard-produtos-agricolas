@@ -123,6 +123,29 @@ const SNAPSHOT_SHAPE = [
   ['quality', Array.isArray],
 ];
 
+// Nested-ROW contracts (contracts.js): the top-level check above only proves the
+// COLLECTIONS exist, so a backend field RENAME inside a row (e.g. productTS `q` →
+// `quantity`) would slip through and silently blank a chart. When a collection is
+// non-empty, assert its first row carries the keys downstream reads. Empty
+// collections skip the check (no row to inspect), so a legitimately empty banco
+// still validates. The keys here are the load-bearing ones serializers.py emits.
+const ROW_SHAPE = [
+  ['overviewTS', ['y', 'v']],
+  ['quality', ['id', 'count']],
+  ['productTS', ['y', 'v']],
+];
+
+// First data row of a collection: arrays → [0]; productTS (object keyed by code)
+// → the first series' first point.
+function firstRow(coll) {
+  if (Array.isArray(coll)) return coll[0];
+  if (coll && typeof coll === 'object') {
+    const k = Object.keys(coll)[0];
+    return k ? (coll[k] || [])[0] : undefined;
+  }
+  return undefined;
+}
+
 function assertSnapshotShape(snap) {
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
     throw new Error('Resposta de /api/snapshot inesperada (não é um objeto BancoSnapshot).');
@@ -130,6 +153,15 @@ function assertSnapshotShape(snap) {
   const bad = SNAPSHOT_SHAPE.filter(([k, ok]) => !ok(snap[k])).map(([k]) => k);
   if (bad.length) {
     throw new Error(`Resposta de /api/snapshot fora do contrato (campos inválidos: ${bad.join(', ')}).`);
+  }
+  const drifted = ROW_SHAPE
+    .filter(([k, fields]) => {
+      const row = firstRow(snap[k]);
+      return row && fields.some((f) => !(f in row));
+    })
+    .map(([k]) => k);
+  if (drifted.length) {
+    throw new Error(`Resposta de /api/snapshot com linhas fora do contrato (${drifted.join(', ')}).`);
   }
 }
 

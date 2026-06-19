@@ -100,6 +100,53 @@ def _check_inflation_pivot_codes(settings: Settings) -> CheckResult:
         return CheckResult("Inflation pivot codes", False, str(exc)[:120])
 
 
+# The canonical daily PTAX "venda" series (BRL per foreign unit): SGS 1 = USD,
+# 21619 = EUR. The Gold FX/deflation math keys off these EXACT codes. The earlier
+# 3694/4393(/20542) were wrong (3694 is annual, 4393 is not a BRL-per-unit rate),
+# and a stale local .env carrying them parses fine but silently regresses every
+# Gold ``val_yearfx_*`` column on the next ingest + rebuild — plausible-looking
+# drift that slips review, which is exactly what this probe pre-empts.
+_CANONICAL_CURRENCY_CODES = {"USD": "1", "EUR": "21619"}
+_KNOWN_BAD_CURRENCY_CODES = {
+    "3694": "annual USD, not the daily PTAX series",
+    "4393": "not a BRL-per-unit FX rate",
+    "20542": "deprecated/incorrect EUR series",
+}
+
+
+def _check_currency_series_codes(settings: Settings) -> CheckResult:
+    """BCB_CURRENCY_SERIES must resolve to the canonical daily PTAX codes.
+
+    A stale .env with the historical wrong codes (3694/4393/20542) parses fine but
+    silently regresses the Gold FX columns on the next ingest + rebuild — the kind
+    of plausible drift doctor exists to catch before it ships.
+    """
+    try:
+        currency = settings.currency_series_map  # {code: label}
+        by_label = {label.upper(): code for code, label in currency.items()}
+        problems = [
+            f"{label} should be series {want}, got {by_label.get(label)!r}"
+            for label, want in _CANONICAL_CURRENCY_CODES.items()
+            if by_label.get(label) != want
+        ]
+        bad = {code: why for code in currency if (why := _KNOWN_BAD_CURRENCY_CODES.get(code))}
+        if bad:
+            problems.append(f"known-wrong codes present: {bad}")
+        if problems:
+            return CheckResult(
+                "Currency series codes",
+                False,
+                "; ".join(problems) + " → Gold val_yearfx_* would regress",
+            )
+        return CheckResult(
+            "Currency series codes",
+            True,
+            f"canonical {by_label} (USD=1, EUR=21619)",
+        )
+    except Exception as exc:
+        return CheckResult("Currency series codes", False, str(exc)[:120])
+
+
 # The SIDRA variable codes silver_ibge_pam pivots, keyed to their dbt role (the
 # pam_variable_* vars in dbt_project.yml). Each MUST be ingested (present in
 # PAM_VARIABLE_CODES) or its Gold column comes out empty. Mirror dbt_project.yml:
@@ -528,6 +575,7 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
 _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("env", _check_env),
     ("inflation-codes", _check_inflation_pivot_codes),
+    ("currency-codes", _check_currency_series_codes),
     ("pam-variable-codes", _check_pam_variable_codes),
     ("adc", _check_adc),
     ("bq", _check_bq),

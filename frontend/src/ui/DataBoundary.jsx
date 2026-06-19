@@ -35,9 +35,13 @@ function useBancoData(bancoId) {
 
 function FreshnessBanner({ banco, latestAt, onReload }) {
   const [reloading, setReloading] = useDBState(false);
+  // Guard the post-await setState: the banner can unmount (banco switch) while the
+  // reload promise is in flight, and a setState on an unmounted component leaks.
+  const mounted = React.useRef(true);
+  useDBEffect(() => () => { mounted.current = false; }, []);
   const handle = () => {
     setReloading(true);
-    Promise.resolve(onReload()).then(() => setReloading(false));
+    Promise.resolve(onReload()).then(() => { if (mounted.current) setReloading(false); });
   };
   return (
     <div className="fresh-banner">
@@ -77,9 +81,12 @@ function DataLoading({ banco }) {
 
 function DataError({ banco, message, onRetry }) {
   const [retrying, setRetrying] = useDBState(false);
+  // Same unmount guard as FreshnessBanner: the error card can unmount mid-retry.
+  const mounted = React.useRef(true);
+  useDBEffect(() => () => { mounted.current = false; }, []);
   const handle = () => {
     setRetrying(true);
-    Promise.resolve(onRetry()).then(() => setRetrying(false));
+    Promise.resolve(onRetry()).then(() => { if (mounted.current) setRetrying(false); });
   };
   return (
     <div className="derr-wrap">

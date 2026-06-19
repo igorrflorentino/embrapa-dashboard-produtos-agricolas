@@ -150,9 +150,9 @@ _Nada ainda — `1.0.0` é o release atual._
     `serving_comtrade_annual`, `serving_quality_by_source`) in the `serving` dataset
     (`BQ_SERVING_DATASET`), materialized as **tables** (cutting scan from GB→MB).
   - **dbt `core/`**: conformed dimensions `dim_date`, `dim_geo_br`; and the SCD
-    Type 2 view `dim_commodity_scd2` (gated by `--vars 'enable_curation: true'`).
+    Type 2 view `dim_code_industrialization_scd2` (gated by `--vars 'enable_curation: true'`).
   - **Dynamic curation (SCD2)**: append-only log
-    `research_inputs.commodity_processing_stage_log` (author captured from the IAP
+    `research_inputs.code_industrialization_log` (author captured from the IAP
     header `X-Goog-Authenticated-User-Email`); the UI does a live LEFT JOIN of the
     static mart to the classification dimension.
   - **Python BFF** (`src/embrapa_commodities/serving/`, optional `serving` extra):
