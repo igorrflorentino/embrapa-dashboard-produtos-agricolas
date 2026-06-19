@@ -33,5 +33,13 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
+# dbt hashes every project file to build its manifest state-check, reading each
+# with Python's locale-default encoding. On Windows that default is cp1252, which
+# crashes (UnicodeDecodeError on byte 0x81) over the UTF-8 pt-BR bytes the models
+# and YAML carry — a plain `dbt parse|build|test` then fails locally while CI
+# (Linux, already UTF-8) stays green. Python UTF-8 Mode forces UTF-8 for file I/O,
+# matching CI. No-op where UTF-8 is already the default; respects an explicit override.
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+
 cd "$REPO_ROOT/dbt"
 exec uv run dbt "$@"
