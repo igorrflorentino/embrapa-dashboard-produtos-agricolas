@@ -249,7 +249,7 @@ CSS vars (`--viz-*`, fonts) read via `getComputedStyle`. Sparkline stays SVG (ti
 | `LineChart` | scatter (lines+fill) | `data:[{y,[valueKey]}], valueKey='v', label, color, height` |
 | `MultiLineChart` | scatter ×N | `series:[{name,color,data:[{y,v}]}], valueKey, label` |
 | `BarChart` | bar (horizontal) | `data:[{uf|name,[valueKey]}], valueKey='value', color` |
-| `Donut` | pie hole=.6 | `data:[{name,color,[valueKey]}], valueKey='share'` |
+| `Donut` | stayed SVG (share ring, no Plotly trace) | `data:[{name,color,[valueKey]}], valueKey='share'` |
 | `StackedArea` | scatter stackgroup | `series:[{name,color,data:[{y,[valueKey]}]}], valueKey` |
 | `YoYBars` | bar (signed) | `data:[{y,[valueKey]}]` (compute YoY) |
 | `BrazilTileMap` | heatmap/scatter on 8×9 grid | `data:[{uf,col,row,region,[valueKey]}], valueKey, onSelect?` |
@@ -264,7 +264,8 @@ CSS vars (`--viz-*`, fonts) read via `getComputedStyle`. Sparkline stays SVG (ti
 | `MonthlyOverlay` | scatter ×2 | `series:[{name,color,data:[12]}], months, markers` |
 | `LagBars` | bar (signed) | `profile:[{lag,corr}], best` |
 
-Use a Plotly **partial bundle** (`plotly.js-dist-min` or custom) — scatter/bar/pie/sankey/heatmap.
+Use a Plotly **partial bundle** (custom, `plotly.js/lib/core` + traces) — scatter/bar/sankey/heatmap.
+(No `pie`: the `Donut` stayed SVG, so no chart emits a Plotly pie trace — see `plotlyBundle.js`.)
 Shared layout helper: transparent bg, CSS-var colors, `displayModeBar` on hover, pan/zoom enabled,
 unified hover, pt-BR number locale.
 
