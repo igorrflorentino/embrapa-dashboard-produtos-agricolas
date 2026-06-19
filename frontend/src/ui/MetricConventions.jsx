@@ -13,8 +13,15 @@
 //     correction: 'Nominal'|'IPCA'|'IGP-M'|'IGP-DI',
 //     units: { mass: 't', volume: 'm³', … }  // display unit per family }
 
-function MetricConventions({ value, onChange, families }) {
+function MetricConventions({ value, onChange, families, banco }) {
   const set = (patch) => onChange({ ...value, ...patch });
+
+  // Currency + monetary-correction only apply to a banco that carries a monetary
+  // value (window.isMonetaryBanco — derived from its metrics/baseCurrency). All
+  // current bancos are monetary, so this is forward-looking: a future physical-only
+  // source (e.g. a pure energy-volume series) would show the unit groups only,
+  // never an inapplicable moeda/correção the user can't meaningfully change.
+  const monetary = window.isMonetaryBanco ? window.isMonetaryBanco(banco) : true;
 
   // Physical-unit groups are REGISTRY-DRIVEN: one group per family present
   // in the data (familiesInBasket). Mass/volume keep their dedicated conv
@@ -74,30 +81,34 @@ function MetricConventions({ value, onChange, families }) {
       </div>
 
       <div className="mc-groups">
-        <Group
-          label="Moeda"
-          mono
-          options={[
-            // BRL/USD/EUR are real Gold columns (BCB PTAX series).
-            { id: 'BRL', sub: 'R$'  },
-            { id: 'USD', sub: 'US$' },
-            { id: 'EUR', sub: '€'   },
-          ]}
-          active={value.currency}
-          onPick={setCurrency}
-        />
+        {monetary && (
+          <Group
+            label="Moeda"
+            mono
+            options={[
+              // BRL/USD/EUR are real Gold columns (BCB PTAX series).
+              { id: 'BRL', sub: 'R$'  },
+              { id: 'USD', sub: 'US$' },
+              { id: 'EUR', sub: '€'   },
+            ]}
+            active={value.currency}
+            onPick={setCurrency}
+          />
+        )}
 
-        <Group
-          label="Correção monetária"
-          options={[
-            { id: 'Nominal', sub: 'sem corr.' },
-            { id: 'IPCA',    sub: 'IBGE' },
-            { id: 'IGP-M',   sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-M'), disabledReason: UNSERVED_REASON },
-            { id: 'IGP-DI',  sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-DI'), disabledReason: UNSERVED_REASON },
-          ]}
-          active={value.correction}
-          onPick={(id) => set({ correction: id })}
-        />
+        {monetary && (
+          <Group
+            label="Correção monetária"
+            options={[
+              { id: 'Nominal', sub: 'sem corr.' },
+              { id: 'IPCA',    sub: 'IBGE' },
+              { id: 'IGP-M',   sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-M'), disabledReason: UNSERVED_REASON },
+              { id: 'IGP-DI',  sub: 'FGV', disabled: isUnservedCombo(value.currency, 'IGP-DI'), disabledReason: UNSERVED_REASON },
+            ]}
+            active={value.correction}
+            onPick={(id) => set({ correction: id })}
+          />
+        )}
 
         {physFams.map(fid => {
           const fam = window.UNIT_FAMILIES[fid];

@@ -129,6 +129,24 @@ def _states(summary: dict | None) -> tuple[str, ...]:
     return tuple(states) if states else ()
 
 
+def _flow_from_summary(summary: dict | None) -> str | None:
+    """The server-side flow filter (export/import) from the FilterMenu selection.
+
+    Flow is the ONE filter the snapshot applies server-side: the trade marts are
+    pre-aggregated over flow, so picking a direction re-queries (product/geo/year
+    stay client-side in dataFilters.js). ``'all'`` (or absent) → ``None``, which
+    sums every flow — the historical default, so an unfiltered request stays
+    byte-identical to before this param existed. Only trade marts carry ``flow``;
+    the seam passes this ONLY in its trade branch.
+    """
+    if not summary:
+        return None
+    flow = summary.get("flow")
+    if not flow or flow == "all":
+        return None
+    return flow
+
+
 def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     """Return the per-banco serving snapshot for the active conventions + filters.
 
@@ -151,6 +169,9 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     value_col, value_label = effective_value_column(banco, conv)
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
+    # Flow (export/import) is server-side — the trade marts are pre-aggregated over
+    # flow, so it re-queries here (None = sum every flow, the historical default).
+    flow = _flow_from_summary(summary)
 
     products = gateway.fetch_products(banco_id)
     quality = gateway.fetch_quality_by_source(source=banco_id)
@@ -161,7 +182,7 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         # snapshot value is served IN the requested currency instead of always USD
         # (which the frontend used to cross-convert via a mock FX rate).
         product_ts = gateway.fetch_product_timeseries(
-            banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col
+            banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col, flow=flow
         )
         overview_fn = (
             gateway.fetch_comex_overview
@@ -170,18 +191,18 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         )
         code_kw = "ncm_codes" if banco_id == "mdic_comex" else "cmd_codes"
         overview_ts = overview_fn(
-            year_start=y0, year_end=y1, value_column=value_col, **{code_kw: codes}
+            year_start=y0, year_end=y1, value_column=value_col, flow=flow, **{code_kw: codes}
         )
         uf_data = (
             gateway.fetch_comex_by_uf(
-                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col
+                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col, flow=flow
             )
             if banco_id == "mdic_comex"
             else None
         )
         uf_yearly = (
             gateway.fetch_comex_by_uf_yearly(
-                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col
+                year_start=y0, year_end=y1, ncm_codes=codes, value_column=value_col, flow=flow
             )
             if banco_id == "mdic_comex"
             else None

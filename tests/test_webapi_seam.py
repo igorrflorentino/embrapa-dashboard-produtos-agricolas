@@ -274,6 +274,65 @@ def test_snapshot_renames_comex_uf_yearly_value_column(monkeypatch):
     assert float(uy.loc[0, "total_value"]) == 9e6
 
 
+# ── snapshot: the server-side flow (export/import) filter ──────────────────────
+
+
+def _capture_flow_readers(seam, monkeypatch):
+    """Stub the snapshot's trade readers; each records the `flow` kwarg it got."""
+    empty = pd.DataFrame()
+    captured = {}
+
+    def spy(name):
+        def _fn(*a, **k):
+            captured[name] = k.get("flow", "MISSING")
+            return empty
+
+        return _fn
+
+    for name in (
+        "fetch_products",
+        "fetch_quality_by_source",
+        "fetch_quality_timeseries",
+        "fetch_quality_by_product",
+    ):
+        monkeypatch.setattr(seam.gateway, name, lambda *a, **k: empty)
+    for name in (
+        "fetch_product_timeseries",
+        "fetch_comex_overview",
+        "fetch_comex_by_uf",
+        "fetch_comex_by_uf_yearly",
+    ):
+        monkeypatch.setattr(seam.gateway, name, spy(name))
+    return captured
+
+
+def test_snapshot_threads_flow_to_every_trade_reader(monkeypatch):
+    """A picked direction reaches all four COMEX snapshot readers, so the overview,
+    per-product series and per-UF map stay mutually consistent under the filter."""
+    seam = _seam()
+    captured = _capture_flow_readers(seam, monkeypatch)
+    seam.snapshot("mdic_comex", {"currency": "USD", "correction": "Nominal"}, {"flow": "import"})
+    assert captured["fetch_product_timeseries"] == "import"
+    assert captured["fetch_comex_overview"] == "import"
+    assert captured["fetch_comex_by_uf"] == "import"
+    assert captured["fetch_comex_by_uf_yearly"] == "import"
+
+
+def test_snapshot_flow_all_and_absent_resolve_to_none(monkeypatch):
+    """'all' and an absent flow both → None (sum every flow), so an unfiltered
+    request is byte-identical to before the param existed."""
+    seam = _seam()
+    conv = {"currency": "USD", "correction": "Nominal"}
+
+    captured = _capture_flow_readers(seam, monkeypatch)
+    seam.snapshot("mdic_comex", conv, {"flow": "all"})
+    assert captured["fetch_comex_overview"] is None
+
+    captured = _capture_flow_readers(seam, monkeypatch)
+    seam.snapshot("mdic_comex", conv, None)
+    assert captured["fetch_comex_overview"] is None
+
+
 # ── geo_yearly: basket-scoped per-(UF, year) cube ──────────────────────────────
 
 
@@ -972,7 +1031,9 @@ def test_snapshot_comex_brl_request_serves_real_brl_column_not_usd(monkeypatch):
             [{"state_acronym": "SP", "reference_year": 2022, "total_value_usd": 3.0}]
         )
 
-    def fake_pts(source, year_start=None, year_end=None, codes=(), value_column=None, uf_codes=()):
+    def fake_pts(
+        source, year_start=None, year_end=None, codes=(), value_column=None, uf_codes=(), flow=None
+    ):
         recorded["pts"] = value_column
         return pd.DataFrame()
 

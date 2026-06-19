@@ -777,6 +777,26 @@ def test_product_timeseries_sums_value_and_native_quantity():
     assert by_name["year_start"].value == 2000
 
 
+def test_product_timeseries_applies_flow_filter_for_trade():
+    """A trade source's per-product series narrows to one direction so it stays
+    consistent with a flow-filtered overview (the mart carries `flow` in its grain)."""
+    query, params = sql.product_timeseries(
+        "p.serving.serving_comex_annual",
+        code_column="ncm_code",
+        year_start=2020,
+        flow="export",
+    )
+    assert "flow = @flow" in query
+    assert {p.name: p for p in params}["flow"].value == "export"
+
+
+def test_product_timeseries_no_flow_adds_no_predicate():
+    """The default (flow=None) sums every flow — production marts (no `flow`
+    column) always take this path, so the predicate must stay absent."""
+    query, _ = sql.product_timeseries("p.serving.serving_pevs_annual", code_column="product_code")
+    assert "flow = @flow" not in query.lower()
+
+
 def test_product_columns_allowlist_blocks_injection():
     with pytest.raises(ValueError, match="not allowed"):
         sql.products(

@@ -957,6 +957,7 @@ def product_timeseries(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    flow: str | None = None,
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
 
@@ -972,6 +973,11 @@ def product_timeseries(
     ``uf_codes`` optionally narrows to the producing/origin UFs (``state_acronym``)
     — the PEVS/COMEX marts carry it; empty/absent = national. Used by the
     cross-source views' per-UF scoping (PEVS prod_mass/volume + farm-gate price).
+
+    ``flow`` optionally narrows to one trade direction (export/import) — only the
+    trade marts carry a ``flow`` column, so callers pass it ONLY for trade sources
+    (the seam's trade branch); production marts always receive ``None``, leaving the
+    predicate absent. ``None`` sums every flow (the historical default).
     """
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
@@ -980,6 +986,7 @@ def product_timeseries(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
+    _flow(conditions, params, flow)
     sql = f"""
         select
             {code_column}       as code,

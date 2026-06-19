@@ -481,6 +481,12 @@
   gap: 28px;
   padding: 22px 28px;
 }
+/* Single-column variant: the Período row used to split Período | Faixa de valor,
+   but the per-row value filter has no backed path (the snapshot can't count/filter
+   by line value), so it is hidden rather than shown disabled. With only the Período
+   column left, collapse to one track so it spans full width instead of sitting
+   half-width in the 2-col grid. */
+.fm-row-solo { grid-template-columns: 1fr; }
 .fm-row-2 .fm-divider {
   width: 1px;
   background: linear-gradient(180deg,

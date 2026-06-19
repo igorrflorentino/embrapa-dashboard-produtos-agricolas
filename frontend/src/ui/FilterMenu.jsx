@@ -374,6 +374,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const schema    = window.filterSchemaFor ? window.filterSchemaFor(banco) : null;
   const isLive    = bancoMeta ? bancoMeta.status === 'live' : true;
   const hasGeo    = !!(bancoMeta && bancoMeta.provides && bancoMeta.provides.includes('geo'));
+  // Capability gates — every section is now dynamic: it renders ONLY when the active
+  // banco provides the dimension (so the user never sees an option it can't use).
+  const provides    = (bancoMeta && bancoMeta.provides) || [];
+  const hasProduct  = provides.includes('product');
+  const hasQuality  = provides.includes('quality');
+  const hasFlow     = provides.includes('flow');
+  const flowOptions = (hasFlow && window.flowOptionsFor) ? window.flowOptionsFor(banco) : null;
 
   // ── Per-banco descriptors so the live menu is CORRECT for each banco
   // (no longer always PEVS): currency symbol/column, geo granularity, the
@@ -383,16 +390,14 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const showMunis = geoLevel === 'municipio';
   const baseCcy   = (bancoMeta && bancoMeta.baseCurrency) || 'BRL';
   const sym       = (window.CURRENCY_FX && window.CURRENCY_FX[baseCcy] && window.CURRENCY_FX[baseCcy].symbol) || 'R$';
-  const fmtVal    = (v) => window.fmtCompactValue(v, sym);
   const dims      = (schema && schema.dims) || [];
   const prodDim   = dims.find(d => d.type === 'products' || d.type === 'multi-tree');
   const prodLabel = (prodDim && prodDim.label) || `Produtos · ${bancoMeta ? bancoMeta.short : 'PEVS'}`;
-  // Dimensions declared for this banco that the functional sections above do
-  // not yet expose (e.g. fluxo, via, país, reporter). Shown read-only so the
-  // schema is never silently ignored on a live banco.
-  const COVERED_TYPES = ['products','multi-tree','date-range','period-value','value-range','geo-cascade','flags'];
-  const COVERED_IDS   = ['uf_origem'];
-  const extraDims = dims.filter(d => !COVERED_TYPES.includes(d.type) && !COVERED_IDS.includes(d.id));
+  // The menu renders ONLY what the active banco can filter on: each section below is
+  // capability-gated (hasProduct/hasGeo/hasQuality/hasFlow), so a dim the banco
+  // doesn't provide, or one declared-but-not-backed (via/CFOP/CNAE/partner — summed
+  // away in Silver), simply never appears. `fluxo` is the one banco-specific dim
+  // wired functional (server-side); see window.bancoFilterDims for the contract.
 
   // Active banco's product universe (NOT the hardcoded PEVS list) so the picker
   // shows the right commodities/codes per banco (NCM for COMEX, HS6 for
@@ -491,6 +496,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [valueMin, setValueMin] = useState(null);
   const [valueMax, setValueMax] = useState(null);
 
+  // Fluxo (export/import) — a SERVER-SIDE filter: the trade snapshot is pre-aggregated
+  // over flow, so picking a direction re-fetches (the data layer's setFlow bridge).
+  // 'all' = every flow. Only trade bancos (hasFlow) render the control.
+  const [flow, setFlow] = useState((value && value.flow) || 'all');
+
   // (eligibility memos + cascade-pruning effects now live in useGeoCascade above)
 
   // Seed the panel from the currently-APPLIED filter every time it opens, so
@@ -515,6 +525,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       // claims an active filter that changes nothing.
       setValueMin(null);
       setValueMax(null);
+      setFlow(v.flow || 'all');
     }
     wasOpen.current = open;
     // Intentionally keyed ONLY on `open`: this re-syncs the DRAFT filter state from
@@ -610,7 +621,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       muniSliceable,
     });
     const qualityChip = window.chipFmt.quality([...flags], QUALITY.length, qualityLabelOf);
-    return { products: prodChip, period: periodChip, valueRange: valueChip, geo: geoChip, quality: qualityChip };
+    const fluxoChip = hasFlow
+      ? (flow === 'all' ? 'Todos os fluxos' : ((flowOptions.find(o => o.value === flow) || {}).label || flow))
+      : null;
+    return { products: prodChip, period: periodChip, valueRange: valueChip, geo: geoChip, quality: qualityChip, fluxo: fluxoChip };
   };
 
   const applyAndClose = () => {
@@ -632,6 +646,9 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
         muniNames: [...munis].map(c => (MUNIS.find(m => m.code === c) || {}).name).filter(Boolean),
         startDate, endDate,
         valueMin:  vMin,  valueMax: vMax,
+        // Fluxo (server-side): omitted when 'all' so the summary/URL stay clean and
+        // the data-layer bridge reads it as "every flow" (the default).
+        flow: flow !== 'all' ? flow : undefined,
       });
     }
     close();
@@ -648,6 +665,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     applyQuick('all');
     setValueMin(null);
     setValueMax(null);
+    setFlow('all');
     [setQProducts, setQFlags, setQNations, setQRegions, setQStates, setQMunis].forEach(fn => fn(''));
   };
 
@@ -683,7 +701,8 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
             <>
             <div className="fm-body">
 
-            {/* ─── 01 · COMMODITIES ─────────────────────────── */}
+            {/* ─── 01 · COMMODITIES (gated on the `product` capability) ─────── */}
+            {hasProduct && (
             <section className="fm-section">
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
@@ -723,23 +742,49 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 />
               </div>
             </section>
+            )}
+
+            {/* ─── FLUXO (export/import) — FUNCTIONAL, server-side filter; trade bancos only.
+                 Picking a direction re-fetches the flow-aggregated snapshot (the only
+                 server-side filter; everything else narrows the loaded snapshot). ─── */}
+            {hasFlow && flowOptions && (
+            <section className="fm-section">
+              <div className="fm-section-head">
+                <div className="fm-section-head-l">
+                  <span className="fm-section-label">Fluxo</span>
+                </div>
+                <span className="fm-section-meta">
+                  {flow === 'all'
+                    ? 'todos os fluxos'
+                    : ((flowOptions.find(o => o.value === flow) || {}).label || '')}
+                </span>
+              </div>
+              <div className="fm-section-inner">
+                <div className="seg">
+                  {flowOptions.map(o => (
+                    <button key={o.value} type="button"
+                            className={'seg-opt ' + (flow === o.value ? 'on' : '')}
+                            aria-pressed={flow === o.value}
+                            onClick={() => setFlow(o.value)}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            )}
 
             {/* ─── 02 · PERÍODO + FINANCEIRO ────────────────── */}
             <section className="fm-section">
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
-                  <span className="fm-section-label"><span className="fm-section-num">02</span>Período &amp; faixa de valor</span>
+                  <span className="fm-section-label"><span className="fm-section-num">02</span>Período</span>
                 </div>
                 <span className="fm-section-meta">
-                  {formatMonth(startDate)}–{formatMonth(endDate)} ·{' '}
-                  {valueMin == null && valueMax == null
-                    ? 'sem limite por linha'
-                    : 'valor por linha: ' +
-                      (valueMin != null ? fmtVal(valueMin) : '—') + ' – ' +
-                      (valueMax != null ? fmtVal(valueMax) : '—')}
+                  {formatMonth(startDate)}–{formatMonth(endDate)}
                 </span>
               </div>
-            <div className="fm-row-2">
+            <div className="fm-row-2 fm-row-solo">
               {/* PERÍODO */}
               <div className="fm-col">
                 <div className="fm-col-head">
@@ -773,45 +818,6 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                     <input id="fm-end" className="fm-date" type="month"
                            value={endDate} min={startDate} max={`${yearEnd}-12`}
                            onChange={(e) => onDateChange('end', e.target.value)}/>
-                  </div>
-                </div>
-              </div>
-
-              <div className="fm-divider" aria-hidden="true"></div>
-
-              {/* FAIXA DE VALOR (filtro por linha) — DESABILITADO.
-                  O recorte por valor de linha exige uma contagem/filtragem por
-                  linha no backend (/api/snapshot recebe apenas banco+moeda+
-                  correção). Enquanto não existe esse caminho, o controle fica
-                  desabilitado com uma nota honesta, em vez de exibir um chip
-                  "ativo" que não altera nenhum gráfico, KPI ou exportação. */}
-              <div className="fm-col fm-col-disabled" aria-disabled="true">
-                <div className="fm-col-head">
-                  <span className="fm-section-label">Faixa de valor por linha</span>
-                  <span className="fm-section-meta">indisponível</span>
-                </div>
-
-                <p className="fm-col-help">
-                  O recorte por valor monetário de cada linha ainda não está
-                  disponível — o backend não expõe contagem/filtragem por linha de
-                  valor. Para não induzir conclusões equivocadas, o controle está
-                  desabilitado. Use o período e a cesta de produtos para recortar a
-                  seleção; a moeda e correção de exibição ficam em
-                  <strong> Convenções métricas</strong>.
-                </p>
-
-                <div className="fm-sub">
-                  <span className="fm-sub-label">Limites</span>
-                  <div className="fm-range-row">
-                    <div className="fm-range-field">
-                      <label htmlFor="fm-vmin">Mínimo ({sym})</label>
-                      <input id="fm-vmin" type="number" placeholder="indisponível" value="" disabled />
-                    </div>
-                    <div className="fm-arrow">{I.arrow}</div>
-                    <div className="fm-range-field">
-                      <label htmlFor="fm-vmax">Máximo ({sym})</label>
-                      <input id="fm-vmax" type="number" placeholder="indisponível" value="" disabled />
-                    </div>
                   </div>
                 </div>
               </div>
@@ -916,7 +922,8 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
             </section>
             )}
 
-            {/* ─── 04 · QUALIDADE DOS DADOS ─────────────────── */}
+            {/* ─── 04 · QUALIDADE DOS DADOS (gated on the `quality` capability) ─── */}
+            {hasQuality && (
             <section className="fm-section">
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
@@ -954,39 +961,6 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   selectedCount={filteredFlags.filter(q => flags.has(q.flag)).length}
                   totalCount={filteredFlags.length}
                 />
-              </div>
-            </section>
-
-            {/* ─── BANCO-SPECIFIC DIMENSIONS (read-only) ─────── */}
-            {extraDims.length > 0 && (
-            <section className="fm-section">
-              <div className="fm-section-head">
-                <div className="fm-section-head-l">
-                  <span className="fm-section-label"><span className="fm-section-num">+</span>Dimensões específicas · {bancoMeta ? bancoMeta.short : ''}</span>
-                </div>
-                <span className="fm-section-meta">{extraDims.length} {extraDims.length === 1 ? 'dimensão' : 'dimensões'} · em breve filtráveis</span>
-              </div>
-              <div className="fm-section-inner">
-                <div className="fm-extra-note">
-                  <span className="fm-extra-badge">Em breve</span>
-                  <span>Dimensões próprias deste banco. Já declaradas no schema e ficarão filtráveis quando a Gold completa for publicada.</span>
-                </div>
-                <div className="fm-extra-grid">
-                  {extraDims.map(d => (
-                    <div key={d.id} className="fm-extra-dim">
-                      <div className="fm-extra-dim-head">
-                        <span className="fm-extra-dim-label">{d.label}</span>
-                        <span className="fm-extra-dim-type">{d.type}</span>
-                      </div>
-                      <code className="fm-extra-dim-col">{d.column}</code>
-                      {d.options && (
-                        <div className="fm-extra-opts">
-                          {d.options.map(o => <span key={o} className="fm-extra-opt">{o}</span>)}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
               </div>
             </section>
             )}

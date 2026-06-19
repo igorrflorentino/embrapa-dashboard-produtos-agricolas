@@ -196,6 +196,8 @@ function AppShell({
       pb: arrParam(summary?.basket), fl: arrParam(summary?.flags), st: arrParam(summary?.states),
       vmn: summary?.valueMin ?? '', vmx: summary?.valueMax ?? '',
       sd: summary?.startDate || '', ed: summary?.endDate || '',
+      // Server-side flow filter (export/import); omitted when 'all'/absent.
+      fx: summary?.flow && summary.flow !== 'all' ? summary.flow : '',
       xs: isCrossView && crossState?.series ? crossState.series.map(r => `${r.b}:${r.m}`).join('|') : '',
       xm: isCrossView ? (crossState?.mode || '') : '',
       xy0: isCrossView && crossState?.y0 ? crossState.y0 : '',

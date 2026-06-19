@@ -165,15 +165,20 @@ def source_meta():
 
 @api.get("/snapshot")
 def snapshot():
-    """Full per-banco BancoSnapshot for the chosen currency×correction. No
-    year/basket/state filtering — the reused dataFilters.js narrows client-side
-    (the marts are pre-aggregated/small). currency+correction pick the deflated
-    value column server-side (the scientific core — see contract map §0.2)."""
+    """Full per-banco BancoSnapshot for the chosen currency×correction. Year/basket/
+    state filtering is client-side (the reused dataFilters.js narrows the small,
+    pre-aggregated marts). The ONE server-side filter is ``flow`` (export/import):
+    the trade snapshot is pre-aggregated OVER flow, so a direction must re-query —
+    absent/``all`` sums every flow (the historical default). currency+correction pick
+    the deflated value column server-side (the scientific core — see contract map
+    §0.2)."""
     banco = request.args.get("banco", "")
     conv, err = _conversion_or_400()
     if err:
         return err
-    return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, None)))
+    flow = request.args.get("flow")
+    summary = {"flow": flow} if flow else None
+    return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, summary)))
 
 
 @api.get("/product-uf")
