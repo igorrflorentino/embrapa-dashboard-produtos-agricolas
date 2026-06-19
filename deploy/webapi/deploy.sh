@@ -147,17 +147,49 @@ gcloud run deploy "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
   --port 8080
 
 # 5) Enforce the invoker IAM check (--no-allow-unauthenticated alone is NOT enough;
-#    the invoker-iam-disabled annotation can silently bypass IAM). Best-effort.
+#    the invoker-iam-disabled annotation can silently bypass IAM). Best-effort SET…
 if ! gcloud run services update "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
       --invoker-iam-check >/dev/null 2>&1; then
   echo "WARNING: could not set --invoker-iam-check (gcloud may be too old)." >&2
   echo "         Upgrade gcloud and run: gcloud run services update $SERVICE_NAME --region $REGION --invoker-iam-check" >&2
 fi
 
+# 5b) …then VERIFY the end state and HARD-FAIL if IAM is bypassed. The best-effort
+#     SET above can silently no-op (old gcloud, unwatched CI logs), so assert the
+#     actual annotation: invoker-iam-disabled=true means IAM is bypassed even with
+#     --no-allow-unauthenticated, leaving the service open to any authenticated
+#     Google principal. Verifying the state (not just the SET) is what closes the gap.
+IAM_DISABLED="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
+  --format='value(metadata.annotations."run.googleapis.com/invoker-iam-disabled")' 2>/dev/null || echo '')"
+if [ "$IAM_DISABLED" = "true" ]; then
+  echo "ERROR: run.googleapis.com/invoker-iam-disabled=true — invoker IAM is BYPASSED." >&2
+  echo "       Fix: gcloud run services update $SERVICE_NAME --region $REGION --invoker-iam-check" >&2
+  exit 1
+fi
+
 # 6) Sanity-check the service is NOT public.
 if gcloud run services get-iam-policy "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
      --format='value(bindings.members)' 2>/dev/null | grep -Eq 'allUsers|allAuthenticatedUsers'; then
   echo "WARNING: an allUsers/allAuthenticatedUsers invoker binding is present — the service is PUBLIC." >&2
+fi
+
+# 6b) Assert Cloud Run DIRECT IAP is actually enabled — it is the trust anchor for
+#     the whole auth model (it overwrites the spoofable plaintext user header with
+#     the verified identity that `edited_by` records). A routine redeploy preserves
+#     the annotation, but a freshly (re)created or renamed service could land
+#     WITHOUT it and "succeed" while trusting a forgeable header. HARD-FAIL if it is
+#     not on — UNLESS the operator opted into the future external-LB topology
+#     (WEBAPI_INGRESS set), where IAP sits on the load balancer, not the service.
+if [ -z "$INGRESS" ]; then
+  IAP_ENABLED="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
+    --format='value(metadata.annotations."run.googleapis.com/iap-enabled")' 2>/dev/null || echo '')"
+  if [ "$IAP_ENABLED" != "true" ]; then
+    echo "ERROR: run.googleapis.com/iap-enabled is not 'true' on $SERVICE_NAME — direct" >&2
+    echo "       IAP is the trust anchor for curation author capture. Enable it:" >&2
+    echo "       gcloud run services update $SERVICE_NAME --region $REGION --iap" >&2
+    echo "       (or set WEBAPI_INGRESS for the external-LB + IAP topology.)" >&2
+    exit 1
+  fi
 fi
 
 URL="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \

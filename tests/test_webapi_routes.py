@@ -696,6 +696,35 @@ def test_curation_post_invalid_iap_assertion_is_403(monkeypatch):
     assert resp.status_code == 403
 
 
+def test_curation_post_on_cloud_run_without_audience_is_403(monkeypatch):
+    """Fail closed: on Cloud Run (K_SERVICE set) with no IAP_AUDIENCE, the in-app
+    IAP JWT verification is disarmed, so the curation author would come from the
+    spoofable plaintext header — refuse the write (403) even with a dev fallback."""
+    monkeypatch.setenv("K_SERVICE", "embrapa-dashboard")
+    client = _client(monkeypatch, curation_dev_author="dev@embrapa.br")  # iap_audience=None
+    resp = client.post(
+        "/api/curation/code-level",
+        json={"source": "x", "code": "1", "level": "bruta"},
+    )
+    assert resp.status_code == 403
+    assert "IAP_AUDIENCE" in resp.get_json()["error"]
+
+
+def test_curation_post_on_cloud_run_with_audience_passes_auth(monkeypatch):
+    """With IAP_AUDIENCE set on Cloud Run the fail-closed guard does NOT trip; the
+    request proceeds to the normal IAP-assertion verification (no signed JWT here
+    → 403 InvalidIapAssertion, i.e. the guard did not short-circuit on K_SERVICE)."""
+    monkeypatch.setenv("K_SERVICE", "embrapa-dashboard")
+    client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
+    resp = client.post(
+        "/api/curation/code-level",
+        json={"source": "x", "code": "1", "level": "bruta"},
+    )
+    assert resp.status_code == 403
+    # The error is the JWT-verification failure, NOT the K_SERVICE fail-closed note.
+    assert "IAP_AUDIENCE" not in resp.get_json()["error"]
+
+
 def test_api_error_handler_returns_json_not_html(monkeypatch):
     """An unhandled error in a read endpoint returns parseable JSON (so the SPA's
     fetch layer doesn't choke on Flask's default HTML 500 and retry-loop)."""

@@ -85,6 +85,24 @@ def test_check_inflation_pivot_codes_fails_when_code_not_ingested(settings: Sett
     assert "189" in result.detail or "190" in result.detail
 
 
+def test_check_currency_series_codes_pass(settings: Settings) -> None:
+    """The canonical daily PTAX codes (USD=1, EUR=21619) → ok."""
+    settings.bcb_currency_series = "1:USD,21619:EUR"
+    result = doctor._check_currency_series_codes(settings)
+    assert result.ok is True
+    assert "USD=1" in result.detail
+
+
+def test_check_currency_series_codes_fails_on_stale_wrong_codes(settings: Settings) -> None:
+    """The historical wrong USD code (3694, annual) → fail with a clear reason.
+
+    The fixture defaults bcb_currency_series to the bad '3694:USD' — exactly the
+    stale-.env drift that would silently regress the Gold val_yearfx_* columns."""
+    result = doctor._check_currency_series_codes(settings)  # fixture = "3694:USD"
+    assert result.ok is False
+    assert "3694" in result.detail
+
+
 def test_check_adc_returns_project_when_ok(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.google.auth.default") as auth:
         auth.return_value = (MagicMock(), "test-project")
@@ -458,6 +476,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
     assert [r.name for r in results] == [
         ".env parsed",
         "Inflation pivot codes",
+        "Currency series codes",
         "PAM variable codes",
         "ADC credentials",
         "BigQuery reachable",
