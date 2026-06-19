@@ -46,10 +46,6 @@ from embrapa_commodities.core import http as core_http
 
 logger = logging.getLogger(__name__)
 
-# Base path holding the per-year NCM files. The full URL is
-# ``{base}/{EXP|IMP}_{year}.csv``.
-DEFAULT_BASE_URL = "https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm"
-
 # Export columns (11). Import is a strict superset adding the two below.
 EXP_COLUMNS: list[str] = [
     "CO_ANO",

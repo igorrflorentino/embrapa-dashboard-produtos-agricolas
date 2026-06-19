@@ -41,16 +41,6 @@ export function get(key) {
   return e && e.state === 'ready' ? e.data : null;
 }
 
-/** 'idle' | 'pending' | 'ready' | 'error'. */
-export function stateOf(key) {
-  return cache.get(key)?.state || 'idle';
-}
-
-export function errorOf(key) {
-  const e = cache.get(key);
-  return e && e.state === 'error' ? e.error : null;
-}
-
 /** Kick off a fetch for key (idempotent — no-op if already pending/ready).
  *  urlFactory is a function so the URL is only built when actually fetching. */
 export function ensure(key, urlFactory) {

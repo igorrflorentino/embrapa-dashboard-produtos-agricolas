@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pandas as pd
-
 from embrapa_commodities.gcp.storage import (
     _LIFECYCLE_RULES,
     _apply_protections,
     ensure_bucket,
-    upload_dataframe_as_parquet,
 )
 
 
@@ -177,20 +174,3 @@ def test_lifecycle_transitions_are_prefix_scoped() -> None:
         assert prefix_set <= archive_trail or prefix_set <= backups, (
             f"transition rule mixes retention groups: {prefixes}"
         )
-
-
-def test_upload_dataframe_as_parquet_writes_via_blob() -> None:
-    """Parquet upload uses upload_from_file (in-memory, no local disk)."""
-    client = MagicMock()
-    bucket = MagicMock()
-    blob = MagicMock()
-    client.bucket.return_value = bucket
-    bucket.blob.return_value = blob
-
-    df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
-
-    uri = upload_dataframe_as_parquet(client, "bkt", "path/to/file.parquet", df)
-
-    assert uri == "gs://bkt/path/to/file.parquet"
-    bucket.blob.assert_called_once_with("path/to/file.parquet")
-    blob.upload_from_file.assert_called_once()

@@ -44,7 +44,6 @@ class SetupHelper:
     GCP_CONFIG = """# GCP Configuration
 GCP_PROJECT_ID={project_id}
 GCS_BUCKET={bucket}
-GCS_LANDING_PREFIX=landing
 BQ_LOCATION=us-central1
 GCP_AUTH_METHOD={auth_method}
 

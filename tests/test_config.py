@@ -152,7 +152,6 @@ def test_product_codes_raises_when_empty() -> None:
 # ─── defaults sanity ────────────────────────────────────────────────────────
 def test_defaults_match_documented_values() -> None:
     s = _make_settings()
-    assert s.gcs_landing_prefix == "landing"
     assert s.bq_location == "US"
     assert s.bq_bronze_ibge_dataset == "bronze_ibge"
     assert s.bq_bronze_bcb_dataset == "bronze_bcb"
