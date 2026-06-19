@@ -7,14 +7,14 @@
 // the selected year window. We never present a whole-acervo figure as if it were
 // scoped to the active product/UF/year filter.
 
-// Maps each data_quality_flag id to its key in window.QUALITY_TS.
-// Most are just the lowercased id, but BOUNDARY_HISTORIC is stored as
-// `boundary` in the time series — without this map that band renders
-// flat-zero and the temporal stack never reaches 100%.
+// Maps each data_quality_flag id to its key in window.QUALITY_TS (the qualityTs
+// contract keys — see contracts.js). Every real Gold flag is just the lowercased
+// id; the map is kept explicit so a future flag must be added deliberately rather
+// than silently rendering flat-zero in the temporal stack.
 const QTS_KEY = {
-  OK: 'ok', ESTIMATED: 'estimated',
+  OK: 'ok',
   MISSING_VALUE: 'missing_value', MISSING_QUANTITY: 'missing_quantity',
-  OUTLIER: 'outlier', BOUNDARY_HISTORIC: 'boundary',
+  MISSING_WEIGHT: 'missing_weight', INCOMPLETE: 'incomplete',
 };
 
 function ViewQuality({ summary, database }) {

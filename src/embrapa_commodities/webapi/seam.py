@@ -220,30 +220,33 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
 
 
 def _with_overview_quantities(overview_ts: pd.DataFrame, product_ts: pd.DataFrame) -> pd.DataFrame:
-    """Attach q_mass / q_vol per year, derived from the per-product series.
+    """Attach q_mass / q_vol per year, summed from the per-product series.
 
     ``production_overview`` sums only the value; quantities (which must never be
-    summed across families) are aggregated here from ``product_ts`` by family —
-    q_mass for the 'massa' family, q_vol for 'volume'. Sums ``total_qty_base``
-    (t / m³), NOT the native quantity: trade sources mix kg- and t-native codes
-    inside the 'massa' family, so only the base unit is summable (for PEVS/PAM
-    native == base, so nothing changes there).
+    summed across families) come from ``product_ts``' per-family base columns —
+    ``q_mass`` (the 'massa' family) and ``q_vol`` ('volume'), already CASE-split
+    upstream (sql.product_timeseries) so mass and volume are never blended and a
+    count/energy/area family contributes to neither. Sums the base unit (t / m³),
+    NOT the native quantity: trade sources mix kg- and t-native codes inside the
+    'massa' family, so only the base unit is summable (for PEVS/PAM native ==
+    base, so nothing changes there).
     """
     if overview_ts is None or overview_ts.empty:
         return overview_ts
     out = overview_ts.copy()
-    if product_ts is None or product_ts.empty or "family" not in product_ts.columns:
+    has_q = product_ts is not None and (
+        "q_mass" in product_ts.columns or "q_vol" in product_ts.columns
+    )
+    if product_ts is None or product_ts.empty or not has_q:
         out["q_mass"] = None
         out["q_vol"] = None
         return out
-    by_fam = (
-        product_ts.groupby(["reference_year", "family"])["total_qty_base"]
-        .sum()
-        .unstack(fill_value=0)
-    )
+    by_year = product_ts.groupby("reference_year")
     out = out.set_index("reference_year")
-    out["q_mass"] = by_fam.get("massa") if "massa" in by_fam.columns else 0.0
-    out["q_vol"] = by_fam.get("volume") if "volume" in by_fam.columns else 0.0
+    # groupby.sum() skips the NaNs that the CASE columns carry for the other
+    # family, so each total is purely its own family's base quantity.
+    out["q_mass"] = by_year["q_mass"].sum() if "q_mass" in product_ts.columns else 0.0
+    out["q_vol"] = by_year["q_vol"].sum() if "q_vol" in product_ts.columns else 0.0
     return out.reset_index()
 
 

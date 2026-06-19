@@ -62,8 +62,8 @@ function buildQuickRanges(yearStart, yearEnd) {
 }
 
 const QUALITY_CHIP = {
-  OK: 'ok', ESTIMATED: 'info', MISSING_VALUE: 'warn',
-  MISSING_QUANTITY: 'info', BOUNDARY_HISTORIC: 'muted', OUTLIER: 'err',
+  OK: 'ok', MISSING_VALUE: 'warn', MISSING_QUANTITY: 'info',
+  MISSING_WEIGHT: 'warn', INCOMPLETE: 'muted',
 };
 const QUALITY = (window.QUALITY_FLAGS || []).map(f => ({
   flag: f.id,

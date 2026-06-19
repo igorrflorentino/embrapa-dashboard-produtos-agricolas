@@ -612,6 +612,37 @@ def test_trade_flows_groups_by_origin_and_dest():
     assert "any_value(reporter_name)" in query
     assert "any_value(partner_name)" in query
     assert "sum(val_yearfx_usd)" in query
+    # No reporter pin unless asked: the COMEX caller relies on this.
+    assert "reporter_iso_a3 = @reporter" not in query
+
+
+def test_trade_builders_pin_reporter_when_given():
+    """Both trade builders accept an optional reporter pin (Brazil for the
+    multi-reporter COMTRADE mart): the identifier is allowlist-validated and the
+    value is bound, exactly like the cross-source path."""
+    q_partner, p_partner = sql.trade_by_partner(
+        "p.serving.serving_comtrade_annual",
+        partner_code_column="partner_code",
+        partner_name_column="partner_name",
+        code_column="cmd_code",
+        reporter_column="reporter_iso_a3",
+        reporter_value="BRA",
+    )
+    assert "reporter_iso_a3 = @reporter" in q_partner
+    assert {p.name: p for p in p_partner}["reporter"].value == "BRA"
+
+    q_flows, p_flows = sql.trade_flows(
+        "p.serving.serving_comtrade_annual",
+        origin_code_column="reporter_code",
+        origin_name_column="reporter_name",
+        dest_code_column="partner_code",
+        dest_name_column="partner_name",
+        code_column="cmd_code",
+        reporter_column="reporter_iso_a3",
+        reporter_value="BRA",
+    )
+    assert "reporter_iso_a3 = @reporter" in q_flows
+    assert {p.name: p for p in p_flows}["reporter"].value == "BRA"
 
 
 def test_trade_flows_narrows_to_origin_ufs_when_uf_codes_given():
@@ -730,9 +761,15 @@ def test_product_timeseries_sums_value_and_native_quantity():
     assert "group by product_code, reference_year" in query
     assert "sum(val_real_ipca_brl)" in query
     assert "sum(qty_native)" in query
-    # qty_base (t / m³) rides along: it is the ONE quantity the snapshot scales
-    # for display — trade sources mix kg- and t-native codes inside 'massa'.
-    assert "sum(qty_base)       as total_qty_base" in query
+    # Per-family base quantity via CASE: mass (t) and volume (m³) are summed
+    # SEPARATELY, so a mixed-unit code never blends units and a count/energy/area
+    # family contributes to neither (no dimensionless mis-scale downstream).
+    assert "case when family = 'massa' then qty_base end" in query
+    assert "as q_mass" in query
+    assert "case when family = 'volume' then qty_base end" in query
+    assert "as q_vol" in query
+    # qty_base is never summed across families anymore — the old single column is gone.
+    assert "as total_qty_base" not in query
     assert "any_value(family)" in query
     assert "product_code in unnest(@codes)" in query.lower()
     by_name = {p.name: p for p in params}
@@ -1395,6 +1432,64 @@ def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
     assert "group by partner_code" in recorded["query"]
     assert "case when flow = 'export'" in recorded["query"]
     assert recorded["params"]["codes"].values == ["440710"]
+    # The multi-reporter mart is pinned to Brazil so the partner ranking is
+    # 'Brazil's trade with X', not 'the world's trade with X' (the all-reporters
+    # years 2022-2023 would otherwise multi-count).
+    assert "reporter_iso_a3 = @reporter" in recorded["query"]
+    assert recorded["params"]["reporter"].value == "BRA"
+
+
+def test_fetch_comtrade_flows_pins_reporter_to_brazil(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_flows(year_start=2022, cmd_codes=("440710",), flow="export")
+
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "group by reporter_code, partner_code" in recorded["query"]
+    # Reporter pinned to Brazil → the Sankey shows Brazil's own links, not every
+    # reporter's flows blended (the all-reporters years would surface non-BR origins).
+    assert "reporter_iso_a3 = @reporter" in recorded["query"]
+    assert recorded["params"]["reporter"].value == "BRA"
+    assert recorded["params"]["flow"].value == "export"
+
+
+def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
+    """COMEX is Brazil's own customs (no reporter concept), so its readers must NOT
+    add a reporter predicate — only the multi-reporter COMTRADE mart needs it."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comex_partners(year_start=2022, ncm_codes=("08012100",))
+
+    assert "reporter" not in recorded["query"]
+    assert "reporter" not in recorded["params"]
 
 
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):

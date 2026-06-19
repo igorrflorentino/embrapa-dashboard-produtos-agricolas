@@ -35,22 +35,24 @@ def test_serialize_snapshot_shapes_and_scales():
         ),
         "product_ts": pd.DataFrame(
             [
-                # mass: 2_000_000_000 R$ → 2000 mi; 5_000_000 t (base) → 5000 mil t
+                # mass: 2_000_000_000 R$ → 2000 mi; 5_000_000 t (q_mass) → 5000 mil t
                 {
                     "code": "001",
                     "reference_year": 2020,
                     "total_value": 2_000_000_000,
                     "total_qty_native": 5_000_000,
-                    "total_qty_base": 5_000_000,  # PEVS: native == base (t)
+                    "q_mass": 5_000_000,  # massa CASE column (PEVS: native == base, t)
+                    "q_vol": float("nan"),
                     "family": "massa",
                 },
-                # volume: 6_000_000 m³ (base) → 6 mi m³
+                # volume: 6_000_000 m³ (q_vol) → 6 mi m³
                 {
                     "code": "777",
                     "reference_year": 2020,
                     "total_value": 1_000_000,
                     "total_qty_native": 6_000_000,
-                    "total_qty_base": 6_000_000,  # PEVS: native == base (m³)
+                    "q_mass": float("nan"),
+                    "q_vol": 6_000_000,  # volume CASE column (PEVS: native == base, m³)
                     "family": "volume",
                 },
             ]
@@ -109,8 +111,8 @@ def test_serialize_snapshot_shapes_and_scales():
 
 def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
     """Regression: COMEX/COMTRADE quantities are mostly kg-NATIVE. The serializer
-    must scale total_qty_base (already t / m³ in the marts) — scaling the native
-    kg as if tonnes displayed trade quantities 1000× too large."""
+    must scale the per-family base (q_mass, already t / m³ in the marts) — scaling
+    the native kg as if tonnes displayed trade quantities 1000× too large."""
     snap = {
         "products": None,
         "product_ts": pd.DataFrame(
@@ -121,7 +123,8 @@ def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
                     "reference_year": 2022,
                     "total_value": 1_000_000_000,
                     "total_qty_native": 5_000_000_000,
-                    "total_qty_base": 5_000_000,
+                    "q_mass": 5_000_000,
+                    "q_vol": float("nan"),
                     "family": "massa",
                 },
                 # t-native NCM in the same family: base == native
@@ -130,7 +133,8 @@ def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
                     "reference_year": 2022,
                     "total_value": 2_000_000,
                     "total_qty_native": 3_000,
-                    "total_qty_base": 3_000,
+                    "q_mass": 3_000,
+                    "q_vol": float("nan"),
                     "family": "massa",
                 },
             ]
@@ -151,9 +155,42 @@ def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
         "value_label": "Valor (US$ FOB)",
     }
     out = s.serialize_snapshot(snap)
-    assert out["productTS"]["08012100"][0]["q"] == 5000.0  # mil t, from qty_base
+    assert out["productTS"]["08012100"][0]["q"] == 5000.0  # mil t, from q_mass
     assert out["productTS"]["44012200"][0]["q"] == 3.0
     assert out["overviewTS"][0]["q_mass"] == 5003.0  # mil t — never kg/1e3
+
+
+def test_product_ts_emits_null_q_for_count_energy_area_families():
+    """M1 regression: a count/energy/area family has NO display scale, so q is
+    None — not a raw count divided by 1e6 (dimensionless nonsense). The value is
+    still emitted; the family passes through so the UI can label it honestly."""
+    snap = {
+        "products": None,
+        "product_ts": pd.DataFrame(
+            [
+                # 'contagem' (un): q_mass/q_vol are NaN (the CASE columns match no
+                # family), and qty_base is a raw count that must NOT be scaled.
+                {
+                    "code": "01051100",
+                    "reference_year": 2022,
+                    "total_value": 4_000_000,
+                    "total_qty_native": 5_000_000,
+                    "q_mass": float("nan"),
+                    "q_vol": float("nan"),
+                    "family": "contagem",
+                },
+            ]
+        ),
+        "overview_ts": None,
+        "uf_data": None,
+        "quality": None,
+        "value_label": "Valor (US$ FOB)",
+    }
+    out = s.serialize_snapshot(snap)
+    pt = out["productTS"]["01051100"][0]
+    assert pt["q"] is None  # NOT 5_000_000 / 1e6 = 5.0 dimensionless nonsense
+    assert pt["family"] == "contagem"  # raw family passes through for honest labelling
+    assert pt["v"] == 4.0  # value still emitted (mi)
 
 
 def test_serialize_snapshot_empty_is_safe():

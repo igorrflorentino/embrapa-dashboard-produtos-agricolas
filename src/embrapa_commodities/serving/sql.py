@@ -166,6 +166,26 @@ def _flow(
         params.append(bigquery.ScalarQueryParameter("flow", "STRING", flow))
 
 
+def _reporter(
+    conditions: list[str],
+    params: list[bigquery.ScalarQueryParameter],
+    reporter_column: str | None,
+    reporter_value: str | None,
+) -> None:
+    """Optional `<reporter_column> = @reporter` predicate pinning the COMTRADE
+    reporter side to one country (Brazil). The COMTRADE marts are multi-reporter,
+    so the Brazil-perspective views (partner ranking, flow Sankey, per-country
+    cross metrics) must filter the reporter; COMEX (Brazil's own customs) leaves it
+    unset. The VALUE is bound; the identifier is allowlist-validated (it is never
+    request-derived — callers pass an internal literal column name)."""
+    if reporter_value is not None:
+        reporter_column = _validate_column(
+            reporter_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
+        )
+        conditions.append(f"{reporter_column} = @reporter")
+        params.append(bigquery.ScalarQueryParameter("reporter", "STRING", reporter_value))
+
+
 def production_overview(
     table: str,
     *,
@@ -618,6 +638,8 @@ def trade_by_partner(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    reporter_column: str | None = None,
+    reporter_value: str | None = None,
     rank_by: str = "value",
 ) -> tuple[str, list]:
     """Partner ranking with export/import split (backs partnerData).
@@ -628,6 +650,12 @@ def trade_by_partner(
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
     COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
     origin is a reporter country, not a Brazilian UF). Empty/absent = no filter.
+
+    ``reporter_*`` optionally pins the REPORTER side to one country (Brazil) — the
+    COMTRADE mart is multi-reporter (it carries every reporter's bilateral flows,
+    incl. the all-reporters years), so without this the ranking would conflate
+    'Brazil's trade with partner X' with 'the world's trade with X'. COMEX is
+    Brazil's own customs (no reporter concept), so its caller leaves it unset.
 
     ``rank_by`` ∈ {value, weight, price} picks the ORDER BY dimension so the
     top-N cut (applied by the serializer) is the top-N *by that metric*: ``value``
@@ -648,6 +676,7 @@ def trade_by_partner(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
+    _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
             {partner_code_column}                                  as partner_code,
@@ -678,6 +707,8 @@ def trade_flows(
     codes: Sequence[str] = (),
     flow: str | None = None,
     uf_codes: Sequence[str] = (),
+    reporter_column: str | None = None,
+    reporter_value: str | None = None,
 ) -> tuple[str, list]:
     """Origin->destination links for the Sankey (backs flowData).
 
@@ -687,6 +718,11 @@ def trade_flows(
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
     COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
     origin is a reporter country, not a Brazilian UF). Empty/absent = no filter.
+
+    ``reporter_*`` optionally pins the REPORTER side to Brazil for the multi-reporter
+    COMTRADE mart, so the Sankey shows Brazil's own export/import links rather than
+    every reporter's flows blended together (which surfaced non-Brazil origin nodes
+    for the all-reporters years). COMEX (Brazil's own customs) leaves it unset.
     """
     origin_code_column = _validate_column(
         origin_code_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
@@ -706,6 +742,7 @@ def trade_flows(
     _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
+    _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
             {origin_code_column}             as origin_code,
@@ -923,11 +960,14 @@ def product_timeseries(
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
 
-    ``total_qty_native`` is the statistical quantity in ``unit_native``;
-    ``total_qty_base`` is the family base unit (t for massa, m³ for volume) and
-    is the ONE the snapshot scales for display — native units differ per code
-    (kg vs t NCMs in COMEX), so only the base quantity is summable/scalable.
-    ``family`` rides along for the UI.
+    ``total_qty_native`` is the statistical quantity in ``unit_native`` (used by
+    the PEVS cross-source views, whose codes are single-family). ``q_mass`` and
+    ``q_vol`` are the family base unit (t for 'massa', m³ for 'volume') summed
+    PER FAMILY via CASE — mass and volume are NEVER summed together, and a
+    count/energy/area family contributes to neither (it has no display scale), so
+    the snapshot can never mis-scale a non-mass/volume quantity nor blend units
+    for a mixed-unit code. ``family`` (the any_value tag) rides along for the UI;
+    a code is conceptually single-family.
 
     ``uf_codes`` optionally narrows to the producing/origin UFs (``state_acronym``)
     — the PEVS/COMEX marts carry it; empty/absent = national. Used by the
@@ -946,7 +986,8 @@ def product_timeseries(
             reference_year,
             sum({value_column}) as total_value,
             sum(qty_native)     as total_qty_native,
-            sum(qty_base)       as total_qty_base,
+            sum(case when family = 'massa' then qty_base end)  as q_mass,
+            sum(case when family = 'volume' then qty_base end) as q_vol,
             any_value(family)   as family
         from `{table}`
         {_where(conditions)}
@@ -1015,12 +1056,7 @@ def cross_annual(
         _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
-    if reporter_value is not None:
-        reporter_column = _validate_column(
-            reporter_column, ALLOWED_DIMENSION_COLUMNS, "dimension column"
-        )
-        conditions.append(f"{reporter_column} = @reporter")
-        params.append(bigquery.ScalarQueryParameter("reporter", "STRING", reporter_value))
+    _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
             reference_year,
