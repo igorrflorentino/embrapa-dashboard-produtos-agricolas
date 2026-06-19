@@ -342,6 +342,17 @@ window.canonCurrencyFor = (id) => {
   const b = window.bancoById ? window.bancoById(id) : null;
   return (b && b.baseCurrency) || 'BRL';
 };
+// Does this banco carry a monetary value? → the currency + monetary-correction
+// conventions (MetricConventions) only apply when true. DERIVED so a new banco
+// needs no extra flag: monetary iff it declares a base currency OR any metric in
+// the `currency` family. (All 5 current bancos are monetary; this gates out a
+// future physical-only source, e.g. a pure energy-volume series.) The 'monetary'
+// CAPABILITIES token (views.js) labels it for missingCapsLabel / the schema lint.
+window.isMonetaryBanco = (b) => {
+  const banco = (typeof b === 'string') ? (window.bancoById && window.bancoById(b)) : b;
+  if (!banco) return false;
+  return !!(banco.baseCurrency || (banco.metrics || []).some(m => m.family === 'currency'));
+};
 // Business-semantic descriptor for a banco DIMENSION (origin/dest/partner geo
 // + product code scheme). Declared per banco in `dimensions` — adapters/views
 // read labels & universe kind from HERE instead of branching on bancoId.

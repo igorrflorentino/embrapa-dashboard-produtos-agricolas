@@ -215,6 +215,11 @@ window.CAPABILITIES = {
   // Agricultural-production capabilities (IBGE PAM and any future crop banco).
   area:    { label: 'área plantada / colhida' },
   yield:   { label: 'rendimento (produtividade kg/ha)' },
+  // Monetary: the banco carries a value in currency, so the currency +
+  // monetary-correction conventions apply. DERIVED, not stored per banco —
+  // see window.isMonetaryBanco (bancos.js); listed here so the filter-schema
+  // lint and missingCapsLabel resolve the token.
+  monetary: { label: 'valor monetário (moeda / correção)' },
 };
 
 // { applies: bool, missing: ['flow', ...] } — does view work for banco?

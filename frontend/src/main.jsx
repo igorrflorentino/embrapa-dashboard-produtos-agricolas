@@ -116,6 +116,8 @@ function readStateFromURL() {
     valueMax: window.urlDecodeNum(q, 'vmx'),
     startDate: q.get('sd') || null,
     endDate: q.get('ed') || null,
+    // Server-side flow filter (export/import); absent → all flows.
+    flow: q.get('fx') || null,
   };
   let crossState = window.DEFAULT_CROSS_STATE;
   const xs = q.get('xs');
@@ -294,6 +296,14 @@ function Dashboard() {
     if (window.dataStore?.setConventions) window.dataStore.setConventions(conventions);
   }, [conventions]);
 
+  // Flow → data layer bridge: fluxo (export/import) is the ONE server-side FILTER
+  // (the trade snapshot is pre-aggregated over flow), so a direction change re-fetches
+  // — unlike the client-side product/geo/quality filters that narrow the loaded
+  // snapshot. Absent/'all' sums every flow (production bancos never set it).
+  useEffect(() => {
+    if (window.dataStore?.setFlow) window.dataStore.setFlow(summary.flow || 'all');
+  }, [summary.flow]);
+
   // Banco switch (changeDatabase): the prototype's bancos.js/MetricConventions doc
   // promised two resets the React port had dropped. Without them a banco switch
   // left BOTH the previous banco's filter basket and display currency in place:
@@ -389,6 +399,9 @@ function Dashboard() {
       vmx: summary?.valueMax ?? '',
       sd: summary?.startDate || '',
       ed: summary?.endDate || '',
+      // Server-side flow filter (export/import); omitted when 'all'/absent so a
+      // production banco's URL is unchanged and reload restores the exact direction.
+      fx: summary?.flow && summary.flow !== 'all' ? summary.flow : '',
       xs: isCross && crossState?.series ? crossState.series.map((r) => `${r.b}:${r.m}`).join('|') : '',
       xm: isCross ? crossState?.mode || '' : '',
       xy0: isCross && crossState?.y0 ? crossState.y0 : '',
@@ -441,6 +454,7 @@ function Dashboard() {
             setter), which now re-triggers the snapshot load. Live data views only. */}
         {isDataView && banco.status === 'live' && window.MetricConventions && (
           <window.MetricConventions
+            banco={banco}
             value={conventions || window.DEFAULT_CONVENTIONS}
             onChange={setConventions}
             families={window.familiesInBasket

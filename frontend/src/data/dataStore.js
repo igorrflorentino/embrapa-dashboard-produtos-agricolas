@@ -36,7 +36,12 @@ const notify = () => {
 
 // Active display conventions (currency/correction drive the value column).
 let activeConv = { currency: 'BRL', correction: 'IPCA' };
-const convKey = () => `${activeConv.currency}|${activeConv.correction}`;
+// Active flow (export/import) — a SERVER-SIDE filter, NOT a display convention: the
+// trade marts are pre-aggregated over flow, so a direction is part of the snapshot's
+// cache key + request, exactly like the value column. 'all' (the default) sums every
+// flow, so a production banco (no flow) and an unfiltered trade request are unchanged.
+let activeFlow = 'all';
+const convKey = () => `${activeConv.currency}|${activeConv.correction}|${activeFlow}`;
 const cacheKey = (id) => `${id}|${convKey()}`;
 
 // The Gold table name is NOT duplicated here. Single source of truth: the live
@@ -171,6 +176,9 @@ async function fetchSnapshot(id) {
     currency: activeConv.currency,
     correction: activeConv.correction,
   });
+  // Server-side flow filter: only sent when narrowing (a banco without a flow
+  // dimension, or 'all', omits it → the BFF sums every flow, the historical default).
+  if (activeFlow && activeFlow !== 'all') qs.set('flow', activeFlow);
   const r = await fetch(`${API}/snapshot?${qs}`);
   if (!r.ok) throw new Error(`Falha ao consultar a Gold no BigQuery (HTTP ${r.status}).`);
   const snap = await r.json();
@@ -363,6 +371,19 @@ window.dataStore = {
     notify();
     // Kick the snapshot fetch for the new convention's key so the gate resolves
     // instead of waiting on a [bancoId]-only effect that never re-fires.
+    loadedBancos.forEach((id) => this.load(id));
+  },
+
+  // Flow bridge: the app calls this when the active flow (export/import) changes.
+  // Flow is server-side (the trade snapshot is pre-aggregated over it), so a new
+  // direction is a DIFFERENT cache key — re-fetch every already-loaded banco under
+  // it, exactly like setConventions. 'all'/absent → sum every flow (the default).
+  setFlow(flow) {
+    const next = flow || 'all';
+    if (next === activeFlow) return;
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
+    activeFlow = next;
+    notify();
     loadedBancos.forEach((id) => this.load(id));
   },
 

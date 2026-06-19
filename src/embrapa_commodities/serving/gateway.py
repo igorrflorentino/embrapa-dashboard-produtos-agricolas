@@ -674,11 +674,14 @@ def fetch_product_timeseries(
     codes: Sequence[str] = (),
     value_column: str | None = None,
     uf_codes: Sequence[str] = (),
+    flow: str | None = None,
 ):
     """Annual per-product series (value + native quantity) for a source (backs productTS).
 
     ``uf_codes`` optionally narrows to the producing/origin UFs (cross-source per-UF
-    scoping: PEVS mass/volume + farm-gate price).
+    scoping: PEVS mass/volume + farm-gate price). ``flow`` narrows trade sources to
+    one direction (export/import); production sources must leave it ``None`` (their
+    marts have no ``flow`` column).
     """
     table_name, code_col, _, default_value = _product_source(source)
     settings = get_settings()
@@ -691,6 +694,7 @@ def fetch_product_timeseries(
         year_end=year_end,
         codes=tuple(codes),
         uf_codes=tuple(uf_codes),
+        flow=flow,
     )
     return run_query(sql, params)
 

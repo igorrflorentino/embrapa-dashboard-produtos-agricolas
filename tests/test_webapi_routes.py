@@ -106,6 +106,32 @@ def test_trade_route_unfiltered_passes_summary_none(monkeypatch):
     assert captured["summary"] is None
 
 
+def test_snapshot_route_threads_flow_to_seam(monkeypatch):
+    """/api/snapshot?flow=export reaches the seam as a flow-only summary — flow is
+    the ONE server-side filter (basket/geo/year stay client-side). Absent → None,
+    so an unfiltered snapshot request is unchanged."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_snapshot(banco, conv, summary=None):
+        captured["banco"] = banco
+        captured["summary"] = summary
+        return {}
+
+    monkeypatch.setattr(seam, "snapshot", fake_snapshot)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    resp = client.get("/api/snapshot?banco=mdic_comex&flow=export")
+    assert resp.status_code == 200
+    assert captured["banco"] == "mdic_comex"
+    assert captured["summary"] == {"flow": "export"}
+
+    client.get("/api/snapshot?banco=mdic_comex")
+    assert captured["summary"] is None
+
+
 def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
     """An empty `codes` param ('basket cleared / all') yields no `basket` key, so
     the seam reads it as "no product filter" rather than "none selected"."""

@@ -12,7 +12,7 @@
 // so unrelated params like ?t=… stay inert).
 window.URL_STATE_KEYS = [
   'v', 'b', 'ip', 'cur', 'corr', 'mu', 'vu', 'as',
-  'pb', 'fl', 'st', 'vmn', 'vmx', 'sd', 'ed',
+  'pb', 'fl', 'st', 'vmn', 'vmx', 'sd', 'ed', 'fx',
   'xs', 'xm', 'xy0', 'xy1',
 ];
 

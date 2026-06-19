@@ -82,6 +82,33 @@ describe('dataStore', () => {
     expect(lastUrl).toContain('currency=USD');
   });
 
+  it('re-fetches under a different flow, which drives the cache key + the URL param', async () => {
+    // Flow (export/import) is server-side: the trade snapshot is pre-aggregated over
+    // it, so a direction is part of the cache key + request. 'all' omits the param
+    // (the historical default), a real direction adds flow=<dir>.
+    const f = vi.fn(() => jsonRes(validSnap()));
+    const ds = await loadStore(f);
+
+    await ds.load('ibge_pevs'); // flow 'all'
+    ds.setFlow('export');
+    await ds.load('ibge_pevs'); // export → new key → fetch again
+
+    expect(snapCalls(f)).toBe(2);
+    const urls = f.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/snapshot'));
+    expect(urls[0]).not.toContain('flow='); // 'all' omits the param
+    expect(urls[1]).toContain('flow=export');
+  });
+
+  it("setFlow('all') when already all is a no-op (no extra fetch)", async () => {
+    const f = vi.fn(() => jsonRes(validSnap()));
+    const ds = await loadStore(f);
+    await ds.load('ibge_pevs');
+    expect(snapCalls(f)).toBe(1);
+    ds.setFlow('all'); // unchanged → no re-fetch
+    await settle();
+    expect(snapCalls(f)).toBe(1);
+  });
+
   it('setConventions ALONE re-triggers the load for an already-loaded banco', async () => {
     // F1.1 regression: a deep-linked ?cur/?corr applied AFTER the first load must
     // not wedge the view on the skeleton. setConventions switches to a new cache
