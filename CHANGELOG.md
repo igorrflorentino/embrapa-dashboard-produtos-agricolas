@@ -9,7 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.1.0` é o release atual._
+_Nada ainda — `1.2.0` é o release atual._
+
+---
+
+## [1.2.0] — 2026-06-19
+
+Capability-aware UI: the dashboard now surfaces **only what each data source can
+actually do** — across the single-banco filter menu, the multi-fonte perspectives,
+and the cross-source pickers — so the screen is never cluttered with options that
+lead nowhere. Plus a leaner analytical bundle and a dead-code/doc sweep. No data or
+mart-grain change — the new code runs against the existing prod Gold/serving tables.
+
+### Added
+- **Dynamic, capability-gated filter menu** (#143) — every filter option now loads
+  from a per-banco schema (`FILTER_SCHEMAS`): a dimension appears only when the active
+  banco provides it, instead of always-on filters that silently no-op. The **Fluxo**
+  segment (exportação/importação) became a real **server-side** filter — it re-fetches
+  the snapshot scoped to the chosen flow (the marts already carry `flow`; no dbt change).
+- **Capability-gated multi-fonte perspectives** (#144) — the cross-source perspective
+  picker now **disables** (with a "Demonstração" badge + reason) the perspectives whose
+  source does not exist yet (`cross_chain`/`cross_lag` — they need SEFAZ inter-UF flows /
+  monthly PEVS), via a new `crossViewApplies` gate (data-blocked / source-availability /
+  ≥2 comparable series). The cross-source **series picker** hides banco cards with no
+  comparable metric (PAM) and disables the chips of metric-but-no-data bancos (SEFAZ).
+- **Family-gated commodity pickers** (#145) — the **Coeficiente de exportação** and
+  **Preço: porteira vs. FOB** views (which compare PEVS mass to COMEX weight) now offer
+  ONLY pure-mass commodities and open on a real indicator, instead of defaulting to the
+  always-incompatible "Cesta completa". `/api/catalog` now carries each commodity's PEVS
+  `family` (derived from the existing `_pevs_family_by_commodity` index).
+
+### Changed
+- **Leaner analytical bundle** (#141) — the audit-polish pass trimmed the Plotly
+  payload, raised `webapi` test coverage, and documented `PYTHONUTF8=1` for local dbt
+  on Windows (cp1252 crash fix).
+- **Dead-code & doc-staleness sweep** (#142) — removed backend + frontend orphans,
+  wired the dormant `contracts.js` runtime contract-lint, and fixed 5 stale docs;
+  0 synthetic-data leftovers remain.
 
 ---
 
