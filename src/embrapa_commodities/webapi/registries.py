@@ -17,9 +17,10 @@ Status model (three axes, kept distinct):
   * ``visible`` — backend-controlled visibility (hides a banco everywhere).
   * usage (active/inactive) — derived at render time, never stored.
 
-This repo has four live Gold sources: PEVS, COMEX, COMTRADE (estável/beta) and
-IBGE PAM (beta — ``gold_pam_production``, wired end-to-end incl. the produtividade
-view, #105). Only SEFAZ NFe has no Gold table here, so it stays a ``planejado``
+This repo has five live Gold sources: PEVS, COMEX, COMTRADE (estável/beta), IBGE PAM
+(beta — ``gold_pam_production``, wired end-to-end incl. the produtividade view, #105)
+and IBGE PPM (livestock — ``gold_ppm_production``; PEVS-shaped, NO produtividade).
+Only SEFAZ NFe has no Gold table here, so it stays a ``planejado``
 placeholder (the design system's supported "launch without all bancos" path) — a
 lead decision recorded with the user.
 """
@@ -238,9 +239,10 @@ _UF_DIMS = {
 }
 
 # ── Banco registry ───────────────────────────────────────────────────────────
-# PEVS / COMEX / COMTRADE / PAM are live (verified prod marts; PAM = beta over
-# gold_pam_production). Only SEFAZ NFe has no Gold here → planejado placeholder
-# (lead decision: keep all 5, render "Em breve").
+# PEVS / COMEX / COMTRADE / PAM / PPM are live (Gold marts; PAM = beta over
+# gold_pam_production, PPM = livestock over gold_ppm_production, PEVS-shaped). Only
+# SEFAZ NFe has no Gold here → planejado placeholder (lead decision: keep all 6,
+# render "Em breve").
 BANCOS: list[Banco] = [
     Banco(
         id="ibge_pevs",
@@ -332,6 +334,28 @@ BANCOS: list[Banco] = [
             "years": "1974 → presente",
             "atualizacao": "anual (atualização mensal automática)",
             "granularidade": "lavoura × município × ano",
+        },
+    ),
+    Banco(
+        id="ibge_ppm",
+        short="IBGE PPM",
+        label="IBGE · Pesquisa da Pecuária Municipal",
+        sub="Efetivo dos rebanhos e produção de origem animal (leite, ovos, mel, lã)",
+        domain="Produção pecuária",
+        scope="Brasil · UF · município",
+        source="IBGE",
+        table="gold_ppm_production",
+        # PPM is livestock → NO planted area → NO 'yield' capability (the Produtividade
+        # view stays dark). Capability-wise PEVS-shaped, NOT PAM-shaped. Keep in sync
+        # with the frontend bancos.js provides list.
+        provides=("product", "geo", "quality"),
+        base_currency="BRL",
+        geo_level="municipio",
+        dimensions={**_UF_DIMS, "product": {"codeLabel": "Código PPM"}},
+        cobertura={
+            "years": "1974 → presente",
+            "atualizacao": "anual (atualização mensal)",
+            "granularidade": "rebanho/produto × município × ano",
         },
     ),
     Banco(

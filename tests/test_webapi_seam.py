@@ -1283,6 +1283,17 @@ def test_productivity_none_when_banco_lacks_yield():
     assert seam.productivity("ibge_pevs", "1") is None
 
 
+def test_ppm_is_live_production_shaped_without_yield():
+    """PPM is a live, PEVS-shaped production source: in _LIVE_SOURCES, NOT a trade
+    source, and (livestock → no planted area) has no productivity/'yield'."""
+    from embrapa_commodities.webapi import seam, seam_base
+
+    assert "ibge_ppm" in seam_base._LIVE_SOURCES
+    assert "ibge_ppm" not in seam._TRADE  # BRL-native production, not origin→dest flow
+    assert "ibge_ppm" not in seam._MONTHLY_SOURCES  # annual, like PEVS/PAM
+    assert _seam().productivity("ibge_ppm", None) is None
+
+
 def test_productivity_none_when_no_crops(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
