@@ -321,6 +321,7 @@ function AppShell({
                     <span className="tnl-item"><span className="tnl-dot ok"></span>Disponível</span>
                     {!isMulti && <span className="tnl-item"><span className="tnl-dot soon"></span>Em breve</span>}
                     {!isMulti && <span className="tnl-item"><span className="tnl-dot na"></span>Não se aplica</span>}
+                    {isMulti && <span className="tnl-item"><span className="tnl-dot na"></span>Indisponível</span>}
                   </span>
                 </div>
                 <div className="topnav-menu-grid">
@@ -331,32 +332,54 @@ function AppShell({
                         <span className="topnav-grp-hint">{g.hint}</span>
                       </div>
                       {g.views.map(v => {
-                        const compat = window.viewAppliesTo
+                        // Single-banco views gate on requires×provides (viewAppliesTo);
+                        // cross perspectives on crossViewApplies (data-blocked / source-
+                        // availability / ≥2 comparable series) — see views.js.
+                        const isCrossOpt = !!v.crossBanco;
+                        const cross = isCrossOpt && window.crossViewApplies ? window.crossViewApplies(v.id) : null;
+                        const compat = !isCrossOpt && window.viewAppliesTo
                           ? window.viewAppliesTo(v.id, database)
                           : { applies: true, missing: [] };
-                        const applies = compat.applies;
-                        const supporters = !applies && window.bancosSupporting
+                        const applies = isCrossOpt ? (cross ? cross.usable : true) : compat.applies;
+                        const supporters = (!isCrossOpt && !applies && window.bancosSupporting)
                           ? window.bancosSupporting(v.id)
                           : [];
-                        const state = !applies ? 'na' : (v.status === 'soon' ? 'soon' : 'ok');
+                        const state = !applies
+                          ? (isCrossOpt && cross ? cross.state : 'na')
+                          : (v.status === 'soon' ? 'soon' : 'ok');
+                        // 'preview' (data-blocked) reuses the 'na' grey visual; the badge text
+                        // is what differs ('Demonstração' vs 'Indisponível'/'Não se aplica').
+                        const visualState = state === 'preview' ? 'na' : state;
+                        // Cross perspectives that aren't usable are DISABLED (non-clickable) —
+                        // the user can't pick what they can't use. Single-mode 'na' stays
+                        // clickable (it routes to an explainer naming the supporting bancos).
+                        const disabled = isCrossOpt && !applies;
+                        const tooltip = isCrossOpt
+                          ? (applies ? v.desc : cross.reason)
+                          : (!applies ? `Requer ${window.missingCapsLabel(compat.missing)} — não disponível em ${bancoMeta?.short || 'este banco'}` : v.desc);
                         return (
                           <button
                             key={v.id}
-                            className={'topnav-opt state-' + state + (!onInfoPage && view === v.id ? ' active' : '')}
-                            onClick={() => pickView(v.id)}
+                            className={'topnav-opt state-' + visualState + (!onInfoPage && view === v.id ? ' active' : '')}
+                            disabled={disabled}
+                            onClick={() => { if (!disabled) pickView(v.id); }}
                             role="menuitem"
-                            title={!applies ? `Requer ${window.missingCapsLabel(compat.missing)} — não disponível em ${bancoMeta?.short || 'este banco'}` : v.desc}>
+                            title={tooltip}>
                             <span className="topnav-opt-top">
-                              <span className={'topnav-opt-dot ' + state}></span>
+                              <span className={'topnav-opt-dot ' + visualState}></span>
                               <span className="topnav-opt-label">{v.label}</span>
                               {v.crossBanco && <span className="topnav-opt-tag cross">multi-fonte</span>}
-                              {state === 'soon' && <span className="topnav-opt-tag soon">Em breve</span>}
-                              {state === 'na'   && <span className="topnav-opt-tag na">Não se aplica</span>}
+                              {state === 'soon'    && <span className="topnav-opt-tag soon">Em breve</span>}
+                              {state === 'preview' && <span className="topnav-opt-tag na">Demonstração</span>}
+                              {state === 'na'      && <span className="topnav-opt-tag na">{isCrossOpt ? 'Indisponível' : 'Não se aplica'}</span>}
                             </span>
-                            {!applies && supporters.length > 0 && (
+                            {!isCrossOpt && !applies && supporters.length > 0 && (
                               <span className="topnav-opt-supporters">
                                 disponível em {supporters.map(b => b.short).join(' · ')}
                               </span>
+                            )}
+                            {isCrossOpt && !applies && cross.reason && (
+                              <span className="topnav-opt-supporters">{cross.reason}</span>
                             )}
                           </button>
                         );

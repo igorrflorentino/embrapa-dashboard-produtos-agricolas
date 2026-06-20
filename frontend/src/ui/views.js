@@ -94,11 +94,11 @@ window.VIEW_GROUPS = [
         sources: ['mdic_comex', 'un_comtrade'],
         desc: 'A mesma exportação vista por fontes distintas — MDIC, Comtrade e parceiros. A divergência ao longo do tempo é um diagnóstico de qualidade entre bases.' },
 
-      { id: 'cross_chain', label: 'Balanço da cadeia', status: 'live', requires: [], crossBanco: true, align: 'balanço físico (massa)',
+      { id: 'cross_chain', label: 'Balanço da cadeia', status: 'live', requires: [], crossBanco: true, dataBlocked: true, align: 'balanço físico (massa)',
         sources: ['ibge_pevs', 'sefaz_nf', 'mdic_comex', 'un_comtrade'],
         desc: 'O caminho do que se produz: produção (IBGE) → comércio interno (SEFAZ) → exportação (MDIC) → fatia do mercado mundial (Comtrade). Balanço de oferta reconciliado em massa.' },
 
-      { id: 'cross_lag', label: 'Defasagem safra → embarque', status: 'live', requires: [], crossBanco: true, align: 'mês (intra-anual)',
+      { id: 'cross_lag', label: 'Defasagem safra → embarque', status: 'live', requires: [], crossBanco: true, dataBlocked: true, align: 'mês (intra-anual)',
         sources: ['ibge_pevs', 'mdic_comex'],
         desc: 'Quantos meses os embarques (MDIC, mensal) seguem o pico da safra (IBGE). Perfis mensais sobrepostos e correlação cruzada por defasagem.' },
     ],
@@ -249,3 +249,46 @@ window.bancosSupporting = (viewId) => {
 // Human phrase for a list of missing capabilities.
 window.missingCapsLabel = (missing) =>
   (missing || []).map(c => window.CAPABILITIES[c]?.label || c).join(' · ');
+
+// ── Cross-perspective usability (the multi-fonte analog of viewAppliesTo) ──
+// viewAppliesTo SHORT-CIRCUITS crossBanco views (they don't map to the single
+// active banco's requires/provides), so cross perspectives need their OWN gate to
+// honour "only show what the user can use". Three orthogonal axes, all from data
+// that already exists:
+//   1. DATA-BLOCKED — `dataBlocked:true` (authored: the source data doesn't exist
+//      at the needed shape — SEFAZ inter-UF flows; monthly PEVS — so the view can
+//      only show demo/preview data). A repo fact, not client-detectable.
+//   2. SOURCE-AVAILABILITY — every declared `sources` banco must be visible AND
+//      have data. Unknown maturity (not yet overlaid from /api/source-meta) counts
+//      as LOADING → treated as available so we never flicker-hide a usable view.
+//   3. COMPARABILITY — the free-form comparator (cross_source, no `sources`) needs
+//      ≥2 comparable (banco, metric) refs; allMetricRefs already excludes the
+//      metric-less bancos (PAM/SEFAZ).
+// Returns { usable, state:'ok'|'preview'|'na', reason }. curated:true views are a
+// SEPARATE 'needs activation' concern (they self-guard with an honest empty state
+// and can be live in prod), so they are NOT gated here.
+window.crossViewApplies = (viewId) => {
+  const v = window.viewById ? window.viewById(viewId) : null;
+  if (!v || !v.crossBanco) return { usable: true, state: 'ok', reason: '' };
+  if (v.dataBlocked) {
+    return { usable: false, state: 'preview',
+      reason: 'Demonstração — a fonte necessária ainda não existe no pipeline (valores ilustrativos).' };
+  }
+  const sources = v.sources || [];
+  const missing = sources.filter((id) => {
+    const b = window.bancoById ? window.bancoById(id) : null;
+    if (!b) return true;
+    if (window.isBancoVisible && !window.isBancoVisible(b)) return true;
+    const m = window.maturityMeta ? window.maturityMeta(b) : null;
+    // null/loading maturity → neutral (don't hide on first paint); else need data.
+    return !!(m && m.id !== 'loading' && !m.hasData);
+  });
+  if (missing.length) {
+    const names = missing.map((id) => (window.bancoById(id) || {}).short || id).join(' · ');
+    return { usable: false, state: 'na', reason: 'Fonte indisponível: ' + names + '.' };
+  }
+  if (!sources.length && window.allMetricRefs && window.allMetricRefs().length < 2) {
+    return { usable: false, state: 'na', reason: 'Requer ao menos 2 séries comparáveis.' };
+  }
+  return { usable: true, state: 'ok', reason: '' };
+};

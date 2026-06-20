@@ -141,12 +141,20 @@ function ViewCrossSource({ value, onChange }) {
           action={<span className="caption">{items.length} de {CS_MAX} · mín. 1</span>}
         />
         <div className="xs-picker">
-          {(window.visibleBancos ? window.visibleBancos() : (window.BANCOS || [])).map(b => (
+          {/* Only bancos that can actually contribute a comparable series: a banco with
+              NO metrics (e.g. PAM — not cross-wired) is hidden entirely; a banco with
+              metrics but no data yet (e.g. SEFAZ, planejado) keeps its card but its chips
+              are disabled — the user only picks what they can really compare. */}
+          {(window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []))
+            .filter(b => (b.metrics || []).length)
+            .map(b => {
+            const bancoHasData = window.maturityMeta ? window.maturityMeta(b).hasData : b.status === 'live';
+            return (
             <div key={b.id} className="xs-bank">
               <div className="xs-bank-head">
                 <window.Icon name="database" size={14} />
                 <span className="xs-bank-short">{b.short}</span>
-                {b.status === 'soon' && <span className="xs-bank-tag">{window.bancoAvailability(b)}</span>}
+                {!bancoHasData && <span className="xs-bank-tag">{window.bancoAvailability(b)}</span>}
               </div>
               <div className="xs-bank-metrics">
                 {(b.metrics || []).map(m => {
@@ -154,20 +162,26 @@ function ViewCrossSource({ value, onChange }) {
                   const on = selectedKeys.includes(k);
                   const idx = selectedKeys.indexOf(k);
                   const atCap = !on && refs.length >= CS_MAX;
+                  const blocked = !bancoHasData;        // no data yet → not pickable
+                  const dis = atCap || blocked;
                   return (
                     <button key={k}
-                      className={'xs-chip' + (on ? ' on' : '') + (atCap ? ' disabled' : '')}
-                      onClick={() => !atCap && toggleRef(b.id, m.id)}
+                      className={'xs-chip' + (on ? ' on' : '') + (dis ? ' disabled' : '')}
+                      disabled={blocked}
+                      onClick={() => !dis && toggleRef(b.id, m.id)}
                       style={on ? { background: CS_COLORS[idx % CS_COLORS.length], borderColor: CS_COLORS[idx % CS_COLORS.length], color: '#fff' } : null}
-                      title={`${m.agg} · ${window.METRIC_FAMILIES[m.family]?.label || m.family}`}>
+                      title={blocked
+                        ? `${b.short} ainda não tem dados — disponível quando o banco for liberado.`
+                        : `${m.agg} · ${window.METRIC_FAMILIES[m.family]?.label || m.family}`}>
                       <span className="xs-chip-label">{m.label}</span>
-                      <span className="xs-chip-unit tnum">{window.crossSeries(b.id, m.id, {})?.unit || m.unit}</span>
+                      <span className="xs-chip-unit tnum">{blocked ? m.unit : (window.crossSeries(b.id, m.id, {})?.unit || m.unit)}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -191,10 +205,19 @@ function ViewCrossSource({ value, onChange }) {
                 </select>
               </div>
               <div className="seg xs-seg">
-                {MODES.map(o => (
-                  <button key={o.id} className={'seg-opt ' + (mode === o.id ? 'on' : '')}
-                    onClick={() => set({ mode: o.id })}>{o.label}</button>
-                ))}
+                {MODES.map(o => {
+                  // 'Eixo duplo' can only render with ≤2 distinct unit families; disable it
+                  // (with a reason) when the selection spans more, instead of offering a mode
+                  // that would draw nothing.
+                  const incompatible = o.id === 'dual' && units.length > 2;
+                  return (
+                    <button key={o.id}
+                      className={'seg-opt ' + (mode === o.id ? 'on' : '') + (incompatible ? ' disabled' : '')}
+                      disabled={incompatible}
+                      title={incompatible ? 'Eixo duplo exige no máximo 2 famílias de unidade entre as séries selecionadas.' : undefined}
+                      onClick={() => !incompatible && set({ mode: o.id })}>{o.label}</button>
+                  );
+                })}
               </div>
             </div>
           }
