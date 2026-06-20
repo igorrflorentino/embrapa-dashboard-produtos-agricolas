@@ -37,7 +37,8 @@ UN Comtrade API  ─┘                                           │
 ```
 
 > **Sources today:** IBGE PEVS (`gold_pevs_production`, production), IBGE PAM
-> (`gold_pam_production`, annual crop production — área × rendimento), MDIC COMEX
+> (`gold_pam_production`, annual crop production — área × rendimento), IBGE PPM
+> (`gold_ppm_production`, annual livestock — herd + animal production), MDIC COMEX
 > (`gold_comex_flows`, Brazilian foreign trade export+import) and UN Comtrade
 > (`gold_comtrade_flows`, **global** bilateral trade reporter→partner), all
 > enriched with FX/inflation from the BCB. The `gold_<source>_<form>` design is
@@ -110,10 +111,11 @@ make dbt-build
 ## CLI
 
 ```text
-embrapa ingest ibge | ibge-pam | bcb-inflation | bcb-currency | comex | comtrade | all
+embrapa ingest ibge | ibge-pam | ibge-ppm | bcb-inflation | bcb-currency | comex | comtrade | all
 embrapa ingest <source> [--from-raw]               # two-phase: extract→raw→bronze; --from-raw re-derives Bronze from raw without re-downloading
 embrapa ingest ibge-batch [--chunk-years 5]        # chunked IBGE historical backfill (deadline-safe for large year windows)
 embrapa ingest ibge-pam [--full]                   # IBGE PAM (SIDRA table 5457, annual crops); excluded from `ingest all`
+embrapa ingest ibge-ppm [--full]                   # IBGE PPM (SIDRA tables 3939+74, annual livestock); excluded from `ingest all`
 embrapa ingest comex [--full]                      # COMEX re-downloads only when the ETag changes; --full ignores the check
 embrapa ingest comtrade [--full]                   # UN Comtrade (keyed); resumable by daily quota. Outside `ingest all` (key/quota-gated)
 embrapa ingest reconcile                            # operator-triggered deep-refresh: full re-ingest of every nightly source (catches OLD-year revisions; a monthly reminder issue nudges)

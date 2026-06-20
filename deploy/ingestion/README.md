@@ -42,6 +42,7 @@ feeds Silver → Gold → the `serving` marts.
 | `schedule_reconcile.sh` | Create/update the MONTHLY deep-refresh trigger (same Job, args overridden to `reconcile`). |
 | `schedule_comtrade.sh` | Per-source UN Comtrade world-backfill scheduler (see `docs/comtrade_world_backfill.md`). |
 | `schedule_pam.sh` | IBGE PAM manual scheduler. |
+| `schedule_ppm.sh` | IBGE PPM (livestock) monthly scheduler (same Job, args overridden to `ibge-ppm`). |
 | `alert.sh` | Create the Cloud Monitoring alert (email channel + policy) for job failures. |
 | `alert_policy.json` | The alert-policy template `alert.sh` applies (`__JOB_NAME__` substituted in). |
 
