@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+_Nada ainda — `1.3.0` é o release atual._
+
+---
+
+## [1.3.0] — 2026-06-20
+
+New dashboard banco **IBGE PPM** (livestock), now **LIVE in production**, plus a SIDRA
+ingestion-robustness fix that unblocked its historical backfill.
+
 ### Added
 - **New data source: IBGE PPM** (Pesquisa da Pecuária Municipal) — a new dashboard
   banco `ibge_ppm` for livestock: herd headcount (SIDRA 3939, Cabeças) + animal
@@ -21,18 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   quality, **no** produtividade). New `PPM_*` knobs + `BQ_BRONZE_PPM_{HERD,ANIMAL}_TABLE`;
   excluded from nightly `ingest all` (annual) — on-demand via `ingest ibge-ppm` + the
   monthly `schedule_ppm.sh` (cron `0 4 3 * *`). New unit_family_conversions seed rows
-  fold the SIDRA ×1000 "Mil litros"/"Mil dúzias" scale.
+  fold the SIDRA ×1000 "Mil litros"/"Mil dúzias" scale. **Activated 2026-06-20**:
+  Bronze backfilled 1974→2024 (2.27M herd + 3.41M animal rows) via the Cloud Run Job,
+  Gold/serving built (2.4M-row `gold_ppm_production`, all dbt tests green on prod data),
+  and the `banco_metadata` maturity set to `beta`.
 
-  > **Operator activation (data is not live until these run, in order):**
-  > 1. Ingest Bronze via the Job: `gcloud run jobs execute embrapa-ingest-all --args=ibge-ppm`
-  >    (after `make ingest-job-deploy` so the Job carries the `PPM_*` env). One-time full
-  >    backfill: add `--full` semantics via a wider window / re-run.
-  > 2. `dbt build` propagates Silver→Gold→serving (the nightly `dbt-build-prod` will report
-  >    the PPM models as failed until step 1 lands the Bronze tables — expected).
-  > 3. MERGE a `research_inputs.banco_metadata` row to set PPM's maturity (else it shows "…").
-  >
-  > Until activated, the banco appears in the UI but its data view returns an empty/error
-  > state (the snapshot 500s because `serving_ppm_annual` is not built yet).
+### Changed
+- **Volume-based dynamic SIDRA timeout + jittered exponential backoff** (#148) — the
+  flat 75s per-request drain budget was too tight to stream a wide-window / many-product
+  IBGE response when SIDRA is slow (it killed the PPM backfill: a cell-halved 13y ×
+  8-product query for a big state couldn't drain in 75s, and a slow-byte timeout — unlike
+  a cell-limit error — never triggered further halving). The drain + retry budgets now
+  scale with the request's period×product×variable volume (above the lean floor, clamped
+  to a ceiling), and `http_retry_policy` uses full-jitter exponential backoff to
+  de-synchronise the parallel state-fetch workers. Shared by IBGE/BCB/COMEX.
 
 ---
 
