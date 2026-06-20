@@ -191,6 +191,49 @@ window.BANCOS = [
     },
   },
   {
+    id:     'ibge_ppm',
+    short:  'IBGE PPM',
+    label:  'IBGE · Pesquisa da Pecuária Municipal',
+    sub:    'Efetivo dos rebanhos e produção de origem animal (leite, ovos, mel, lã)',
+    domain: 'Produção pecuária',
+    scope:  'Brasil · UF · município',
+    source: 'IBGE',
+    table:  'gold_ppm_production',
+    // PPM is LIVESTOCK — efetivo dos rebanhos (estoque, cabeças) + produção de origem
+    // animal (leite/ovos/mel/lã, com valor). Capability-wise PEVS-shaped: product +
+    // geography + quality, WITHOUT 'yield' (não há área plantada → a view Produtividade
+    // fica escura). Múltiplas famílias de unidade (contagem/volume/massa) já existem em
+    // UNIT_FAMILIES, então MetricConventions renderiza as unidades automaticamente.
+    provides: ['product', 'geo', 'quality'],
+    baseCurrency: 'BRL',
+    geoLevel: 'municipio',
+    dimensions: {
+      origin:  { label: 'UF produtora', kind: 'uf' },
+      dest:    { label: 'UF produtora', kind: 'uf' },
+      partner: { label: 'UF produtora', kind: 'uf' },
+      product: { codeLabel: 'Código PPM' },
+    },
+    // Cross-source comparador: not yet wired for PPM (the BFF cross seam serves
+    // PEVS/COMEX/COMTRADE only). Empty → PPM doesn't appear in the comparator picker
+    // until its cross series builders land. Own product/geo/quality views are live.
+    metrics: [],
+    prov: {
+      lastCrop: 'PPM 2024',
+    },
+    plannedScope: [
+      { col: 'rebanho / produto animal', desc: 'Tipo de rebanho (bovino, suíno…) ou produto de origem animal (leite, ovos, mel, lã).' },
+      { col: 'uf · município',           desc: 'Localização (até o nível municipal).' },
+      { col: 'efetivo (cabeças)',        desc: 'Efetivo dos rebanhos — um estoque, sem valor monetário.' },
+      { col: 'quantidade_produzida',     desc: 'Produção animal (mil litros, mil dúzias, kg) — por produto.' },
+      { col: 'valor_producao',           desc: 'Valor da produção animal (R$) — disponível.' },
+    ],
+    cobertura: {
+      years:      '1974 → presente',
+      atualizacao:'anual (atualização mensal)',
+      granularidade: 'rebanho/produto × município × ano',
+    },
+  },
+  {
     id:     'mdic_comex',
     short:  'MDIC COMEX',
     label:  'MDIC · Comércio Exterior',
