@@ -198,6 +198,26 @@ def _is_mass_basis(commodity_id: str | None) -> bool:
     return fams == {"massa"}
 
 
+def commodity_catalog_with_family() -> dict:
+    """The commodity catalog, each commodity TAGGED with its PEVS physical-unit
+    family ('massa'/'volume'/… pt-BR, or None when it has no single PEVS family).
+
+    Drives the frontend's family-gated cross pickers: the export coefficient and
+    price spread compare PEVS MASS (mil t) to COMEX shipment weight (kg), so they
+    must offer ONLY pure-mass commodities — a volume (m³) or mixed-family commodity
+    is not interpretable there. A commodity is single-family by construction, so a
+    set of >1 (or empty) collapses to None and those views drop it from the picker.
+    Composes two cached reads (catalog + family index); kept un-memoized so a warm
+    instance always reflects their own TTL refresh instead of pinning a stale merge.
+    """
+    fams = _pevs_family_by_commodity()
+    out: dict = {}
+    for cid, c in seam_base.commodity_catalog().items():
+        fset = fams.get(cid, set())
+        out[cid] = {**c, "family": next(iter(fset)) if len(fset) == 1 else None}
+    return out
+
+
 def _market_share_series(comex_codes: tuple, comtrade_codes: tuple) -> list[dict]:
     """Yearly BR-export ÷ world-export share (US$ bi) over the common-year window."""
     br = seam_base._xyear("mdic_comex:exp_value", comex_codes)

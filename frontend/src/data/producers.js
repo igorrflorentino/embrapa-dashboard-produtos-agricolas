@@ -180,13 +180,21 @@ window.crossCommonWindow = function crossCommonWindow(refs = []) {
 // { commodity_id -> {id, name, pevs[], comex[], comtrade[]} }; we flatten it to a
 // sorted [{ code: <slug>, name }] list (sync-over-async like the analytics below —
 // reads the cache, kicks the fetch on a miss, returns [] until it lands).
+// PEVS physical-unit family normalized pt-BR -> the English keys the views use
+// (METRIC_FAMILIES / dataFilters key on 'mass'/'volume'). null = no single PEVS
+// family (mixed, or a COMEX/COMTRADE-only commodity) -> family-gated pickers skip it.
+const CATALOG_FAMILY_JS = { massa: 'mass', volume: 'volume' };
 window.crossCatalog = function crossCatalog() {
   const key = 'cross:catalog';
   ensure(key, () => `${API}/catalog`);
   const data = get(key);
   if (!data) return [];
   return Object.values(data)
-    .map((c) => ({ code: c.id, name: c.name }))
+    .map((c) => ({
+      code: c.id,
+      name: c.name,
+      family: c.family ? CATALOG_FAMILY_JS[c.family] || c.family : null,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 };
 

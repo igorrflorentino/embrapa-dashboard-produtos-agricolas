@@ -334,15 +334,19 @@ def test_convention_route_accepts_valid_non_default_pair(monkeypatch):
 
 
 def test_catalog_get_returns_seam_payload_as_json(monkeypatch):
-    """/catalog jsonifies seam.commodity_catalog() verbatim (no serializer)."""
+    """/catalog jsonifies seam.commodity_catalog_with_family() verbatim (no serializer)."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch)
-    monkeypatch.setattr(seam, "commodity_catalog", lambda: {"castanha": {"name": "Castanha"}})
+    monkeypatch.setattr(
+        seam,
+        "commodity_catalog_with_family",
+        lambda: {"castanha": {"name": "Castanha", "family": "massa"}},
+    )
     resp = client.get("/api/catalog")
     assert resp.status_code == 200
     assert resp.content_type.startswith("application/json")
-    assert resp.get_json() == {"castanha": {"name": "Castanha"}}
+    assert resp.get_json() == {"castanha": {"name": "Castanha", "family": "massa"}}
 
 
 def test_source_meta_get_threads_banco_and_shapes_payload(monkeypatch):
@@ -760,7 +764,7 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     def boom():
         raise RuntimeError("BigQuery exploded")
 
-    monkeypatch.setattr(seam, "commodity_catalog", boom)
+    monkeypatch.setattr(seam, "commodity_catalog_with_family", boom)
     resp = client.get("/api/catalog")
     assert resp.status_code == 500
     assert resp.content_type.startswith("application/json")
@@ -905,7 +909,7 @@ def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypa
     client = _client(monkeypatch)
     monkeypatch.setattr(
         seam,
-        "commodity_catalog",
+        "commodity_catalog_with_family",
         lambda: {
             "count": np.int64(7),
             "ratio": np.float64(1.5),
