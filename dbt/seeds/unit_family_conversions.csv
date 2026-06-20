@@ -6,6 +6,7 @@ tonelada metrica liquida,massa,t,1
 kg,massa,t,0.001
 quilograma liquido,massa,t,0.001
 quilograma bruto,massa,t,0.001
+quilogramas,massa,t,0.001
 grama liquido,massa,t,0.000001
 g,massa,t,0.000001
 quilate,massa,t,0.0000002
@@ -18,6 +19,7 @@ metros cúbicos,volume,m³,1
 metro cubico,volume,m³,1
 l,volume,m³,0.001
 litro,volume,m³,0.001
+mil litros,volume,m³,1
 hl,volume,m³,0.1
 barril,volume,m³,
 mwh,energia,MWh,1
@@ -30,8 +32,11 @@ unidade,contagem,un,1
 numero (unidade),contagem,un,1
 dúzia,contagem,un,12
 duzia,contagem,un,12
+mil dúzias,contagem,un,12000
+mil duzias,contagem,un,12000
 milheiro,contagem,un,1000
 cabeça,contagem,un,1
+cabeças,contagem,un,1
 pares,contagem,un,2
 ha,area,ha,1
 m²,area,ha,0.0001
