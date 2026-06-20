@@ -117,15 +117,16 @@
     // WHOLE grid (incl. COMEX non-state pseudo-origins) so the national total matches
     // PRODUCT_TS_T exactly (those pseudo-origins are not selectable UFs).
     const sumStates = (rows, y) => {
-      let v = 0, qMass = 0, qVol = 0;
+      let v = 0, qMass = 0, qVol = 0, qCount = 0;
       for (const r of rows) {
         if (r.year !== y) continue;
         if (stateNarrowing && !stateSet.has(r.uf)) continue;
         v += (r.value || 0) / 1000;     // ufYearly value is mi → ts.v is bi
         qMass += (r.q_mass || 0);        // already mil t
         qVol  += (r.q_vol  || 0);        // already mi m³
+        qCount += (r.q_count || 0);      // already mi un (livestock head / eggs)
       }
-      return { v, q_mass: qMass, q_vol: qVol };
+      return { v, q_mass: qMass, q_vol: qVol, q_count: qCount };
     };
     // Engage the geo-derived series only when it adds correctness the national series
     // can't: a real state narrowing, OR a basket whose territorial cube has loaded —
@@ -138,10 +139,10 @@
     const ts = allYears.map(y => {
       if (geoDerivedTs) {
         const g = sumStates(geoSource, y);
-        return { y, v: g.v, q: g.q_mass, q_mass: g.q_mass, q_vol: g.q_vol };
+        return { y, v: g.v, q: g.q_mass, q_mass: g.q_mass, q_vol: g.q_vol, q_count: g.q_count };
       }
       // National path (no state narrowing): per-product series, basket + year aware.
-      let v = 0, qMass = 0, qVol = 0;
+      let v = 0, qMass = 0, qVol = 0, qCount = 0;
       selectedProducts.forEach(code => {
         const series = PRODUCT_TS_T[code];
         if (!series) return;
@@ -150,8 +151,9 @@
         v += pt.v / 1000;                    // productTS.v is mi → ts.v is bi
         if (pt.family === 'mass')   qMass += pt.q;
         if (pt.family === 'volume') qVol  += pt.q;
+        if (pt.family === 'count')  qCount += pt.q;  // head/eggs — never blended with mass/vol
       });
-      return { y, v, q: qMass, q_mass: qMass, q_vol: qVol };
+      return { y, v, q: qMass, q_mass: qMass, q_vol: qVol, q_count: qCount };
     });
 
     // ── Per-product time series, restricted to basket + window ───────

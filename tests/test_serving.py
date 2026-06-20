@@ -747,7 +747,22 @@ def test_products_lists_distinct_codes_with_unit_and_family():
     assert "any_value(base_unit)" in query
     assert "any_value(unit_native)" in query
     assert "any_value(family)" in query
+    # measure_kind is OFF by default → the SELECT stays schema-compatible with marts
+    # (COMEX/PEVS/PAM) that do not carry the column.
+    assert "measure_kind" not in query
     assert params == []
+
+
+def test_products_adds_measure_kind_only_when_requested():
+    """The livestock mart (serving_ppm_annual) carries measure_kind (stock|flow); the
+    seam opts in so the UI can tell the value-less herd from animal-product flows."""
+    query, _ = sql.products(
+        "p.serving.serving_ppm_annual",
+        code_column="product_code",
+        name_column="product_description",
+        with_measure_kind=True,
+    )
+    assert "any_value(measure_kind) as measure_kind" in query
 
 
 def test_product_timeseries_sums_value_and_native_quantity():
@@ -768,6 +783,10 @@ def test_product_timeseries_sums_value_and_native_quantity():
     assert "as q_mass" in query
     assert "case when family = 'volume' then qty_base end" in query
     assert "as q_vol" in query
+    # contagem (livestock head / eggs — PPM) gets its OWN qty_base track so the herd
+    # is not invisible in the quantity charts.
+    assert "case when family = 'contagem' then qty_base end" in query
+    assert "as q_count" in query
     # qty_base is never summed across families anymore — the old single column is gone.
     assert "as total_qty_base" not in query
     assert "any_value(family)" in query
@@ -1627,6 +1646,32 @@ def test_fetch_products_dispatches_to_source_mart(monkeypatch):
 
     assert "p.serving.serving_comtrade_annual" in recorded["query"]
     assert "group by cmd_code" in recorded["query"]
+    # a non-livestock source must NOT request measure_kind (its mart lacks the column)
+    assert "measure_kind" not in recorded["query"]
+
+
+def test_fetch_products_requests_measure_kind_for_livestock(monkeypatch):
+    """PPM is the one source whose mart carries measure_kind; fetch_products opts it
+    in so the snapshot can gate the herd ('Rebanho') view on stock vs flow."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_products("ibge_ppm")
+
+    assert "p.serving.serving_ppm_annual" in recorded["query"]
+    assert "any_value(measure_kind) as measure_kind" in recorded["query"]
 
 
 def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):

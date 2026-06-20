@@ -29,7 +29,9 @@ _SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 
 # Gold/PEVS physical-unit family is pt-BR ('massa'); the views key on the
 # English 'mass' (dataFilters.js: `pt.family === 'mass'`). Map at the boundary.
-_FAMILY_JS = {"massa": "mass", "volume": "volume"}
+# 'contagem' (head/eggs — PPM livestock) → 'count': without it the herd had no
+# JS-side family and rendered no quantity.
+_FAMILY_JS = {"massa": "mass", "volume": "volume", "contagem": "count"}
 
 # data_quality_flag id → the qualityTs contract key (contracts.js qualityTs).
 # These are the REAL Gold flags emitted by macros/data_quality_flag.sql
@@ -224,27 +226,35 @@ def _quality_ts(df: pd.DataFrame | None) -> list[dict]:
 def _products(df: pd.DataFrame | None) -> list[dict]:
     if _empty(df):
         return []
-    return [
-        {
+    out: list[dict] = []
+    for r in df.itertuples():
+        row = {
             "code": str(r.code),
             # a few COMEX codes have no description → fall back to the code
             "name": r.name if (isinstance(r.name, str) and r.name) else str(r.code),
             "unit": r.unit,
             "family": _fam(r.family),
         }
-        for r in df.itertuples()
-    ]
+        # measure_kind (stock | flow) rides along ONLY for the livestock survey (the
+        # gateway selects it just for PPM). It lets the UI separate the herd (stock,
+        # value-less) from animal-product flows (eggs/milk) that share 'contagem'.
+        mk = getattr(r, "measure_kind", None)
+        if isinstance(mk, str) and mk:
+            row["measure_kind"] = mk
+        out.append(row)
+    return out
 
 
 def _product_ts(df: pd.DataFrame | None) -> dict:
-    """GROUP BY code → {code: [{y, v(mi), q(mil t | mi m³ | None), family}]}.
+    """GROUP BY code → {code: [{y, v(mi), q(mil t | mi m³ | mi un | None), family}]}.
 
     ``q`` is the display quantity in the code's family base unit (massa → mil t,
-    volume → mi m³), read from the per-family ``q_mass`` / ``q_vol`` CASE columns
-    so mass and volume are never blended. A count/energy/area family has no
-    display convention, so ``q`` is None — NOT a count divided by 1e6, which was
-    dimensionless nonsense — and such families are simply absent from the
-    quantity charts/overview rather than silently mis-scaled.
+    volume → mi m³, contagem → mi un, i.e. millions of head/eggs), read from the
+    per-family ``q_mass`` / ``q_vol`` / ``q_count`` CASE columns so the families are
+    never blended. ``contagem`` carries the livestock HEADCOUNT (PPM's herd, the
+    defining content of that banco) and egg counts — without its own track it would
+    be invisible in every quantity chart. energia/area/desconhecida still have no
+    display convention → ``q`` is None (absent rather than mis-scaled).
     """
     if _empty(df):
         return {}
@@ -255,8 +265,10 @@ def _product_ts(df: pd.DataFrame | None) -> dict:
             q: float | None = _num(getattr(r, "q_mass", 0)) / 1e3  # t → mil t
         elif fam_raw == "volume":
             q = _num(getattr(r, "q_vol", 0)) / 1e6  # m³ → mi m³
+        elif fam_raw == "contagem":
+            q = _num(getattr(r, "q_count", 0)) / 1e6  # un → mi un (head / eggs)
         else:
-            q = None  # contagem/energia/area/desconhecida: no display scale
+            q = None  # energia/area/desconhecida: no display scale
         out.setdefault(str(r.code), []).append(
             {
                 "y": int(r.reference_year),
@@ -302,6 +314,7 @@ def _uf_data(df: pd.DataFrame | None) -> list[dict]:
             "value": _num(r.total_value) / 1e6,
             "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
             "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            "q_count": _num(getattr(r, "q_count", 0)) / 1e6,  # un → mi un (head / eggs)
             # True for a real Brazilian UF, False for a COMEX special trade pseudo-code
             # (EX/ND/ZN/MN/RE…). These have no state_name from the UF lookup (same
             # discriminator gold_source_metadata.ufs_total uses), so the frontend can
@@ -337,18 +350,22 @@ def _uf_yearly(df: pd.DataFrame | None) -> list[dict]:
             "value": _num(r.total_value) / 1e6,
             "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
             "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            "q_count": _num(getattr(r, "q_count", 0)) / 1e6,  # un → mi un (head / eggs)
         }
         for r in df.itertuples()
     ]
 
 
 def serialize_product_uf(df: pd.DataFrame | None) -> dict:
-    """seam.product_uf_ranking() → { uf: [{uf, name, region, value}] }.
+    """seam.product_uf_ranking() → { uf: [{uf, name, region, value, q_mass, q_vol, q_count}] }.
 
     The real per-UF total for a single product (backs ViewProductProfile's
     'Onde X é produzido' bars, which previously faked the distribution with a
     sine jitter over a synthetic affinity table). ``value`` is the reader's raw
-    total_value; rows are emitted descending. Empty list when df is None/empty.
+    total_value; the per-family quantities ride along (same ÷1e3/÷1e6 scaling as
+    ufData) so a VALUE-LESS stock (the livestock herd) can rank UFs by headcount
+    (``q_count``) instead of an all-zero value. Rows are emitted descending by value;
+    the client re-sorts by the family it displays. Empty list when df is None/empty.
     """
     if _empty(df):
         return {"uf": []}
@@ -360,6 +377,9 @@ def serialize_product_uf(df: pd.DataFrame | None) -> dict:
             # PEVS/PAM expose total_value; the COMEX-by-UF reader names it
             # total_value_usd — accept either so both geo bancos serialize.
             "value": _num(getattr(r, "total_value", getattr(r, "total_value_usd", None))),
+            "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
+            "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            "q_count": _num(getattr(r, "q_count", 0)) / 1e6,
         }
         for r in df.itertuples()
     ]

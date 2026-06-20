@@ -126,6 +126,12 @@ def _product_source(source: str) -> tuple[str, str, str, str]:
         ) from None
 
 
+# Sources whose mart carries the stock|flow ``measure_kind`` discriminator (only the
+# livestock survey today). fetch_products surfaces it so the UI can split the herd
+# (stock) from animal-product flows (eggs/milk) that share the ``contagem`` family.
+_MEASURE_KIND_SOURCES = {"ibge_ppm"}
+
+
 # Production sources whose marts are COLUMN-IDENTICAL (PEVS shape: product_code,
 # state_acronym, family, qty_native, val_*). fetch_production_* are generic over
 # them — PAM rides them with no per-source SQL because serving_pam_annual matches
@@ -671,7 +677,12 @@ def fetch_products(source: str):
     table_name, code_col, name_col, _ = _product_source(source)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
-    sql, params = sqlbuild.products(table, code_column=code_col, name_column=name_col)
+    sql, params = sqlbuild.products(
+        table,
+        code_column=code_col,
+        name_column=name_col,
+        with_measure_kind=source in _MEASURE_KIND_SOURCES,
+    )
     return run_query(sql, params)
 
 

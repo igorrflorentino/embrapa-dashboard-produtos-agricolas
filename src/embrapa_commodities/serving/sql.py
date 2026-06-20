@@ -262,7 +262,8 @@ def production_by_uf(
             any_value(region_abbrev) as region_abbrev,
             sum({value_column})     as total_value,
             sum(case when family = 'massa'  then qty_base end) as q_mass,
-            sum(case when family = 'volume' then qty_base end) as q_vol
+            sum(case when family = 'volume' then qty_base end) as q_vol,
+            sum(case when family = 'contagem' then qty_base end) as q_count
         from `{table}`
         {_where(conditions)}
         group by state_acronym
@@ -302,7 +303,8 @@ def production_by_uf_yearly(
             any_value(region_abbrev) as region_abbrev,
             sum({value_column})      as total_value,
             sum(case when family = 'massa'  then qty_base end) as q_mass,
-            sum(case when family = 'volume' then qty_base end) as q_vol
+            sum(case when family = 'volume' then qty_base end) as q_vol,
+            sum(case when family = 'contagem' then qty_base end) as q_count
         from `{table}`
         {_where(conditions)}
         group by state_acronym, reference_year
@@ -384,7 +386,8 @@ def products_by_uf(
             any_value({name_column})                           as product_name,
             sum({value_column})                                as total_value,
             sum(case when family = 'massa'  then qty_base end) as q_mass,
-            sum(case when family = 'volume' then qty_base end) as q_vol
+            sum(case when family = 'volume' then qty_base end) as q_vol,
+            sum(case when family = 'contagem' then qty_base end) as q_count
         from `{table}`
         {_where(conditions)}
         group by {code_column}
@@ -930,17 +933,27 @@ def quality_by_source(
 # normalised unit), ``unit_native`` = the source label that qty_native is in.
 
 
-def products(table: str, *, code_column: str, name_column: str) -> tuple[str, list]:
-    """Distinct product list ``(code, name, unit, unit_native, family)`` (backs `products`)."""
+def products(
+    table: str, *, code_column: str, name_column: str, with_measure_kind: bool = False
+) -> tuple[str, list]:
+    """Distinct product list ``(code, name, unit, unit_native, family)`` (backs `products`).
+
+    ``with_measure_kind`` adds ``measure_kind`` (stock | flow) — the livestock
+    discriminator that ONLY ``serving_ppm_annual`` carries. The seam sets it for PPM
+    so the herd (stock, value-less) can be told apart from animal-product flows (eggs,
+    milk) that share the ``contagem`` family. Other marts have no such column, so the
+    flag defaults False and the SELECT stays schema-compatible with them.
+    """
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     name_column = _validate_column(name_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    extra = ",\n            any_value(measure_kind) as measure_kind" if with_measure_kind else ""
     sql = f"""
         select
             {code_column}            as code,
             any_value({name_column}) as name,
             any_value(base_unit)     as unit,
             any_value(unit_native)   as unit_native,
-            any_value(family)        as family
+            any_value(family)        as family{extra}
         from `{table}`
         group by {code_column}
         order by {code_column}
@@ -995,6 +1008,7 @@ def product_timeseries(
             sum(qty_native)     as total_qty_native,
             sum(case when family = 'massa' then qty_base end)  as q_mass,
             sum(case when family = 'volume' then qty_base end) as q_vol,
+            sum(case when family = 'contagem' then qty_base end) as q_count,
             any_value(family)   as family
         from `{table}`
         {_where(conditions)}

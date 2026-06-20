@@ -18,6 +18,7 @@ function stubGlobals(filtered) {
   window.formatValue = (v) => `val:${v}`;
   window.formatMassQty = (v) => `mass:${v}`;
   window.formatVolumeQty = (v) => `vol:${v}`;
+  window.formatCountQty = (v) => `count:${v}`;
   window.fmtSigned = () => '+0%';
   window.fmtPct = (x) => `${Math.round((x || 0) * 100)}%`;
   window.convertSeries = (s) => s;
@@ -56,8 +57,8 @@ afterEach(() => cleanup());
 
 const FIXTURE = {
   ts: [
-    { y: 2019, v: 1, q_mass: 100, q_vol: 10 },
-    { y: 2020, v: 2, q_mass: 200, q_vol: 20 },
+    { y: 2019, v: 1, q_mass: 100, q_vol: 10, q_count: 1000 },
+    { y: 2020, v: 2, q_mass: 200, q_vol: 20, q_count: 2000 },
   ],
   qualityFlags: [
     { id: 'OK', label: 'OK', color: 'var(--ok)', share: 0.8, count: 800000 },
@@ -96,6 +97,16 @@ describe('ViewOverview — KPI strip + quality digest (H3 + P0 lock-in)', () => 
     // "{qualityFlags.length} de {QUALITY_FLAGS.length} flags" → "2 de 5 flags".
     expect(container.textContent).toContain('de 5 flags');
     expect(container.textContent).not.toContain('de 6 flags'); // the old prototype count
+  });
+
+  it('renders the count (efetivo) KPI off q_count for a livestock (count) basket', () => {
+    stubGlobals(FIXTURE);
+    const { container } = render(
+      <ViewOverview families={['count']} summary={{}} database="ibge_ppm" conventions={{}} />
+    );
+    const values = [...container.querySelectorAll('.kpi-value')].map((e) => e.textContent);
+    expect(values).toContain('count:2000'); // latest q_count via formatCountQty (keystone)
+    expect(values).not.toContain('mass:200'); // mass KPI absent — no mass family in the basket
   });
 
   it('omits the volume KPI when the banco has no volume family', () => {

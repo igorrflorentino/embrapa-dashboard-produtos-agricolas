@@ -72,6 +72,7 @@ import './ui/ViewConcentration.jsx';
 import './ui/ViewQuality.jsx';
 import './ui/ViewProductProfile.jsx';
 import './ui/ViewProductCompare.jsx';
+import './ui/ViewRebanho.jsx';
 import './ui/ViewProductivity.jsx';
 import './ui/ViewSeasonality.jsx';
 import './ui/ViewFlows.jsx';

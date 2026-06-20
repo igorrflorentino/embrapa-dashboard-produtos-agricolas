@@ -9,7 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.3.0` é o release atual._
+_Nada ainda — `1.4.0` é o release atual._
+
+---
+
+## [1.4.0] — 2026-06-20
+
+Makes the **IBGE PPM herd visible**. The livestock headcount — ~⅔ of
+`gold_ppm_production`, the largest single body of rows the new banco added — was
+structurally invisible as a quantity (every chart showed `q: null` for it). This
+release gives `contagem` its own quantity track end-to-end and adds a dedicated
+**Rebanho** perspective; no Gold rebuild (the headcount was already in `qty_base`).
+
+### Added
+- **New perspective: "Rebanho"** (`frontend/src/ui/ViewRebanho.jsx`) — the herd
+  (efetivo dos rebanhos) view, gated on a new `herd` capability that only IBGE PPM
+  provides. Cabeças-only (no monetary axis): latest-year composition by species
+  (donut), 50-year per-species evolution (multi-line — never stacked, since heads of
+  different species are not additive) and a per-UF headcount tile map of the focused
+  species, with honest "estoque, não somar entre espécies" caveats.
+- **`q_count` quantity track (the keystone)** — `contagem` (livestock head + eggs) gets
+  its own per-family `qty_base` column across the serving readers (`serving/sql.py`) and
+  the serializer (`webapi/serializers.py`), so the herd now renders a real quantity where
+  it previously emitted `q: null`. `serialize_product_uf` also carries `q_count`, so a
+  value-less stock ranks UFs by headcount instead of an all-zero value.
+- **`measure_kind` (stock|flow) on the products list** — exposed PPM-only via a gateway
+  flag (`with_measure_kind`), letting the UI separate the value-less herd (stock) from
+  the animal-product flows (eggs/milk) that share the `contagem` family.
+
+### Changed
+- **Analytical views are now value-less-aware** — each perspective implicitly treated
+  monetary `value` as the universal measure, which a stock (the herd) breaks. **Perfil
+  do produto** swaps Valor/Preço for Efetivo/Pico and ranks UFs by headcount for a stock;
+  **Visão geral** adds an efetivo KPI; **Comparativo** indexes (base 100) and correlates
+  a herd on headcount instead of a flat-zero value line; **Concentração** falls back to
+  cabeças (Gini/HHI/Lorenz) for a value-less basket.
+- **Count formatters + unit registry** — new `formatCountQty`/`countQtyMul`/
+  `countAxisLabel` (mirroring mass/volume); `UNIT_FAMILIES` re-keyed `contagem`→`count`
+  to match the token the serializer emits — a latent mismatch that was dormant until the
+  first count-family product rendered a quantity.
+
+### Tests
+- New `ViewRebanho.test.jsx` (herd built from stock species only; cabeças-only
+  composition/evolution; honest empty state) + a count-KPI lock-in in
+  `ViewOverview.test.jsx`; serializer + `sql.products`/`product_timeseries` gain
+  `q_count`/`measure_kind` coverage. **853 pytest / 223 vitest green; eslint + ruff
+  clean; vite build OK.**
 
 ---
 

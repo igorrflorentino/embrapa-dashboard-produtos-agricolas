@@ -33,13 +33,32 @@ function ViewConcentration({ summary, conventions, database }) {
   // registry for older payloads lacking the `real` flag.
   const isRealUf = u => (u.real != null ? u.real : window.isCanonicalUf(u.uf));
   const realUf   = filtered.ufData.filter(isRealUf);
-  const ufValues = realUf.map(u => u.value).filter(v => v > 0);
-  const ufSorted = realUf.slice().filter(u => u.value > 0).sort((a, b) => b.value - a.value);
+
+  // Concentration is computed on VALUE by default. A value-less basket (the livestock
+  // herd — a stock with no money) falls back to HEADCOUNT so the Gini/HHI/Lorenz are
+  // real instead of all-zero. The metric formulas are measure-agnostic; we just feed
+  // them the headcount and relabel "valor" → "cabeças".
+  const anyValue = realUf.some(u => u.value > 0)
+    || Object.values(filtered.productTS).some(s => (s[s.length - 1]?.v || 0) > 0);
+  const onCount = !anyValue && (
+    realUf.some(u => (u.q_count || 0) > 0)
+    || Object.values(filtered.productTS).some(s => (s[s.length - 1]?.q || 0) > 0)
+  );
+  const measureLabel = onCount ? 'cabeças' : 'valor';
+  const ufMeasure   = u => (onCount ? (u.q_count || 0) : u.value);
+  const prodMeasure = last => (onCount ? (last?.q || 0) : (last ? last.v : 0));
+
+  const ufValues = realUf.map(ufMeasure).filter(v => v > 0);
+  // Override `value` with the active measure so every downstream consumer (bars,
+  // topNShare, Lorenz) reads the same field regardless of the value-vs-headcount basis.
+  const ufSorted = realUf.filter(u => ufMeasure(u) > 0)
+    .map(u => ({ ...u, value: ufMeasure(u) }))
+    .sort((a, b) => b.value - a.value);
 
   // ── Product distribution (latest year, by product) ──────────────────
   const prodValues = Object.entries(filtered.productTS).map(([code, s]) => {
     const last = s[s.length - 1];
-    return { code, name: (filtered.products.find(p => p.code === code) || {}).name || code, value: last ? last.v : 0 };
+    return { code, name: (filtered.products.find(p => p.code === code) || {}).name || code, value: prodMeasure(last) };
   }).filter(p => p.value > 0).sort((a, b) => b.value - a.value);
 
   // ── Metrics ──────────────────────────────────────────────────────────
@@ -90,6 +109,13 @@ function ViewConcentration({ summary, conventions, database }) {
 
   return (
     <>
+      {onCount && (
+        <p className="caption" style={{ margin: '0 2px 4px' }}>
+          ⓘ Esta cesta não tem valor monetário (efetivo dos rebanhos) — a concentração
+          é calculada sobre as <strong>cabeças</strong>.
+        </p>
+      )}
+
       {/* KPI strip */}
       <div className="kpi-row">
         {hasGeo ? (
@@ -145,7 +171,7 @@ function ViewConcentration({ summary, conventions, database }) {
             title={`Desigualdade entre UFs · Gini ${ufG.value}`}
             action={<span className="caption" style={{ color: ufG.color }}>{ufG.label}</span>}
           />
-          <window.LorenzCurve values={ufValues} color="var(--viz-2)" xLabel="UFs" yLabel="valor" height={300} />
+          <window.LorenzCurve values={ufValues} color="var(--viz-2)" xLabel="UFs" yLabel={measureLabel} height={300} />
         </div>
         )}
         <div className="card">
@@ -154,7 +180,7 @@ function ViewConcentration({ summary, conventions, database }) {
             title={`Desigualdade entre produtos · Gini ${prodG.value}`}
             action={<span className="caption" style={{ color: prodG.color }}>{prodG.label}</span>}
           />
-          <window.LorenzCurve values={prodValues.map(p => p.value)} color="var(--viz-5)" xLabel="produtos" yLabel="valor" height={300} />
+          <window.LorenzCurve values={prodValues.map(p => p.value)} color="var(--viz-5)" xLabel="produtos" yLabel={measureLabel} height={300} />
         </div>
       </div>
 
