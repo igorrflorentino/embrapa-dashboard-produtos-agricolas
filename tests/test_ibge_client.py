@@ -151,11 +151,11 @@ def test_recommended_chunk_years_rejects_zero_or_negative() -> None:
         client.recommended_chunk_years(-1)
 
 
-def test_http_get_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``_http_get`` must call ``core_http.get_drained`` with the SIDRA-specific
-    transient class and deadline. Slow-byte deadline semantics themselves are
-    covered in ``test_core_http.py`` — this is a wiring/regression guard against
-    accidentally swapping ``SidraTransientError`` for some other transient class.
+def test_http_get_once_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_http_get_once`` (the undecorated drain) must call ``core_http.get_drained``
+    with the SIDRA-specific transient class and the given deadline. Slow-byte deadline
+    semantics themselves are covered in ``test_core_http.py`` — this is a wiring guard
+    against accidentally swapping ``SidraTransientError`` for some other transient class.
     """
     captured: dict[str, object] = {}
 
@@ -173,13 +173,70 @@ def test_http_get_delegates_to_core_drained(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(client.core_http, "get_drained", fake_get_drained)
 
     url = "https://apisidra.ibge.gov.br/values/t/289/p/2020/v/all/n6/all/c193/3405"
-    result = client._http_get.__wrapped__(url)  # type: ignore[attr-defined]
+    result = client._http_get_once(url)
     assert isinstance(result, _FakeResponse)
 
     assert captured["url"] == url
     assert captured["transient_exc"] is client.SidraTransientError
+    # The default (floor) drain budget when the caller doesn't scale.
     assert captured["total_deadline_s"] == client.REQUEST_TOTAL_DEADLINE_S
     assert captured["context"] == url[:200]
+
+
+def test_request_deadlines_scale_with_volume() -> None:
+    """A bigger request (more periods × products × variables) gets a longer drain +
+    retry budget than the flat 75s/180s floor; a small one keeps the floor; both are
+    clamped to a ceiling. This is the fix for the slow-SIDRA backfill failure."""
+    # Small request → the lean drain floor; retry budget = drain × MULT (clamped).
+    drain_small, retry_small = client._request_deadlines(1, 1, "105")
+    assert drain_small == client.REQUEST_TOTAL_DEADLINE_S
+    assert retry_small == pytest.approx(drain_small * client._RETRY_BUDGET_MULT)
+    assert retry_small >= client.PER_CALL_RETRY_BUDGET_S
+
+    # The PPM herd block that died: 13 years × 8 products × 1 variable → well above floor.
+    drain_big, retry_big = client._request_deadlines(13, 8, "105")
+    assert drain_big > client.REQUEST_TOTAL_DEADLINE_S
+    assert retry_big > retry_small
+    assert retry_big == pytest.approx(drain_big * client._RETRY_BUDGET_MULT)
+
+    # 'all' counts as several variables, so it scales faster than one explicit code.
+    drain_all, _ = client._request_deadlines(13, 8, "all")
+    assert drain_all > drain_big
+
+    # A pathological request is clamped to the drain ceiling, never unbounded; the
+    # retry budget follows as ceiling × MULT (within _RETRY_BUDGET_MAX_S).
+    drain_huge, retry_huge = client._request_deadlines(60, 60, "all")
+    assert drain_huge == client._DEADLINE_MAX_S
+    assert retry_huge == pytest.approx(client._DEADLINE_MAX_S * client._RETRY_BUDGET_MULT)
+    assert retry_huge <= client._RETRY_BUDGET_MAX_S
+
+
+def test_fetch_block_forwards_volume_scaled_deadlines(
+    monkeypatch: pytest.MonkeyPatch, sidra_payload: list[dict]
+) -> None:
+    """_fetch_block derives the per-request deadlines from THIS block's volume and
+    forwards them to _http_get — so the PPM herd block (13y × 8 products) that died
+    at the flat 75s now gets the scaled budget."""
+    captured: dict[str, float] = {}
+
+    class _R:
+        def json(self) -> list[dict]:
+            return sidra_payload
+
+    def fake_http_get(url: str, *, total_deadline_s: float, retry_budget_s: float) -> _R:
+        captured["total_deadline_s"] = total_deadline_s
+        captured["retry_budget_s"] = retry_budget_s
+        return _R()
+
+    monkeypatch.setattr(client, "_http_get", fake_http_get)
+    periods = list(range(1974, 1987))  # 13 years
+    products = ["2670", "2675", "2672", "32794", "2681", "2677", "32796", "2680"]  # 8
+    client._fetch_block("3939", periods, "n6", "in n3 41", "79", products, variables="105")
+
+    expected_drain, expected_retry = client._request_deadlines(len(periods), len(products), "105")
+    assert captured["total_deadline_s"] == expected_drain
+    assert captured["retry_budget_s"] == expected_retry
+    assert captured["total_deadline_s"] > client.REQUEST_TOTAL_DEADLINE_S  # the fix
 
 
 # ─── empty period window (task 5 defensiveness) ──────────────────────────────

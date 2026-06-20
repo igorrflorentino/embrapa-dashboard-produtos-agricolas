@@ -111,6 +111,54 @@ REQUEST_TOTAL_DEADLINE_S: float = 75.0
 # Operators sizing job timeouts should budget per *call*, not per state.
 PER_CALL_RETRY_BUDGET_S: float = 180.0
 
+# ── Volume-based dynamic timeouts ─────────────────────────────────────────────
+# A SIDRA response grows ~linearly with the request's cell volume: periods (years)
+# × products × variables × the queried geography's municipality count. The flat
+# REQUEST_TOTAL_DEADLINE_S above is the FLOOR — fine for a small request, but too
+# tight to drain a wide-window / many-product response from a SLOW SIDRA. (This is
+# exactly what killed the PPM 1974→ backfill: an already-cell-halved 12-year ×
+# 8-product herd query for a big state couldn't stream within 75s on a slow night,
+# and a slow-byte timeout — unlike a cell-limit error — does NOT trigger further
+# halving, so it just re-tried at full size and died.) ``_request_deadlines`` scales
+# BOTH budgets with the request's period×product×variable volume, clamped to a sane
+# ceiling: a big request gets proportionally longer to drain (and a larger retry
+# budget), while a small one keeps the lean 75s / 180s.
+_DEADLINE_BASE_S: float = 45.0
+_DEADLINE_PER_UNIT_S: float = 1.5  # added drain seconds per (period × product × variable)
+_DEADLINE_MAX_S: float = 600.0  # ceiling: one drain never waits past 10 min
+_RETRY_BUDGET_MULT: float = 2.5  # cumulative retry budget = this × the drain deadline
+_RETRY_BUDGET_MAX_S: float = 1800.0
+# 'v/all' returns an unknown variable count; SIDRA tables expose a handful, so treat
+# it as a moderate constant for the volume estimate.
+_ALL_VARIABLES_VOLUME: int = 5
+
+
+def _request_deadlines(n_periods: int, n_products: int, variables: str) -> tuple[float, float]:
+    """Volume-scaled ``(drain_deadline_s, retry_budget_s)`` for one SIDRA request.
+
+    The drain deadline scales linearly with ``periods × products × variables`` above
+    the flat REQUEST_TOTAL_DEADLINE_S floor; the retry budget is a multiple of it.
+    Both are clamped so a pathological request can't wait forever. ``variables`` is
+    the ``v/`` selector — an explicit comma list counts its codes, ``'all'`` uses a
+    moderate constant.
+    """
+    n_vars = (
+        _ALL_VARIABLES_VOLUME
+        if variables.strip() == "all"
+        else max(1, sum(1 for v in variables.split(",") if v.strip()))
+    )
+    units = max(1, n_periods) * max(1, n_products) * n_vars
+    drain = min(
+        _DEADLINE_MAX_S,
+        max(REQUEST_TOTAL_DEADLINE_S, _DEADLINE_BASE_S + _DEADLINE_PER_UNIT_S * units),
+    )
+    # ``drain`` is already clamped to [75, 600], so a fixed multiple gives a retry
+    # budget in [187.5, 1500] — comfortably >= the lean PER_CALL_RETRY_BUDGET_S floor
+    # for the smallest request and bounded by _RETRY_BUDGET_MAX_S for the largest.
+    retry_budget = min(_RETRY_BUDGET_MAX_S, drain * _RETRY_BUDGET_MULT)
+    return drain, retry_budget
+
+
 # Empirical sweet spot: 4 workers with `Connection: close` avoids the urllib3
 # pool deadlocks observed at 8 workers AND the connection-staleness hangs
 # observed when reusing Keep-Alive sockets against SIDRA (which closes idle
@@ -172,23 +220,20 @@ def _emit_retry(retry_state):  # type: ignore[no-untyped-def]
     )
 
 
-@core_http.http_retry_policy(
-    transient_exc=SidraTransientError,
-    # Stop on either attempt count OR cumulative elapsed time — the OR keeps
-    # repeated slow-byte hangs from re-attempting indefinitely. Note this only
-    # blocks *starting* another attempt; the in-flight attempt is bounded by
-    # REQUEST_TOTAL_DEADLINE_S, not by this budget (see PER_CALL_RETRY_BUDGET_S).
-    deadline_s=PER_CALL_RETRY_BUDGET_S,
-    before_sleep=_emit_retry,
-)
-def _http_get(url: str) -> requests.Response:
-    # The drain-under-deadline + Connection: close + slow-byte defense live in
-    # ``core_http.get_drained``. SIDRA-specific status handling (the
-    # ``SidraLimitExceeded`` branch that drives period-halving in
-    # ``_fetch_block``) stays here so the helper doesn't grow API knowledge.
+def _http_get_once(
+    url: str, *, total_deadline_s: float = REQUEST_TOTAL_DEADLINE_S
+) -> requests.Response:
+    """One drained SIDRA GET + SIDRA-specific status handling (NO retry).
+
+    ``total_deadline_s`` is the volume-scaled wall-clock drain budget (see
+    ``_request_deadlines``). The drain-under-deadline + Connection: close +
+    slow-byte defense live in ``core_http.get_drained``; the ``SidraLimitExceeded``
+    branch that drives period-halving in ``_fetch_block`` stays here so the helper
+    doesn't grow API knowledge.
+    """
     response = core_http.get_drained(
         url,
-        total_deadline_s=REQUEST_TOTAL_DEADLINE_S,
+        total_deadline_s=total_deadline_s,
         transient_exc=SidraTransientError,
         context=url[:200],
     )
@@ -209,6 +254,30 @@ def _http_get(url: str) -> requests.Response:
         # exceptions; this guards the status-check branch.
         response.close()
         raise
+
+
+def _http_get(
+    url: str,
+    *,
+    total_deadline_s: float = REQUEST_TOTAL_DEADLINE_S,
+    retry_budget_s: float = PER_CALL_RETRY_BUDGET_S,
+) -> requests.Response:
+    """Drained SIDRA GET with full-jitter exponential-backoff retry.
+
+    Both budgets are volume-scaled by the caller (``_fetch_block`` via
+    ``_request_deadlines``): a bigger request gets a longer per-attempt drain
+    (``total_deadline_s``) AND a longer cumulative retry budget (``retry_budget_s``).
+    The retry policy stops on EITHER max_attempts OR the cumulative budget — the OR
+    keeps repeated slow-byte hangs from re-attempting forever. It is built per call
+    so the budget can vary by request; the defaults are the lean floor for ad-hoc
+    callers that don't scale.
+    """
+    retry_policy = core_http.http_retry_policy(
+        transient_exc=SidraTransientError,
+        deadline_s=retry_budget_s,
+        before_sleep=_emit_retry,
+    )
+    return retry_policy(_http_get_once)(url, total_deadline_s=total_deadline_s)
 
 
 def _periods_string(periods: list[int]) -> str:
@@ -257,8 +326,13 @@ def _fetch_block(
         geo_filter,
         products,
     )
+    # Scale the per-attempt drain + cumulative retry budget to THIS block's volume
+    # (periods × products × variables) so a wide-window / many-product request gets
+    # proportionally longer than the flat 75s — and each halved recursion below
+    # recomputes its own (smaller) budget.
+    drain_s, retry_budget_s = _request_deadlines(len(periods), len(products), variables)
     try:
-        response = _http_get(url)
+        response = _http_get(url, total_deadline_s=drain_s, retry_budget_s=retry_budget_s)
     except SidraLimitExceeded:
         if len(periods) > 1:
             mid = len(periods) // 2

@@ -22,7 +22,7 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     stop_after_delay,
-    wait_exponential,
+    wait_random_exponential,
 )
 
 # (connect_timeout, read_timeout). 30s read is the per-chunk byte-idle
@@ -59,6 +59,13 @@ def http_retry_policy(
     keep the worker alive past the deadline even if it never exhausts
     attempts. Retries on ``requests.RequestException`` or ``transient_exc``.
 
+    Backoff is FULL-JITTER exponential (``wait_random_exponential``): each
+    sleep is ``uniform(0, min(60, 2**attempt))`` rather than a fixed
+    ``2,4,8…`` ramp. The jitter de-synchronises retries across the parallel
+    state-fetch workers (IBGE runs up to 4 at once), so a brief upstream
+    slowdown doesn't make all workers re-hit SIDRA in lockstep — the
+    thundering-herd that turns a transient slow patch into a sustained one.
+
     ``before_sleep`` is forwarded verbatim — callers inject their own
     observability hook (e.g. IBGE's ``_emit_retry`` reading a contextvar);
     pass ``None`` to opt out.
@@ -66,7 +73,7 @@ def http_retry_policy(
     return retry(
         reraise=True,
         stop=stop_after_attempt(max_attempts) | stop_after_delay(deadline_s),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
+        wait=wait_random_exponential(multiplier=1, max=60),
         retry=retry_if_exception_type((requests.RequestException, transient_exc)),
         before_sleep=before_sleep,
     )
