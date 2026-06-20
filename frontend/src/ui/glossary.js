@@ -44,6 +44,23 @@ const GLOSSARY = {
     ],
   },
 
+  ibge_ppm: {
+    label: 'IBGE PPM',
+    sub:   'Pesquisa da Pecuária Municipal — rebanhos, produção animal e valor',
+    terms: [
+      { term: 'PPM',       cat: 'Fonte',    tag: 'IBGE',  short: 'Pesquisa da Pecuária Municipal — apuração anual do IBGE com o efetivo dos rebanhos e a produção de origem animal por município.' },
+      { term: 'Efetivo dos rebanhos', cat: 'Conceito', short: 'Número de cabeças do rebanho (bovino, suíno, galináceos, etc.) num dado ano — um estoque, não uma produção, e sem valor monetário.' },
+      { term: 'Produção de origem animal', cat: 'Conceito', short: 'Leite, ovos de galinha e codorna, mel, lã e casulo do bicho-da-seda — um fluxo anual, com quantidade e valor.' },
+      { term: 'Bovino',    cat: 'Rebanho', tag: '2670', short: 'Maior rebanho brasileiro. Medido em cabeças (efetivo).' },
+      { term: 'Leite',     cat: 'Produto', tag: '2682', short: 'Produção em mil litros (família volume). Concentrada em MG, RS e PR.' },
+      { term: 'Ovos de galinha', cat: 'Produto', tag: '2685', short: 'Produção em mil dúzias (família contagem).' },
+      { term: 'Cabeças',   cat: 'Unidade', short: 'Unidade de contagem do efetivo dos rebanhos — não é somável com litros de leite ou kg de mel (famílias diferentes).' },
+      { term: 'valor_producao', cat: 'Coluna', short: 'Valor da produção animal (R$), deflacionável por IPCA/IGP-M/IGP-DI. O efetivo dos rebanhos NÃO tem valor.' },
+      { term: 'gold_ppm_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e rebanho/produto, com quantidade (na unidade do produto) e — para a produção animal — valor.' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: OK, valor ausente, quantidade ausente ou incompleta. O rebanho (estoque) é OK só com a quantidade — não tem valor por definição.' },
+    ],
+  },
+
   mdic_comex: {
     label: 'MDIC COMEX',
     sub:   'Comércio Exterior brasileiro — exportações e importações por UF e parceiro',

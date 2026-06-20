@@ -29,6 +29,15 @@ with monetary_units as (
         unit_of_measure
     from {{ ref('silver_ibge_pam') }}
     where is_monetary_value
+
+    union all
+
+    select distinct
+        'ppm' as source,
+        reference_year,
+        unit_of_measure
+    from {{ ref('silver_ibge_ppm') }}
+    where is_monetary_value
 )
 select
     mu.source,

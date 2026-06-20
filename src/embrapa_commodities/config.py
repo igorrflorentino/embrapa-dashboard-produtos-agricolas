@@ -71,10 +71,14 @@ class Settings(BaseSettings):
     # ─── BigQuery dataset / table names ───────────────────────────────────────
     bq_bronze_ibge_dataset: str = Field(default="bronze_ibge")
     bq_bronze_pam_dataset: str = Field(default="bronze_pam")
+    bq_bronze_ppm_dataset: str = Field(default="bronze_ppm")
     bq_bronze_bcb_dataset: str = Field(default="bronze_bcb")
     bq_bronze_comex_dataset: str = Field(default="bronze_comex")
     bq_bronze_ibge_table: str = Field(default="sidra_t289_raw")
     bq_bronze_pam_table: str = Field(default="sidra_t5457_raw")
+    # PPM spans two SIDRA tables → two Bronze tables in one dataset (Silver unions).
+    bq_bronze_ppm_herd_table: str = Field(default="sidra_t3939_raw")
+    bq_bronze_ppm_animal_table: str = Field(default="sidra_t74_raw")
     bq_bronze_bcb_inflation_table: str = Field(default="inflation_series_raw")
     bq_bronze_bcb_currency_table: str = Field(default="currency_series_raw")
     bq_bronze_comex_flows_table: str = Field(default="comex_flows_raw")
@@ -142,6 +146,40 @@ class Settings(BaseSettings):
     # (dbt_project.yml): 8331 área plantada · 216 área colhida · 214 quantidade ·
     # 112 rendimento · 215 valor. `embrapa doctor` is the place to add a parity check.
     pam_variable_codes: str = Field(default="8331,216,214,112,215")
+
+    # ─── IBGE PPM (Pesquisa da Pecuária Municipal — SIDRA tables 3939 + 74) ────
+    # The THIRD IBGE/SIDRA source: ANNUAL livestock survey by municipality. Unlike
+    # PEVS/PAM (one SIDRA table each), PPM spans TWO tables with different measures,
+    # ingested into two Bronze tables and unioned in silver_ibge_ppm (see
+    # ibge/ppm_pipeline.py). Both tables run 1974→latest; END floats like PEVS/PAM.
+    #
+    # Table 3939 "Efetivo dos rebanhos" — herd HEADCOUNT, a STOCK with NO value.
+    # Classification 79 (tipo de rebanho). Variable 105 (Cabeças). The herd codes
+    # EXCLUDE the subset categories 32795 (Suíno - matrizes) and 32793 (Galináceos
+    # - galinhas): both are SUBSETS of their "- total" parent, so summing a national
+    # headcount across products would double-count them.
+    ppm_herd_table_id: str = Field(default="3939")
+    ppm_herd_classification_id: str = Field(default="79")
+    ppm_herd_product_codes: str = Field(default="2670,2675,2672,32794,2681,2677,32796,2680")
+    ppm_herd_variable_codes: str = Field(default="105")
+
+    # Table 74 "Produção de origem animal" — milk/eggs/honey/wool, a FLOW with value.
+    # Classification 80 (tipo de produto de origem animal). Variables 106 (quantity,
+    # unit varies by product: Mil litros / Mil dúzias / Quilogramas) + 215 (Valor da
+    # produção, Mil Reais 1994+). The 1000215 "percentual do total geral" series is
+    # intentionally EXCLUDED (a derived share, not a substantive measure — like PAM).
+    ppm_animal_table_id: str = Field(default="74")
+    ppm_animal_classification_id: str = Field(default="80")
+    ppm_animal_product_codes: str = Field(default="2682,2685,2686,2687,2683,2684")
+    ppm_animal_variable_codes: str = Field(default="106,215")
+
+    # Both PPM tables run 1974→2024 today; END floats with the current year (like
+    # PEVS/PAM) so the delta absorbs recent-year revisions and auto-picks-up a newly
+    # published year. Same delta semantics as PEVS/PAM (PPM also revises only recent
+    # years). The first backfill is heavy — use `ingest ibge-ppm --full` once.
+    ppm_start_year: int | None = Field(default=1974)
+    ppm_end_year: int = Field(default_factory=_current_year)
+    ppm_delta_overlap_years: int = Field(default=1, ge=0)
 
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
@@ -402,6 +440,39 @@ class Settings(BaseSettings):
         codes = [c.strip() for c in self.pam_variable_codes.split(",") if c.strip()]
         if not codes:
             raise ValueError("PAM_VARIABLE_CODES is empty.")
+        return codes
+
+    @property
+    def ppm_herd_product_codes_list(self) -> list[str]:
+        """Parsed PPM herd codes (SIDRA t3939 c79). ``_list`` avoids shadowing the
+        ``ppm_herd_product_codes`` raw env field."""
+        codes = [c.strip() for c in self.ppm_herd_product_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PPM_HERD_PRODUCT_CODES is empty.")
+        return codes
+
+    @property
+    def ppm_animal_product_codes_list(self) -> list[str]:
+        """Parsed PPM animal-production codes (SIDRA t74 c80)."""
+        codes = [c.strip() for c in self.ppm_animal_product_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PPM_ANIMAL_PRODUCT_CODES is empty.")
+        return codes
+
+    @property
+    def ppm_herd_variable_codes_list(self) -> list[str]:
+        """Parsed PPM herd SIDRA variable codes (efetivo dos rebanhos)."""
+        codes = [c.strip() for c in self.ppm_herd_variable_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PPM_HERD_VARIABLE_CODES is empty.")
+        return codes
+
+    @property
+    def ppm_animal_variable_codes_list(self) -> list[str]:
+        """Parsed PPM animal-production SIDRA variable codes (quantity + value)."""
+        codes = [c.strip() for c in self.ppm_animal_variable_codes.split(",") if c.strip()]
+        if not codes:
+            raise ValueError("PPM_ANIMAL_VARIABLE_CODES is empty.")
         return codes
 
     @property

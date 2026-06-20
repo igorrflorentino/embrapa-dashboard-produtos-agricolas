@@ -126,6 +126,28 @@ window.FILTER_SCHEMAS = {
     ],
   },
 
+  ibge_ppm: {
+    table: 'gold_ppm_production',
+    dims: [
+      { id: 'produtos',  num: '01', tier: 'shared',    type: 'products',
+        requires: 'product', backed: true,
+        label: 'Rebanho/Produtos · PPM',   column: 'produto_ppm',
+        hint: 'Tipos de rebanho e produtos de origem animal da Pesquisa da Pecuária Municipal.' },
+      { id: 'periodo',   num: '02', tier: 'universal', type: 'period-value',
+        requires: null, backed: true,
+        label: 'Período & faixa de valor', column: 'ano · valor_producao',
+        hint: 'Janela temporal (anual) e corte por valor da produção animal.' },
+      { id: 'geografia', num: '03', tier: 'shared',    type: 'geo-cascade',
+        requires: 'geo', backed: true,
+        label: 'Geografia',                column: 'uf · municipio',
+        hint: 'Cascata nação ▸ região ▸ estado ▸ município.' },
+      { id: 'qualidade', num: '04', tier: 'specific',  type: 'flags',
+        requires: 'quality', backed: true,
+        label: 'Qualidade dos dados',      column: 'data_quality_flag',
+        hint: 'Bandeira de qualidade por linha.' },
+    ],
+  },
+
   mdic_comex: {
     table: 'gold_comex_flows',
     dims: [

@@ -30,7 +30,7 @@ from embrapa_commodities.core import (
     chunked_run,
     pipeline_run,
 )
-from embrapa_commodities.ibge import pam_pipeline
+from embrapa_commodities.ibge import pam_pipeline, ppm_pipeline
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
 
@@ -84,6 +84,10 @@ INGESTS: list[IngestSpec] = [
     # path stays unchanged. Runs on demand via `ingest ibge-pam`; give it its own
     # monthly cadence later (like COMTRADE) once validated.
     IngestSpec("ibge-pam", pam_pipeline, accepts_full=True, label="IBGE PAM", in_all=False),
+    # PPM (livestock) is the same kind of source as PAM: ANNUAL, slow-changing,
+    # freshly-shipped — OUT of the nightly `ingest all` (in_all=False). Runs on
+    # demand via `ingest ibge-ppm`; its own monthly cadence via schedule_ppm.sh.
+    IngestSpec("ibge-ppm", ppm_pipeline, accepts_full=True, label="IBGE PPM", in_all=False),
     IngestSpec("bcb-inflation", bcb_inflation, accepts_full=True, label="BCB inflation"),
     IngestSpec("bcb-currency", bcb_currency, accepts_full=True, label="BCB FX"),
     IngestSpec("comex", comex_pipeline, accepts_full=True, label="MDIC COMEX"),
@@ -228,6 +232,47 @@ def ingest_ibge_pam(
             "[yellow]⚠ IBGE PAM ingest skipped:[/yellow] SIDRA returned no new rows. "
             "On a delta run Bronze is likely already current; on --full, lower "
             "PAM_END_YEAR in .env to the latest published year."
+        )
+
+
+@ingest_app.command("ibge-ppm")
+def ingest_ibge_ppm(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Re-fetch the whole PPM_START_YEAR→END window (default is delta: recent years only).",
+    ),
+    from_raw: bool = typer.Option(
+        False,
+        "--from-raw",
+        help="Rebuild Bronze from the archived raw SIDRA response(s), without re-querying SIDRA.",
+    ),
+) -> None:
+    """Ingest IBGE PPM (Pesquisa da Pecuária Municipal) into Bronze (extract→raw→bronze).
+
+    Ingests BOTH SIDRA tables: 3939 (efetivo dos rebanhos) + 74 (produção de origem animal).
+    """
+    settings = get_settings()
+    with pipeline_run(
+        "ibge-ppm",
+        params={
+            "start_year": settings.ppm_start_year,
+            "end_year": settings.ppm_end_year,
+            "herd_products": settings.ppm_herd_product_codes_list,
+            "animal_products": settings.ppm_animal_product_codes_list,
+            "full": full,
+            "from_raw": from_raw,
+        },
+    ) as (_run_id, log_path):
+        console.print(f"[dim]event log:[/dim] {log_path}")
+        destination = ppm_pipeline.run(settings, full=full, from_raw=from_raw)
+    if destination:
+        console.print(f"[green]✓[/green] IBGE PPM bronze loaded → {destination}")
+    else:
+        console.print(
+            "[yellow]⚠ IBGE PPM ingest skipped:[/yellow] SIDRA returned no new rows. "
+            "On a delta run Bronze is likely already current; on --full, lower "
+            "PPM_END_YEAR in .env to the latest published year."
         )
 
 

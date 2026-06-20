@@ -34,6 +34,27 @@ sources:
           freshness:
             warn_after: {count: 60, period: day}
 
+  - name: bronze_ppm
+    description: "Raw SIDRA PPM (Pesquisa da Pecuária Municipal) payloads ingested by `embrapa ingest ibge-ppm`. Two tables (herd headcount + animal production) unioned in silver_ibge_ppm."
+    database: "{{ target.project }}"
+    schema: "{{ env_var('BQ_BRONZE_PPM_DATASET', 'bronze_ppm') }}"
+    tables:
+      - name: herd_raw
+        identifier: "{{ env_var('BQ_BRONZE_PPM_HERD_TABLE', 'sidra_t3939_raw') }}"
+        description: "IBGE PPM efetivo dos rebanhos (table 3939 — herd headcount, raw STRING columns)."
+        config:
+          loaded_at_field: ingestion_timestamp
+          # Manual cadence like PAM (in_all=False); warn-only, no error threshold.
+          freshness:
+            warn_after: {count: 60, period: day}
+      - name: animal_raw
+        identifier: "{{ env_var('BQ_BRONZE_PPM_ANIMAL_TABLE', 'sidra_t74_raw') }}"
+        description: "IBGE PPM produção de origem animal (table 74 — milk/eggs/honey/wool, raw STRING columns)."
+        config:
+          loaded_at_field: ingestion_timestamp
+          freshness:
+            warn_after: {count: 60, period: day}
+
   - name: bronze_bcb
     description: "Raw BCB SGS series ingested by `embrapa ingest bcb-*`."
     database: "{{ target.project }}"

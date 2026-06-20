@@ -1,0 +1,127 @@
+{{
+    config(
+        materialized='table',
+        partition_by={
+            'field': 'reference_year',
+            'data_type': 'int64',
+            'range': {'start': 1970, 'end': 2050, 'interval': 1}
+        },
+        cluster_by=['state_acronym', 'product_code']
+    )
+}}
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- serving_ppm_annual — pre-aggregated PPM (livestock) mart for Pushdown Computing.
+--
+-- Rolls gold_ppm_production (year × UF × CITY × product) up to
+-- (year × UF × product × family), dropping the municipality grain. Column-shaped
+-- like serving_pevs_annual (NO área/yield — PPM is livestock), plus measure_kind so
+-- a herd STOCK (Cabeças) is never conflated with an animal-production FLOW.
+--
+-- Keeping `family` IN the grain is non-negotiable for PPM: its products span
+-- contagem (herd/eggs), volume (milk) and massa (honey/wool), so qty_native/qty_base
+-- are only ever summed WITHIN a family — never the forbidden cross-family sum.
+--
+-- Backs (frontend_data_contract.md §3): overviewTS (GROUP BY year), productTS
+-- (GROUP BY year, product_code), ufData (GROUP BY state_acronym).
+--
+-- Grain: one row per (reference_year, state_acronym, product_code, family).
+-- ────────────────────────────────────────────────────────────────────────────
+
+with ppm as (
+
+    select
+        reference_year,
+        state_acronym,
+        product_code,
+        family,
+        any_value(product_description)  as product_description,
+        any_value(measure_kind)         as measure_kind,
+        any_value(base_unit)            as base_unit,
+        any_value(unit_native)          as unit_native,
+        -- Summed WITHIN a family (family is in the grain) — never cross-family.
+        sum(qty_native)                 as qty_native,
+        sum(qty_base)                   as qty_base,
+        sum(val_yearfx_brl)             as val_yearfx_brl,
+        sum(val_yearfx_usd)             as val_yearfx_usd,
+        sum(val_yearfx_eur)             as val_yearfx_eur,
+        sum(val_real_ipca_brl)          as val_real_ipca_brl,
+        sum(val_real_ipca_usd)          as val_real_ipca_usd,
+        sum(val_real_ipca_eur)          as val_real_ipca_eur,
+        -- IGP-M / IGP-DI deflation carried in BRL and EUR only (the BFF allowlist
+        -- omits the USD-deflated combos, so materializing them would be dead bytes).
+        sum(val_real_igpm_brl)          as val_real_igpm_brl,
+        sum(val_real_igpm_eur)          as val_real_igpm_eur,
+        sum(val_real_igpdi_brl)         as val_real_igpdi_brl,
+        sum(val_real_igpdi_eur)         as val_real_igpdi_eur,
+        count(distinct city_code)       as n_cities,
+        count(*)                        as source_rows,
+        max(last_refresh)               as last_refresh
+    from {{ ref('gold_ppm_production') }}
+    group by reference_year, state_acronym, product_code, family
+
+),
+
+ppm_codes as (
+
+    select distinct product_code
+    from ppm
+
+),
+
+-- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
+-- source='ppm' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE facts,
+-- and its accepted_values tests reject 'ppm' — so the seed's prefix expansion is
+-- replicated here against the PPM codes in this mart. Seeding (source='ppm') rows in
+-- commodity_crosswalk is then enough to light up commodity_id/commodity_name (the
+-- seed's accepted_values test on `source` must learn 'ppm' alongside the first such
+-- row). With no ppm rows seeded yet, both columns come out NULL (the dashboard
+-- handles NULL commodity).
+ppm_xwalk as (
+
+    select distinct
+        x.commodity_id,
+        x.commodity_name,
+        c.product_code as code
+    from ppm_codes c
+    join {{ ref('commodity_crosswalk') }} x
+        on x.source = 'ppm'
+        and c.product_code like x.code_prefix || '%'
+
+)
+
+select
+    p.reference_year,
+    date(p.reference_year, 12, 31)  as reference_date,
+    p.state_acronym,
+    g.state_name,
+    g.region,
+    g.region_abbrev,
+    x.commodity_id,
+    x.commodity_name,
+    p.product_code,
+    p.product_description,
+    p.measure_kind,
+    p.family,
+    p.base_unit,
+    p.unit_native,
+    p.qty_native,
+    p.qty_base,
+    p.val_yearfx_brl,
+    p.val_yearfx_usd,
+    p.val_yearfx_eur,
+    p.val_real_ipca_brl,
+    p.val_real_ipca_usd,
+    p.val_real_ipca_eur,
+    p.val_real_igpm_brl,
+    p.val_real_igpm_eur,
+    p.val_real_igpdi_brl,
+    p.val_real_igpdi_eur,
+    p.n_cities,
+    p.source_rows,
+    p.last_refresh
+from ppm p
+left join {{ ref('dim_geo_br') }} g
+    on g.state_acronym = p.state_acronym
+left join ppm_xwalk x
+    on x.code = p.product_code

@@ -87,7 +87,7 @@ chore(deps): bump dbt-core to 1.9
 
 ### Common scopes
 
-`ibge`, `bcb`, `comex`, `comtrade`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
+`ibge`, `ppm`, `bcb`, `comex`, `comtrade`, `core`, `gcp`, `dbt`, `cli`, `doctor`, `backup`, `monitor`, `config`, `ci`, `deps`, `docs`
 
 This list is open-ended — add new scopes when you create a new module or source (e.g. `nfe`).
 

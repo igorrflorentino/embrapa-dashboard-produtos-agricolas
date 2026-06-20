@@ -36,9 +36,9 @@ def test_banco_by_id_falls_back_to_pevs_for_an_unknown_id():
 def test_visible_bancos_returns_only_visible_entries():
     visible = reg.visible_bancos()
     assert all(b.visible for b in visible)
-    # All five shipped bancos are visible today (no banco is backend-hidden).
+    # All six shipped bancos are visible today (no banco is backend-hidden).
     assert {b.id for b in visible} == {b.id for b in reg.BANCOS if b.visible}
-    assert len(visible) == 5
+    assert len(visible) == 6
 
 
 @pytest.mark.parametrize(
@@ -48,6 +48,7 @@ def test_visible_bancos_returns_only_visible_entries():
         ("mdic_comex", "USD"),
         ("un_comtrade", "USD"),
         ("ibge_pam", "BRL"),
+        ("ibge_ppm", "BRL"),
         ("does_not_exist", "BRL"),  # unknown → PEVS fallback → BRL
     ],
 )
@@ -133,7 +134,11 @@ def test_bancos_supporting_lists_only_capable_visible_bancos():
 
 
 def test_bancos_supporting_a_yield_view_is_pam_only():
-    assert {b.id for b in reg.bancos_supporting("productivity")} == {"ibge_pam"}
+    supporters = {b.id for b in reg.bancos_supporting("productivity")}
+    assert supporters == {"ibge_pam"}
+    # PPM is livestock — no planted area → no 'yield' → the Produtividade view stays
+    # PAM-only (the defining capability divergence from PAM).
+    assert "ibge_ppm" not in supporters
 
 
 def test_bancos_supporting_unknown_view_is_empty():
@@ -169,8 +174,9 @@ def test_filter_schema_for_known_banco():
 
 
 def test_filter_schema_for_unknown_falls_back_to_pevs():
-    # A banco without a dedicated schema (e.g. PAM) degrades to the PEVS schema.
+    # A banco without a dedicated schema (e.g. PAM, PPM) degrades to the PEVS schema.
     assert reg.filter_schema_for("ibge_pam") == reg.FILTER_SCHEMAS["ibge_pevs"]
+    assert reg.filter_schema_for("ibge_ppm") == reg.FILTER_SCHEMAS["ibge_pevs"]
     assert reg.filter_schema_for("does_not_exist") == reg.FILTER_SCHEMAS["ibge_pevs"]
 
 

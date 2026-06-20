@@ -69,6 +69,14 @@ vars:
   pam_variable_yield: "112"             # Rendimento médio da produção (kg/Hectare)
   pam_variable_value: "215"             # Valor da produção (Mil Reais, 1994+)
 
+  # IBGE PPM (Pesquisa da Pecuária Municipal) — multi-table. silver_ibge_ppm unions
+  # the herd table (3939, quantity var 105 = Efetivo dos rebanhos, Cabeças) and the
+  # animal-production table (74, quantity var 106 + value var 215). Keep in sync with
+  # PPM_HERD_VARIABLE_CODES / PPM_ANIMAL_VARIABLE_CODES (.env).
+  ppm_variable_herd: "105"              # Efetivo dos rebanhos (Cabeças) — herd STOCK
+  ppm_variable_animal_qty: "106"        # Produção de origem animal (qty; unit varies)
+  ppm_variable_value: "215"             # Valor da produção (Mil Reais, 1994+)
+
   # Codes consumed by the Gold deflation logic. If you change the keys in
   # BCB_INFLATION_SERIES (.env), set the matching env vars below so dbt picks
   # the right series for IPCA/IGP-M/IGP-DI projections.

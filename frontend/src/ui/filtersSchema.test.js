@@ -65,7 +65,7 @@ describe('bancoFilterDims — only backed AND applicable dims (everything else h
 
 describe('isMonetaryBanco — gates the currency/correction conventions', () => {
   it('every current banco is monetary', () => {
-    ['ibge_pevs', 'ibge_pam', 'mdic_comex', 'un_comtrade', 'sefaz_nf'].forEach((id) =>
+    ['ibge_pevs', 'ibge_pam', 'ibge_ppm', 'mdic_comex', 'un_comtrade', 'sefaz_nf'].forEach((id) =>
       expect(window.isMonetaryBanco(id)).toBe(true),
     );
   });

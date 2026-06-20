@@ -99,7 +99,7 @@ erDiagram
         bool     is_current
     }
     gold_source_metadata {
-        string   source             PK "ibge_pevs / ibge_pam / mdic_comex / un_comtrade"
+        string   source             PK "ibge_pevs / ibge_pam / ibge_ppm / mdic_comex / un_comtrade"
         string   gold_table
         string   cadence                "annual / monthly"
         int      year_start
@@ -160,6 +160,7 @@ dashboard scans MB not GB. They derive **from** Gold, they don't replace it.
 |------|-------|------|-------|
 | `serving_pevs_annual` | year × UF × product × family | `gold_pevs_production` (municipality dropped) | overviewTS / productTS / ufData |
 | `serving_pam_annual` | year × UF × product × family | `gold_pam_production` (municipality dropped) | overviewTS / productTS / ufData |
+| `serving_ppm_annual` | year × UF × product × family | `gold_ppm_production` (municipality dropped; carries `measure_kind`) | overviewTS / productTS / ufData |
 | `serving_comex_annual` | year × flow × NCM × UF × country | `gold_comex_flows` (month + via dropped) | overview / product / uf / partner / flow |
 | `serving_comex_seasonality` | year × **month** × flow × NCM × UF | `gold_comex_flows` (joins `dim_date`; country + via dropped) | seasonality (the only mart keeping month) |
 | `serving_comtrade_annual` | year × flow × cmd × reporter × partner | `gold_comtrade_flows` (column-pruned) | partner / flow / market-share |

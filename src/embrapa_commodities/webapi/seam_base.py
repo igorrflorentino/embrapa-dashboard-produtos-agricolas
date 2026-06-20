@@ -25,7 +25,7 @@ from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
 
 # Banco id → the BFF source key (they already align by construction).
-_LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "mdic_comex", "un_comtrade"}
+_LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "ibge_ppm", "mdic_comex", "un_comtrade"}
 
 
 @cache.memoize()

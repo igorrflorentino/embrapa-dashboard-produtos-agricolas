@@ -76,6 +76,50 @@ models:
               arguments:
                 expression: "is null or numeric_value >= 0"
 
+  - name: silver_ibge_ppm
+    description: "PPM livestock (SIDRA 3939 herd + 74 animal production) cleaned, typed, deduplicated, UNIONed. LONG: one row per (year, city, product, variable); measure_kind = stock|flow."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - reference_year
+              - city_code
+              - product_code
+              - variable_code
+              - unit_of_measure
+    columns:
+      - name: measure_kind
+        description: "'stock' (efetivo dos rebanhos — herd headcount) or 'flow' (produção de origem animal)."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["stock", "flow"]
+      - name: reference_year
+        tests:
+          - not_null
+          # PPM history runs to 1974 (both tables 3939 + 74). Same reform-correct
+          # currency machinery as PAM, so no 1994+ guard — just catch a junk year.
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "between 1974 and extract(year from current_date()) + 1"
+      - name: state_acronym
+        tests: [not_null]
+      - name: product_code
+        description: "SIDRA herd code (c79: 2670=Bovino…) or animal-product code (c80: 2682=Leite…)."
+        tests: [not_null]
+      - name: variable_code
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["105", "106", "215"]  # herd qty · animal qty · animal value
+      - name: numeric_value
+        tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "is null or numeric_value >= 0"
+
   - name: silver_bcb_inflation
     description: |
       Monthly inflation series with chain-linked 100-base index_value, so any
@@ -317,3 +361,44 @@ unit_tests:
         - {product_code: "0004", unit_native: "milheiro",      family: "contagem", qty_base: 2000}
         - {product_code: "0005", unit_native: "alqueire",      family: "area",     qty_base: 121}
         - {product_code: "9999", unit_native: "saca",          family: "massa",    qty_base: 0.6}
+
+  # PPM is the multi-table, multi-unit-family source: this pins the headline risks
+  # deterministically — the herd STOCK (Cabeças/contagem) vs animal FLOW union, the
+  # per-product family split (volume/contagem/massa in ONE model), the "Mil" ×1000
+  # scale folded into the seed to_base (Mil litros→m³ ×1, Mil dúzias→un ×12000), and
+  # the reform-correct value factor on variable 215.
+  - name: test_ppm_family_mil_scale_and_value_conversion
+    model: silver_ibge_ppm
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('bronze_ppm', 'herd_raw')
+        rows:
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_rebanho_codigo: "2670", tipo_de_rebanho: "Bovino", variavel_codigo: "105", variavel: "Efetivo dos rebanhos", unidade_de_medida: "Cabeças", valor: "120", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+      - input: source('bronze_ppm', 'animal_raw')
+        rows:
+          # Leite — Mil litros: 5 mil litros → 5 m³ (to_base 1).
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_de_origem_animal_codigo: "2682", tipo_de_produto_de_origem_animal: "Leite", variavel_codigo: "106", variavel: "Produção de origem animal", unidade_de_medida: "Mil litros", valor: "5", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          # Ovos de galinha — Mil dúzias: 3 mil dúzias → 36000 un (to_base 12000).
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_de_origem_animal_codigo: "2685", tipo_de_produto_de_origem_animal: "Ovos de galinha", variavel_codigo: "106", variavel: "Produção de origem animal", unidade_de_medida: "Mil dúzias", valor: "3", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          # Mel — Quilogramas: 2000 kg → 2 t (to_base 0.001).
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_de_origem_animal_codigo: "2687", tipo_de_produto_de_origem_animal: "Mel de abelha", variavel_codigo: "106", variavel: "Produção de origem animal", unidade_de_medida: "Quilogramas", valor: "2000", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          # Value (215) Mil Reais: factor 1000 folds the "Mil" → nominal R$ 100000.
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_de_origem_animal_codigo: "2682", tipo_de_produto_de_origem_animal: "Leite", variavel_codigo: "215", variavel: "Valor da produção", unidade_de_medida: "Mil Reais", valor: "100", nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+      - input: ref('historical_currency_factors')
+        rows:
+          - {unit_of_measure: "Mil Reais", year_from: 1994, year_to: 2030, brl_factor: 1000.0}
+      - input: ref('unit_family_conversions')
+        rows:
+          - {unit_raw: "cabeças",     family: "contagem", base_unit: "un", to_base: 1}
+          - {unit_raw: "mil litros",  family: "volume",   base_unit: "m³", to_base: 1}
+          - {unit_raw: "mil dúzias",  family: "contagem", base_unit: "un", to_base: 12000}
+          - {unit_raw: "quilogramas", family: "massa",    base_unit: "t",  to_base: 0.001}
+    expect:
+      rows:
+        - {product_code: "2670", variable_code: "105", measure_kind: "stock", family: "contagem", qty_base: 120,   is_monetary_value: false, numeric_value: 120}
+        - {product_code: "2682", variable_code: "106", measure_kind: "flow",  family: "volume",   qty_base: 5,     is_monetary_value: false, numeric_value: 5}
+        - {product_code: "2685", variable_code: "106", measure_kind: "flow",  family: "contagem", qty_base: 36000, is_monetary_value: false, numeric_value: 3}
+        - {product_code: "2687", variable_code: "106", measure_kind: "flow",  family: "massa",    qty_base: 2,     is_monetary_value: false, numeric_value: 2000}
+        - {product_code: "2682", variable_code: "215", measure_kind: "flow",  family: null,       qty_base: null,  is_monetary_value: true,  numeric_value: 100000}

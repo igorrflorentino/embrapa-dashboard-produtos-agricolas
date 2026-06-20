@@ -26,6 +26,10 @@ gold as (
     union all
     select 'gold_pam_production',  family, base_unit from {{ ref('gold_pam_production') }}
     union all
+    -- PPM genuinely spans contagem/volume/massa per product, so the single-unit max()
+    -- pairing is MORE exposed here than for the single-family PEVS/PAM crops.
+    select 'gold_ppm_production',  family, base_unit from {{ ref('gold_ppm_production') }}
+    union all
     select 'gold_comex_flows',    family, base_unit from {{ ref('gold_comex_flows') }}
     union all
     select 'gold_comtrade_flows', family, base_unit from {{ ref('gold_comtrade_flows') }}

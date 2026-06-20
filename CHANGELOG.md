@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.2.0` é o release atual._
+### Added
+- **New data source: IBGE PPM** (Pesquisa da Pecuária Municipal) — a new dashboard
+  banco `ibge_ppm` for livestock: herd headcount (SIDRA 3939, Cabeças) + animal
+  production (SIDRA 74 — leite/ovos/mel/lã, with value). PPM is **multi-table**
+  (a first for the SIDRA sources): one `ingest ibge-ppm` ingests both tables into
+  two Bronze tables, unioned in `silver_ibge_ppm` with a `measure_kind` (stock|flow)
+  discriminator. New `gold_ppm_production` (no área/yield — livestock) + serving mart
+  `serving_ppm_annual` ride the full deflation/FX matrix and the PEVS-shaped gateway
+  readers with no new query SQL. Capability-wise PEVS-shaped (`provides` product/geo/
+  quality, **no** produtividade). New `PPM_*` knobs + `BQ_BRONZE_PPM_{HERD,ANIMAL}_TABLE`;
+  excluded from nightly `ingest all` (annual) — on-demand via `ingest ibge-ppm` + the
+  monthly `schedule_ppm.sh` (cron `0 4 3 * *`). New unit_family_conversions seed rows
+  fold the SIDRA ×1000 "Mil litros"/"Mil dúzias" scale.
+
+  > **Operator activation (data is not live until these run, in order):**
+  > 1. Ingest Bronze via the Job: `gcloud run jobs execute embrapa-ingest-all --args=ibge-ppm`
+  >    (after `make ingest-job-deploy` so the Job carries the `PPM_*` env). One-time full
+  >    backfill: add `--full` semantics via a wider window / re-run.
+  > 2. `dbt build` propagates Silver→Gold→serving (the nightly `dbt-build-prod` will report
+  >    the PPM models as failed until step 1 lands the Bronze tables — expected).
+  > 3. MERGE a `research_inputs.banco_metadata` row to set PPM's maturity (else it shows "…").
+  >
+  > Until activated, the banco appears in the UI but its data view returns an empty/error
+  > state (the snapshot 500s because `serving_ppm_annual` is not built yet).
 
 ---
 
