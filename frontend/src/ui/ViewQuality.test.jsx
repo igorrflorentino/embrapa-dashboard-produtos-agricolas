@@ -10,7 +10,9 @@ import { cleanup, render } from '@testing-library/react';
 
 // Capture FlagBars' props so we can assert the per-product breakdown was built
 // from the real registry (the columns come from iterating window.QUALITY_FLAGS).
+// flagBarsCalls keeps EVERY call (the stock/flow facet renders two FlagBars).
 let flagBarsProps;
+let flagBarsCalls;
 
 function stubGlobals(filtered) {
   window.applyFilters = () => filtered;
@@ -26,6 +28,7 @@ function stubGlobals(filtered) {
   window.StackedArea = () => null;
   window.FlagBars = (props) => {
     flagBarsProps = props;
+    flagBarsCalls.push(props);
     return <div className="flagbars" />;
   };
 }
@@ -34,6 +37,7 @@ let ViewQuality;
 
 beforeEach(async () => {
   flagBarsProps = undefined;
+  flagBarsCalls = [];
   await import('./data.js'); // sets window.QUALITY_FLAGS to the REAL Gold flags
   await import('./ViewQuality.jsx'); // registers window.ViewQuality
   ViewQuality = window.ViewQuality;
@@ -84,5 +88,48 @@ describe('ViewQuality — renders the REAL Gold quality flags (H3 + P0 lock-in)'
     stubGlobals({ ...FIXTURE, qualityFlags: [] });
     const { container } = render(<ViewQuality summary={{}} database="ibge_pevs" />);
     expect(container.textContent).toContain('Nenhuma flag selecionada');
+  });
+});
+
+// PPM carries measure_kind on its products → the per-product quality splits into
+// Estoque (herd) vs Fluxo (animal products), which have different flag profiles.
+const PPM_FIXTURE = {
+  qualityFlags: [
+    { id: 'OK', label: 'OK', color: 'var(--ok)', share: 0.85, count: 850000 },
+    { id: 'MISSING_QUANTITY', label: 'Quantidade ausente', color: 'var(--viz-4)', share: 0.1, count: 100000 },
+    { id: 'MISSING_VALUE', label: 'Valor ausente', color: 'var(--viz-7)', share: 0.05, count: 50000 },
+  ],
+  qualityTs: [{ y: 2020, ok: 0.85 }],
+  qualityByProduct: [
+    { code: '2670', name: 'Bovino', OK: 0.95, MISSING_QUANTITY: 0.05 },   // stock (herd)
+    { code: '2682', name: 'Leite', OK: 0.8, MISSING_VALUE: 0.2 },          // flow (animal product)
+  ],
+  qualityByUf: [],
+  selectedProducts: ['2670', '2682'],
+  products: [
+    { code: '2670', name: 'Bovino', family: 'count', measure_kind: 'stock' },
+    { code: '2682', name: 'Leite', family: 'volume', measure_kind: 'flow' },
+  ],
+  yearStart: 1974,
+  yearEnd: 2024,
+};
+
+describe('ViewQuality — stock/flow facet for livestock (measure_kind)', () => {
+  it('splits the per-product breakdown into Estoque + Fluxo FlagBars groups', () => {
+    stubGlobals(PPM_FIXTURE);
+    const { container } = render(<ViewQuality summary={{}} database="ibge_ppm" />);
+    // Two FlagBars rendered (one per measure_kind group), not one merged list.
+    expect(flagBarsCalls).toHaveLength(2);
+    const groups = flagBarsCalls.map((c) => c.rows.map((r) => r.name));
+    expect(groups).toContainEqual(['Bovino']); // Estoque (stock) group
+    expect(groups).toContainEqual(['Leite']);  // Fluxo (flow) group
+    expect(container.textContent).toContain('Estoque · efetivo dos rebanhos');
+    expect(container.textContent).toContain('Fluxo · produção de origem animal');
+  });
+
+  it('falls back to a single FlagBars when the banco has no measure_kind (PEVS)', () => {
+    stubGlobals(FIXTURE); // ibge_pevs products carry no measure_kind
+    render(<ViewQuality summary={{}} database="ibge_pevs" />);
+    expect(flagBarsCalls).toHaveLength(1); // unchanged single-list behaviour
   });
 });

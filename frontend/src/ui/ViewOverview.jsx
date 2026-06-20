@@ -131,7 +131,7 @@ function ViewOverview({ families, summary, database, conventions }) {
         )}
         {countFamily && (
           <window.KpiCardSpark
-            label={<>Efetivo/contagem · <window.UnitFamilyTag family="count" conv={conv}/></>}
+            label={<>Quantidade · <window.UnitFamilyTag family="count" conv={conv}/></>}
             value={kpiVal(window.formatCountQty(last.q_count, conv))}
             delta={comboPending ? null : window.fmtSigned(prev.q_count ? ((last.q_count - prev.q_count) / prev.q_count) * 100 : 0)}
             deltaPositive={last.q_count >= prev.q_count}

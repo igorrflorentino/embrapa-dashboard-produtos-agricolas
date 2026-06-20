@@ -9,7 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.4.0` é o release atual._
+_Nada ainda — `1.4.1` é o release atual._
+
+---
+
+## [1.4.1] — 2026-06-20
+
+Refinement to the livestock herd feature (`1.4.0`), preview-verified end-to-end against
+the local webapi on real production PPM data (composição Galináceos 82% / Bovino 12%, UF
+líder PR; Perfil stock=Bovino mostra efetivo 238 mi cab sem Valor/Preço).
+
+### Added
+- **Stock/flow facet on the Qualidade view** — for a banco carrying `measure_kind`
+  (livestock), the per-product data-quality breakdown splits into **Estoque** (the herd —
+  value-less, so its flags are OK vs quantidade-ausente) and **Fluxo** (animal products —
+  value + quantity). The two have structurally different flag profiles, so one merged list
+  blurred the diagnosis.
+
+### Changed
+- **Overview count KPI relabelled** `Efetivo/contagem` → **`Quantidade · Contagem`** — the
+  KPI sums the herd (a stock) AND eggs (a flow), so "Efetivo" overclaimed; the neutral
+  label is consistent with the Massa/Volume quantity KPIs.
+- **`vite.config.js`** — a `preview` proxy now mirrors the dev `/api` proxy, so a production
+  build can be smoke-tested against the local webapi (`npm run preview`). Used to
+  preview-verify this change: the experimental rolldown-vite **dev** server mishandles the
+  injected JSX runtime ("require is not defined"), so the **build** preview is the reliable
+  local-verification path.
 
 ---
 
