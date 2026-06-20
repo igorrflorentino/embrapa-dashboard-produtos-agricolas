@@ -53,6 +53,17 @@ function ViewQuality({ summary, database }) {
     ? new Set(summary.states) : null;
   const qaByUf = filtered.qualityByUf.filter(u => !stateSet || stateSet.has(u.uf));
 
+  // Stock/flow facet: when the banco carries measure_kind (livestock), split the
+  // per-product breakdown into Estoque (herd — value-less, so its quality story is the
+  // HEADCOUNT: OK vs MISSING_QUANTITY) vs Fluxo (animal products — value + quantity, so
+  // MISSING_VALUE applies). The two have structurally different flag profiles, so
+  // reading them in one list blurs the diagnosis. Hook-free: measure_kind rides on
+  // filtered.products (PPM-only); other bancos fall through to the single list.
+  const mkOf = (code) => (filtered.products.find(p => p.code === code) || {}).measure_kind;
+  const facetByMeasureKind = qaByProduct.some(r => mkOf(r.code));
+  const stockRows = facetByMeasureKind ? qaByProduct.filter(r => mkOf(r.code) === 'stock') : [];
+  const flowRows  = facetByMeasureKind ? qaByProduct.filter(r => mkOf(r.code) !== 'stock') : [];
+
   return (
     <>
       {/* Flag KPI strip */}
@@ -121,6 +132,27 @@ function ViewQuality({ summary, database }) {
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
             Nenhum produto selecionado nos filtros.
           </p>
+        ) : facetByMeasureKind ? (
+          <>
+            {stockRows.length > 0 && (
+              <div className="qa-facet">
+                <p className="caption" style={{ margin: '2px 2px 6px' }}>
+                  <strong>Estoque · efetivo dos rebanhos</strong> — qualidade da contagem de cabeças
+                  (um estoque não tem valor, então a flag é OK vs quantidade ausente).
+                </p>
+                <window.FlagBars rows={stockRows} flags={flags} labelKey="name" />
+              </div>
+            )}
+            {flowRows.length > 0 && (
+              <div className="qa-facet" style={{ marginTop: 14 }}>
+                <p className="caption" style={{ margin: '2px 2px 6px' }}>
+                  <strong>Fluxo · produção de origem animal</strong> — qualidade de valor + quantidade
+                  (leite, ovos, mel, lã).
+                </p>
+                <window.FlagBars rows={flowRows} flags={flags} labelKey="name" />
+              </div>
+            )}
+          </>
         ) : (
           <window.FlagBars rows={qaByProduct} flags={flags} labelKey="name" />
         )}
