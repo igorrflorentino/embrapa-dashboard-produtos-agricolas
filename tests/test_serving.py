@@ -2167,13 +2167,14 @@ def test_ensure_flow_market_log_table_creates_with_explicit_schema(monkeypatch):
 
 
 # ── gateway: PAM rides the PEVS-shaped production registries ───────────────────
-def test_gateway_production_mart_resolves_pevs_and_pam():
-    """fetch_production_* are generic over the PEVS-shaped marts; PAM is registered."""
+def test_gateway_production_mart_resolves_pevs_pam_and_ppm():
+    """fetch_production_* are generic over the PEVS-shaped marts; PAM + PPM are registered."""
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway
 
     assert gateway._production_mart("ibge_pevs") == "serving_pevs_annual"
     assert gateway._production_mart("ibge_pam") == "serving_pam_annual"
+    assert gateway._production_mart("ibge_ppm") == "serving_ppm_annual"
     with pytest.raises(ValueError, match="unknown production source"):
         gateway._production_mart("mdic_comex")  # trade mart is a different shape
 
@@ -2186,6 +2187,17 @@ def test_gateway_pam_in_product_and_gold_registries():
     assert gateway._product_source("ibge_pam")[0] == "serving_pam_annual"
     assert gateway._GOLD_TABLE["ibge_pam"] == "gold_pam_production"
     assert gateway._GOLD_PRODUCT["ibge_pam"] == ("product_code", "product_description")
+
+
+def test_gateway_ppm_in_product_and_gold_registries():
+    """PPM (livestock, PEVS-shaped) rides the same source-parameterized readers."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    assert gateway._product_source("ibge_ppm")[0] == "serving_ppm_annual"
+    assert gateway._product_source("ibge_ppm")[3] == "val_real_ipca_brl"  # BRL-native default
+    assert gateway._GOLD_TABLE["ibge_ppm"] == "gold_ppm_production"
+    assert gateway._GOLD_PRODUCT["ibge_ppm"] == ("product_code", "product_description")
 
 
 # ── P6: per-UF scoping of the cross-source / seasonality readers ────────────────

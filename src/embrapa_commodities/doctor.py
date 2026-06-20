@@ -413,6 +413,7 @@ def _check_bronze_tables(settings: Settings) -> CheckResult:
 SERVING_TARGETS: list[tuple[str, str]] = [
     ("bq_serving_dataset", "serving_pevs_annual"),
     ("bq_serving_dataset", "serving_pam_annual"),
+    ("bq_serving_dataset", "serving_ppm_annual"),
     ("bq_serving_dataset", "serving_comex_annual"),
     ("bq_serving_dataset", "serving_comex_seasonality"),
     ("bq_serving_dataset", "serving_comtrade_annual"),

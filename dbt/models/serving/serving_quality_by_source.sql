@@ -16,6 +16,8 @@ with flags as (
     union all
     select 'ibge_pam'   as source, data_quality_flag from {{ ref('gold_pam_production') }}
     union all
+    select 'ibge_ppm'   as source, data_quality_flag from {{ ref('gold_ppm_production') }}
+    union all
     select 'mdic_comex' as source, data_quality_flag from {{ ref('gold_comex_flows') }}
     union all
     select 'un_comtrade' as source, data_quality_flag from {{ ref('gold_comtrade_flows') }}

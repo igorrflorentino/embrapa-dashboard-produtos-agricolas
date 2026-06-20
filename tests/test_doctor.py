@@ -263,8 +263,9 @@ def test_check_serving_marts_all_present_and_populated(settings: Settings) -> No
 
 def test_check_serving_marts_reports_missing(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
-        # First six marts present; gold_source_metadata (the 7th target) missing.
+        # First seven marts present; gold_source_metadata (the 8th target) missing.
         bq_cls.return_value.get_table.side_effect = [
+            MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
             MagicMock(num_rows=10),
@@ -290,6 +291,7 @@ def test_check_serving_marts_flags_empty_mart(settings: Settings) -> None:
             MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
+            MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=0, table_type="VIEW"),
         ]
         result = doctor._check_serving_marts(settings)
@@ -302,6 +304,7 @@ def test_check_serving_marts_view_with_zero_num_rows_is_not_empty(settings: Sett
     API) — gold_source_metadata must not be flagged 'empty' on every run."""
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
         bq_cls.return_value.get_table.side_effect = [
+            MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
