@@ -27,7 +27,7 @@ function ViewOverview({ families, summary, database, conventions }) {
   const meta        = (window.dataStore && window.dataStore.meta)
     ? window.dataStore.meta(database) : null;
   const latestMeta  = (meta && meta.latest) || null;
-  const lastPoint   = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, y: null };
+  const lastPoint   = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, q_count: 0, y: null };
   const partialLatest =
     !!latestMeta &&
     latestMeta.yearComplete === false &&
@@ -36,7 +36,7 @@ function ViewOverview({ families, summary, database, conventions }) {
     ts.length >= 2;
   const partialYr = partialLatest ? lastPoint.y : null;
   // Compute over EXACTLY the selected window — latest year included, never dropped.
-  const last      = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, y: null };
+  const last      = ts[ts.length - 1] || { v: 0, q_mass: 0, q_vol: 0, q_count: 0, y: null };
   const prev      = ts[ts.length - 2] || last;
   const first     = ts[0] || last;
   const deltaV    = prev.v ? ((last.v - prev.v) / prev.v) * 100 : 0;
@@ -87,6 +87,7 @@ function ViewOverview({ families, summary, database, conventions }) {
 
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
+  const countFamily = families.includes('count');  // PPM livestock head / eggs
 
   return (
     <>
@@ -126,6 +127,18 @@ function ViewOverview({ families, summary, database, conventions }) {
             spark={comboPending ? null : spark12}
             sparkKey="q_vol"
             sparkColor="var(--viz-4)"
+          />
+        )}
+        {countFamily && (
+          <window.KpiCardSpark
+            label={<>Efetivo/contagem · <window.UnitFamilyTag family="count" conv={conv}/></>}
+            value={kpiVal(window.formatCountQty(last.q_count, conv))}
+            delta={comboPending ? null : window.fmtSigned(prev.q_count ? ((last.q_count - prev.q_count) / prev.q_count) * 100 : 0)}
+            deltaPositive={last.q_count >= prev.q_count}
+            sub={comboPending ? 'cruzando produto × UF…' : `${yTag(last.y)} vs. ${prev.y || ''}`}
+            spark={comboPending ? null : spark12}
+            sparkKey="q_count"
+            sparkColor="var(--viz-9)"
           />
         )}
         {/* Quality is a banco-wide (acervo) figure: applyFilters narrows quality

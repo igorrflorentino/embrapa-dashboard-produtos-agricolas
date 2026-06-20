@@ -671,6 +671,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 }
 .pp-chip-fam.mass   { background: var(--viz-2); }
 .pp-chip-fam.volume { background: var(--viz-4); }
+.pp-chip-fam.count  { background: var(--viz-9); }
 .pp-chip.on .pp-chip-fam { background: rgba(255,255,255,0.85); }
 
 .pp-spec {

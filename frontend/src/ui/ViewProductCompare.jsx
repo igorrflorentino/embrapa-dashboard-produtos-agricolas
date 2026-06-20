@@ -7,7 +7,6 @@ const { useState: usePCState } = React;
 
 function ViewProductCompare({ summary, conventions, database }) {
   const conv     = conventions || window.DEFAULT_CONVENTIONS;
-  const cvf      = window.convFactor(conv);   // base-aware value factor
 
   const filtered  = window.applyFilters(summary || {}, database);
   const available = filtered.selectedProducts.filter(c => filtered.allProductTS[c]);
@@ -38,32 +37,45 @@ function ViewProductCompare({ summary, conventions, database }) {
 
   const yearStart = filtered.yearStart, yearEnd = filtered.yearEnd;
 
-  // Build per-product windows + metrics
+  // Build per-product windows + metrics. A STOCK (herd) has no value → normalize and
+  // rank on headcount (q); flows on value (v). Indexing (base 100) keeps the two
+  // comparable as GROWTH even when the absolute magnitudes are not.
   const items = activeSel.map((code, i) => {
     const prod = filtered.products.find(p => p.code === code);
     const win = filtered.allProductTS[code].filter(d => d.y >= yearStart && d.y <= yearEnd);
-    const v0 = win[0]?.v || 0, vT = win[win.length - 1]?.v || 0;
+    const isStock = prod.measure_kind === 'stock' || !win.some(d => d.v > 0);
+    const mkey = isStock ? 'q' : 'v';
+    const m0 = win[0]?.[mkey] || 0, mT = win[win.length - 1]?.[mkey] || 0;
     return {
-      code, prod, win,
+      code, prod, win, isStock, mkey,
       color: COLORS[i % COLORS.length],
-      v0, vT,
-      cagr: window.cagrPct(v0, vT, win.length - 1),
-      accum: window.accumPct(v0, vT),
-      absT: vT * 1e6 * cvf,
+      m0, mT,
+      vT: win[win.length - 1]?.v || 0,
+      qT: win[win.length - 1]?.q || 0,
+      cagr: window.cagrPct(m0, mT, win.length - 1),
+      accum: window.accumPct(m0, mT),
     };
   });
 
-  // Normalized series (base 100 at yearStart)
+  // Normalized series (base 100 at yearStart) — on each product's own measure, so a
+  // value-less herd traces real growth instead of a flat-zero line.
   const normSeries = items.map(it => ({
     name: it.prod.name,
     color: it.color,
-    data: it.win.map(d => ({ y: d.y, v: it.v0 ? (d.v / it.v0) * 100 : 0 })),
+    data: it.win.map(d => ({ y: d.y, v: it.m0 ? ((d[it.mkey] || 0) / it.m0) * 100 : 0 })),
   }));
 
-  // Pairwise Pearson correlation on YoY growth, aligned BY YEAR (not array index):
-  // a product with an internal year gap would otherwise correlate mismatched years.
-  const corrMatrix = items.map(a => items.map(b => window.pearsonByYear(a.win, b.win)));
+  // Pairwise Pearson correlation on YoY growth, aligned BY YEAR (not array index): a
+  // product with an internal year gap would otherwise correlate mismatched years.
+  // Correlate on headcount for an all-herd basket, on value otherwise.
+  const corrKey = items.every(it => it.isStock) ? 'q' : 'v';
+  const corrMatrix = items.map(a => items.map(b => window.pearsonByYear(a.win, b.win, corrKey)));
   const corrColor = window.corrColor;
+
+  // Indexing makes mixed families / stock+flow comparable as growth, but their ABSOLUTE
+  // magnitudes are not — flag that honestly above the table.
+  const mixedBasis = new Set(items.map(it => it.prod.family)).size > 1
+    || new Set(items.map(it => it.isStock)).size > 1;
 
   return (
     <>
@@ -114,12 +126,18 @@ function ViewProductCompare({ summary, conventions, database }) {
           overline={`Métricas comparativas · ${yearStart}–${yearEnd}`}
           title="Crescimento e magnitude"
         />
+        {mixedBasis && (
+          <p className="caption" style={{ margin: '0 2px 8px' }}>
+            ⓘ A seleção mistura famílias ou estoque/fluxo: as séries são indexadas (base 100) e
+            comparáveis como crescimento, mas as magnitudes absolutas (coluna ao lado) não são.
+          </p>
+        )}
         <div className="pc-table-wrap">
           <table className="pc-table">
             <thead>
               <tr>
                 <th>Commodity</th>
-                <th className="num">Valor {yearEnd}</th>
+                <th className="num">Magnitude ({yearEnd})</th>
                 <th className="num">Variação acumulada</th>
                 <th className="num">CAGR (a.a.)</th>
                 <th className="num">Família</th>
@@ -132,7 +150,7 @@ function ViewProductCompare({ summary, conventions, database }) {
                     <span className="pc-row-dot" style={{ background: it.color }}></span>
                     {it.prod.name}
                   </td>
-                  <td className="num tnum">{window.formatValue(it.vT * 1e6, conv)}</td>
+                  <td className="num tnum">{it.isStock ? window.formatCountQty(it.qT, conv) : window.formatValue(it.vT * 1e6, conv)}</td>
                   <td className="num tnum" style={{ color: it.accum >= 0 ? 'var(--ok)' : 'var(--err)' }}>
                     {window.fmtSigned(it.accum, 0)}
                   </td>

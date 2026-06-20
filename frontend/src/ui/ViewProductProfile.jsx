@@ -74,45 +74,71 @@ function ViewProductProfile({ families, summary, database, conventions }) {
 
   const prod   = filtered.products.find(p => p.code === activeCode);
   const family = prod.family;
-  const unitAx = family === 'mass' ? window.massAxisLabel(conv) : window.volumeAxisLabel(conv);
-  const qtyMul = family === 'mass' ? window.massQtyMul(conv) : window.volumeQtyMul(conv);
+  // Family-aware axis + multiplier (mass→t, volume→m³, count→cabeças/un). The old
+  // binary "mass ? … : volume" would label a livestock headcount in m³.
+  const AXIS_FN = { mass: window.massAxisLabel, volume: window.volumeAxisLabel, count: window.countAxisLabel };
+  const QMUL_FN = { mass: window.massQtyMul,    volume: window.volumeQtyMul,    count: window.countQtyMul };
+  const FAM_COLOR = { mass: 'var(--viz-2)', volume: 'var(--viz-4)', count: 'var(--viz-9)' };
+  const unitAx = (AXIS_FN[family] || window.massAxisLabel)(conv);
+  const qtyMul = (QMUL_FN[family] || window.massQtyMul)(conv);
+  const qColor = FAM_COLOR[family] || 'var(--viz-2)';
 
-  // Per-product series (PRODUCT_TS.v in base-currency mi, .q in thousands of native unit)
+  // Per-product series (PRODUCT_TS.v in base-currency mi, .q in family display unit)
   const raw = filtered.allProductTS[activeCode];
   const yearStart = filtered.yearStart, yearEnd = filtered.yearEnd;
   const win = raw.filter(d => d.y >= yearStart && d.y <= yearEnd);
 
-  // Total basket value per year (for market share within the cesta)
-  const totalByYear = {};
+  // A herd headcount (PPM measure_kind='stock') is a STOCK with NO monetary value —
+  // value / implicit price / market-share-by-value are meaningless for it. Detect via
+  // the explicit discriminator when present, else fall back to "no positive value in
+  // the window" so a value-less series is never shown a fabricated R$ 0 price.
+  const isStock = prod.measure_kind ? prod.measure_kind === 'stock' : !win.some(d => d.v > 0);
+
+  // Basket totals per year: VALUE (flow share) and same-family QUANTITY (stock share).
+  const totalByYear = {}, totalQByYear = {};
   Object.values(filtered.productTS).forEach(series => {
-    series.forEach(d => { totalByYear[d.y] = (totalByYear[d.y] || 0) + d.v; });
+    series.forEach(d => {
+      totalByYear[d.y] = (totalByYear[d.y] || 0) + d.v;
+      if (d.family === family && d.q != null) totalQByYear[d.y] = (totalQByYear[d.y] || 0) + d.q;
+    });
   });
 
   // Implicit price = value ÷ quantity, both in their displayed unit. The quantity
-  // series uses the family-aware qtyMul (mass q is in mil t → ×1e3 t; volume q is
-  // in mi m³ → ×1e6 m³), so the price MUST divide by the SAME d.q * qtyMul. The
-  // old code hardcoded d.q * 1e3 for both families — correct only for mass; for
-  // volume products (madeira, lenha — PEVS's largest) it left native_m³/1e3,
-  // inflating the displayed R$/m³ (or US$/m³) by 1000×.
+  // series uses the family-aware qtyMul, so the price divides by the SAME d.q * qtyMul
+  // (avoids the 1000× m³ inflation the old hardcoded ×1e3 caused for volume products).
   const valueSeries = win.map(d => ({ y: d.y, v: d.v * 1e6 * cvf }));      // absolute currency
-  const qtySeries   = win.map(d => ({ y: d.y, q: d.q * qtyMul }));                   // native unit (×mul)
+  const qtySeries   = win.map(d => ({ y: d.y, q: d.q * qtyMul }));                   // display unit (×mul)
   const priceSeries = win.map(d => ({ y: d.y, v: (d.q * qtyMul) ? (d.v * 1e6 * cvf) / (d.q * qtyMul) : 0 })); // moeda/unidade
-  const shareSeries = win.map(d => ({ y: d.y, v: totalByYear[d.y] ? (d.v / totalByYear[d.y]) * 100 : 0 }));
+  // Share: by VALUE for a flow; by same-family QUANTITY for a value-less stock.
+  const shareSeries = win.map(d => ({
+    y: d.y,
+    v: isStock
+      ? (totalQByYear[d.y] ? (d.q / totalQByYear[d.y]) * 100 : 0)
+      : (totalByYear[d.y] ? (d.v / totalByYear[d.y]) * 100 : 0),
+  }));
 
   const last = win[win.length - 1] || { v: 0, q: 0 };
   const prev = win[win.length - 2] || last;
   const lastValAbs = last.v * 1e6 * cvf;
   const prevValAbs = prev.v * 1e6 * cvf;
   const deltaV = prevValAbs ? ((lastValAbs - prevValAbs) / prevValAbs) * 100 : 0;
+  const deltaQ = prev.q ? ((last.q - prev.q) / prev.q) * 100 : 0;
   const lastPrice = (last.q * qtyMul) ? (last.v * 1e6 * cvf) / (last.q * qtyMul) : 0;
-  const lastShare = totalByYear[last.y] ? (last.v / totalByYear[last.y]) * 100 : 0;
+  const lastShare = isStock
+    ? (totalQByYear[last.y] ? (last.q / totalQByYear[last.y]) * 100 : 0)
+    : (totalByYear[last.y] ? (last.v / totalByYear[last.y]) * 100 : 0);
+  // Historical peak headcount (drives the stock KPI that replaces "Valor")
+  const peak = win.reduce((m, d) => (d.q > m.q ? d : m), win[0] || { y: last.y, q: 0 });
 
-  // Top-10 producing UFs from the REAL per-UF ranking (already in the active
-  // currency, absolute magnitude → scaleSeries picks bi/mi). No client-side
-  // currency multiply: the server applied the conventions' value column.
-  const ufRows = (ufRank.rows || []).slice().sort((a, b) => b.value - a.value).slice(0, 10);
+  // Top-10 producing/raising UFs from the REAL per-UF ranking. A value-less stock ranks
+  // by headcount (q_count) instead of an all-zero value; the bar measure (_m) is value
+  // for a flow, or the family-scaled quantity for a stock.
+  const ufMeasure = isStock ? 'q_count' : 'value';
+  const ufRows = (ufRank.rows || []).slice()
+    .sort((a, b) => (b[ufMeasure] || 0) - (a[ufMeasure] || 0)).slice(0, 10)
+    .map(u => ({ ...u, _m: isStock ? (u.q_count || 0) * qtyMul : u.value }));
   const ufScaled = window.scaleSeries(
-    ufRows, Math.max(...ufRows.map(u => u.value), 0), conv, 'value', fx.symbol,
+    ufRows, Math.max(...ufRows.map(u => u._m), 0), conv, '_m', isStock ? unitAx : fx.symbol,
   );
 
   // Quality for this product (may be absent from the curated subset)
@@ -142,38 +168,65 @@ function ViewProductProfile({ families, summary, database, conventions }) {
         </div>
       </div>
 
-      {/* KPI strip */}
+      {/* KPI strip — for a value-less stock (herd) the Valor/Preço cards are replaced
+          by Efetivo + Pico histórico, since a headcount has no money. */}
       <div className="kpi-row">
+        {isStock ? (
+          <window.KpiCardSpark
+            label={<>Efetivo · <window.UnitFamilyTag family={family} conv={conv}/></>}
+            value={window.formatCountQty(last.q, conv)}
+            delta={window.fmtSigned(deltaQ)}
+            deltaPositive={last.q >= prev.q}
+            sub={`${last.y} vs. ${prev.y}`}
+            spark={win.slice(-12).map(d => ({ y: d.y, q: d.q }))}
+            sparkKey="q"
+            sparkColor={qColor}
+          />
+        ) : (
+          <window.KpiCardSpark
+            label={`Valor · ${monLabel}`}
+            value={window.formatValue(last.v * 1e6, conv)}
+            delta={window.fmtSigned(deltaV)}
+            deltaPositive={deltaV >= 0}
+            sub={`${last.y} vs. ${prev.y}`}
+            spark={win.slice(-12).map(d => ({ y: d.y, v: d.v }))}
+            sparkKey="v"
+            sparkColor="var(--viz-1)"
+          />
+        )}
+        {isStock ? (
+          <window.KpiCardSpark
+            label="Pico histórico"
+            value={window.formatCountQty(peak.q, conv)}
+            sub={`em ${peak.y}`}
+            spark={win.slice(-12).map(d => ({ y: d.y, q: d.q }))}
+            sparkKey="q"
+            sparkColor="var(--viz-7)"
+          />
+        ) : (
+          <window.KpiCardSpark
+            label={<>Quantidade · <window.UnitFamilyTag family={family} conv={conv}/></>}
+            value={(last.q * qtyMul).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' ' + unitAx}
+            delta={window.fmtSigned(deltaQ)}
+            deltaPositive={last.q >= prev.q}
+            sub={`${last.y} vs. ${prev.y}`}
+            spark={win.slice(-12).map(d => ({ y: d.y, q: d.q }))}
+            sparkKey="q"
+            sparkColor={qColor}
+          />
+        )}
+        {!isStock && (
+          <window.KpiCardSpark
+            label="Preço médio implícito"
+            value={fx.symbol + ' ' + lastPrice.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' /' + prod.unit}
+            sub="valor ÷ quantidade"
+            spark={priceSeries.slice(-12)}
+            sparkKey="v"
+            sparkColor="var(--viz-7)"
+          />
+        )}
         <window.KpiCardSpark
-          label={`Valor · ${monLabel}`}
-          value={window.formatValue(last.v * 1e6, conv)}
-          delta={window.fmtSigned(deltaV)}
-          deltaPositive={deltaV >= 0}
-          sub={`${last.y} vs. ${prev.y}`}
-          spark={win.slice(-12).map(d => ({ y: d.y, v: d.v }))}
-          sparkKey="v"
-          sparkColor="var(--viz-1)"
-        />
-        <window.KpiCardSpark
-          label={<>Quantidade · <window.UnitFamilyTag family={family} conv={conv}/></>}
-          value={(last.q * qtyMul).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' ' + unitAx}
-          delta={window.fmtSigned(prev.q ? ((last.q - prev.q) / prev.q) * 100 : 0)}
-          deltaPositive={last.q >= prev.q}
-          sub={`${last.y} vs. ${prev.y}`}
-          spark={win.slice(-12).map(d => ({ y: d.y, q: d.q }))}
-          sparkKey="q"
-          sparkColor={family === 'mass' ? 'var(--viz-2)' : 'var(--viz-4)'}
-        />
-        <window.KpiCardSpark
-          label="Preço médio implícito"
-          value={fx.symbol + ' ' + lastPrice.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' /' + prod.unit}
-          sub="valor ÷ quantidade"
-          spark={priceSeries.slice(-12)}
-          sparkKey="v"
-          sparkColor="var(--viz-7)"
-        />
-        <window.KpiCardSpark
-          label="Participação na cesta"
+          label={isStock ? 'Participação no efetivo' : 'Participação na cesta'}
           value={window.fmtPct(lastShare / 100)}
           sub={`${filtered.selectedProducts.length} ${filtered.selectedProducts.length === 1 ? 'produto' : 'produtos'} na cesta`}
           spark={shareSeries.slice(-12)}
@@ -182,49 +235,77 @@ function ViewProductProfile({ families, summary, database, conventions }) {
         />
       </div>
 
-      {/* Value + quantity series */}
-      <div className="grid-2">
-        <div className="card">
-          <window.SectionHeader
-            overline={`Série de valor · ${monLabel}`}
-            title={`${prod.name} · valor (${valScaled.label})`}
-          />
-          <window.LineChart data={valScaled.data} label={valScaled.label} valueKey="v" color="var(--viz-1)" height={230} />
-        </div>
-        <div className="card">
-          <window.SectionHeader
-            overline={<>Série de quantidade · <window.UnitFamilyTag family={family} conv={conv}/></>}
-            title={`${prod.name} · quantidade (${qtyScaled.label})`}
-          />
-          <window.LineChart data={qtyScaled.data} label={qtyScaled.label} valueKey="q" color={family === 'mass' ? 'var(--viz-2)' : 'var(--viz-4)'} height={230} />
-        </div>
-      </div>
+      {isStock ? (
+        <>
+          {/* Stock (herd): efetivo + participação, no value/price (a headcount has no money) */}
+          <div className="grid-2">
+            <div className="card">
+              <window.SectionHeader
+                overline={<>Série do efetivo · <window.UnitFamilyTag family={family} conv={conv}/></>}
+                title={`${prod.name} · efetivo (${qtyScaled.label})`}
+              />
+              <window.LineChart data={qtyScaled.data} label={qtyScaled.label} valueKey="q" color={qColor} height={230} trend />
+            </div>
+            <div className="card">
+              <window.SectionHeader
+                overline="Participação no efetivo · % do total da cesta"
+                title={`Participação de ${prod.name} no efetivo`}
+              />
+              <window.LineChart data={shareSeries} label="% do efetivo" valueKey="v" color="var(--viz-5)" height={230} />
+            </div>
+          </div>
+          <p className="caption" style={{ margin: '4px 2px 0' }}>
+            ⓘ O efetivo dos rebanhos é um <strong>estoque</strong> (nº de cabeças), não uma produção: não tem
+            valor monetário nem preço, e <strong>não deve ser somado entre espécies</strong>.
+          </p>
+        </>
+      ) : (
+        <>
+          {/* Value + quantity series */}
+          <div className="grid-2">
+            <div className="card">
+              <window.SectionHeader
+                overline={`Série de valor · ${monLabel}`}
+                title={`${prod.name} · valor (${valScaled.label})`}
+              />
+              <window.LineChart data={valScaled.data} label={valScaled.label} valueKey="v" color="var(--viz-1)" height={230} />
+            </div>
+            <div className="card">
+              <window.SectionHeader
+                overline={<>Série de quantidade · <window.UnitFamilyTag family={family} conv={conv}/></>}
+                title={`${prod.name} · quantidade (${qtyScaled.label})`}
+              />
+              <window.LineChart data={qtyScaled.data} label={qtyScaled.label} valueKey="q" color={qColor} height={230} />
+            </div>
+          </div>
 
-      {/* Implicit price + market share */}
-      <div className="grid-2">
-        <div className="card">
-          <window.SectionHeader
-            overline="Preço médio implícito · valor ÷ quantidade"
-            title={`${fx.symbol} por ${prod.unit} · ${yearStart}–${yearEnd}`}
-          />
-          <window.LineChart data={priceSeries} label={fx.symbol + '/' + prod.unit} valueKey="v" color="var(--viz-7)" height={220} trend />
-        </div>
-        <div className="card">
-          <window.SectionHeader
-            overline="Participação na cesta · % do valor total"
-            title={`Participação de ${prod.name} na cesta`}
-          />
-          <window.LineChart data={shareSeries} label="% da cesta" valueKey="v" color="var(--viz-5)" height={220} />
-        </div>
-      </div>
+          {/* Implicit price + market share */}
+          <div className="grid-2">
+            <div className="card">
+              <window.SectionHeader
+                overline="Preço médio implícito · valor ÷ quantidade"
+                title={`${fx.symbol} por ${prod.unit} · ${yearStart}–${yearEnd}`}
+              />
+              <window.LineChart data={priceSeries} label={fx.symbol + '/' + prod.unit} valueKey="v" color="var(--viz-7)" height={220} trend />
+            </div>
+            <div className="card">
+              <window.SectionHeader
+                overline="Participação na cesta · % do valor total"
+                title={`Participação de ${prod.name} na cesta`}
+              />
+              <window.LineChart data={shareSeries} label="% da cesta" valueKey="v" color="var(--viz-5)" height={220} />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* UF ranking + ficha técnica */}
       <div className="grid-2">
         {hasGeo && (
         <div className="card">
           <window.SectionHeader
-            overline={`Ranking de UFs produtoras · ${yearStart}–${yearEnd}`}
-            title={`Onde ${prod.name} é produzido`}
+            overline={`Ranking de UFs ${isStock ? 'criadoras' : 'produtoras'} · ${yearStart}–${yearEnd}`}
+            title={`Onde ${prod.name} ${isStock ? 'é criado' : 'é produzido'}`}
             action={<span className="caption">Top 10 · {ufScaled.label}</span>}
           />
           {ufRank.loading ? (
@@ -232,7 +313,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
               Carregando distribuição por UF…
             </p>
           ) : ufRows.length ? (
-            <window.BarChart data={ufScaled.data} valueKey="value" color="var(--viz-2)" height={320} />
+            <window.BarChart data={ufScaled.data} valueKey="_m" color={isStock ? qColor : 'var(--viz-2)'} height={320} />
           ) : (
             <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
               Sem dados por UF para este produto.
@@ -249,11 +330,15 @@ function ViewProductProfile({ families, summary, database, conventions }) {
             <dt>{codeLabel}</dt><dd className="tnum">{prod.code}</dd>
             <dt>Unidade nativa</dt><dd>{prod.unit} ({window.UNIT_FAMILIES[family].long})</dd>
             <dt>Família de unidade</dt><dd>{window.UNIT_FAMILIES[family].label}</dd>
+            {isStock && <><dt>Tipo de medida</dt><dd>Estoque (efetivo)</dd></>}
             <dt>Cobertura temporal</dt><dd className="tnum">{yearStart}–{yearEnd}</dd>
-            <dt>Valor ({last.y})</dt><dd>{window.formatValue(last.v * 1e6, conv)}</dd>
-            <dt>Participação na cesta</dt><dd>{window.fmtPct(lastShare / 100)}</dd>
+            {isStock
+              ? <><dt>Efetivo ({last.y})</dt><dd>{window.formatCountQty(last.q, conv)}</dd></>
+              : <><dt>Valor ({last.y})</dt><dd>{window.formatValue(last.v * 1e6, conv)}</dd></>}
+            <dt>{isStock ? 'Participação no efetivo' : 'Participação na cesta'}</dt><dd>{window.fmtPct(lastShare / 100)}</dd>
             {qaRow && <><dt>Linhas íntegras (OK)</dt><dd>{window.fmtPct(qaRow.OK)}</dd></>}
-            {qaRow && <><dt>Valor ausente</dt><dd>{window.fmtPct(qaRow.MISSING_VALUE)}</dd></>}
+            {qaRow && !isStock && <><dt>Valor ausente</dt><dd>{window.fmtPct(qaRow.MISSING_VALUE)}</dd></>}
+            {qaRow && isStock && qaRow.MISSING_QUANTITY != null && <><dt>Quantidade ausente</dt><dd>{window.fmtPct(qaRow.MISSING_QUANTITY)}</dd></>}
           </dl>
         </div>
       </div>

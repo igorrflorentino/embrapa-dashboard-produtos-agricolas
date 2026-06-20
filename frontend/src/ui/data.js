@@ -72,8 +72,10 @@ window.UNIT_FAMILIES = {
       { id: 'boe', label: 'boe', long: 'barril equiv. petróleo', toBase: 1.62803 },
     ],
   },
-  contagem: {
-    id: 'contagem', label: 'Contagem', unit: 'un', long: 'unidades', base: 'un', color: 'var(--viz-9)',
+  // key is the JS family token the serializer emits (massa→'mass', contagem→'count'),
+  // NOT the pt word — so UNIT_FAMILIES[pt.family] resolves for livestock head/eggs.
+  count: {
+    id: 'count', label: 'Contagem', unit: 'un', long: 'unidades', base: 'un', color: 'var(--viz-9)',
     units: [
       { id: 'un',       label: 'un',       long: 'unidade',          toBase: 1 },
       { id: 'dz',       label: 'dz',       long: 'dúzia',            toBase: 12 },

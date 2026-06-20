@@ -204,7 +204,9 @@ window.BANCOS = [
     // geography + quality, WITHOUT 'yield' (não há área plantada → a view Produtividade
     // fica escura). Múltiplas famílias de unidade (contagem/volume/massa) já existem em
     // UNIT_FAMILIES, então MetricConventions renderiza as unidades automaticamente.
-    provides: ['product', 'geo', 'quality'],
+    // 'herd' (efetivo, estoque em cabeças) gates the dedicated 'Rebanho' perspective —
+    // PPM is the only banco that carries an animal stock (measure_kind='stock').
+    provides: ['product', 'geo', 'quality', 'herd'],
     baseCurrency: 'BRL',
     geoLevel: 'municipio',
     dimensions: {

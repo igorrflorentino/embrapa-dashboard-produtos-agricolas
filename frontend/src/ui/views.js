@@ -16,6 +16,9 @@ window.VIEW_GROUPS = [
         desc: 'Resumo consolidado: KPIs, série de valor, composição e distribuição geográfica resumida.' },
       { id: 'value',    label: 'Valor e volume', status: 'live', exportable: true, requires: [],
         desc: 'Séries históricas de valor e quantidade da cesta, segregadas por família de unidades.' },
+      { id: 'rebanho',  label: 'Rebanho', status: 'live', exportable: false, requires: ['herd'],
+        desc: 'O efetivo dos rebanhos (estoque em cabeças, por espécie): composição do efetivo, evolução de 50 anos por espécie e distribuição por UF da espécie em foco. Exclusivo da Pesquisa da Pecuária Municipal (IBGE PPM) — cabeças não têm valor monetário e não se somam entre espécies.',
+        planned: ['Composição do efetivo por espécie', 'Evolução de 50 anos por espécie', 'Mapa de cabeças por UF', 'Pico histórico e UF líder'] },
     ],
   },
   {
@@ -149,6 +152,7 @@ window.isViewLive = (id) => window.VIEW_BY_ID[id]?.status === 'live';
 window.VIEW_COMPONENTS = {
   overview:              'ViewOverview',
   value:                 'ViewValueVolume',
+  rebanho:               'ViewRebanho',
   product_profile:       'ViewProductProfile',
   product_compare:       'ViewProductCompare',
   productivity:          'ViewProductivity',
@@ -215,6 +219,9 @@ window.CAPABILITIES = {
   // Agricultural-production capabilities (IBGE PAM and any future crop banco).
   area:    { label: 'área plantada / colhida' },
   yield:   { label: 'rendimento (produtividade kg/ha)' },
+  // Livestock: the banco carries an animal STOCK (efetivo, head counted at year-end),
+  // gating the dedicated 'Rebanho' perspective. Only IBGE PPM provides it today.
+  herd:    { label: 'efetivo de rebanho (estoque em cabeças)' },
   // Monetary: the banco carries a value in currency, so the currency +
   // monetary-correction conventions apply. DERIVED, not stored per banco —
   // see window.isMonetaryBanco (bancos.js); listed here so the filter-schema

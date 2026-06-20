@@ -55,6 +55,15 @@ def test_serialize_snapshot_shapes_and_scales():
                     "q_vol": 6_000_000,  # volume CASE column (PEVS: native == base, m³)
                     "family": "volume",
                 },
+                {
+                    "code": "2670",
+                    "reference_year": 2020,
+                    "total_value": float("nan"),
+                    "q_mass": float("nan"),
+                    "q_vol": float("nan"),
+                    "q_count": 238_000_000,  # contagem CASE column (un) — PPM herd
+                    "family": "contagem",
+                },
             ]
         ),
         "overview_ts": pd.DataFrame(
@@ -95,6 +104,11 @@ def test_serialize_snapshot_shapes_and_scales():
     assert vol["family"] == "volume" and vol["q"] == 6.0  # m³ ÷1e6
 
     # overviewTS: v in billions; q_mass mil t, q_vol mi m³
+    # contagem (PPM herd headcount) — KEYSTONE: q now populated (mi un), not None;
+    # family normalizes massa/volume-style to 'count' so the herd renders a quantity.
+    herd = out["productTS"]["2670"][0]
+    assert herd["family"] == "count" and herd["q"] == 238.0  # 238M head -> 238 mi un
+
     ov = out["overviewTS"][0]
     assert ov["v"] == 3.0 and ov["q_mass"] == 5000.0 and ov["q_vol"] == 6.0
 
@@ -160,24 +174,35 @@ def test_product_ts_scales_qty_base_not_native_for_kg_native_trade_codes():
     assert out["overviewTS"][0]["q_mass"] == 5003.0  # mil t — never kg/1e3
 
 
-def test_product_ts_emits_null_q_for_count_energy_area_families():
-    """M1 regression: a count/energy/area family has NO display scale, so q is
-    None — not a raw count divided by 1e6 (dimensionless nonsense). The value is
-    still emitted; the family passes through so the UI can label it honestly."""
+def test_product_ts_q_for_contagem_none_for_energy_area_families():
+    """contagem (livestock head / eggs — PPM) now has its OWN ``q_count`` track, so q is
+    the headcount scaled to mi un — it was None before, making the herd (the defining
+    content of PPM) invisible in every quantity chart. The M1 anti-mis-scale rule still
+    holds for energia/area: they have no display convention → q stays None (absent, not
+    a raw count divided by 1e6)."""
     snap = {
         "products": None,
         "product_ts": pd.DataFrame(
             [
-                # 'contagem' (un): q_mass/q_vol are NaN (the CASE columns match no
-                # family), and qty_base is a raw count that must NOT be scaled.
+                # contagem (un): the dedicated q_count carries the headcount → q = mi un.
                 {
-                    "code": "01051100",
+                    "code": "2670",
                     "reference_year": 2022,
-                    "total_value": 4_000_000,
-                    "total_qty_native": 5_000_000,
+                    "total_value": float("nan"),  # a herd stock has no value
                     "q_mass": float("nan"),
                     "q_vol": float("nan"),
+                    "q_count": 238_000_000,
                     "family": "contagem",
+                },
+                # energia: no q_* track matches → q stays None (no display convention).
+                {
+                    "code": "9001",
+                    "reference_year": 2022,
+                    "total_value": 4_000_000,
+                    "q_mass": float("nan"),
+                    "q_vol": float("nan"),
+                    "q_count": float("nan"),
+                    "family": "energia",
                 },
             ]
         ),
@@ -187,10 +212,12 @@ def test_product_ts_emits_null_q_for_count_energy_area_families():
         "value_label": "Valor (US$ FOB)",
     }
     out = s.serialize_snapshot(snap)
-    pt = out["productTS"]["01051100"][0]
-    assert pt["q"] is None  # NOT 5_000_000 / 1e6 = 5.0 dimensionless nonsense
-    assert pt["family"] == "contagem"  # raw family passes through for honest labelling
-    assert pt["v"] == 4.0  # value still emitted (mi)
+    herd = out["productTS"]["2670"][0]
+    assert herd["q"] == 238.0 and herd["family"] == "count"  # 238M head -> 238 mi un
+    energia = out["productTS"]["9001"][0]
+    assert energia["q"] is None  # NOT a raw count / 1e6 — energia has no display scale
+    assert energia["family"] == "energia"  # raw family passes through for honest labelling
+    assert energia["v"] == 4.0  # value still emitted (mi)
 
 
 def test_serialize_snapshot_empty_is_safe():
@@ -206,6 +233,44 @@ def test_serialize_snapshot_empty_is_safe():
     )
     assert out["products"] == [] and out["productTS"] == {} and out["overviewTS"] == []
     assert out["ufData"] == [] and out["quality"] == []
+
+
+def test_products_emit_measure_kind_only_when_present():
+    """measure_kind (stock|flow) rides along ONLY for livestock (PPM selects it in the
+    gateway). A herd code carries 'stock'; a code from a mart without the column omits
+    the key entirely (so PEVS/COMEX products stay byte-identical to before)."""
+    snap = {
+        "products": pd.DataFrame(
+            [
+                {
+                    "code": "2670",
+                    "name": "Bovinos",
+                    "unit": "un",
+                    "unit_native": "Cabeças",
+                    "family": "contagem",
+                    "measure_kind": "stock",
+                },
+                # a code WITHOUT measure_kind (e.g. a PEVS row) → key absent
+                {
+                    "code": "001",
+                    "name": "Castanha",
+                    "unit": "t",
+                    "unit_native": "kg",
+                    "family": "massa",
+                    "measure_kind": float("nan"),
+                },
+            ]
+        ),
+        "product_ts": None,
+        "overview_ts": None,
+        "uf_data": None,
+        "quality": None,
+        "value_label": "",
+    }
+    products = {p["code"]: p for p in s.serialize_snapshot(snap)["products"]}
+    assert products["2670"]["measure_kind"] == "stock"
+    assert products["2670"]["family"] == "count"  # contagem→count for the views
+    assert "measure_kind" not in products["001"]  # NaN/absent → omitted, not null
 
 
 def test_serialize_cross_camelcase_and_preview():
@@ -566,6 +631,7 @@ def test_uf_yearly_emits_real_per_uf_year_rows():
         "value": 1.0,
         "q_mass": 2000.0,
         "q_vol": 3.0,
+        "q_count": 0.0,
     }
     assert rows[1]["value"] == 1.5 and rows[1]["q_mass"] == 2500.0 and rows[1]["q_vol"] == 0.0
 
@@ -613,6 +679,7 @@ def test_serialize_geo_yearly_wraps_uf_yearly_with_same_scaling():
                 "value": 1.0,
                 "q_mass": 2000.0,
                 "q_vol": 3.0,
+                "q_count": 0.0,
             }
         ]
     }

@@ -275,14 +275,25 @@ window.formatVolumeQty = (miM3, conv) => {
   const v = miM3 * window.volumeQtyMul(conv);
   return _fmtRescaled(v, conv, window.unitOf(conv, 'volume'));
 };
+// Contagem (head / eggs — PPM livestock): internal q_count holds *millions of units*
+// (mi un), the same ÷1e6 scaling the serializer applies. Mirrors mass/volume so the
+// herd reads in the user-picked count unit (un / dz / milheiro / cabeça).
+window.formatCountQty = (miUn, conv) => {
+  if (miUn == null) return '—';
+  const v = miUn * window.countQtyMul(conv);
+  return _fmtRescaled(v, conv, window.unitOf(conv, 'count'));
+};
 
 // Multipliers: internal dataset units (mil t / mi m³) → selected display
 // unit, via the registry factors so any member unit (kg/t/@/sc, L/m³/hL…)
 // converts correctly. internal mass = mil t (×1000 t); internal vol = mi m³.
 window.massQtyMul    = (conv) => 1000 / window.unitToBase('mass', window.unitOf(conv, 'mass'));
 window.volumeQtyMul  = (conv) => 1e6  / window.unitToBase('volume', window.unitOf(conv, 'volume'));
+// internal count = mi un (×1e6 un); convert to the picked count unit via the registry.
+window.countQtyMul   = (conv) => 1e6  / window.unitToBase('count', window.unitOf(conv, 'count'));
 window.massAxisLabel   = (conv) => window.unitOf(conv, 'mass');
 window.volumeAxisLabel = (conv) => window.unitOf(conv, 'volume');
+window.countAxisLabel  = (conv) => window.unitOf(conv, 'count');
 
 // Human label for the active monetary convention (e.g. "USD · IPCA").
 window.conventionMonetaryLabel = (conv) =>
