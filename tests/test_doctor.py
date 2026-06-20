@@ -236,9 +236,12 @@ def test_check_comex_fails_on_5xx_without_fallback(settings: Settings) -> None:
 def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings) -> None:
     with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
         client = bq_cls.return_value
-        # First table found, others missing (6 Bronze targets: ibge, pam, bcb×2, comex, comtrade).
+        # First table found, others missing (8 Bronze targets: ibge, pam, ppm×2,
+        # bcb×2, comex, comtrade).
         client.get_table.side_effect = [
             MagicMock(),
+            NotFound("nope"),
+            NotFound("nope"),
             NotFound("nope"),
             NotFound("nope"),
             NotFound("nope"),
@@ -483,6 +486,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "GCS bucket",
         "IBGE SIDRA reachable",
         "IBGE PAM reachable",
+        "IBGE PPM reachable",
         "BCB SGS reachable",
         "COMEX reachable",
         "COMTRADE reachable",
@@ -501,6 +505,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
 _INGEST_TO_DOCTOR_CHECK = {
     "ibge": "ibge",
     "ibge-pam": "pam",
+    "ibge-ppm": "ppm",
     "bcb-inflation": "bcb",
     "bcb-currency": "bcb",
     "comex": "comex",

@@ -263,6 +263,20 @@ def _check_pam(settings: Settings) -> CheckResult:
         return CheckResult("IBGE PAM reachable", False, str(exc)[:120])
 
 
+def _check_ppm(settings: Settings) -> CheckResult:
+    """SIDRA metadata endpoint responds for BOTH configured PPM tables (3939 + 74)."""
+    tables = [settings.ppm_herd_table_id, settings.ppm_animal_table_id]
+    try:
+        for table_id in tables:
+            response = requests.get(
+                SIDRA_METADATA_URL.format(table_id=table_id), timeout=PROBE_TIMEOUT_S
+            )
+            response.raise_for_status()
+        return CheckResult("IBGE PPM reachable", True, f"t{'+t'.join(tables)} 200 OK")
+    except Exception as exc:
+        return CheckResult("IBGE PPM reachable", False, str(exc)[:120])
+
+
 def _check_bcb(settings: Settings) -> CheckResult:
     """BCB SGS responds for the first inflation series in .env."""
     try:
@@ -590,6 +604,7 @@ _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
 SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("ibge", _check_ibge),
     ("pam", _check_pam),
+    ("ppm", _check_ppm),
     ("bcb", _check_bcb),
     ("comex", _check_comex),
     ("comtrade", _check_comtrade),
@@ -600,6 +615,8 @@ SOURCE_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
 BRONZE_TARGETS: list[tuple[str, str]] = [
     ("bq_bronze_ibge_dataset", "bq_bronze_ibge_table"),
     ("bq_bronze_pam_dataset", "bq_bronze_pam_table"),
+    ("bq_bronze_ppm_dataset", "bq_bronze_ppm_herd_table"),
+    ("bq_bronze_ppm_dataset", "bq_bronze_ppm_animal_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_inflation_table"),
     ("bq_bronze_bcb_dataset", "bq_bronze_bcb_currency_table"),
     ("bq_bronze_comex_dataset", "bq_bronze_comex_flows_table"),
