@@ -11,10 +11,12 @@ function jsonRes(body) {
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
 }
 
-// /api/catalog shape: { commodity_id -> {id, name, pevs[], comex[], comtrade[]} }.
+// /api/catalog shape: { commodity_id -> {id, name, family, pevs[], comex[], comtrade[]} }.
+// `family` is the PEVS unit family in pt-BR (the backend emits it raw; crossCatalog
+// normalizes it to the English keys the views use, and null = no single family).
 const CATALOG = {
-  castanha_caju: { id: 'castanha_caju', name: 'Castanha de caju', pevs: ['49101'], comex: ['0801'], comtrade: ['0801'] },
-  acai: { id: 'acai', name: 'Açaí', pevs: ['40102'], comex: ['0810'], comtrade: ['0810'] },
+  castanha_caju: { id: 'castanha_caju', name: 'Castanha de caju', family: 'massa', pevs: ['49101'], comex: ['0801'], comtrade: ['0801'] },
+  acai: { id: 'acai', name: 'Açaí', family: 'volume', pevs: ['40102'], comex: ['0810'], comtrade: ['0810'] },
 };
 
 // Fresh resource+producers modules per load so the module-level resource cache
@@ -53,7 +55,7 @@ describe('crossCatalog', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
-  it('maps the catalog to slug-keyed {code,name} options, sorted pt-BR by name', async () => {
+  it('maps to slug-keyed {code,name,family} options, family normalized, sorted pt-BR', async () => {
     const f = vi.fn(() => jsonRes(CATALOG));
     const crossCatalog = await loadProducers(f);
 
@@ -61,11 +63,24 @@ describe('crossCatalog', () => {
     await tick();
     const opts = crossCatalog(); // cache hot now
 
-    // code is the commodity_id SLUG the cross/* endpoints expect (not a PEVS code).
+    // code is the commodity_id SLUG the cross/* endpoints expect (not a PEVS code);
+    // family is normalized pt-BR ('massa'/'volume') → the English keys the views gate on.
     expect(opts).toEqual([
-      { code: 'acai', name: 'Açaí' },
-      { code: 'castanha_caju', name: 'Castanha de caju' },
+      { code: 'acai', name: 'Açaí', family: 'volume' },
+      { code: 'castanha_caju', name: 'Castanha de caju', family: 'mass' },
     ]);
+  });
+
+  it('family is null when the commodity has no single PEVS family (gated pickers skip it)', async () => {
+    // A COMEX/COMTRADE-only commodity (no PEVS side) arrives without a family — the
+    // export-coef / price-spread pickers (families:['mass']) must drop it.
+    const f = vi.fn(() => jsonRes({
+      soja: { id: 'soja', name: 'Soja', family: null, pevs: [], comex: ['1201'], comtrade: ['1201'] },
+    }));
+    const crossCatalog = await loadProducers(f);
+    crossCatalog();
+    await tick();
+    expect(crossCatalog()).toEqual([{ code: 'soja', name: 'Soja', family: null }]);
   });
 });
 

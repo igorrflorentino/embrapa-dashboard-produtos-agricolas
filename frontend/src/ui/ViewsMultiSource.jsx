@@ -12,17 +12,25 @@ const { useState: useMSState } = React;
 // the commodity_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
 // (Sourcing from window.PRODUCTS shipped PEVS codes, which the backend can't
 // crosswalk, so every specific-commodity analysis came back empty.)
-function CrossProductPicker({ value, onChange }) {
-  const prods = window.crossCatalog();
+// `families` (optional) restricts the offered commodities to those PEVS unit
+// families — the export-coefficient and price-spread views pass ['mass'], because
+// only a pure-mass commodity is interpretable there. When set, the mixed "Cesta
+// completa" option is dropped too (it spans families, so it is incompatible).
+function CrossProductPicker({ value, onChange, families }) {
+  const all = window.crossCatalog();
+  const prods = families && families.length ? all.filter(p => families.includes(p.family)) : all;
+  const allowBasket = !(families && families.length);
   return (
     <div className="pp-selector">
       <span className="pp-selector-label">Commodity</span>
       <div className="pp-chips">
-        <button className={'pp-chip ' + (!value ? 'on' : '')}
-          onClick={() => onChange(null)}
-          style={!value ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>
-          Cesta completa
-        </button>
+        {allowBasket && (
+          <button className={'pp-chip ' + (!value ? 'on' : '')}
+            onClick={() => onChange(null)}
+            style={!value ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>
+            Cesta completa
+          </button>
+        )}
         {prods.map(p => {
           const on = value === p.code;
           return (
@@ -45,7 +53,12 @@ const msNum = window.numBR, msPct = window.pctBR;
 // ── (1) Export coefficient ──────────────────────────────────────────────────
 function ViewExportCoef() {
   const [product, setProduct] = useMSState(null);
-  const data = window.exportCoefficient(product);
+  // This view compares PEVS MASS to COMEX weight, so only a pure-mass commodity works.
+  // Offer just those and default to the first (the mixed "Cesta completa" is always
+  // incompatible here) — the user lands on a working indicator, not a fallback note.
+  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const effProduct = product || (massProds[0] && massProds[0].code) || null;
+  const data = window.exportCoefficient(effProduct);
   const ranked = data.byUf.filter(u => u.production > 0).sort((a, b) => b.coefPct - a.coefPct);
   const top = ranked[0], bottom = ranked[ranked.length - 1];
   // Real coverage window from the series itself — never the hardcoded "1997–2024".
@@ -58,7 +71,7 @@ function ViewExportCoef() {
   if (data.incompatible) {
     return (
       <>
-        <CrossProductPicker value={product} onChange={setProduct} />
+        <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
         <div className="card subtle">
           <window.SectionHeader overline="Orientação exportadora" title="Indicador indisponível para esta seleção" />
           <p className="caption" style={{ padding: '16px 4px' }}>
@@ -75,7 +88,7 @@ function ViewExportCoef() {
 
   return (
     <>
-      <CrossProductPicker value={product} onChange={setProduct} />
+      <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Coeficiente nacional" value={data.national.coefPct == null ? '—' : msPct(data.national.coefPct)} sub={`acumulado ${coefWindow} · do produzido vai p/ exportação`} />
@@ -164,9 +177,13 @@ function ViewMarketShare() {
 // ── (3) Price: farm-gate vs. FOB ──────────────────────────────────────
 function ViewPriceSpread() {
   const [product, setProduct] = useMSState(null);
+  // Same mass-basis requirement as the export coefficient — offer only pure-mass
+  // commodities and default to the first, so the user opens on a real spread.
+  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const effProduct = product || (massProds[0] && massProds[0].code) || null;
   // Per-UF scoping ('' = Brasil). Both sides (PEVS farm-gate + COMEX FOB) honour it.
   const [uf, setUf] = useMSState('');
-  const data = window.priceSpread(product, uf ? [uf] : undefined);
+  const data = window.priceSpread(effProduct, uf ? [uf] : undefined);
 
   // Same mass-basis requirement as the export coefficient: the gate price is
   // value ÷ mass, undefined for volume/mixed selections. The seam refuses with
@@ -174,7 +191,7 @@ function ViewPriceSpread() {
   if (data.incompatible) {
     return (
       <>
-        <CrossProductPicker value={product} onChange={setProduct} />
+        <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
         <window.UfScopePicker value={uf} onChange={setUf} />
         <div className="card subtle">
           <window.SectionHeader overline="Spread de preço" title="Indicador indisponível para esta seleção" />
@@ -198,7 +215,7 @@ function ViewPriceSpread() {
 
   return (
     <>
-      <CrossProductPicker value={product} onChange={setProduct} />
+      <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
       <window.UfScopePicker value={uf} onChange={setUf} />
 
       <div className="kpi-row">

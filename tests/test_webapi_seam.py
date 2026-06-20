@@ -866,11 +866,13 @@ def test_unknown_api_path_returns_json_404(monkeypatch):
         assert resp.get_json()["error"] == "endpoint de API não encontrado"
 
     # Registered routes still win over the catch-all.
-    # routes.py calls seam.commodity_catalog (the facade's re-exported binding), so
-    # this route test patches the facade — not seam_base.
-    monkeypatch.setattr(seam, "commodity_catalog", lambda: {"x": {"name": "X"}})
+    # routes.py calls seam.commodity_catalog_with_family (the facade's re-exported
+    # binding — the family-tagged catalog), so this route test patches the facade.
+    monkeypatch.setattr(
+        seam, "commodity_catalog_with_family", lambda: {"x": {"name": "X", "family": "massa"}}
+    )
     resp = client.get("/api/catalog")
-    assert resp.status_code == 200 and resp.get_json() == {"x": {"name": "X"}}
+    assert resp.status_code == 200 and resp.get_json() == {"x": {"name": "X", "family": "massa"}}
     assert client.get("/healthz").status_code == 200
 
 
@@ -1788,6 +1790,50 @@ def test_pevs_family_by_commodity_indexes_run_query(monkeypatch):
     assert idx["castanha"] == {"massa"}
     assert idx["madeira"] == {"volume"}
     assert idx["*"] == {"massa", "volume"}
+
+
+def test_commodity_catalog_with_family_tags_each_commodity(monkeypatch):
+    """The catalog is tagged with each commodity's single PEVS family; a commodity
+    with no PEVS side (or a mixed family set) collapses to None, so the family-gated
+    export-coefficient / price-spread pickers drop it."""
+    seam = _seam()
+    monkeypatch.setattr(
+        _base(),
+        "commodity_catalog",
+        lambda: {
+            "castanha": {
+                "id": "castanha",
+                "name": "Castanha",
+                "pevs": ["1"],
+                "comex": ["0801"],
+                "comtrade": [],
+            },
+            "madeira": {
+                "id": "madeira",
+                "name": "Madeira",
+                "pevs": ["2"],
+                "comex": [],
+                "comtrade": [],
+            },
+            "soja": {
+                "id": "soja",
+                "name": "Soja",
+                "pevs": [],
+                "comex": ["1201"],
+                "comtrade": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        _cross(),
+        "_pevs_family_by_commodity",
+        lambda: {"castanha": {"massa"}, "madeira": {"volume"}},
+    )
+    cat = seam.commodity_catalog_with_family()
+    assert cat["castanha"]["family"] == "massa"  # single mass family
+    assert cat["madeira"]["family"] == "volume"  # single volume family
+    assert cat["soja"]["family"] is None  # no PEVS side → no family
+    assert cat["castanha"]["name"] == "Castanha"  # the rest of the entry survives
 
 
 # ── curation writers: header capture from the request context ──────────────────

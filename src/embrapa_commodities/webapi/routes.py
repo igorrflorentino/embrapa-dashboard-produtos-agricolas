@@ -143,8 +143,11 @@ def _authorize_curator():
 
 @api.get("/catalog")
 def catalog():
-    """Crosswalk commodity catalog (commodity_id → {name, pevs[], comex[], comtrade[]})."""
-    return jsonify(seam.commodity_catalog())
+    """Crosswalk commodity catalog (commodity_id → {name, family, pevs[], comex[], comtrade[]}).
+
+    ``family`` (PEVS physical-unit family) lets the frontend family-gate the cross
+    pickers so the export-coefficient / price-spread views offer only mass commodities."""
+    return jsonify(seam.commodity_catalog_with_family())
 
 
 @api.get("/source-meta")
