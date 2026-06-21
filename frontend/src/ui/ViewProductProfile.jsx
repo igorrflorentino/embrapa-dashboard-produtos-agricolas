@@ -95,11 +95,16 @@ function ViewProductProfile({ families, summary, database, conventions }) {
   const isStock = prod.measure_kind ? prod.measure_kind === 'stock' : !win.some(d => d.v > 0);
 
   // Basket totals per year: VALUE (flow share) and same-family QUANTITY (stock share).
+  // The efetivo share of a STOCK is among OTHER STOCKS only — egg/milk count-FLOWS are
+  // not part of the efetivo, so they must not inflate the headcount denominator.
   const totalByYear = {}, totalQByYear = {};
-  Object.values(filtered.productTS).forEach(series => {
+  Object.entries(filtered.productTS).forEach(([code, series]) => {
+    const p = filtered.products.find(x => x.code === code);
+    const inQtyDenom = p && p.family === family
+      && (!isStock || p.measure_kind === 'stock');
     series.forEach(d => {
       totalByYear[d.y] = (totalByYear[d.y] || 0) + d.v;
-      if (d.family === family && d.q != null) totalQByYear[d.y] = (totalQByYear[d.y] || 0) + d.q;
+      if (inQtyDenom && d.q != null) totalQByYear[d.y] = (totalQByYear[d.y] || 0) + d.q;
     });
   });
 

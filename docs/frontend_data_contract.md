@@ -82,6 +82,18 @@ mix; `exp_weight` (`'mil t'`) never mixes with them.
 > `code` MUST match the keys of `productTS`. They do — both come from the same Gold
 > product column.
 
+> **Livestock (IBGE PPM) adds two things.** (1) `products` carries an extra
+> **`measure_kind`** (`stock` | `flow`) — emitted ONLY for PPM (the gateway's
+> `with_measure_kind` flag; the column lives only in `serving_ppm_annual`). `stock` =
+> the herd (efetivo, a value-less headcount); `flow` = animal products (eggs/milk, with
+> value). It lets the UI gate the **Rebanho** view and tell the two apart. (2) The
+> **`count`** family (head/eggs) gets its own quantity track **`q_count`** (mi un)
+> alongside `q_mass`/`q_vol` on `productTS` (as `q`), `ufData`, `ufYearly` and
+> `serving.product_uf`/`products_by_uf`. Heads are **never summed across species**, so
+> there is no aggregate count headline — `overviewTS` does NOT carry `q_count` (the
+> Overview count series is computed client-side in `dataFilters` and suppressed for a
+> stock basket).
+
 ### 3.2 `overviewTS` — annual `[{ y, v, q_mass, q_vol, q }]`
 Aggregate to the year. **COMEX is monthly in Gold → SUM over months for the annual
 overview** (monthly detail is served by `monthlyData`, §4.3).

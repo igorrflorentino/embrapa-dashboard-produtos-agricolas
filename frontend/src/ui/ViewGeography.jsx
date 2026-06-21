@@ -15,9 +15,11 @@ function ViewGeography({ families, conventions, summary, database }) {
   const valueMul = window.convFactorFor(baseCcy, conv) * 1e6;  // mi → absolute, base-aware
   const massMul  = window.massQtyMul(conv);   // 1e3 (t) or 1e6 (kg)
   const volMul   = window.volumeQtyMul(conv); // 1e6 (m³) or 1e9 (L)
+  const countMul = window.countQtyMul(conv);  // 1e6 — internal mi un → cabeças/un
   const valueUnitLabel = window.valueAxisLabel(conv); // "R$" / "US$" / etc.
   const massUnitLabel  = window.massAxisLabel(conv);  // "t" or "kg"
   const volUnitLabel   = window.volumeAxisLabel(conv);// "m³" or "L"
+  const countUnitLabel = window.countAxisLabel(conv); // "un" / "cab" / …
 
   const filtered = window.applyFilters(summary || {}, database);
   // The per-UF maps/bars are scoped to the latest UF year IN the window, which can
@@ -40,6 +42,7 @@ function ViewGeography({ families, conventions, summary, database }) {
 
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
+  const countFamily = families.includes('count'); // PPM livestock head/eggs
 
   // A quantity dimension is only offered when the per-UF rows actually CARRY it —
   // gating on the basket family alone (the old behaviour) offered a toggle that
@@ -49,24 +52,33 @@ function ViewGeography({ families, conventions, summary, database }) {
     Array.isArray(filtered.ufData) && filtered.ufData.some(u => (u[key] || 0) > 0);
   const massAvail = massFamily && hasUfQty('q_mass');
   const volAvail  = volFamily  && hasUfQty('q_vol');
+  const countAvail = countFamily && hasUfQty('q_count');
   // The family is in the basket but the per-UF grain has no quantity → tell the
   // researcher honestly instead of silently dropping the toggle or showing zeros.
   const massUnavailNote = massFamily && !massAvail;
   const volUnavailNote  = volFamily  && !volAvail;
+  // Value is the universal measure for a MONETARY banco, but a value-LESS stock (the
+  // livestock herd) has all-zero per-UF value — gate it on a non-zero value so the herd
+  // defaults to its cabeças map instead of an all-zero "Valor" map. Monetary bancos
+  // always have value, so they are unaffected.
+  const valueAvail = hasUfQty('value');
 
   // Dimensions with active unit label
   const dims = [
-    { id: 'value',  label: 'Valor',              key: 'value',  unit: valueUnitLabel, mul: valueMul, available: true },
-    { id: 'mass',   label: 'Quantidade (massa)', key: 'q_mass', unit: massUnitLabel,  mul: massMul,  available: massAvail },
-    { id: 'volume', label: 'Quantidade (volume)',key: 'q_vol',  unit: volUnitLabel,   mul: volMul,   available: volAvail },
+    { id: 'value',  label: 'Valor',               key: 'value',   unit: valueUnitLabel, mul: valueMul, available: valueAvail },
+    { id: 'mass',   label: 'Quantidade (massa)',  key: 'q_mass',  unit: massUnitLabel,  mul: massMul,  available: massAvail },
+    { id: 'volume', label: 'Quantidade (volume)', key: 'q_vol',   unit: volUnitLabel,   mul: volMul,   available: volAvail },
+    { id: 'count',  label: 'Quantidade (cabeças)',key: 'q_count', unit: countUnitLabel, mul: countMul, available: countAvail },
   ].filter(d => d.available);
+  // Never render zero dimensions (activeDim would be undefined): fall back to value.
+  if (!dims.length) dims.push({ id: 'value', label: 'Valor', key: 'value', unit: valueUnitLabel, mul: valueMul, available: true });
 
   // If the active dimension is no longer available (e.g. the basket changed
   // from a mixed cesta to mass-only), reset to the first available one.
   // Done in an effect — never call setState during render.
   useGeoEffect(() => {
     if (!dims.find(d => d.id === dim)) setDim(dims[0].id);
-  }, [dim, massAvail, volAvail]);
+  }, [dim, massAvail, volAvail, countAvail, valueAvail]);
   const activeDim = dims.find(d => d.id === dim) || dims[0];
   const valueKey  = activeDim.key;
   const unit      = activeDim.unit;
@@ -176,6 +188,15 @@ function ViewGeography({ families, conventions, summary, database }) {
               : massUnavailNote
                 ? 'A quantidade por UF (massa) ainda não está disponível nesta fonte — apenas o valor é exibido no mapa.'
                 : 'A quantidade por UF (volume) ainda não está disponível nesta fonte — apenas o valor é exibido no mapa.'}
+          </p>
+        </div>
+      )}
+      {activeDim.id === 'count' && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            O mapa de <strong>cabeças</strong> soma os produtos de contagem selecionados; cabeças
+            <strong> não são comparáveis entre espécies</strong>. Filtre por uma única espécie para um
+            mapa limpo, ou use a perspectiva <strong>Rebanho</strong> (mapa por espécie).
           </p>
         </div>
       )}

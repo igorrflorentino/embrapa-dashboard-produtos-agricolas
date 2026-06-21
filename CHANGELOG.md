@@ -9,7 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.4.1` é o release atual._
+_Nada ainda — `1.4.2` é o release atual._
+
+---
+
+## [1.4.2] — 2026-06-21
+
+Audit remediation. A post-feature adversarial sweep (45 agents) found that making the
+herd value-aware in 6 views still left the **same value-assumption bug class** in code
+paths not touched by `1.4.0`/`1.4.1`: a herd basket (a value-less stock) silently
+rendered R$ 0, empty maps, or wrong exports. Preview-verified on real production PPM data.
+
+### Fixed
+- **`dataFilters` cube path dropped `q_count`** — once a product-subset loaded the geo
+  cube, the herd's geographic Gini/HHI/Lorenz collapsed to all-zero (the snapshot path
+  kept it; the cube path didn't). `regionData` likewise now carries `q_count`.
+- **Overview "Quantidade · Contagem" KPI blended incompatible quantities** — it summed
+  ~68 bi eggs (a flow) + ~1.9 bi heads (a stock) across 8 non-additive species into one
+  meaningless headline on PPM's default view. It is now **suppressed when the basket
+  contains a stock**, with a note pointing to the per-species **Rebanho** view; the geo
+  digest map + "UFs cobertas" counter read headcount for a value-less basket.
+- **`ViewGeography` was herd-blind** — it now offers a **"Quantidade (cabeças)"**
+  dimension (with a não-somar-entre-espécies caveat) instead of an all-zero Valor map;
+  `value` is gated on having value so a herd defaults to cabeças.
+- **`ViewValueVolume` showed R$ 0** for a herd — the monetary cards are gated on having
+  value, with an honest note redirecting a herd basket to Rebanho.
+- **CSV export** — added a `qtd_contagem_un` column to the aggregate/geo/concentration
+  exports, and fixed the per-product export that **mislabelled a headcount as tonnes**
+  (`fam==='volume'?…:t`) and scaled it 1000× wrong; now a family→unit map.
+- **`ViewProductProfile` "Participação no efetivo"** denominator no longer blends the
+  herd stock with egg/milk count-flows (a stock's share is among other stocks).
+- **`serialize_products_by_uf`** now emits the `q_count` its SQL already computed (was a
+  dead column), so 'Produtos do estado' can rank a herd by headcount.
+
+### Changed / docs / tests
+- `ViewProductCompare` titles the normalized chart "do efetivo (cabeças)" for an all-herd
+  basket (was hardcoded "do valor"); `overviewTS` contract + `serialize_geo_yearly`
+  docstring corrected; `frontend_data_contract.md` documents `measure_kind`/`q_count`;
+  added the missing `.qa-facet` CSS.
+- New lock-in tests: `serialize_product_uf` + `serialize_products_by_uf` q_count,
+  ViewConcentration cabeças fallback, ViewOverview count-KPI suppression, `pearsonByYear`
+  `key='q'`. **854 pytest / 228 vitest green; eslint + ruff clean; build OK.**
+- **Baseline health stayed excellent** (96% backend coverage, sql.py 100%, max CC C(12)
+  pre-existing, MI all A); security review confirmed **no new injection/SSRF/auth-bypass**.
 
 ---
 

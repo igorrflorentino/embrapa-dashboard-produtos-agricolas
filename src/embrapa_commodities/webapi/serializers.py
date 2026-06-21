@@ -388,13 +388,14 @@ def serialize_product_uf(df: pd.DataFrame | None) -> dict:
 
 
 def serialize_geo_yearly(df: pd.DataFrame | None) -> dict:
-    """seam.geo_yearly() → { ufYearly: [{year, uf, name, region, value, q_mass, q_vol}] }.
+    """seam.geo_yearly() → { ufYearly: [{year, uf, name, region, value, q_mass, q_vol, q_count}] }.
 
     The basket-scoped per-(UF, year) cube backing the geography-aware hero/map/series.
     Reuses :func:`_uf_yearly` so the value/quantity scaling (value ÷1e6 → mi, q_mass
-    ÷1e3 → mil t, q_vol ÷1e6 → mi m³) is BYTE-IDENTICAL to the snapshot's ``ufYearly``
-    — the frontend treats both interchangeably. ``{ ufYearly: [] }`` when df is
-    None/empty (no geo grain, or the basket matched nothing)."""
+    ÷1e3 → mil t, q_vol ÷1e6 → mi m³, q_count ÷1e6 → mi un) is BYTE-IDENTICAL to the
+    snapshot's ``ufYearly`` — the frontend treats both interchangeably (so the cube path
+    must keep q_count too, or a herd's geographic concentration zeroes out). ``{ ufYearly:
+    [] }`` when df is None/empty (no geo grain, or the basket matched nothing)."""
     return {"ufYearly": _uf_yearly(df)}
 
 
@@ -619,12 +620,15 @@ def serialize_partner(df: pd.DataFrame | None, max_rows: int = 30) -> dict:
 
 
 def serialize_products_by_uf(df: pd.DataFrame | None, max_rows: int = 100) -> dict:
-    """seam.products_by_uf() → { products: [{code,name,value,q_mass,q_vol}] }.
+    """seam.products_by_uf() → { products: [{code,name,value,q_mass,q_vol,q_count}] }.
 
     value in currency mi (the deflated column the conventions resolved), q_mass in
-    mil t, q_vol in mi m³ — the SAME magnitudes the snapshot's productTS/ufData use,
-    so the view's UnitFamily formatters apply unchanged. Rows arrive value-ranked;
-    the view re-sorts client-side by the chosen metric over the (small) product set."""
+    mil t, q_vol in mi m³, q_count in mi un (livestock head/eggs) — the SAME magnitudes
+    the snapshot's productTS/ufData use, so the view's UnitFamily formatters apply
+    unchanged. Carrying q_count lets the 'Produtos do estado' ranking surface a herd by
+    headcount (a value-less stock would otherwise rank all-zero). Rows arrive
+    value-ranked; the view re-sorts client-side by the chosen metric over the (small)
+    product set."""
     if _empty(df):
         return {"products": []}
     products = [
@@ -634,6 +638,7 @@ def serialize_products_by_uf(df: pd.DataFrame | None, max_rows: int = 100) -> di
             "value": _num(r.total_value) / 1e6,
             "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
             "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            "q_count": _num(getattr(r, "q_count", 0)) / 1e6,
         }
         for r in df.head(max_rows).itertuples()
     ]
