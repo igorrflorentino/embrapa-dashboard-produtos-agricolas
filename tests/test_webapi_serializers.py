@@ -1015,5 +1015,54 @@ def test_serialize_products_by_uf_scales_value_and_quantities():
         "value": 19.0,  # 19_000_000 ÷1e6 → mi
         "q_mass": 2.0,  # 2_000 ÷1e3 → mil t
         "q_vol": 19.0,  # 19_000_000 ÷1e6 → mi m³
+        "q_count": 0.0,  # absent → 0 (a herd row carries it for the 'Produtos do estado' rank)
     }
     assert out["products"][1]["q_mass"] == 0.0  # None → 0
+    # A livestock row carries q_count (mi un) so a value-less herd ranks by headcount.
+    herd = s.serialize_products_by_uf(
+        pd.DataFrame(
+            [
+                {
+                    "product_code": "2670",
+                    "product_name": "Bovino",
+                    "total_value": 0,
+                    "q_count": 238_000_000,
+                }
+            ]
+        )
+    )["products"][0]
+    assert herd["q_count"] == 238.0 and herd["value"] == 0.0  # 238M head → 238 mi un
+
+
+def test_serialize_product_uf_carries_per_family_quantities():
+    """serialize_product_uf feeds the herd-by-UF map + ranking (ViewProductProfile +
+    ViewRebanho). A value-less stock must rank by q_count, so the per-family quantities
+    ride along (same ÷1e3/÷1e6 scaling as ufData). Empty df → {uf: []}."""
+    assert s.serialize_product_uf(None) == {"uf": []}
+    df = pd.DataFrame(
+        [
+            {
+                "state_acronym": "MT",
+                "state_name": "Mato Grosso",
+                "region_abbrev": "CO",
+                "total_value": 0,
+                "q_mass": float("nan"),
+                "q_vol": float("nan"),
+                "q_count": 32_000_000,
+            },
+            {
+                "state_acronym": "PA",
+                "state_name": "Pará",
+                "region_abbrev": "N",
+                "total_value": 0,
+                "q_mass": float("nan"),
+                "q_vol": float("nan"),
+                "q_count": 25_000_000,
+            },
+        ]
+    )
+    rows = s.serialize_product_uf(df)["uf"]
+    assert {r["uf"] for r in rows} == {"MT", "PA"}
+    mt = next(r for r in rows if r["uf"] == "MT")
+    assert mt["q_count"] == 32.0 and mt["value"] == 0.0  # 32M head → 32 mi un, no value
+    assert mt["q_mass"] == 0.0 and mt["q_vol"] == 0.0  # NaN → 0 (a herd has no mass/vol)

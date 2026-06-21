@@ -76,6 +76,10 @@ function ViewProductCompare({ summary, conventions, database }) {
   // magnitudes are not — flag that honestly above the table.
   const mixedBasis = new Set(items.map(it => it.prod.family)).size > 1
     || new Set(items.map(it => it.isStock)).size > 1;
+  // The normalized series indexes value for flows, but headcount for an all-herd basket —
+  // so label it honestly instead of hardcoding "do valor".
+  const allStock = items.length > 0 && items.every(it => it.isStock);
+  const indexBasis = allStock ? 'do efetivo (cabeças)' : 'do valor';
 
   return (
     <>
@@ -106,7 +110,7 @@ function ViewProductCompare({ summary, conventions, database }) {
       <div className="card">
         <window.SectionHeader
           overline={`Séries normalizadas · base 100 em ${yearStart}`}
-          title="Evolução relativa do valor"
+          title={`Evolução relativa ${indexBasis}`}
           action={<span className="caption">{items.length} commodities</span>}
         />
         <window.MultiLineChart series={normSeries} label={`índice (${yearStart}=100)`} valueKey="v" height={300} />

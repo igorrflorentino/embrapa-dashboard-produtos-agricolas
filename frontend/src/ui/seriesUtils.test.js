@@ -45,6 +45,16 @@ describe('pearsonByYear — aligns two series BY YEAR, not by array index (M2)',
     expect(r).toBeGreaterThanOrEqual(-1);
     expect(r).toBeLessThanOrEqual(1);
   });
+
+  it('correlates on a custom key (q for a value-less herd, not v)', () => {
+    // ViewProductCompare passes key="q" for an all-herd basket: v=0 for a stock, so the
+    // default key="v" would read zero growth (variance 0 → 0). On "q" (cabeças) the same
+    // co-moving growth gives +1 — the measure-aware correlation the audit fix added.
+    const a = [{ y: 2000, q: 10, v: 0 }, { y: 2001, q: 20, v: 0 }, { y: 2002, q: 15, v: 0 }, { y: 2003, q: 30, v: 0 }];
+    const b = [{ y: 2000, q: 100, v: 0 }, { y: 2001, q: 200, v: 0 }, { y: 2002, q: 150, v: 0 }, { y: 2003, q: 300, v: 0 }];
+    expect(window.pearsonByYear(a, b, 'q')).toBeCloseTo(1, 6);
+    expect(window.pearsonByYear(a, b, 'v')).toBe(0); // all-zero value → no growth variance
+  });
 });
 
 describe('linearFit — OLS trend line (the "linha de tendência" overlay)', () => {

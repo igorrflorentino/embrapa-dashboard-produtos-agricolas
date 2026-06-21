@@ -20,7 +20,10 @@ function ViewValueVolume({ families, conventions, summary, database }) {
   const filtered = window.applyFilters(summary || {}, database);
   const ts = filtered.ts.map(d => ({ ...d, v: d.v * 1e9 }));
   const valueSeries = window.convertSeries(ts, conv);
-  // massMul / volMul map (mil t, mi m³) → (t/kg, m³/L)
+  // massMul / volMul map (mil t, mi m³) → (t/kg, m³/L). The COUNT family (herd cabeças /
+  // eggs) is deliberately NOT aggregated here: heads are not additive across species, so a
+  // national "total contagem" line would be a meaningless blend (see the Rebanho view,
+  // which keeps each species separate). A herd basket is redirected there below.
   const massSeries  = ts.map(d => ({ y: d.y, q_mass: d.q_mass * massMul }));
   const volSeries   = ts.map(d => ({ y: d.y, q_vol:  d.q_vol  * volMul  }));
 
@@ -94,12 +97,27 @@ function ViewValueVolume({ families, conventions, summary, database }) {
 
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
+  const countFamily = families.includes('count');
+  // A value-less basket (the livestock herd — a stock) has R$ 0 every year; show the
+  // monetary cards only when there IS value, and explain the absence honestly.
+  const hasValue = valueMax > 0;
 
   return (
     <>
       <window.UnitFamilyBanner families={families} />
 
+      {!hasValue && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            Esta cesta é um <strong>estoque sem valor monetário</strong> (efetivo dos rebanhos) — não
+            há série de valor. Veja a quantidade em <strong>cabeças</strong> abaixo, ou a perspectiva
+            <strong> Rebanho</strong> para a composição por espécie.
+          </p>
+        </div>
+      )}
+
       {/* Value historic series */}
+      {hasValue && (
       <div className="card">
         <window.SectionHeader
           overline={`Série histórica · ${ccyLabel}`}
@@ -110,6 +128,18 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         />
         <window.LineChart data={valueScaled.data} label={valueScaled.label} valueKey="v" color={ccyColor} height={260} />
       </div>
+      )}
+
+      {/* The herd (count family) may be in a value-bearing basket but is not summable
+          across species, so it is not aggregated here — point to the Rebanho view. */}
+      {hasValue && countFamily && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            O <strong>efetivo dos rebanhos</strong> (cabeças) está na seleção mas não é exibido aqui —
+            cabeças não são somáveis entre espécies. Veja a perspectiva <strong>Rebanho</strong>.
+          </p>
+        </div>
+      )}
 
       {/* Quantity historic series — one per family */}
       <div className={'grid-' + (families.length === 2 ? '2' : '1')}>
@@ -134,6 +164,7 @@ function ViewValueVolume({ families, conventions, summary, database }) {
       </div>
 
       {/* YoY variation — derived from converted series */}
+      {hasValue && (
       <div className="card">
         <window.SectionHeader
           overline={`Variação interanual · valor (${ccyLabel})`}
@@ -141,8 +172,10 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         />
         <window.YoYBars data={valueSeries} valueKey="v" height={200} />
       </div>
+      )}
 
       {/* Composition by product · value */}
+      {hasValue && (
       <div className="card">
         <window.SectionHeader
           overline={`Composição histórica · valor (${valueStackScaled.label})`}
@@ -150,6 +183,7 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         />
         <window.StackedArea series={valueStackScaled.layers} valueKey="v" label={valueStackScaled.label} height={280} />
       </div>
+      )}
 
       {/* Composition by quantity — per family */}
       <div className={'grid-' + (families.length === 2 ? '2' : '1')}>

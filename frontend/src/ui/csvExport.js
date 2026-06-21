@@ -50,12 +50,13 @@
       case 'value':
       case 'overview': {
         // annual aggregate series (value + qty per family)
-        const headers = ['ano', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3'];
+        const headers = ['ano', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3', 'qtd_contagem_un'];
         const rows = f.ts.map(d => [
           d.y,
           Math.round(dispV(d.v * 1e9)),
           Math.round(d.q_mass * 1e3),
           Math.round(d.q_vol * 1e6),
+          Math.round((d.q_count || 0) * 1e6),  // mi un → un (livestock head / eggs)
         ]);
         return { headers, rows, subject: 'serie_agregada' };
       }
@@ -66,15 +67,18 @@
         // unitless "quantidade" header. Scale per family to its base unit (mass→t,
         // volume→m³) and emit the unit explicitly so the column is unambiguous.
         const headers = ['ano', 'codigo', 'produto', `valor_${conv.currency}`, 'quantidade', 'unidade', 'familia'];
+        // Per-family base unit + multiplier: mass mil t→t, volume mi m³→m³, count mi un→un.
+        // The old binary (volume?1e6:1e3 / m³:t) mislabelled a livestock headcount as TONNES
+        // and scaled it 1000× wrong; map by family so the column is always correct.
+        const FAM_Q = { mass: { mul: 1e3, unit: 't' }, volume: { mul: 1e6, unit: 'm³' }, count: { mul: 1e6, unit: 'un' } };
         const rows = [];
         Object.entries(f.productTS).forEach(([code, series]) => {
           const fam = (PRODS.find(p => p.code === code) || {}).family;
-          const qMul = fam === 'volume' ? 1e6 : 1e3; // mil t→t, mi m³→m³
-          const qUnit = fam === 'volume' ? 'm³' : 't';
+          const { mul: qMul, unit: qUnit } = FAM_Q[fam] || FAM_Q.mass;
           series.forEach(d => rows.push([
             d.y, code, nameOf(code),
             Math.round(dispV(d.v * 1e6)),
-            Math.round(d.q * qMul),
+            Math.round((d.q || 0) * qMul),
             qUnit,
             fam,
           ]));
@@ -88,12 +92,13 @@
         // ("no invisible filtering"): an `ano` column (flagged parcial) + an escopo column.
         const ano = f.ufYearPartial ? `${f.ufLatestYear} (parcial)` : (f.ufLatestYear ?? '');
         const escopo = f.notFilteredByBasket ? 'todos os produtos' : 'cesta selecionada';
-        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3', 'escopo_produto'];
+        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'qtd_massa_t', 'qtd_volume_m3', 'qtd_contagem_un', 'escopo_produto'];
         const rows = f.ufData.map(u => [
           ano, u.uf, u.name, u.region,
           Math.round(dispV(u.value * 1e6)),
           Math.round(u.q_mass * 1e3),
           Math.round(u.q_vol * 1e6),
+          Math.round((u.q_count || 0) * 1e6),  // mi un → un (livestock head / eggs)
           escopo,
         ]);
         return { headers, rows, subject: 'distribuicao_geografica' };
@@ -101,9 +106,9 @@
       case 'concentration': {
         const ano = f.ufYearPartial ? `${f.ufLatestYear} (parcial)` : (f.ufLatestYear ?? '');
         const escopo = f.notFilteredByBasket ? 'todos os produtos' : 'cesta selecionada';
-        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'escopo_produto'];
+        const headers = ['ano', 'uf', 'nome', 'regiao', `valor_${conv.currency}`, 'qtd_contagem_un', 'escopo_produto'];
         const rows = f.ufData.slice().sort((a, b) => b.value - a.value)
-          .map(u => [ano, u.uf, u.name, u.region, Math.round(dispV(u.value * 1e6)), escopo]);
+          .map(u => [ano, u.uf, u.name, u.region, Math.round(dispV(u.value * 1e6)), Math.round((u.q_count || 0) * 1e6), escopo]);
         return { headers, rows, subject: 'concentracao' };
       }
       case 'quality': {

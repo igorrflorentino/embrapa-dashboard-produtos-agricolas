@@ -62,13 +62,19 @@ function ViewOverview({ families, summary, database, conventions }) {
   // canonical 27-UF registry (window.UF_DATA) so pseudo-codes never inflate it.
   const isRealUf  = u => (u.real != null ? u.real : window.isCanonicalUf(u.uf));
   const realUfs   = filtered.ufData.filter(isRealUf);
-  const ufCovered = realUfs.filter(u => u.value > 0).length;
+  // A value-less basket (the livestock herd — a stock) has R$ 0 everywhere, so the geo
+  // digest must read HEADCOUNT (q_count); reading value would give an empty map + 0/27
+  // UFs covered. A value-bearing basket is unaffected (onCount stays false).
+  const anyValue  = realUfs.some(u => u.value > 0) || ts.some(d => d.v > 0);
+  const onCount   = !anyValue && families.includes('count');
+  const geoVal    = u => (onCount ? (u.q_count || 0) : u.value);
+  const ufCovered = realUfs.filter(u => geoVal(u) > 0).length;
   // Denominator = real UFs in the banco's full set, capped at the canonical 27.
   const ufTotalReal = Math.min(
     27,
     filtered.ufDataFull.filter(isRealUf).length || 27,
   );
-  const top3      = realUfs.slice().sort((a, b) => b.value - a.value).slice(0, 3);
+  const top3      = realUfs.slice().sort((a, b) => geoVal(b) - geoVal(a)).slice(0, 3);
   const hasGeo    = filtered.ufDataFull.length > 0;
   // The tile map is scoped to the latest UF year IN the window, which can fall short
   // of yearEnd (future/partial endDate). Label it with the data's OWN year so the
@@ -88,6 +94,11 @@ function ViewOverview({ families, summary, database, conventions }) {
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
   const countFamily = families.includes('count');  // PPM livestock head / eggs
+  // The aggregate count KPI sums the WHOLE count family (herd STOCK + egg FLOW + every
+  // species) — heads are not additive, so that headline is a meaningless blend. Suppress
+  // it when a stock is in the basket and point researchers to the per-species Rebanho view.
+  const hasStock = (filtered.products || []).some(
+    p => p.measure_kind === 'stock' && (filtered.selectedProducts || []).includes(p.code));
 
   return (
     <>
@@ -129,7 +140,7 @@ function ViewOverview({ families, summary, database, conventions }) {
             sparkColor="var(--viz-4)"
           />
         )}
-        {countFamily && (
+        {countFamily && !hasStock && (
           <window.KpiCardSpark
             label={<>Quantidade · <window.UnitFamilyTag family="count" conv={conv}/></>}
             value={kpiVal(window.formatCountQty(last.q_count, conv))}
@@ -157,6 +168,14 @@ function ViewOverview({ families, summary, database, conventions }) {
           sparkColor="var(--ok)"
         />
       </div>
+
+      {countFamily && hasStock && (
+        <p className="caption" style={{ margin: '-4px 2px 8px' }}>
+          ⓘ O <strong>efetivo dos rebanhos</strong> (cabeças) não entra como um KPI agregado aqui —
+          cabeças não são somáveis entre espécies. Veja a perspectiva <strong>Rebanho</strong> para a
+          composição e a evolução por espécie.
+        </p>
+      )}
 
       {/* Hero: timeseries + composition */}
       <div className="grid-2">
@@ -215,17 +234,21 @@ function ViewOverview({ families, summary, database, conventions }) {
             // Only REAL UFs reach the tile map: a trade banco's ufData carries
             // non-state pseudo-origins (ND/EX/ZN…) with no tile col/row, which the
             // BrazilTileMap would position at `undefined * cell = NaN` (FINDING #4/#5).
+            // Measure-aware: a value-less herd basket maps HEADCOUNT (q_count → cabeças)
+            // instead of an all-zero value. geoVal already selects the right field.
+            const geoMul  = onCount ? window.countQtyMul(conv) : (1e6 * ufFactor);
+            const geoUnit = onCount ? window.countAxisLabel(conv) : valAxis;
             const ufRows = realUfs.map(u => ({
               ...u,
-              value: u.value * 1e6 * ufFactor,
+              value: geoVal(u) * geoMul,
             }));
             const max = Math.max(...ufRows.map(u => u.value), 0);
-            const { data, label } = window.scaleSeries(ufRows, max, conv, 'value', valAxis);
+            const { data, label } = window.scaleSeries(ufRows, max, conv, 'value', geoUnit);
             return (
               <>
                 <window.SectionHeader
                   overline={`Distribuição geográfica · ${mapYearTag}`}
-                  title={`Valor por UF · ${label}`}
+                  title={`${onCount ? 'Cabeças' : 'Valor'} por UF · ${label}`}
                   action={
                     <span className="caption">
                       {top3.length ? 'Top 3: ' + top3.map(u => u.uf).join(' · ') : '—'}

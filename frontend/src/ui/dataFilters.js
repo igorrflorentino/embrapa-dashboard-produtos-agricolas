@@ -215,7 +215,7 @@
             .filter(r => r.year === ufLatestYear)
             .filter(u => !stateSet || stateSet.has(u.uf))
             .map(r => ({ uf: r.uf, name: r.name, region: r.region,
-                         value: r.value, q_mass: r.q_mass, q_vol: r.q_vol })),
+                         value: r.value, q_mass: r.q_mass, q_vol: r.q_vol, q_count: r.q_count })),
         )
       : UF_DATA_T
           .filter(u => !stateSet || stateSet.has(u.uf))
@@ -257,6 +257,7 @@
         value:  ufs.reduce((s, u) => s + u.value,  0),
         q_mass: ufs.reduce((s, u) => s + u.q_mass, 0),
         q_vol:  ufs.reduce((s, u) => s + u.q_vol,  0),
+        q_count: ufs.reduce((s, u) => s + (u.q_count || 0), 0),  // head/eggs — herd geo
         ufs:    ufs.length,
       };
     }).filter(r => r.ufs > 0);

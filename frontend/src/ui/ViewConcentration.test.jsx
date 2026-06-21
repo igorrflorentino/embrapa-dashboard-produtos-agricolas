@@ -69,3 +69,38 @@ describe('ViewConcentration — Gini/HHI computation renders (H3)', () => {
     expect(hhiProd?.textContent).toBe('5.200');
   });
 });
+
+// A value-less herd basket (a stock, R$ 0 every year) must compute concentration on
+// HEADCOUNT (q_count) instead of an all-zero value — else Gini/HHI/Lorenz collapse.
+const HERD_FIXTURE = {
+  ufDataFull: [
+    { uf: 'MT', value: 0, q_count: 75, real: true },
+    { uf: 'SP', value: 0, q_count: 25, real: true },
+  ],
+  ufData: [
+    { uf: 'MT', value: 0, q_count: 75, real: true },
+    { uf: 'SP', value: 0, q_count: 25, real: true },
+  ],
+  productTS: { P1: [{ y: 2020, v: 0, q: 60 }], P2: [{ y: 2020, v: 0, q: 40 }] },
+  products: [
+    { code: 'P1', name: 'Bovino', measure_kind: 'stock' },
+    { code: 'P2', name: 'Suíno', measure_kind: 'stock' },
+  ],
+  yearEnd: 2020,
+  ufLatestYear: 2020,
+  ufYearPartial: false,
+};
+
+describe('ViewConcentration — value-less herd falls back to cabeças', () => {
+  it('computes geographic Gini/HHI on q_count when the basket has no value', () => {
+    stubGlobals(HERD_FIXTURE);
+    const { container } = render(<ViewConcentration summary={{}} conventions={{}} database="ibge_ppm" />);
+    const byLabel = (l) =>
+      container.querySelector(`.kpi[data-label="${l}"] .kpi-value`)?.textContent;
+    // same [75,25] distribution as the value case, now read from q_count → HHI 6250, Gini 0,25
+    expect(byLabel('HHI · geográfico (UF)')).toBe('6.250');
+    expect(byLabel('Gini · geográfico (UF)')).toBe('0,25');
+    // the onCount note explains the basis is headcount, not value
+    expect(container.textContent).toContain('cabeças');
+  });
+});

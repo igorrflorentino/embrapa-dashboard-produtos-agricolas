@@ -109,6 +109,22 @@ describe('ViewOverview — KPI strip + quality digest (H3 + P0 lock-in)', () => 
     expect(values).not.toContain('mass:200'); // mass KPI absent — no mass family in the basket
   });
 
+  it('SUPPRESSES the blended count KPI when the basket has a stock (herd), pointing to Rebanho', () => {
+    // The count KPI sums the whole count family (herd STOCK + egg FLOW + every species),
+    // which is not additive — for a stock basket it must NOT be shown as one headline.
+    stubGlobals({
+      ...FIXTURE,
+      products: [{ code: '2670', name: 'Bovino', measure_kind: 'stock' }],
+      selectedProducts: ['2670'],
+    });
+    const { container } = render(
+      <ViewOverview families={['count']} summary={{}} database="ibge_ppm" conventions={{}} />
+    );
+    const values = [...container.querySelectorAll('.kpi-value')].map((e) => e.textContent);
+    expect(values).not.toContain('count:2000'); // blended count KPI suppressed for a stock basket
+    expect(container.textContent).toContain('Rebanho'); // redirect note instead
+  });
+
   it('omits the volume KPI when the banco has no volume family', () => {
     stubGlobals(FIXTURE);
     const { container } = render(
