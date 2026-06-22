@@ -1109,3 +1109,60 @@ def test_serialize_table_page_shapes_columns_rows_total():
     assert float(out["rows"][0][2]) == 1.5
     assert int(out["rows"][1][0]) == 2023
     assert math.isnan(out["rows"][1][2])  # NaN preserved here; → null via SafeJSONProvider
+
+
+def test_serialize_table_page_bq_nullable_na_serializes_to_json_null():
+    """The REAL BigQuery path the plain-dict test above MISSES. ``to_dataframe`` defaults
+    ``int_dtype=Int64`` / ``bool_dtype=BooleanDtype`` (nullable), so a NULL INTEGER/BOOLEAN
+    cell is pandas ``pd.NA``, and a NULL DATE/TIMESTAMP is ``pd.NaT`` — both reach
+    ``serialize_table_page``'s ``df.values.tolist()`` uncoerced. Neither is JSON-serializable
+    (``pd.NA`` raises ``TypeError`` in the encoder → HTTP 500; ``pd.NaT.isoformat()`` leaks the
+    string ``"NaT"``), so the app's ``SafeJSONProvider`` MUST map both to ``null`` on the wire.
+
+    The frame is deliberately MIXED-dtype: ``df.values`` then stays an *object* array that
+    PRESERVES the ``pd.NA``/``pd.NaT`` scalars. A single Int64 column would upcast NA to float
+    ``nan`` (handled by a different branch) and never exercise the ``pd.NA`` path at all."""
+    import json
+
+    pytest.importorskip("flask")
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.webapi import app as app_mod
+
+    cols = {
+        "reference_year": pd.array([2024, None], dtype="Int64"),  # nullable INTEGER → pd.NA
+        "flag": pd.array([True, None], dtype="boolean"),  # nullable BOOLEAN → pd.NA
+        "name": pd.Series(["a", None], dtype="object"),  # STRING → None (JSON-native control)
+        "ts": pd.to_datetime(pd.Series(["2024-01-01T00:00:00", None])),  # TIMESTAMP → pd.NaT
+    }
+    try:  # DATE → db_dtypes 'dbdate', NULL → pd.NaT (present via the webapi/bigquery extra)
+        import db_dtypes  # noqa: F401
+
+        cols["d"] = pd.array([pd.Timestamp("2024-06-01").date(), None], dtype="dbdate")
+    except Exception:
+        pass
+
+    df = pd.DataFrame(cols)
+    assert df.values.dtype == object  # mixed dtypes → object array → NA scalars survive
+    page = {
+        "columns": [{"name": c, "type": "STRING"} for c in df.columns],
+        "df": df,
+        "total": 2,
+        "table": "gold_ppm_production",
+        "label": "Gold",
+        "grain": "g",
+    }
+    payload = s.serialize_table_page(page)
+    # The serializer does NO per-cell coercion, so the raw missing scalars ride through …
+    null_row = payload["rows"][1]
+    assert any(c is pd.NA for c in null_row), "nullable INT/BOOL NULL must be pd.NA in the row"
+    assert any(c is pd.NaT for c in null_row), "DATE/TIMESTAMP NULL must be pd.NaT in the row"
+
+    # … and SafeJSONProvider must turn the WHOLE payload into valid JSON without raising
+    # (a raise here is exactly the HTTP 500 in prod), with every NA cell as JSON null.
+    app = app_mod.create_app()
+    reparsed = json.loads(app.json.dumps(payload))  # must NOT raise on pd.NA / pd.NaT
+    out_null = reparsed["rows"][1]
+    assert all(v is None for v in out_null), f"every NULL cell → JSON null, got {out_null!r}"
+    # the non-null row round-trips intact (no collateral damage)
+    assert reparsed["rows"][0][0] == 2024 and reparsed["rows"][0][1] is True
+    assert reparsed["rows"][0][2] == "a"
