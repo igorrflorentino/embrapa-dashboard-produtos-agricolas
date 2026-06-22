@@ -2302,3 +2302,94 @@ def test_fetch_cross_series_drops_uf_for_comtrade(monkeypatch):
         # COMTRADE metric → UF dropped (no state_acronym on that mart)
         gateway.fetch_cross_series("un_comtrade:world_exp", uf_codes=("AC",))
         assert "state_acronym" not in recorded["sql"].lower()
+
+
+# ── Raw table inspection ("Dados" perspective) ────────────────────────────────
+
+
+def test_raw_table_rows_validates_columns_and_binds_filters():
+    cols = {"reference_year": "INTEGER", "product_code": "STRING", "val_yearfx_brl": "FLOAT"}
+    # an order-by outside the table's schema is rejected (the schema IS the allowlist)
+    with pytest.raises(ValueError):
+        sql.raw_table_rows("p.d.t", columns_types=cols, limit=50, order_by="evil")
+    query, params = sql.raw_table_rows(
+        "p.d.t",
+        columns_types=cols,
+        limit=50,
+        offset=20,
+        order_by="reference_year",
+        order_dir="desc",
+        filters=[
+            {"col": "reference_year", "op": "eq", "val": "1999"},
+            {"col": "product_code", "op": "contains", "val": "casta"},
+        ],
+    )
+    assert "order by `reference_year` desc" in query
+    assert "limit 50 offset 20" in query
+    assert "`reference_year` = @f0" in query
+    assert "cast(`product_code` as string) like @f1" in query
+    by_name = {p.name: p for p in params}
+    assert by_name["f0"].type_ == "INT64" and by_name["f0"].value == 1999  # coerced to int
+    assert by_name["f1"].type_ == "STRING" and by_name["f1"].value == "%casta%"
+
+
+def test_raw_table_rows_caps_limit_and_plain_browse_has_no_predicates():
+    cols = {"reference_year": "INTEGER"}
+    query, params = sql.raw_table_rows("p.d.t", columns_types=cols, limit=10**9)
+    assert f"limit {sql.RAW_TABLE_MAX_LIMIT} offset 0" in query  # hard row cap
+    assert "order by" not in query and "where" not in query
+    assert params == []
+
+
+def test_raw_table_count_applies_filters():
+    cols = {"reference_year": "INTEGER"}
+    query, params = sql.raw_table_count(
+        "p.d.t",
+        columns_types=cols,
+        filters=[{"col": "reference_year", "op": "ge", "val": "2000"}],
+    )
+    assert "count(*)" in query and "`reference_year` >= @f0" in query
+    assert params[0].value == 2000
+
+
+def test_raw_table_rows_rejects_bad_op_and_unbindable_value():
+    cols = {"reference_year": "INTEGER"}
+    with pytest.raises(ValueError):  # operator not in the allowed set
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "reference_year", "op": "DROP", "val": "1"}],
+        )
+    with pytest.raises(ValueError):  # 'abc' cannot bind to an INT column
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "reference_year", "op": "eq", "val": "abc"}],
+        )
+    with pytest.raises(ValueError):  # a filter column outside the schema
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "evil; drop table", "op": "eq", "val": "1"}],
+        )
+
+
+def test_gateway_inspectable_tables_and_allowlist_boundary():
+    from embrapa_commodities.serving import gateway
+
+    ppm = gateway.inspectable_tables("ibge_ppm")
+    ids = [t["id"] for t in ppm]
+    assert "gold_ppm_production" in ids and "serving_ppm_annual" in ids
+    assert all(t.get("label") and t.get("grain") for t in ppm)
+    comex_ids = [t["id"] for t in gateway.inspectable_tables("mdic_comex")]
+    assert "serving_comex_seasonality" in comex_ids  # the monthly mart is inspectable too
+    assert gateway.inspectable_tables("nope") == []
+    # SECURITY: a (banco, table) outside the allowlist is refused (the rejection happens
+    # before any table_ref/get_settings call, so no settings stub is needed here).
+    with pytest.raises(ValueError):
+        gateway._resolve_inspect_table("ibge_ppm", "gold_comex_flows")  # not PPM's table
+    with pytest.raises(ValueError):
+        gateway._resolve_inspect_table("ibge_pevs", "bronze_ibge")  # not allowlisted at all

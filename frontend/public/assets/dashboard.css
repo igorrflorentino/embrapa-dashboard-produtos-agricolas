@@ -3112,3 +3112,43 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* Multi-fonte source list: pin the maturity tag to the right of excluded rows. */
 .side-src .mat-tag { margin-left: auto; }
 
+/* ── ViewDados — raw table inspection grid ──────────────────────────────────── */
+.dt-filterbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 2px 8px; }
+.dt-filterbar select,
+.dt-filterbar input {
+  font: inherit; font-size: 13px; padding: 5px 9px;
+  border: 1px solid var(--border-default); border-radius: 6px;
+  background: var(--bg-surface); color: var(--fg-1);
+}
+.dt-filterbar input { min-width: 130px; }
+.dt-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 2px 10px; }
+.dt-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 3px 6px 3px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--viz-1) 12%, transparent);
+  font-family: var(--font-mono, monospace);
+}
+.dt-chip button { border: none; background: none; cursor: pointer; font-size: 15px; line-height: 1; color: var(--fg-3); }
+.dt-chip button:hover { color: var(--err); }
+.dt-wrap {
+  overflow: auto; max-height: 640px;
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+}
+.dt-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.dt-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-surface-2); color: var(--fg-1);
+  text-align: left; white-space: nowrap; padding: 7px 10px;
+  border-bottom: 2px solid var(--border-strong);
+  cursor: pointer; user-select: none; font-family: var(--font-mono, monospace); font-weight: 600;
+}
+.dt-table thead th:hover { background: var(--bg-surface-3); }
+.dt-table tbody td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap; color: var(--fg-2);
+}
+.dt-table tbody tr:hover { background: color-mix(in srgb, var(--viz-1) 5%, transparent); }
+.dt-table td.num { text-align: right; }
+.dt-null { color: var(--fg-4); }
+.dt-pager { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+

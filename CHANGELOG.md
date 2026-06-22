@@ -9,7 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.4.2` é o release atual._
+_Nada ainda — `1.5.0` é o release atual._
+
+---
+
+## [1.5.0] — 2026-06-21
+
+New **"Dados (tabela)"** perspective on every banco — a faithful, unsummarized window onto
+the actual rows so researchers can verify data line-by-line or hunt a value they suspect is
+wrong. Preview-verified on real production data (2,4 mi linhas de `gold_ppm_production`).
+
+### Added
+- **Tabular data-inspection view** (`frontend/src/ui/ViewDados.jsx`, in the "Documentação
+  do banco" group, universal). Per banco it lists the **principal (Gold) table + the serving
+  marts that feed its charts** (so the derived tables are inspectable too), and for the
+  selected table browses the RAW rows with **server-side pagination, ordenação (clique no
+  cabeçalho) e filtros por coluna** (=, ≠, >, ≥, <, ≤, contém, é nulo) + **exportação do
+  recorte em CSV** (até 500 linhas).
+- **`/api/tables` + `/api/table` endpoints** (`webapi/routes.py` → `seam` → `gateway` →
+  `serving/sql.py`). Security + cost by construction:
+  - **(banco, table) allowlist** (`gateway._INSPECT_TABLES`) — only a banco's own Gold +
+    serving marts; any other table → HTTP 400 (no arbitrary-table reads, no Silver/Bronze).
+  - **The table's live schema IS the column allowlist** — ORDER BY / filter columns are
+    validated against `client.get_table().schema`; filter VALUES stay bound `@params`.
+  - **Hybrid read**: a plain browse uses the FREE `tabledata.list` (no bytes billed); only
+    an actual sort/filter spends a query, capped by `BQ_MAX_BYTES_BILLED`. Page size capped
+    at 500 rows.
+
+### Tests
+- `ViewDados.test.jsx` (picker + grid + empty state); `serving/sql.raw_table_*` (column
+  allowlist, bound filters, limit cap, bad-op/value rejection); `gateway` allowlist boundary;
+  `serialize_table_page`; the `/api/tables` + `/api/table` routes (arg + filter-JSON parsing,
+  400 on malformed). **863 pytest / 230 vitest green; eslint + ruff clean; build OK.**
 
 ---
 

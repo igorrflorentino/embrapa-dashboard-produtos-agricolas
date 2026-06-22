@@ -929,3 +929,66 @@ def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypa
     assert body["nan"] is None  # NaN → null (invalid-JSON literal avoided)
     assert body["maturityDate"] == "2026-06-16"
     assert body["lastRefresh"].startswith("2026-06-16T12:30:00")
+
+
+def test_tables_route_lists_inspectable_tables(monkeypatch):
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "inspectable_tables",
+        lambda b: [
+            {
+                "id": "gold_ppm_production",
+                "label": "Gold",
+                "grain": "g",
+                "dataset": "bq_gold_dataset",
+            }
+        ],
+    )
+    resp = client.get("/api/tables?banco=ibge_ppm")
+    assert resp.status_code == 200
+    assert resp.get_json()[0]["id"] == "gold_ppm_production"
+
+
+def test_table_route_threads_pagination_sort_filters_to_seam(monkeypatch):
+    """The /api/table endpoint parses pagination + ORDER BY + the JSON filters into the
+    seam call (filters as a hashable tuple of (col, op, val))."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_page(banco, table, *, limit, offset, order_by, order_dir, filters):
+        captured.update(
+            banco=banco,
+            table=table,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+            order_dir=order_dir,
+            filters=filters,
+        )
+        return {"columns": [], "df": None, "total": 0, "table": table}
+
+    monkeypatch.setattr(seam, "table_page", fake_page)
+    monkeypatch.setattr(
+        serializers, "serialize_table_page", lambda p: {"ok": True, "table": p["table"]}
+    )
+    resp = client.get(
+        "/api/table?banco=ibge_ppm&table=gold_ppm_production&limit=50&offset=100"
+        '&order_by=reference_year&order_dir=desc&filters=[{"col":"reference_year","op":"eq","val":"1999"}]'
+    )
+    assert resp.status_code == 200
+    assert captured["banco"] == "ibge_ppm" and captured["table"] == "gold_ppm_production"
+    assert captured["limit"] == 50 and captured["offset"] == 100
+    assert captured["order_by"] == "reference_year" and captured["order_dir"] == "desc"
+    assert captured["filters"] == (("reference_year", "eq", "1999"),)
+
+
+def test_table_route_400_on_malformed_filters(monkeypatch):
+    """A bad filters JSON is rejected at the route (before any BigQuery read)."""
+    client = _client(monkeypatch)
+    resp = client.get("/api/table?banco=ibge_ppm&table=x&filters=not-json")
+    assert resp.status_code == 400
