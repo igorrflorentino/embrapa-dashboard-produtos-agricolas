@@ -2327,10 +2327,12 @@ def test_raw_table_rows_validates_columns_and_binds_filters():
     assert "order by `reference_year` desc" in query
     assert "limit 50 offset 20" in query
     assert "`reference_year` = @f0" in query
-    assert "cast(`product_code` as string) like @f1" in query
+    # contains → CONTAINS_SUBSTR with the search bound as a plain literal (no LIKE wildcards
+    # to escape, so a value containing % or _ matches literally, not as a wildcard).
+    assert "contains_substr(`product_code`, @f1)" in query
     by_name = {p.name: p for p in params}
     assert by_name["f0"].type_ == "INT64" and by_name["f0"].value == 1999  # coerced to int
-    assert by_name["f1"].type_ == "STRING" and by_name["f1"].value == "%casta%"
+    assert by_name["f1"].type_ == "STRING" and by_name["f1"].value == "casta"
 
 
 def test_raw_table_rows_caps_limit_and_plain_browse_has_no_predicates():
@@ -2393,3 +2395,62 @@ def test_gateway_inspectable_tables_and_allowlist_boundary():
         gateway._resolve_inspect_table("ibge_ppm", "gold_comex_flows")  # not PPM's table
     with pytest.raises(ValueError):
         gateway._resolve_inspect_table("ibge_pevs", "bronze_ibge")  # not allowlisted at all
+
+
+def test_raw_table_rows_casts_string_typed_columns_for_comparison():
+    # A DATE/TIMESTAMP column binds as STRING and must compare against CAST(col AS STRING),
+    # else BigQuery raises a type mismatch (TIMESTAMP = STRING param) → an opaque 500. A
+    # plain STRING column is CAST too (a no-op) so there's one uniform path; numeric/bool
+    # columns compare DIRECT (no cast) to keep their native ordering.
+    cols = {
+        "reference_date": "DATE",
+        "last_refresh": "TIMESTAMP",
+        "product_code": "STRING",
+        "reference_year": "INTEGER",
+    }
+    query, params = sql.raw_table_rows(
+        "p.d.t",
+        columns_types=cols,
+        limit=10,
+        filters=[
+            {"col": "reference_date", "op": "ge", "val": "2000-01-01"},
+            {"col": "last_refresh", "op": "lt", "val": "2025-01-01"},
+            {"col": "product_code", "op": "eq", "val": "2670"},
+            {"col": "reference_year", "op": "eq", "val": "1999"},
+        ],
+    )
+    assert "cast(`reference_date` as string) >= @f0" in query
+    assert "cast(`last_refresh` as string) < @f1" in query
+    assert "cast(`product_code` as string) = @f2" in query
+    assert "`reference_year` = @f3" in query  # numeric column compares direct, no cast
+    by_name = {p.name: p for p in params}
+    assert by_name["f0"].type_ == "STRING" and by_name["f1"].type_ == "STRING"
+    assert by_name["f3"].type_ == "INT64" and by_name["f3"].value == 1999
+
+
+def test_raw_table_rows_rejects_missing_and_nonfinite_filter_values():
+    # Every malformed value-requiring filter must raise ValueError (→ HTTP 400), never an
+    # uncaught TypeError/non-finite bind that BigQuery turns into an opaque 500.
+    cols = {"reference_year": "INTEGER", "val_yearfx_brl": "FLOAT"}
+    with pytest.raises(ValueError):  # missing 'val' on a value-requiring op (KeyError → 500)
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "reference_year", "op": "eq"}],
+        )
+    with pytest.raises(ValueError):  # explicit null → int(None) TypeError → 500
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "reference_year", "op": "eq", "val": None}],
+        )
+    for bad in ("inf", "nan", "-inf"):  # non-finite float bind → BigQuery 500
+        with pytest.raises(ValueError):
+            sql.raw_table_rows(
+                "p.d.t",
+                columns_types=cols,
+                limit=10,
+                filters=[{"col": "val_yearfx_brl", "op": "gt", "val": bad}],
+            )

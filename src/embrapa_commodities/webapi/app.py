@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from flask import Flask, jsonify, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
@@ -39,8 +40,15 @@ def _json_safe(obj):
     emits spec-valid JSON instead of 500-ing on an un-coerced field (e.g.
     /source-meta maturityDate/cobertura).
     """
-    # numpy.bool_ first: it is NOT a subclass of float/int, so it must be caught
-    # before the numeric branches (Python bool is the JSON-native fall-through).
+    # pandas missing-value singletons (pd.NA from a nullable Int64/boolean column, pd.NaT
+    # from a nullable date/timestamp) reach here from BigQuery NULLs in non-float columns —
+    # the raw-table inspection (/api/table) is the first endpoint that surfaces them. They
+    # are NOT float NaN: the json encoder rejects pd.NA (500) and pd.NaT.isoformat() would
+    # leak the string "NaT". Map both to JSON null. (`is` is exact + array-safe.)
+    if obj is pd.NA or obj is pd.NaT:
+        return None
+    # numpy.bool_ next: it is NOT a subclass of float/int, so it must be caught before
+    # the numeric branches (Python bool is the JSON-native fall-through).
     if isinstance(obj, np.bool_):
         return bool(obj)
     if isinstance(obj, np.integer):

@@ -15,6 +15,7 @@ Pure module: builds strings and parameter objects, performs no I/O.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from google.cloud import bigquery
@@ -1120,12 +1121,21 @@ def _bq_param_type(bq_type: str) -> str:
 
 
 def _coerce_filter_value(param_type: str, raw: object) -> object:
-    """Coerce a (string) filter value to the column's bind type. Raises ValueError
-    (→ HTTP 400) when the value doesn't fit the column (e.g. 'abc' on an INT column)."""
-    if param_type == "INT64":
-        return int(raw)
-    if param_type == "FLOAT64":
-        return float(raw)
+    """Coerce a filter value to the column's bind type. Raises ValueError (→ HTTP 400,
+    never an uncaught 500) for a value that doesn't fit the column — a missing/None value,
+    a non-numeric string on a numeric column, or a non-finite (inf/nan) float."""
+    if raw is None:
+        raise ValueError("filter value is required for this operator")
+    try:
+        if param_type == "INT64":
+            return int(raw)
+        if param_type == "FLOAT64":
+            v = float(raw)
+            if not math.isfinite(v):
+                raise ValueError("non-finite")
+            return v
+    except (TypeError, ValueError):
+        raise ValueError(f"filter value {raw!r} does not fit a {param_type} column") from None
     if param_type == "BOOL":
         return str(raw).strip().lower() in ("true", "1", "yes", "sim")
     return str(raw)
@@ -1146,17 +1156,21 @@ def _raw_filter_predicate(
         return
     pname = f"f{i}"
     if op == "contains":
-        # substring match — works on any type via CAST; the value is a bound LIKE pattern.
-        conditions.append(f"cast(`{col}` as string) like @{pname}")
-        params.append(bigquery.ScalarQueryParameter(pname, "STRING", f"%{f['val']}%"))
+        # Case-insensitive substring match on any column type — CONTAINS_SUBSTR takes the
+        # search as a plain bound literal (no LIKE wildcards to escape / over-match).
+        conditions.append(f"contains_substr(`{col}`, @{pname})")
+        params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(f.get("val", ""))))
         return
     sqlop = _RAW_FILTER_OPS.get(op)
     if sqlop is None:
         raise ValueError(f"filter operator {op!r} is not allowed")
     ptype = _bq_param_type(columns_types[col])
-    conditions.append(f"`{col}` {sqlop} @{pname}")
+    # A STRING-typed bind compares against CAST(col AS STRING) so a DATE/TIMESTAMP column
+    # (which binds as STRING) does not raise a BigQuery type mismatch; numeric/bool direct.
+    lhs = f"cast(`{col}` as string)" if ptype == "STRING" else f"`{col}`"
+    conditions.append(f"{lhs} {sqlop} @{pname}")
     params.append(
-        bigquery.ScalarQueryParameter(pname, ptype, _coerce_filter_value(ptype, f["val"]))
+        bigquery.ScalarQueryParameter(pname, ptype, _coerce_filter_value(ptype, f.get("val")))
     )
 
 

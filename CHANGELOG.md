@@ -9,7 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.5.0` é o release atual._
+_Nada ainda — `1.5.1` é o release atual._
+
+---
+
+## [1.5.1] — 2026-06-21
+
+Hardening pass on the new **"Dados (tabela)"** raw-table endpoint, from a security-weighted
+adversarial audit (40-agent sweep). The audit **confirmed the security core holds** — no SQL
+injection, no arbitrary-table read past the `(banco, table)` allowlist, no cache exhaustion —
+so this release is robustness + correctness on the same surface, not a vulnerability fix.
+
+### Fixed
+- **Malformed filter input now returns a clean `400`, never an opaque `500`.** A missing/`null`,
+  non-numeric, non-finite (`inf`/`nan`), or non-scalar (list/dict) filter value used to raise a
+  bare `TypeError`/BigQuery error that fell through to the 500 handler (with a spurious
+  "Unhandled error" log). `serving/sql._coerce_filter_value` + `webapi/routes._parse_table_filters`
+  now reject these as `ValueError → 400`.
+- **Filtering a `DATE`/`TIMESTAMP` column works.** Such a column bound its value as `STRING`,
+  so `last_refresh = <string>` was a BigQuery type mismatch → 500. The comparison now runs
+  against `CAST(col AS STRING)` (verified on prod: `reference_date`/`last_refresh` filters
+  on `gold_pevs_production`).
+- **NULL in an `INTEGER`/`BOOLEAN`/`DATE` column no longer 500s the page.** BigQuery surfaces
+  these as pandas `pd.NA`/`pd.NaT` (not float `NaN`); the JSON encoder rejected `pd.NA` and
+  `pd.NaT.isoformat()` leaked the literal string `"NaT"`. `webapi/app._json_safe` now maps both
+  to JSON `null`.
+- **`contains` filter matches literally.** It used `LIKE '%val%'` with no wildcard escaping
+  (BigQuery `LIKE` has no `ESCAPE` clause), so a value with `%`/`_` over-matched. Now uses
+  `CONTAINS_SUBSTR` (bound literal needle; verified on prod: `'%'` matches 0 rows, not all).
+- **Transient `400` flash on banco switch removed.** `ViewDados` now gates the rows fetch on
+  `tableBanco === database`, so it won't request the previous banco's table mid-switch.
+
+### Security / cost
+- **Tighter per-request byte cap for raw-table queries** (`RAW_TABLE_MAX_BYTES` = 10 GiB, vs
+  the 100 GiB global guard) — defense-in-depth for a raw-data endpoint, while still allowing a
+  full sort of the largest Gold table.
+- **No internal attr on the wire** — the `/api/tables` payload dropped the dead `dataset`
+  field (it leaked an internal config-attr name and the frontend never used it).
+
+### Tests / docs
+- End-to-end allowlist-rejection route test (out-of-allowlist `(banco, table)` → `400` through
+  the real route→seam→gateway, no BigQuery), filter-coercion `400` tests, `_json_safe` NA/NaT
+  test, `CAST`-comparison + `CONTAINS_SUBSTR` SQL tests, non-scalar-value `400` test, and a
+  banco-switch render test. **868 pytest / 231 vitest green.**
+- `/api/tables` + `/api/table` added to the canonical endpoint table in
+  `PLANS/react_migration_contract_map.md`.
 
 ---
 
