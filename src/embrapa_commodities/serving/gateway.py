@@ -73,18 +73,21 @@ def _client() -> bigquery.Client:
     )
 
 
-def run_query(sql: str, params: list) -> object:
+def run_query(sql: str, params: list, *, max_bytes: int | None = None) -> object:
     """Execute a parameterized query and return the result as a DataFrame.
 
     Applies a ``maximum_bytes_billed`` ceiling (``Settings.bq_max_bytes_billed``)
     so the /api serving path can't run an unbounded scan — a pathological filter
     or a cold Bronze read is FAILED by BigQuery (visibly) rather than silently
-    billing a runaway query. ``None``/0 disables the cap.
+    billing a runaway query. ``None``/0 disables the cap. ``max_bytes`` overrides the
+    global ceiling with a TIGHTER per-call cap — used by the raw-table inspection path,
+    whose ``SELECT *`` sort/filter scans are bounded well below the global default.
     """
     cfg = get_settings()
     job_config = bigquery.QueryJobConfig(query_parameters=params)
-    if cfg.bq_max_bytes_billed:
-        job_config.maximum_bytes_billed = cfg.bq_max_bytes_billed
+    cap = max_bytes if max_bytes is not None else cfg.bq_max_bytes_billed
+    if cap:
+        job_config.maximum_bytes_billed = cap
     job = _client().query(sql, job_config=job_config)
     return job.result().to_dataframe(create_bqstorage_client=False)
 
@@ -922,14 +925,22 @@ _INSPECT_TABLES: dict[str, list[tuple[str, str, str, str]]] = {
 }
 
 
+# A TIGHTER per-call byte cap for raw-table sort/filter queries than the 100 GiB global
+# guard — a SELECT * sort of the largest Gold table scans ~a couple GiB, so 10 GiB allows
+# every legitimate query yet FAILS a pathological one far below the global ceiling
+# (defense-in-depth for a raw-data endpoint).
+RAW_TABLE_MAX_BYTES = 10 * 1024**3
+
+
 def inspectable_tables(banco_id: str) -> list[dict]:
     """The allowlisted tables a researcher may browse for a banco (the 'Dados' picker).
 
-    Returns ``[{id, label, grain, dataset}]`` — empty for an unknown banco. ``id`` is the
-    BigQuery table name, the same token /api/table resolves."""
+    Returns ``[{id, label, grain}]`` — empty for an unknown banco. ``id`` is the BigQuery
+    table name, the same token /api/table resolves. (The dataset is resolved server-side in
+    _resolve_inspect_table — never exposed, so the wire payload leaks no internal attr.)"""
     return [
-        {"id": table, "label": label, "grain": grain, "dataset": dataset_attr}
-        for table, dataset_attr, label, grain in _INSPECT_TABLES.get(banco_id, [])
+        {"id": table, "label": label, "grain": grain}
+        for table, _dataset_attr, label, grain in _INSPECT_TABLES.get(banco_id, [])
     ]
 
 
@@ -994,7 +1005,7 @@ def fetch_table_rows(
         order_dir=order_dir,
         filters=flt,
     )
-    return run_query(sql, params)
+    return run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
 
 
 @cache.memoize()
@@ -1009,5 +1020,5 @@ def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
     }
     flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
     sql, params = sqlbuild.raw_table_count(ref, columns_types=columns_types, filters=flt)
-    df = run_query(sql, params)
+    df = run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
     return int(df["n"].iloc[0]) if not df.empty else 0

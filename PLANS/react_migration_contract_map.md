@@ -81,6 +81,8 @@ contracts.js shape. `preview:false` on all live producers (real data).
 | `/cross/value-added` | `commodity?` | `value_added(commodity)` | `ValueAddedAnalysis` (add `years`,`byLevel`,`priceB/P`) |
 | `/curation/worklist` | — | `curation_worklist()` | `{rows[],total,classified,pending,by_level}` |
 | `/curation/code-level` | **POST** `{source,code,level}` | `record_code_level(...)` | writer result; author via IAP (`webapi/auth.current_author`) |
+| `/tables` | `banco` | `inspectable_tables(banco)` | `[{id,label,grain}]` — the allowlisted Gold + serving marts a researcher may browse (the "Dados" picker); `[]` for a non-live banco. No dataset attr on the wire |
+| `/table` | `banco,table,limit?,offset?,order_by?,order_dir?,filters?` | `table_page(banco,table,…)` | `{columns:[{name,type}],rows:[[…]],total,table,label,grain}` — one page of RAW rows for an allowlisted `(banco,table)`. Plain browse is FREE (`list_rows`, 0 bytes billed); a sort/filter runs a query under a tighter `RAW_TABLE_MAX_BYTES` cap. `filters` = JSON `[{col,op,val}]`, op ∈ eq/ne/gt/ge/lt/le/contains/is_null/not_null, ≤5 filters, page ≤500. Out-of-allowlist `(banco,table)`, an out-of-schema column, or a malformed value → 400 (never an opaque 500) |
 
 **Active-filter params (`codes`/`states`/`y0`/`y1`)** — the trade adapters (`/flow`, `/partners`,
 `/monthly`) and `/productivity` honour the view's FilterMenu selection. The producers serialize

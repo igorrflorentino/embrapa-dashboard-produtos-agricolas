@@ -186,7 +186,12 @@ def _parse_table_filters(raw: str | None) -> tuple:
     for f in data[:_MAX_TABLE_FILTERS]:
         if not isinstance(f, dict) or "col" not in f:
             raise ValueError("cada filtro precisa de 'col' (e opcionalmente 'op'/'val')")
-        out.append((str(f["col"]), str(f.get("op", "eq")), f.get("val")))
+        val = f.get("val")
+        # Only a scalar (or null) is a valid filter value; a list/dict would bind oddly or
+        # 500 in the SQL layer — reject it here as a clean 400.
+        if val is not None and not isinstance(val, (str, int, float, bool)):
+            raise ValueError("o valor do filtro deve ser texto, número ou booleano")
+        out.append((str(f["col"]), str(f.get("op", "eq")), val))
     return tuple(out)
 
 

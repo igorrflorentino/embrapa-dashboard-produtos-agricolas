@@ -50,6 +50,10 @@ function _dtTableQs(database, table, { limit, offset, order, filters }) {
 function ViewDados({ database }) {
   const [tables, setTables] = useDtState([]);
   const [table, setTable] = useDtState(null);
+  // The banco the current `table` belongs to. On a banco switch the rows effect fires
+  // once with the PREVIOUS banco's table (stale closure) before the new table list lands;
+  // gating on tableBanco === database refuses that stale pairing (no transient 400 flash).
+  const [tableBanco, setTableBanco] = useDtState(null);
   const [page, setPage] = useDtState({ columns: [], rows: [], total: 0, loading: true, error: null });
   const [offset, setOffset] = useDtState(0);
   const [order, setOrder] = useDtState({ by: null, dir: 'asc' });
@@ -69,14 +73,17 @@ function ViewDados({ database }) {
         if (!alive) return;
         setTables(Array.isArray(list) ? list : []);
         setTable(list && list[0] ? list[0].id : null);
+        setTableBanco(database);
       })
-      .catch(() => { if (alive) { setTables([]); setTable(null); } });
+      .catch(() => { if (alive) { setTables([]); setTable(null); setTableBanco(database); } });
     return () => { alive = false; };
   }, [database]);
 
   // 2) one page of rows for the selected table + pagination/sort/filter
   useDtEffect(() => {
-    if (!table) { setPage({ columns: [], rows: [], total: 0, loading: false, error: null }); return undefined; }
+    // Skip until a table is chosen FOR THIS banco (tableBanco===database) — avoids a
+    // stale (new banco, old table) fetch flashing a 400 during a banco switch.
+    if (!table || tableBanco !== database) { setPage({ columns: [], rows: [], total: 0, loading: false, error: null }); return undefined; }
     let alive = true;
     setPage((p) => ({ ...p, loading: true, error: null }));
     const qs = _dtTableQs(database, table, { limit: _DT_PAGE, offset, order, filters });
@@ -91,7 +98,7 @@ function ViewDados({ database }) {
       .then((d) => { if (alive) setPage({ columns: d.columns || [], rows: d.rows || [], total: d.total || 0, label: d.label, grain: d.grain, loading: false, error: null }); })
       .catch((e) => { if (alive) setPage({ columns: [], rows: [], total: 0, loading: false, error: String(e.message || e) }); });
     return () => { alive = false; };
-  }, [database, table, offset, order, filters]);
+  }, [database, table, tableBanco, offset, order, filters]);
 
   const meta = tables.find((t) => t.id === table) || {};
   const cols = page.columns;
@@ -137,7 +144,7 @@ function ViewDados({ database }) {
           {tables.map((t) => (
             <button key={t.id} type="button" title={t.grain}
                     className={'pp-chip ' + (t.id === table ? 'on' : '')}
-                    onClick={() => { setTable(t.id); resetView(); }}>
+                    onClick={() => { setTable(t.id); setTableBanco(database); resetView(); }}>
               {t.label}
             </button>
           ))}

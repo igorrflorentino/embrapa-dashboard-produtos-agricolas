@@ -95,3 +95,19 @@ def test_unknown_api_path_is_json_404_not_spa_html(monkeypatch, tmp_path):
     assert resp.status_code == 404
     assert resp.is_json
     assert resp.get_json()["code"] == 404
+
+
+def test_json_safe_maps_pandas_na_and_nat_to_null():
+    """pandas missing-value singletons from a nullable BigQuery column (the raw-table
+    /api/table inspection path is the first endpoint to surface them) must serialize to
+    JSON null: pd.NA crashes the json encoder (a 500), and pd.NaT.isoformat() would leak
+    the literal string "NaT" through the datetime branch. Floats stay NaN→null as before."""
+    import pandas as pd
+
+    from embrapa_commodities.webapi import app as app_mod
+
+    assert app_mod._json_safe(pd.NA) is None
+    assert app_mod._json_safe(pd.NaT) is None
+    # nested inside the {columns, rows:[[...]]} shape serialize_table_page emits
+    out = app_mod._json_safe({"rows": [[1, pd.NA, pd.NaT, float("nan")]], "ok": True})
+    assert out == {"rows": [[1, None, None, None]], "ok": True}

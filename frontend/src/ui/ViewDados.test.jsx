@@ -10,8 +10,8 @@ import { cleanup, render, waitFor } from '@testing-library/react';
 let ViewDados;
 
 const TABLES = [
-  { id: 'gold_ppm_production', label: 'Gold · pecuária PPM', grain: 'linha por (ano, UF, município)', dataset: 'bq_gold_dataset' },
-  { id: 'serving_ppm_annual', label: 'Serving · mart anual', grain: 'ano × UF × produto × família', dataset: 'bq_serving_dataset' },
+  { id: 'gold_ppm_production', label: 'Gold · pecuária PPM', grain: 'linha por (ano, UF, município)' },
+  { id: 'serving_ppm_annual', label: 'Serving · mart anual', grain: 'ano × UF × produto × família' },
 ];
 const PAGE = {
   columns: [
@@ -79,5 +79,15 @@ describe('ViewDados — raw table inspection', () => {
     const { container } = render(<ViewDados database="sefaz_nf" />);
     await waitFor(() => expect(container.textContent).toContain('Nenhuma tabela inspecionável'));
     expect(container.querySelector('.dt-table')).toBeNull(); // no grid without a table
+  });
+
+  it('re-fetches cleanly when the banco prop changes (the tableBanco guard re-enables)', async () => {
+    const { container, rerender } = render(<ViewDados database="ibge_ppm" />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    // Switch banco: the rows effect is gated on tableBanco===database, so the new table
+    // list is fetched and the grid renders again without getting stuck.
+    rerender(<ViewDados database="mdic_comex" />);
+    await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(2));
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
   });
 });

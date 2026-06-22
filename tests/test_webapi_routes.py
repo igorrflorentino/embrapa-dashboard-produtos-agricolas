@@ -931,25 +931,18 @@ def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypa
     assert body["lastRefresh"].startswith("2026-06-16T12:30:00")
 
 
-def test_tables_route_lists_inspectable_tables(monkeypatch):
-    from embrapa_commodities.webapi import seam
-
+def test_tables_route_lists_inspectable_tables_without_leaking_dataset(monkeypatch):
+    """The picker lists a banco's allowlisted tables through the REAL seam→gateway — the
+    list is the static _INSPECT_TABLES (no BigQuery). The wire shape is {id,label,grain}
+    only; the internal dataset attr is resolved server-side and never exposed on the wire."""
     client = _client(monkeypatch)
-    monkeypatch.setattr(
-        seam,
-        "inspectable_tables",
-        lambda b: [
-            {
-                "id": "gold_ppm_production",
-                "label": "Gold",
-                "grain": "g",
-                "dataset": "bq_gold_dataset",
-            }
-        ],
-    )
     resp = client.get("/api/tables?banco=ibge_ppm")
     assert resp.status_code == 200
-    assert resp.get_json()[0]["id"] == "gold_ppm_production"
+    body = resp.get_json()
+    ids = [t["id"] for t in body]
+    assert "gold_ppm_production" in ids and "serving_ppm_annual" in ids
+    assert all("dataset" not in t for t in body)  # the internal config-attr name never leaks
+    assert all(t.get("label") and t.get("grain") for t in body)
 
 
 def test_table_route_threads_pagination_sort_filters_to_seam(monkeypatch):
@@ -992,3 +985,27 @@ def test_table_route_400_on_malformed_filters(monkeypatch):
     client = _client(monkeypatch)
     resp = client.get("/api/table?banco=ibge_ppm&table=x&filters=not-json")
     assert resp.status_code == 400
+
+
+def test_table_route_400_on_nonscalar_filter_value(monkeypatch):
+    """A filter whose 'val' is a list/dict (not a scalar) is rejected at the route as 400,
+    not passed down to bind oddly or 500 in the SQL layer."""
+    client = _client(monkeypatch)
+    resp = client.get(
+        '/api/table?banco=ibge_ppm&table=x&filters=[{"col":"c","op":"eq","val":[1,2]}]'
+    )
+    assert resp.status_code == 400
+
+
+def test_table_route_rejects_out_of_allowlist_table_end_to_end(monkeypatch):
+    """SECURITY — the raw-data endpoint's allowlist boundary, proven through the REAL
+    route→seam→gateway stack (no seam/gateway mock). _resolve_inspect_table raises ValueError
+    BEFORE any BigQuery call, so an out-of-allowlist (banco, table) is a clean 400 with no
+    network. This is the contract the unit test (test_serving) only covers at the gateway."""
+    client = _client(monkeypatch)
+    # gold_comex_flows is a real Gold table — but it is NOT inspectable under ibge_ppm.
+    resp = client.get("/api/table?banco=ibge_ppm&table=gold_comex_flows")
+    assert resp.status_code == 400
+    # a Bronze table is not inspectable for any banco (no Silver/Bronze exposure).
+    resp2 = client.get("/api/table?banco=ibge_ppm&table=bronze_ibge")
+    assert resp2.status_code == 400
