@@ -1294,6 +1294,33 @@ def test_ppm_is_live_production_shaped_without_yield():
     assert _seam().productivity("ibge_ppm", None) is None
 
 
+def test_source_registries_have_no_live_drift():
+    """Drift guard across the parallel source registries. A banco with a Gold product table
+    (``gateway._PRODUCT_SOURCES``) or inspectable tables (``gateway._INSPECT_TABLES``) that is
+    NOT in ``seam_base._LIVE_SOURCES`` would be SILENTLY dead end-to-end: every seam reader
+    early-returns ``None``/``[]`` for a non-live banco, so its dashboard surface — including the
+    'Dados' view — vanishes even though the gateway supports it. This invariant (every data
+    source / inspectable banco is live) fails LOUDLY the moment a future banco is added to one
+    registry but forgotten in ``_LIVE_SOURCES`` — the exact class of regression that the
+    'PPM is gated off' report mistook for a live bug (it had already been wired in #147)."""
+    from embrapa_commodities.serving import gateway
+    from embrapa_commodities.webapi import seam_base
+
+    live = set(seam_base._LIVE_SOURCES)
+    product = set(gateway._PRODUCT_SOURCES)
+    inspectable = set(gateway._INSPECT_TABLES)
+
+    # every banco with a Gold product table must be live (else overview/geo/… early-return None)
+    assert product <= live, f"product sources missing from _LIVE_SOURCES: {product - live}"
+    # every inspectable banco must be live (else seam.inspectable_tables returns [] despite the
+    # gateway allowlist — the 'Dados' view would silently disappear for that banco)
+    assert inspectable <= live, (
+        f"inspectable bancos missing from _LIVE_SOURCES: {inspectable - live}"
+    )
+    # ibge_ppm (live since v1.3.0 / #147) must be present in all three
+    assert {"ibge_ppm"} <= product & inspectable & live
+
+
 def test_productivity_none_when_no_crops(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
