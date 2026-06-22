@@ -70,6 +70,7 @@ import './ui/ViewValueVolume.jsx';
 import './ui/ViewGeography.jsx';
 import './ui/ViewConcentration.jsx';
 import './ui/ViewQuality.jsx';
+import './ui/ViewDados.jsx';
 import './ui/ViewProductProfile.jsx';
 import './ui/ViewProductCompare.jsx';
 import './ui/ViewRebanho.jsx';

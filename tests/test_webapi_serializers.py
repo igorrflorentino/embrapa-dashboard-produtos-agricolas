@@ -1066,3 +1066,46 @@ def test_serialize_product_uf_carries_per_family_quantities():
     mt = next(r for r in rows if r["uf"] == "MT")
     assert mt["q_count"] == 32.0 and mt["value"] == 0.0  # 32M head → 32 mi un, no value
     assert mt["q_mass"] == 0.0 and mt["q_vol"] == 0.0  # NaN → 0 (a herd has no mass/vol)
+
+
+def test_serialize_table_page_shapes_columns_rows_total():
+    """The raw-table page is a faithful window (the 'Dados' view): columns carry name+type,
+    rows are the values aligned to schema order, NaN rides through (the app's
+    SafeJSONProvider coerces it to null on the wire). None (non-live banco) → empty page."""
+    import math
+
+    assert s.serialize_table_page(None) == {
+        "columns": [],
+        "rows": [],
+        "total": 0,
+        "table": None,
+        "label": None,
+        "grain": None,
+    }
+    df = pd.DataFrame(
+        [
+            {"reference_year": 2024, "product_code": "2670", "val": 1.5},
+            {"reference_year": 2023, "product_code": "2670", "val": float("nan")},
+        ]
+    )
+    page = {
+        "columns": [
+            {"name": "reference_year", "type": "INTEGER"},
+            {"name": "product_code", "type": "STRING"},
+            {"name": "val", "type": "FLOAT"},
+        ],
+        "df": df,
+        "total": 1234,
+        "table": "gold_ppm_production",
+        "label": "Gold · pecuária PPM",
+        "grain": "linha por (ano, UF, …)",
+    }
+    out = s.serialize_table_page(page)
+    assert [c["name"] for c in out["columns"]] == ["reference_year", "product_code", "val"]
+    assert out["columns"][0]["type"] == "INTEGER"
+    assert out["total"] == 1234 and out["table"] == "gold_ppm_production"
+    # rows are verbatim values aligned to the schema order (numpy scalars coerce on ==)
+    assert int(out["rows"][0][0]) == 2024 and out["rows"][0][1] == "2670"
+    assert float(out["rows"][0][2]) == 1.5
+    assert int(out["rows"][1][0]) == 2023
+    assert math.isnan(out["rows"][1][2])  # NaN preserved here; → null via SafeJSONProvider

@@ -833,3 +833,181 @@ def fetch_current_code_industrialization():
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_code_industrialization_scd2")
     sql, params = sqlbuild.current_code_industrialization(table)
     return run_query(sql, params)
+
+
+# ── Raw table inspection (the "Dados" perspective) ─────────────────────────────
+# The ALLOWLIST of tables a researcher may browse per banco: the comprehensive Gold
+# table + the serving marts that feed its charts (NOT the Silver/Bronze pipeline
+# internals, NOT the shared cross-source marts). Each entry is
+# (table, dataset_attr, label, grain); `table` is BOTH the BigQuery table name and the
+# stable id /api/table resolves. The endpoint REFUSES any (banco, table) not in this map
+# — the security boundary that stops a raw-row endpoint from reading an arbitrary table.
+_INSPECT_TABLES: dict[str, list[tuple[str, str, str, str]]] = {
+    "ibge_pevs": [
+        (
+            "gold_pevs_production",
+            "bq_gold_dataset",
+            "Gold · produção PEVS",
+            "Tabela principal — uma linha por (ano, UF, município, produto).",
+        ),
+        (
+            "serving_pevs_annual",
+            "bq_serving_dataset",
+            "Serving · mart anual",
+            "Derivada — agregado (ano × UF × produto × família) que alimenta os gráficos.",
+        ),
+    ],
+    "ibge_pam": [
+        (
+            "gold_pam_production",
+            "bq_gold_dataset",
+            "Gold · produção PAM",
+            "Tabela principal — uma linha por (ano, UF, município, produto), com área.",
+        ),
+        (
+            "serving_pam_annual",
+            "bq_serving_dataset",
+            "Serving · mart anual",
+            "Derivada — agregado (ano × UF × produto × família) com área/rendimento.",
+        ),
+    ],
+    "ibge_ppm": [
+        (
+            "gold_ppm_production",
+            "bq_gold_dataset",
+            "Gold · pecuária PPM",
+            "Tabela principal — uma linha por (ano, UF, município, produto/rebanho).",
+        ),
+        (
+            "serving_ppm_annual",
+            "bq_serving_dataset",
+            "Serving · mart anual",
+            "Derivada — agregado (ano × UF × produto × família) com measure_kind.",
+        ),
+    ],
+    "mdic_comex": [
+        (
+            "gold_comex_flows",
+            "bq_gold_dataset",
+            "Gold · fluxos COMEX",
+            "Tabela principal — fluxos mensais (ano, mês, NCM, UF, país, fluxo).",
+        ),
+        (
+            "serving_comex_annual",
+            "bq_serving_dataset",
+            "Serving · mart anual",
+            "Derivada — agregado anual (ano × NCM × UF × fluxo) dos gráficos.",
+        ),
+        (
+            "serving_comex_seasonality",
+            "bq_serving_dataset",
+            "Serving · sazonalidade",
+            "Derivada — grão mensal (ano × mês × NCM × UF × fluxo) da view Sazonalidade.",
+        ),
+    ],
+    "un_comtrade": [
+        (
+            "gold_comtrade_flows",
+            "bq_gold_dataset",
+            "Gold · fluxos COMTRADE",
+            "Tabela principal — fluxos (ano, HS, reporter, parceiro, fluxo).",
+        ),
+        (
+            "serving_comtrade_annual",
+            "bq_serving_dataset",
+            "Serving · mart anual",
+            "Derivada — agregado anual (ano × HS × reporter × parceiro × fluxo).",
+        ),
+    ],
+}
+
+
+def inspectable_tables(banco_id: str) -> list[dict]:
+    """The allowlisted tables a researcher may browse for a banco (the 'Dados' picker).
+
+    Returns ``[{id, label, grain, dataset}]`` — empty for an unknown banco. ``id`` is the
+    BigQuery table name, the same token /api/table resolves."""
+    return [
+        {"id": table, "label": label, "grain": grain, "dataset": dataset_attr}
+        for table, dataset_attr, label, grain in _INSPECT_TABLES.get(banco_id, [])
+    ]
+
+
+def _resolve_inspect_table(banco_id: str, table_id: str) -> str:
+    """Resolve an allowlisted (banco, table) to a fully-qualified ``project.dataset.table``.
+
+    The SECURITY boundary of the raw-row endpoint: a (banco, table) outside _INSPECT_TABLES
+    raises ValueError (→ 400), so no caller can read an arbitrary BigQuery table."""
+    for table, dataset_attr, _label, _grain in _INSPECT_TABLES.get(banco_id, []):
+        if table == table_id:
+            return sqlbuild.table_ref(get_settings(), dataset_attr, table)
+    raise ValueError(
+        f"table {table_id!r} is not inspectable for banco {banco_id!r}; "
+        f"choose one of {[t[0] for t in _INSPECT_TABLES.get(banco_id, [])]}"
+    )
+
+
+@cache.memoize()
+def fetch_table_schema(banco_id: str, table_id: str) -> dict:
+    """Column names + types + row count for an allowlisted table (FREE — table metadata,
+    no query). Drives the grid headers AND the order-by/filter column allowlist."""
+    ref = _resolve_inspect_table(banco_id, table_id)
+    table = _client().get_table(ref)
+    columns = [{"name": f.name, "type": f.field_type} for f in table.schema]
+    return {"columns": columns, "num_rows": int(table.num_rows or 0)}
+
+
+@cache.memoize()
+def fetch_table_rows(
+    banco_id: str,
+    table_id: str,
+    *,
+    limit: int,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: tuple = (),
+):
+    """A page of raw rows for an allowlisted table. HYBRID: a plain browse (no order/filter)
+    uses the FREE ``tabledata.list`` (storage order, no scan billed); an ORDER BY or filter
+    runs a cost-guarded query. ``filters`` is a tuple of ``(col, op, val)`` tuples (hashable
+    for the memoize key)."""
+    ref = _resolve_inspect_table(banco_id, table_id)
+    lim = max(1, min(int(limit), sqlbuild.RAW_TABLE_MAX_LIMIT))
+    off = max(0, int(offset))
+    if not order_by and not filters:
+        return (
+            _client()
+            .list_rows(ref, max_results=lim, start_index=off)
+            .to_dataframe(create_bqstorage_client=False)
+        )
+    columns_types = {
+        c["name"]: c["type"] for c in fetch_table_schema(banco_id, table_id)["columns"]
+    }
+    flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
+    sql, params = sqlbuild.raw_table_rows(
+        ref,
+        columns_types=columns_types,
+        limit=lim,
+        offset=off,
+        order_by=order_by,
+        order_dir=order_dir,
+        filters=flt,
+    )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
+    """Total matching rows (the pagination denominator). Unfiltered → the table's cached
+    ``num_rows`` (free); filtered → a cost-guarded ``COUNT(*)``."""
+    if not filters:
+        return fetch_table_schema(banco_id, table_id)["num_rows"]
+    ref = _resolve_inspect_table(banco_id, table_id)
+    columns_types = {
+        c["name"]: c["type"] for c in fetch_table_schema(banco_id, table_id)["columns"]
+    }
+    flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
+    sql, params = sqlbuild.raw_table_count(ref, columns_types=columns_types, filters=flt)
+    df = run_query(sql, params)
+    return int(df["n"].iloc[0]) if not df.empty else 0

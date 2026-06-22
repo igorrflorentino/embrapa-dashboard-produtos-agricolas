@@ -603,6 +603,55 @@ def monthly_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | N
     return None
 
 
+# ── Raw table inspection (the "Dados" perspective) ─────────────────────────────
+
+
+def inspectable_tables(banco_id: str) -> list[dict]:
+    """Allowlisted tables a researcher may browse for a banco (the 'Dados' picker).
+    Empty for a non-live banco (nothing to browse)."""
+    if banco_id not in _LIVE_SOURCES:
+        return []
+    return gateway.inspectable_tables(banco_id)
+
+
+def table_page(
+    banco_id: str,
+    table_id: str,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: tuple = (),
+) -> dict | None:
+    """One page of raw rows for an allowlisted (banco, table) + its schema + total count.
+
+    Returns ``{columns, df, total, table, label, grain}`` (serialize_table_page shapes it);
+    ``None`` for a non-live banco. An unknown table raises ValueError → HTTP 400."""
+    if banco_id not in _LIVE_SOURCES:
+        return None
+    schema = gateway.fetch_table_schema(banco_id, table_id)
+    df = gateway.fetch_table_rows(
+        banco_id,
+        table_id,
+        limit=limit,
+        offset=offset,
+        order_by=order_by,
+        order_dir=order_dir,
+        filters=filters,
+    )
+    total = gateway.fetch_table_count(banco_id, table_id, filters)
+    meta = next((t for t in gateway.inspectable_tables(banco_id) if t["id"] == table_id), {})
+    return {
+        "columns": schema["columns"],
+        "df": df,
+        "total": total,
+        "table": table_id,
+        "label": meta.get("label"),
+        "grain": meta.get("grain"),
+    }
+
+
 # ── Cross-source analytics + curadoria — extracted to seam_cross / seam_curation ──
 # Re-exported so the public seam surface stays unchanged after the split (routes +
 # tests reference seam.market_share, seam._xyear, seam.curation_worklist, …). The

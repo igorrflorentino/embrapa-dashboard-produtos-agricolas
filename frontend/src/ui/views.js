@@ -126,6 +126,9 @@ window.VIEW_GROUPS = [
     views: [
       { id: 'quality',  label: 'Qualidade dos dados', status: 'live', exportable: true, requires: ['quality'],
         desc: 'Diagnóstico da dimensão data_quality_flag: distribuição de flags, integridade temporal e qualidade por produto e UF.' },
+      { id: 'dados',    label: 'Dados (tabela)', status: 'live', requires: [],
+        desc: 'Inspeção tabular linha a linha: navegue pela tabela principal (Gold) e pelas tabelas derivadas que alimentam os gráficos, com paginação, ordenação e filtros por coluna — para conferir os dados ou investigar algo que pareça errado.',
+        planned: ['Tabela principal + marts dos gráficos', 'Paginação no servidor', 'Ordenar por qualquer coluna', 'Filtrar por coluna (=, >, contém…)', 'Exportar o recorte em CSV'] },
       { id: 'glossary', label: 'Glossário', status: 'live', requires: [],
         desc: 'Termos, códigos e colunas do banco selecionado.' },
     ],
@@ -162,6 +165,7 @@ window.VIEW_COMPONENTS = {
   concentration:         'ViewConcentration',
   seasonality:           'ViewSeasonality',
   quality:               'ViewQuality',
+  dados:                 'ViewDados',
   glossary:              'Glossary',
   cross_source:          'ViewCrossSource',
   cross_export_coef:     'ViewExportCoef',

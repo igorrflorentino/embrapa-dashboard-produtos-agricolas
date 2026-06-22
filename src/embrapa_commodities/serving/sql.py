@@ -1088,3 +1088,122 @@ def cross_annual(
         order by reference_year
     """
     return sql, params
+
+
+# ── Raw table inspection (the "Dados" perspective) ─────────────────────────────
+# Researchers browse the actual rows of a banco's Gold table + serving marts to verify
+# data line-by-line. The (banco, table) pair is allowlisted in the gateway; here every
+# interpolated IDENTIFIER (order-by + filter columns) is validated against the TABLE'S
+# OWN live schema — the column set IS the allowlist — and every filter VALUE stays a
+# bound @param. limit/offset are int-coerced literals (BigQuery forbids a parameter in
+# LIMIT/OFFSET), so they cannot carry injection.
+
+# Cap a page so one read can never pull an unbounded payload (the cost guard in
+# run_query is the BYTES backstop; this bounds the ROW/JSON size).
+RAW_TABLE_MAX_LIMIT = 500
+
+# Comparison operators a filter may use → the SQL operator. contains/is_null/not_null
+# are handled separately (a LIKE pattern / no bound value).
+_RAW_FILTER_OPS = {"eq": "=", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<="}
+
+
+def _bq_param_type(bq_type: str) -> str:
+    """Map a BigQuery column type to the bind-parameter type for a filter value."""
+    t = (bq_type or "").upper()
+    if t in ("INTEGER", "INT64"):
+        return "INT64"
+    if t in ("FLOAT", "FLOAT64", "NUMERIC", "BIGNUMERIC"):
+        return "FLOAT64"
+    if t in ("BOOLEAN", "BOOL"):
+        return "BOOL"
+    return "STRING"
+
+
+def _coerce_filter_value(param_type: str, raw: object) -> object:
+    """Coerce a (string) filter value to the column's bind type. Raises ValueError
+    (→ HTTP 400) when the value doesn't fit the column (e.g. 'abc' on an INT column)."""
+    if param_type == "INT64":
+        return int(raw)
+    if param_type == "FLOAT64":
+        return float(raw)
+    if param_type == "BOOL":
+        return str(raw).strip().lower() in ("true", "1", "yes", "sim")
+    return str(raw)
+
+
+def _raw_filter_predicate(
+    conditions: list[str], params: list, f: dict, columns_types: dict, i: int
+) -> None:
+    """Append one parameterized filter predicate. ``f`` is ``{col, op, val}``; the column
+    is validated against the table schema and the value is bound by the column type."""
+    col = _validate_column(f["col"], frozenset(columns_types), "filter column")
+    op = f.get("op", "eq")
+    if op == "is_null":
+        conditions.append(f"`{col}` is null")
+        return
+    if op == "not_null":
+        conditions.append(f"`{col}` is not null")
+        return
+    pname = f"f{i}"
+    if op == "contains":
+        # substring match — works on any type via CAST; the value is a bound LIKE pattern.
+        conditions.append(f"cast(`{col}` as string) like @{pname}")
+        params.append(bigquery.ScalarQueryParameter(pname, "STRING", f"%{f['val']}%"))
+        return
+    sqlop = _RAW_FILTER_OPS.get(op)
+    if sqlop is None:
+        raise ValueError(f"filter operator {op!r} is not allowed")
+    ptype = _bq_param_type(columns_types[col])
+    conditions.append(f"`{col}` {sqlop} @{pname}")
+    params.append(
+        bigquery.ScalarQueryParameter(pname, ptype, _coerce_filter_value(ptype, f["val"]))
+    )
+
+
+def raw_table_rows(
+    table: str,
+    *,
+    columns_types: dict,
+    limit: int,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: Sequence[dict] = (),
+) -> tuple[str, list]:
+    """``SELECT *`` over one allowlisted table, optionally ordered + filtered, paginated.
+
+    Used ONLY when an ORDER BY or a filter is requested — a plain browse goes through the
+    FREE ``tabledata.list`` path (gateway.fetch_table_rows). ``columns_types`` is the
+    table's live schema ``{name: bq_type}``; order-by + filter columns are validated
+    against it (the schema IS the allowlist) and filter values stay bound."""
+    conditions: list[str] = []
+    params: list = []
+    for i, f in enumerate(filters):
+        _raw_filter_predicate(conditions, params, f, columns_types, i)
+    order_clause = ""
+    if order_by:
+        col = _validate_column(order_by, frozenset(columns_types), "order_by column")
+        direction = "desc" if str(order_dir).lower() == "desc" else "asc"
+        order_clause = f"order by `{col}` {direction}"
+    lim = max(1, min(int(limit), RAW_TABLE_MAX_LIMIT))
+    off = max(0, int(offset))
+    sql = f"""
+        select * from `{table}`
+        {_where(conditions)}
+        {order_clause}
+        limit {lim} offset {off}
+    """
+    return sql, params
+
+
+def raw_table_count(
+    table: str, *, columns_types: dict, filters: Sequence[dict] = ()
+) -> tuple[str, list]:
+    """``COUNT(*)`` under the same filters (the pagination total). Unfiltered counts use
+    the table's cached ``num_rows`` (free) instead — see gateway.fetch_table_count."""
+    conditions: list[str] = []
+    params: list = []
+    for i, f in enumerate(filters):
+        _raw_filter_predicate(conditions, params, f, columns_types, i)
+    sql = f"select count(*) as n from `{table}` {_where(conditions)}"
+    return sql, params

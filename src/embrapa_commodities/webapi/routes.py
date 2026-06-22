@@ -12,6 +12,7 @@ ship honest placeholders.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from flask import Blueprint, jsonify, request
@@ -161,6 +162,58 @@ def source_meta():
     _ensure_banco_metadata_table()
     raw = seam.source_meta(request.args.get("banco", ""))
     return jsonify(serializers.serialize_source_meta(raw))
+
+
+# ── raw table inspection ("Dados" perspective) ─────────────────────────────────
+
+# Cap the number of filters a single request may apply (defense against a giant WHERE).
+_MAX_TABLE_FILTERS = 5
+
+
+def _parse_table_filters(raw: str | None) -> tuple:
+    """Parse the JSON ``filters`` param into a tuple of ``(col, op, val)`` tuples (hashable
+    for the cache key). A malformed filter → ValueError → HTTP 400. Caps the count; the
+    column allowlist + value binding happen in the SQL builder."""
+    if not raw:
+        return ()
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"filtro malformado: {exc}") from None
+    if not isinstance(data, list):
+        raise ValueError("filtro deve ser uma lista de {col, op, val}")
+    out = []
+    for f in data[:_MAX_TABLE_FILTERS]:
+        if not isinstance(f, dict) or "col" not in f:
+            raise ValueError("cada filtro precisa de 'col' (e opcionalmente 'op'/'val')")
+        out.append((str(f["col"]), str(f.get("op", "eq")), f.get("val")))
+    return tuple(out)
+
+
+@api.get("/tables")
+def tables():
+    """Allowlisted tables a researcher may browse for a banco (the 'Dados' picker): its
+    Gold table + the serving marts that feed its charts. ``[]`` for a non-live banco."""
+    return jsonify(seam.inspectable_tables(request.args.get("banco", "")))
+
+
+@api.get("/table")
+def table():
+    """One page of RAW rows for an allowlisted (banco, table) — paginated, optionally
+    ordered + filtered. The (banco, table) pair + every order/filter COLUMN are validated
+    server-side against the allowlist / the table's live schema (a bad one → 400); filter
+    VALUES stay bound. ``limit`` is capped in the SQL builder; plain browsing uses the free
+    tabledata.list path (no scan billed)."""
+    page = seam.table_page(
+        request.args.get("banco", ""),
+        request.args.get("table", ""),
+        limit=request.args.get("limit", 100, type=int),
+        offset=request.args.get("offset", 0, type=int),
+        order_by=request.args.get("order_by") or None,
+        order_dir=request.args.get("order_dir", "asc"),
+        filters=_parse_table_filters(request.args.get("filters")),
+    )
+    return jsonify(serializers.serialize_table_page(page))
 
 
 # ── per-banco snapshot ─────────────────────────────────────────────────────────

@@ -735,3 +735,29 @@ def serialize_market_nature(d: dict) -> dict:
         "series": d.get("series", []),
         "latest": d.get("latest", {}),
     }
+
+
+def serialize_table_page(page: dict | None) -> dict:
+    """seam.table_page() → { columns:[{name,type}], rows:[[…]], total, table, label, grain }.
+
+    ``rows`` are RAW values aligned to ``columns`` (schema order) — this view is a faithful
+    window onto the table, so nothing is reshaped or rescaled. The app's SafeJSONProvider
+    coerces NaN/Inf → null and numpy/Timestamp scalars to JSON natives on dumps, so the grid
+    renders the table verbatim. ``None`` (non-live banco) → an empty page."""
+    if not page:
+        return {"columns": [], "rows": [], "total": 0, "table": None, "label": None, "grain": None}
+    df = page["df"]
+    type_of = {c["name"]: c["type"] for c in page["columns"]}
+    if _empty(df):
+        columns, rows = page["columns"], []
+    else:
+        columns = [{"name": c, "type": type_of.get(c, "STRING")} for c in df.columns]
+        rows = df.values.tolist()
+    return {
+        "columns": columns,
+        "rows": rows,
+        "total": int(page["total"]),
+        "table": page["table"],
+        "label": page.get("label"),
+        "grain": page.get("grain"),
+    }
