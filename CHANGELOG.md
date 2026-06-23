@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+---
+
+## [1.5.2] — 2026-06-23
+
 The **IBGE sub-UF geography** feature (shipped in #157 but previously undocumented) plus
 two rounds of audit remediation: the 2026-06-22 quality audit (11 findings — see
 `docs/audits/quality_audit_2026-06-22.md`) and a 2026-06-23 manual-scan follow-up on the
