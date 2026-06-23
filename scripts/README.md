@@ -6,10 +6,12 @@ README is the index — for behaviour details, open the script and read its
 header comment / docstring (which is also the source for every description
 below).
 
-Two groups, distinguished by audience:
+Three groups, distinguished by audience:
 
 - **Local dev / setup** — run once per machine when you start contributing.
 - **GCP IAM / service accounts** — one-shots run by the project owner.
+- **Reporting / data export** — ad-hoc pulls from Gold for sharing (e.g. a
+  commodity inventory for a supervisor report).
 
 > ℹ️ **Frontend tooling moved to `frontend/`.** The run / build / deploy scripts for the
 > Dash dashboard (`dashboard-*.ps1`, `dashboard_smoke.py`,
@@ -41,6 +43,17 @@ macOS/Linux you can ignore them and go straight to `make <target>` or
 |---|---|---|---|---|
 | [`grant-sa-iam-roles.ps1`](grant-sa-iam-roles.ps1) | Windows PowerShell | Grants `roles/bigquery.user`, `bigquery.dataEditor`, `storage.objectViewer`, and `serviceusage.serviceUsageConsumer` to `sa-secret-reader-prod@…` on the project (the SA used by `setup_dev_env.py`'s impersonation path). | Once per GCP project, by the project owner, to bootstrap the impersonation target SA used during local dev. | Standalone one-shot (see [docs/iam_setup.md](../docs/iam_setup.md)). |
 | [`setup-claude-code-web-sa.sh`](setup-claude-code-web-sa.sh) | Bash (macOS / Linux / Cloud Shell) | Creates `sa-claude-code-web-dev` SA + JSON keyfile, granting BigQuery `dataEditor` and job-runner roles. Output keyfile (`sa-claude-code-web-dev-key.json`) is base64-encoded and pasted into Claude Code Web env vars. | Once per GCP project, only if you want a limited-scope SA for Claude Code Web sandbox (no prod access). | Standalone one-shot. |
+
+## Reporting / data export
+
+Read-only pulls from Gold, run with owner ADC (`GCP_IMPERSONATION_SA=`). The
+output CSVs land in the repo root and are git-ignored — regenerate them rather
+than committing point-in-time snapshots.
+
+| Script | Platform | What it does | When to run | Invoked by |
+|---|---|---|---|---|
+| [`export_commodity_inventory.py`](export_commodity_inventory.py) | Cross-platform (Python 3) | Exports the per-banco commodity inventory (`Banco \| Código \| Descrição`, one row per product code) from the five live Gold tables to `inventario_commodities.csv`. | Ad-hoc, to produce a flat commodity list for a report. | Standalone. |
+| [`export_commodity_consolidated.py`](export_commodity_consolidated.py) | Cross-platform (Python 3) | Exports the inventory **consolidated by commodity concept** via `gold_commodity_crosswalk` (`Conceito \| Banco \| Código \| Descrição`) plus a per-concept summary, into two CSVs. Codes the crosswalk does not link (all PAM + PPM, deep COMTRADE wood-derivatives) are kept in a marked `(não vinculado)` bucket. | Ad-hoc, alongside the inventory export, when a concept-grouped view is needed. | Standalone. |
 
 ---
 
