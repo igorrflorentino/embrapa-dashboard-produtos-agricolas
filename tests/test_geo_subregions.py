@@ -78,16 +78,25 @@ def test_serialize_municipio_yearly_scales_like_uf_cube():
     from embrapa_commodities.webapi import serializers
 
     df = pd.DataFrame(
-        [{"reference_year": 2023, "city_code": "1500602", "state_acronym": "PA",
-          "total_value": 5e6, "q_mass": 2e3, "q_vol": 1e6, "q_count": 3e6}]
+        [
+            {
+                "reference_year": 2023,
+                "city_code": "1500602",
+                "state_acronym": "PA",
+                "total_value": 5e6,
+                "q_mass": 2e3,
+                "q_vol": 1e6,
+                "q_count": 3e6,
+            }
+        ]
     )
     out = serializers.serialize_municipio_yearly(df)["municipioYearly"]
     assert out[0]["cityCode"] == "1500602"
     assert out[0]["uf"] == "PA"
-    assert out[0]["value"] == 5.0          # ÷1e6 → mi
-    assert out[0]["q_mass"] == 2.0         # ÷1e3 → mil t
-    assert out[0]["q_vol"] == 1.0          # ÷1e6 → mi m³
-    assert out[0]["q_count"] == 3.0        # ÷1e6 → mi un
+    assert out[0]["value"] == 5.0  # ÷1e6 → mi
+    assert out[0]["q_mass"] == 2.0  # ÷1e3 → mil t
+    assert out[0]["q_vol"] == 1.0  # ÷1e6 → mi m³
+    assert out[0]["q_count"] == 3.0  # ÷1e6 → mi un
 
 
 def test_serialize_municipio_yearly_empty():
@@ -101,15 +110,35 @@ def test_serialize_geo_mesh_shape_and_blank_levels():
 
     df = pd.DataFrame(
         [
-            {"city_code": "3550308", "city_name": "São Paulo", "state_acronym": "SP",
-             "region_abbrev": "SE", "meso_code": "3515", "meso_name": "Metropolitana de São Paulo",
-             "micro_code": "35061", "micro_name": "São Paulo", "intermediaria_code": "3501",
-             "intermediaria_name": "São Paulo", "imediata_code": "350001", "imediata_name": "São Paulo"},
+            {
+                "city_code": "3550308",
+                "city_name": "São Paulo",
+                "state_acronym": "SP",
+                "region_abbrev": "SE",
+                "meso_code": "3515",
+                "meso_name": "Metropolitana de São Paulo",
+                "micro_code": "35061",
+                "micro_name": "São Paulo",
+                "intermediaria_code": "3501",
+                "intermediaria_name": "São Paulo",
+                "imediata_code": "350001",
+                "imediata_name": "São Paulo",
+            },
             # a post-classic município: blank meso/micro must serialize to {code:'',name:''}
-            {"city_code": "5101837", "city_name": "Boa Esperança do Norte", "state_acronym": "MT",
-             "region_abbrev": "CO", "meso_code": "", "meso_name": "", "micro_code": "",
-             "micro_name": "", "intermediaria_code": "5103", "intermediaria_name": "Sinop",
-             "imediata_code": "510008", "imediata_name": "Sinop"},
+            {
+                "city_code": "5101837",
+                "city_name": "Boa Esperança do Norte",
+                "state_acronym": "MT",
+                "region_abbrev": "CO",
+                "meso_code": "",
+                "meso_name": "",
+                "micro_code": "",
+                "micro_name": "",
+                "intermediaria_code": "5103",
+                "intermediaria_name": "Sinop",
+                "imediata_code": "510008",
+                "imediata_name": "Sinop",
+            },
         ]
     )
     out = serializers.serialize_geo_mesh(df)["municipios"]
@@ -117,8 +146,8 @@ def test_serialize_geo_mesh_shape_and_blank_levels():
     assert sp["meso"] == {"code": "3515", "name": "Metropolitana de São Paulo"}
     assert sp["imediata"]["code"] == "350001"
     boa = out[1]
-    assert boa["meso"] == {"code": "", "name": ""}      # no classic division
-    assert boa["intermediaria"]["code"] == "5103"        # but has the 2017 one
+    assert boa["meso"] == {"code": "", "name": ""}  # no classic division
+    assert boa["intermediaria"]["code"] == "5103"  # but has the 2017 one
     assert boa["uf"] == "MT"
 
 
@@ -132,7 +161,9 @@ def test_geo_municipio_yearly_threads_basket_to_gateway(monkeypatch):
         return pd.DataFrame()
 
     monkeypatch.setattr(seam.gateway, "fetch_production_by_municipio_yearly", fake)
-    seam.geo_municipio_yearly("ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"basket": ["3405"]})
+    seam.geo_municipio_yearly(
+        "ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"basket": ["3405"]}
+    )
     assert captured["product_codes"] == ("3405",)
     assert captured["source"] == "ibge_pevs"
 
@@ -141,7 +172,10 @@ def test_geo_municipio_yearly_none_for_non_geo_banco():
     seam = _seam()
     # COMTRADE is international (no UF/município grain) → the seam returns None before
     # ever calling the gateway.
-    assert seam.geo_municipio_yearly("un_comtrade", {"currency": "USD", "correction": "Nominal"}, None) is None
+    assert (
+        seam.geo_municipio_yearly("un_comtrade", {"currency": "USD", "correction": "Nominal"}, None)
+        is None
+    )
 
 
 def test_municipio_cube_gateway_skips_non_municipal_source():
