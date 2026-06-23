@@ -568,10 +568,14 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
             if incomplete_skipped
             else ""
         )
-        age_days = (datetime.now(UTC) - latest).days
+        age = datetime.now(UTC) - latest
+        age_days = age.days  # whole days, for the human-readable message
         latest_str = latest.strftime("%Y-%m-%d %H:%M UTC")
         threshold = settings.backup_staleness_days
-        if age_days > threshold:
+        # Compare on the FRACTIONAL age so a snapshot 14d23h old is already stale at a
+        # 14d threshold — `.days` truncates toward zero, which would let it pass for up
+        # to a full extra day past the literal threshold (DOC-1).
+        if age.total_seconds() / 86400 > threshold:
             return CheckResult(
                 "Gold backup freshness",
                 True,  # warn, not fail — matches _check_bronze_tables semantics

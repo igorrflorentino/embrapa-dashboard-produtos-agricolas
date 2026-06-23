@@ -111,3 +111,16 @@ def test_json_safe_maps_pandas_na_and_nat_to_null():
     # nested inside the {columns, rows:[[...]]} shape serialize_table_page emits
     out = app_mod._json_safe({"rows": [[1, pd.NA, pd.NaT, float("nan")]], "ok": True})
     assert out == {"rows": [[1, None, None, None]], "ok": True}
+
+
+def test_json_safe_coerces_decimal_to_float():
+    """A BigQuery NUMERIC/BIGNUMERIC column materializes as decimal.Decimal in
+    df.values.tolist() (the raw-table inspector). Decimal is not a float subclass, so
+    the stdlib encoder would 500 on it — coerce to float, and a NUMERIC NaN → null (JSON-1)."""
+    import decimal
+
+    from embrapa_commodities.webapi import app as app_mod
+
+    assert app_mod._json_safe(decimal.Decimal("3.14")) == 3.14
+    assert app_mod._json_safe(decimal.Decimal("0")) == 0.0
+    assert app_mod._json_safe(decimal.Decimal("NaN")) is None  # non-finite → null

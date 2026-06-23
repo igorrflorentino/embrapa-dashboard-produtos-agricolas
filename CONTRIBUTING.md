@@ -128,6 +128,7 @@ make dbt-test
   - [ ] New tests were added (if applicable)
   - [ ] Documentation was updated (if applicable)
   - [ ] dbt changes were validated with `make dbt-build` (dev)
+  - [ ] **Monetary-model changes** (deflation / year-FX in `gold_*` — `val_real_*`, `val_yearfx_*`) ran `make dbt-test`: the deflation+FX **golden unit_test** (`test_pevs_deflation_and_fx_arithmetic`) pins the scientific core and is **dbt-only** (needs a warehouse), so the always-run pytest gate can't catch a regression in that SQL on its own.
 
 ### 4. Code Review
 

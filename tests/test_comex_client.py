@@ -119,6 +119,27 @@ def test_csv_to_parquet_is_verbatim_all_rows_all_cols(tmp_path: Path) -> None:
     assert df["CO_MES"].iloc[0] == "02"  # zero-padding preserved as string
 
 
+def test_csv_to_parquet_empty_download_is_transient_not_hard_failure(tmp_path: Path) -> None:
+    """A truly-empty (0-byte) CSV — a transient empty 200 / truncated stream — raises
+    pandas EmptyDataError, which the download retry policy can't catch. _csv_to_parquet
+    reclassifies it as a retryable ComexTransientError instead of a hard chunk failure
+    (COMEX-1)."""
+    empty = tmp_path / "EXP_2023.csv"
+    empty.write_bytes(b"")  # 0 bytes — no columns to parse
+    out = tmp_path / "EXP_2023.parquet"
+    with pytest.raises(client.ComexTransientError):
+        client._csv_to_parquet(str(empty), str(out))
+
+
+def test_csv_to_parquet_header_only_is_valid_zero_rows(tmp_path: Path) -> None:
+    """A header-only CSV (valid, 0 data rows) is NOT an error — it converts to a 0-row
+    parquet, distinguishing it from the truly-empty transient case above."""
+    header_only = tmp_path / "EXP_2023.csv"
+    header_only.write_text(";".join(client.EXP_COLUMNS) + "\n", encoding="latin-1")
+    out = tmp_path / "EXP_2023.parquet"
+    assert client._csv_to_parquet(str(header_only), str(out)) == 0
+
+
 def test_extract_to_parquet_downloads_then_converts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

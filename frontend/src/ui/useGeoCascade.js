@@ -42,7 +42,11 @@ function useGeoCascade({ regionsUniverse, statesUniverse, munisUniverse }) {
     return [...s];
   };
   // A município passes a facet iff it has no code there ('' = unconstrained) or its
-  // code is currently selected.
+  // code is currently selected. NOTE the deliberate asymmetry with dataFilters.js
+  // `muniPassesFacets` (GEO-3): here a BLANK-code município stays ELIGIBLE in the
+  // cascade (lenient), but the DATA rollup EXCLUDES it once that facet narrows (strict
+  // — a city belonging to no mesorregião shouldn't appear under a meso filter). The
+  // two encode opposite blank-code policies ON PURPOSE; don't "reconcile" them.
   const passes = (m, set, key) => {
     const v = m[key] || '';
     return v === '' || set.has(v);

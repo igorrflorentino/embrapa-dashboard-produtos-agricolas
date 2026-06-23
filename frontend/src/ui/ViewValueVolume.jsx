@@ -101,10 +101,26 @@ function ViewValueVolume({ families, conventions, summary, database }) {
   // A value-less basket (the livestock herd — a stock) has R$ 0 every year; show the
   // monetary cards only when there IS value, and explain the absence honestly.
   const hasValue = valueMax > 0;
+  // Basket × UF transient: filtered.ts sums ALL products over the selected UFs (the
+  // basket is silently dropped) until the product×UF cube lands. Hold the ts-derived
+  // aggregate value/quantity/YoY series at an honest loading note rather than render a
+  // number that disregards the basket (mirrors ViewOverview's comboPending guard). The
+  // per-product composition charts below read productTS and stay basket-correct.
+  const comboPending = !!filtered.geoComboPending;
 
   return (
     <>
       <window.UnitFamilyBanner families={families} />
+
+      {comboPending && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            Cruzando <strong>produto × UF</strong>… os totais de valor e quantidade aparecem
+            assim que o cubo territorial carrega. A composição por produto abaixo já reflete a
+            cesta selecionada.
+          </p>
+        </div>
+      )}
 
       {!hasValue && (
         <div className="card subtle" style={{ marginBottom: 12 }}>
@@ -116,8 +132,8 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         </div>
       )}
 
-      {/* Value historic series */}
-      {hasValue && (
+      {/* Value historic series — ts-derived; held during the basket×UF cube load. */}
+      {hasValue && !comboPending && (
       <div className="card">
         <window.SectionHeader
           overline={`Série histórica · ${ccyLabel}`}
@@ -141,9 +157,9 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         </div>
       )}
 
-      {/* Quantity historic series — one per family */}
+      {/* Quantity historic series — one per family. ts-derived → held during cube load. */}
       <div className={'grid-' + (families.length === 2 ? '2' : '1')}>
-        {massFamily && (
+        {massFamily && !comboPending && (
           <div className="card">
             <window.SectionHeader
               overline={<>Série histórica · <window.UnitFamilyTag family="mass" conv={conv}/></>}
@@ -152,7 +168,7 @@ function ViewValueVolume({ families, conventions, summary, database }) {
             <window.LineChart data={massScaled.data} label={massScaled.label} valueKey="q_mass" color="var(--viz-2)" height={220} />
           </div>
         )}
-        {volFamily && (
+        {volFamily && !comboPending && (
           <div className="card">
             <window.SectionHeader
               overline={<>Série histórica · <window.UnitFamilyTag family="volume" conv={conv}/></>}
@@ -163,8 +179,8 @@ function ViewValueVolume({ families, conventions, summary, database }) {
         )}
       </div>
 
-      {/* YoY variation — derived from converted series */}
-      {hasValue && (
+      {/* YoY variation — ts-derived; held during the basket×UF cube load. */}
+      {hasValue && !comboPending && (
       <div className="card">
         <window.SectionHeader
           overline={`Variação interanual · valor (${ccyLabel})`}

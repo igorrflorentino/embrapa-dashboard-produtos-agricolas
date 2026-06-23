@@ -194,6 +194,11 @@ function AppShell({
       cur: conventions?.currency, corr: conventions?.correction,
       mu: conventions?.units?.mass, vu: conventions?.units?.volume, as: conventions?.autoScale ? 1 : 0,
       pb: arrParam(summary?.basket), fl: arrParam(summary?.flags), st: arrParam(summary?.states),
+      // Sub-UF / município geography (v1.5.2). null = "all" → arrParam yields '' →
+      // dropped by urlEncodeState, so a non-narrowed selection adds nothing.
+      me: arrParam(summary?.mesos), mc: arrParam(summary?.micros),
+      it: arrParam(summary?.inters), im: arrParam(summary?.imediatas),
+      mn: arrParam(summary?.munis),
       vmn: summary?.valueMin ?? '', vmx: summary?.valueMax ?? '',
       sd: summary?.startDate || '', ed: summary?.endDate || '',
       // Server-side flow filter (export/import); omitted when 'all'/absent.
@@ -537,7 +542,7 @@ function AppShell({
         <div className="foot-meta">
           <div>© Empresa Brasileira de Pesquisa Agropecuária</div>
           <div className="caption">Ministério da Agricultura e Pecuária</div>
-          <div className="caption"><a href="#">www.embrapa.br</a> &nbsp;·&nbsp; <a href="#">Serviço de Atendimento ao Cidadão (SAC)</a></div>
+          <div className="caption"><a href="https://www.embrapa.br" target="_blank" rel="noopener noreferrer">www.embrapa.br</a> &nbsp;·&nbsp; <a href="https://www.embrapa.br/fale-conosco/sac" target="_blank" rel="noopener noreferrer">Serviço de Atendimento ao Cidadão (SAC)</a></div>
         </div>
       </footer>
     </div>

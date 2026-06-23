@@ -56,7 +56,15 @@ REGION="$(INGEST_JOB_REGION="${INGEST_JOB_REGION:-$(get_env INGEST_JOB_REGION)}"
 JOB_NAME="${INGEST_JOB_NAME:-embrapa-ingest-all}"
 AR_REPO="${INGEST_JOB_AR_REPO:-embrapa-jobs}"
 INGEST_SA="${INGEST_JOB_SA:-sa-data-pipeline-prod@${PROJECT}.iam.gserviceaccount.com}"
-TAG="${INGEST_JOB_TAG:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo latest)}"
+# Image tag = explicit INGEST_JOB_TAG, else the current git SHA — never a silent
+# ':latest' fallback when git can't resolve a SHA, which would deploy an unintended
+# image (INFRA-3, mirrors deploy/webapi/deploy.sh).
+if [ -n "${INGEST_JOB_TAG:-}" ]; then
+  TAG="$INGEST_JOB_TAG"
+else
+  TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  [ -n "$TAG" ] || { echo "ERROR: cannot resolve a git SHA for the image tag and INGEST_JOB_TAG is unset; set INGEST_JOB_TAG explicitly (refusing to deploy the mutable ':latest')." >&2; exit 1; }
+fi
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${JOB_NAME}:${TAG}"
 TASK_TIMEOUT="${INGEST_JOB_TASK_TIMEOUT:-3600s}"
 MEMORY="${INGEST_JOB_MEMORY:-2Gi}"

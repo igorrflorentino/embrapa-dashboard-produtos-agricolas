@@ -89,6 +89,32 @@ models:
           - accepted_values:
               arguments:
                 values: ["N", "NE", "CO", "SE", "S"]
+      # Sub-UF cascade payload (v1.5.2) — described here so persist_docs surfaces them
+      # in BigQuery/Looker (the seed _seeds.yml warn-tests their not_null) (DBT-3).
+      - name: uf_code
+        description: "2-digit IBGE UF code (n3). The município's federative unit."
+      - name: state_name
+        description: "Full UF name (pt-BR), e.g. 'Pará'."
+      - name: region_code
+        description: "1-digit IBGE grande-região code (1=N, 2=NE, 3=SE, 4=S, 5=CO)."
+      - name: region_name
+        description: "Grande-região name (pt-BR), e.g. 'Norte'."
+      - name: meso_code
+        description: "Classic mesorregião code; blank for post-1990 municípios (the classic division froze)."
+      - name: meso_name
+        description: "Classic mesorregião name (pt-BR); blank when meso_code is blank."
+      - name: micro_code
+        description: "Classic microrregião code; blank for post-classic municípios."
+      - name: micro_name
+        description: "Classic microrregião name (pt-BR); blank when micro_code is blank."
+      - name: intermediaria_code
+        description: "2017 região geográfica intermediária code (the modern division)."
+      - name: intermediaria_name
+        description: "Região geográfica intermediária name (pt-BR)."
+      - name: imediata_code
+        description: "2017 região geográfica imediata code (finer than intermediária)."
+      - name: imediata_name
+        description: "Região geográfica imediata name (pt-BR)."
 
   - name: dim_code_industrialization_scd2
     description: |

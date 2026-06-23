@@ -169,10 +169,12 @@ function cellMap() {
   return m;
 }
 // Effective market for a pair = staged draft if any, else the persisted value.
-function effMarket(customs, flow) {
+// Pass a pre-built `map` (from cellMap()) when calling in a loop so the cell Map
+// isn't rebuilt on every invocation (DATA-3); single calls omit it.
+function effMarket(customs, flow, map) {
   const k = `${customs}:${flow}`;
   if (flowDraft.has(k)) return flowDraft.get(k) || null;
-  const cell = cellMap().get(k);
+  const cell = (map || cellMap()).get(k);
   return (cell && cell.market) || null;
 }
 
@@ -398,8 +400,9 @@ window.enrichment = {
     // editor renders, so "classificadas / total" reflects the full grid.
     const regimes = this.regimes();
     const flows = this.flowTypes();
+    const cm = cellMap(); // build the cell Map ONCE, not per (regime × flow) cell (DATA-3)
     let flowsClassified = 0;
-    regimes.forEach((r) => flows.forEach((f) => effMarket(r.id, f.id) && flowsClassified++));
+    regimes.forEach((r) => flows.forEach((f) => effMarket(r.id, f.id, cm) && flowsClassified++));
     return {
       codesTotal: wl.length,
       byLevel,

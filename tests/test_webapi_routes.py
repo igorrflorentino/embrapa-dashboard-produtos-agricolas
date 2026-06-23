@@ -277,6 +277,92 @@ def test_geo_yearly_route_unfiltered_passes_summary_none(monkeypatch):
     assert captured["summary"] is None
 
 
+def test_geo_mesh_route_returns_municipios(monkeypatch):
+    """GET /api/geo-mesh wires seam.geo_mesh → serialize_geo_mesh → jsonify. The static
+    mesh universe backs the whole client-side sub-UF cascade, so the route wiring (not
+    just the seam/serializer in isolation) is pinned here (TEST-2)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(seam, "geo_mesh", lambda: "df")
+    monkeypatch.setattr(
+        serializers,
+        "serialize_geo_mesh",
+        lambda df: {"municipios": [{"cityCode": "3550308", "cityName": "São Paulo", "uf": "SP"}]},
+    )
+    resp = client.get("/api/geo-mesh")
+    assert resp.status_code == 200
+    assert resp.get_json()["municipios"][0]["cityCode"] == "3550308"
+
+
+# ── POST /municipio-yearly: the v1.5.2 sub-UF/município cube entry point ──────────
+
+
+def test_municipio_yearly_requires_nonempty_city_codes(monkeypatch):
+    """The cost guard: an absent/empty/blank-only cityCodes must 400 at the route
+    BEFORE the seam runs, so the backend never scans the full ~146k-row município grid
+    (TEST-1 audit finding — the route's 400 was asserted nowhere)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite empty cityCodes")
+
+    monkeypatch.setattr(seam, "geo_municipio_yearly", must_not_run)
+    base = "/api/municipio-yearly?banco=ibge_pevs&currency=BRL&correction=IPCA"
+    assert client.post(base).status_code == 400  # no body
+    assert client.post(base, json={"cityCodes": []}).status_code == 400  # empty list
+    assert client.post(base, json={"cityCodes": ["", None]}).status_code == 400  # blanks only
+    # A non-list (string) must not silently char-split into bogus codes — also 400.
+    assert client.post(base, json={"cityCodes": "3550308"}).status_code == 400
+
+
+def test_municipio_yearly_threads_cities_and_basket_to_seam(monkeypatch):
+    """A non-empty cityCodes → 200; the route blank-strips the city list, pushes the
+    ?codes basket down, and threads currency/correction to the seam."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake(banco, conv, summary):
+        captured.update(banco=banco, conv=conv, summary=summary)
+        return None
+
+    monkeypatch.setattr(seam, "geo_municipio_yearly", fake)
+    monkeypatch.setattr(
+        serializers, "serialize_municipio_yearly", lambda *a, **k: {"municipioYearly": []}
+    )
+    resp = client.post(
+        "/api/municipio-yearly?banco=ibge_pevs&codes=3405,3434&currency=BRL&correction=IPCA",
+        json={"cityCodes": ["3550308", "", "3304557"]},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == {"municipioYearly": []}
+    assert captured["banco"] == "ibge_pevs"
+    assert captured["conv"] == {"currency": "BRL", "correction": "IPCA"}
+    assert captured["summary"] == {"cityCodes": ["3550308", "3304557"], "basket": ["3405", "3434"]}
+
+
+def test_municipio_yearly_rejects_invalid_convention(monkeypatch):
+    """An invalid currency/correction 400s at the boundary (same guard as the GET
+    conv-routes), never reaching the seam with a fallback convention."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite an invalid convention")
+
+    monkeypatch.setattr(seam, "geo_municipio_yearly", must_not_run)
+    resp = client.post(
+        "/api/municipio-yearly?banco=ibge_pevs&currency=GBP",
+        json={"cityCodes": ["3550308"]},
+    )
+    assert resp.status_code == 400
+
+
 # ── convention validation: invalid currency/correction → 400 (not silent BRL/IPCA) ──
 
 

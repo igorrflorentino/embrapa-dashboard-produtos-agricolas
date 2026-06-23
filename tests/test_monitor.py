@@ -279,6 +279,27 @@ def test_summarize_pipeline_end() -> None:
     assert "50,000" in result
 
 
+def test_summarize_pipeline_end_real_producer_shape_has_no_bogus_rows() -> None:
+    # The real pipeline_run/chunked_run pipeline_end carries chunks_ok/chunks_failed +
+    # duration, NOT rows_total — so the summary must NOT print a fabricated "rows=0"
+    # (OBS-1). It surfaces the chunk tally the event actually carries instead.
+    result = _summarize(_evt("pipeline_end", duration_s=120.0, chunks_ok=5, chunks_failed=1))
+    assert "done" in result
+    assert "rows=" not in result
+    assert "5 ok/1 failed" in result
+
+
+def test_summarize_tolerates_null_scalars() -> None:
+    # A torn/foreign log line with an explicit null rows/duration must not crash the
+    # f-string format (OBS-2): dict.get's default applies only to a MISSING key, not null.
+    for ev_name, kwargs in [
+        ("chunk_end", {"chunk_id": "c1", "rows": None, "duration_s": None}),
+        ("state_end", {"state": "SP", "rows": None, "duration_s": None}),
+        ("pipeline_end", {"rows_total": None, "duration_s": None}),
+    ]:
+        assert isinstance(_summarize(_evt(ev_name, **kwargs)), str)
+
+
 def test_summarize_unknown_event_uses_generic_format() -> None:
     result = _summarize({"ts": "2024-01-01T00:00:00+00:00", "event": "custom", "foo": "bar"})
     assert "foo=bar" in result

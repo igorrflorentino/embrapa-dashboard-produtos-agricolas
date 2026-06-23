@@ -567,6 +567,8 @@ def trade_overview(
     codes: Sequence[str] = (),
     flow: str | None = None,
     value_column: str = "val_yearfx_usd",
+    reporter_column: str | None = None,
+    reporter_value: str | None = None,
 ) -> tuple[str, list]:
     """Annual trade value + weight from a trade annual mart (backs overviewTS).
 
@@ -576,6 +578,12 @@ def trade_overview(
     REAL column instead of the frontend cross-converting USD via a mock FX rate. The
     output alias stays ``total_value_usd`` (the seam renames it to ``total_value``)
     so the serializer is currency-agnostic regardless of which column is summed.
+
+    ``reporter_*`` optionally pins a geo column (``reporter_iso_a3``) to one country
+    (Brazil) for the multi-reporter COMTRADE mart, so the banco's OWN overviewTS is
+    Brazil's view — NOT a sum over every reporter (which for the all-reporters years
+    would conflate the entire world's trade). COMEX is Brazil's own customs and has
+    no reporter dimension, so its caller leaves these ``None``.
     """
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
     conditions: list[str] = []
@@ -583,6 +591,7 @@ def trade_overview(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
+    _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
             reference_year,
@@ -1044,6 +1053,8 @@ def product_timeseries(
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
     flow: str | None = None,
+    reporter_column: str | None = None,
+    reporter_value: str | None = None,
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
 
@@ -1064,6 +1075,12 @@ def product_timeseries(
     trade marts carry a ``flow`` column, so callers pass it ONLY for trade sources
     (the seam's trade branch); production marts always receive ``None``, leaving the
     predicate absent. ``None`` sums every flow (the historical default).
+
+    ``reporter_*`` optionally pins ``reporter_iso_a3`` to one country (Brazil) for
+    the multi-reporter COMTRADE mart, so the banco's OWN per-product series is
+    Brazil's view rather than a sum over every reporter (which would conflate the
+    whole world's trade in the all-reporters years). Production/COMEX marts have no
+    reporter dimension, so their callers leave these ``None``.
     """
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
@@ -1073,6 +1090,7 @@ def product_timeseries(
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _flow(conditions, params, flow)
+    _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
             {code_column}       as code,

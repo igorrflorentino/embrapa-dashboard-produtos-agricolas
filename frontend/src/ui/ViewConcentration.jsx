@@ -116,6 +116,21 @@ function ViewConcentration({ summary, conventions, database }) {
         </p>
       )}
 
+      {/* The per-UF concentration reads the all-products UF grid until the product×UF
+          cube lands (or when no basket narrows it), so under a basket chip the geographic
+          Gini/HHI reflect ALL products — surface that honestly instead of letting the
+          number read as basket-specific (mirrors ViewGeography's notFilteredByBasket note). */}
+      {filtered.notFilteredByBasket && (
+        <div className="card subtle" style={{ marginBottom: 12 }}>
+          <p className="caption" style={{ padding: '10px 12px' }}>
+            A concentração <strong>geográfica (UF)</strong> reflete <strong>todos os produtos</strong>
+            do banco — a cesta selecionada não recorta a distribuição territorial (não há grão
+            produto × UF nesta agregação). A concentração <strong>por produto</strong> abaixo já
+            considera a cesta.
+          </p>
+        </div>
+      )}
+
       {/* KPI strip */}
       <div className="kpi-row">
         {hasGeo ? (

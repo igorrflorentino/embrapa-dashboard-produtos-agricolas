@@ -2,11 +2,13 @@
 
 ## Supported Versions
 
+Only the latest minor release line receives fixes; older lines are unsupported.
+(So this table tracks the current minor rather than being edited on every patch.)
+
 | Version | Support |
 |---|---|
-| 1.1.x | ✅ Actively supported |
-| 1.0.x | ⚠️ Critical fixes only |
-| 0.1.x | ❌ No longer supported |
+| 1.5.x | ✅ Actively supported (current) |
+| < 1.5 | ❌ No longer supported |
 
 ---
 

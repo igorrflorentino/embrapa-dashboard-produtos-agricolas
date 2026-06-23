@@ -34,7 +34,7 @@ Focus: **stabilization, observability and basic automation**.
 
 ### Documentation
 - [ ] Document the CLI API (auto-generated via `embrapa --help`)
-- [ ] ER diagram of the Gold data model
+- [x] ER diagram of the Gold data model — [`docs/gold_data_model.md`](docs/gold_data_model.md) (ER diagram + join guide)
 - [ ] Onboarding guide for new contributors
 
 ---
@@ -58,7 +58,7 @@ Focus: **new data sources, IaC and dashboard improvements**.
 ### Dashboard
 - [x] Product comparison page (`ViewProductCompare.jsx`)
 - [x] Interactive geographic maps — state-level (UF) choropleth (`BrazilChoropleth.jsx`)
-  - [ ] Municipality-level choropleth
+  - [x] Municipality-level + sub-UF geography (meso/micro + intermediária/imediata + live município) — delivered v1.5.2 (`dim_geo_municipio`, `/api/municipio-yearly`, `/api/geo-mesh`)
 - [ ] Configurable light/dark theme
 - [ ] Internationalization (i18n) — English support
 

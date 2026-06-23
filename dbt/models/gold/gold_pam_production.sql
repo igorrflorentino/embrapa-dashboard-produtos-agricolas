@@ -208,6 +208,12 @@ select
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
+    -- The flag measures qty+value completeness only. A PAM row admitted by the base
+    -- having-clause on AREA alone (area_planted/harvested present, qty_native AND
+    -- val_raw both NULL) is therefore correctly 'INCOMPLETE' w.r.t. those two measures
+    -- — the área data it does carry is preserved in area_planted_ha/area_harvested_ha,
+    -- not lost (DBT-4: intentional; the OK/MISSING_*/INCOMPLETE taxonomy has no
+    -- area-only slot, and an area-only row genuinely lacks both qty and value).
     {{ data_quality_flag('qty_native', 'val_raw') }}        as data_quality_flag,
     last_refresh
 

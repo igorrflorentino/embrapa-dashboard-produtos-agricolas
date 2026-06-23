@@ -114,6 +114,12 @@ function readStateFromURL() {
     basket: window.urlDecodeArr(q, 'pb'),
     flags: window.urlDecodeArr(q, 'fl'),
     states: window.urlDecodeArr(q, 'st'),
+    // Sub-UF / município geography (v1.5.2); absent → null = "all" (no narrowing).
+    mesos: window.urlDecodeArr(q, 'me'),
+    micros: window.urlDecodeArr(q, 'mc'),
+    inters: window.urlDecodeArr(q, 'it'),
+    imediatas: window.urlDecodeArr(q, 'im'),
+    munis: window.urlDecodeArr(q, 'mn'),
     valueMin: window.urlDecodeNum(q, 'vmn'),
     valueMax: window.urlDecodeNum(q, 'vmx'),
     startDate: q.get('sd') || null,

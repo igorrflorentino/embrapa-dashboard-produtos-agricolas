@@ -38,6 +38,14 @@ function ViewGeography({ families, conventions, summary, database }) {
 
   const [dim, setDim]     = useGeoState('value');
   const [scope, setScope] = useGeoState('uf');
+  // The "Município" granularity is only meaningful for a banco with a município grain
+  // (IBGE production). For UF-only trade bancos (COMEX/Comtrade) the button is hidden
+  // so it never presents an always-empty panel. Defensive fallback: assume capable if
+  // the helper is unavailable.
+  const muniCapable = window.geoLevelFor ? window.geoLevelFor(database) === 'municipio' : true;
+  useGeoEffect(() => {
+    if (!muniCapable && scope === 'municipio') setScope('uf');
+  }, [muniCapable, scope]);
   const [ufViz, setUfViz] = useGeoState('map'); // 'map' = maplibre choropleth, 'tiles' = SVG tile-grid
 
   const massFamily = families.includes('mass');
@@ -219,7 +227,9 @@ function ViewGeography({ families, conventions, summary, database }) {
           <div className="seg">
             <button className={'seg-opt ' + (scope === 'region' ? 'on' : '')} onClick={() => setScope('region')}>Região</button>
             <button className={'seg-opt ' + (scope === 'uf' ? 'on' : '')} onClick={() => setScope('uf')}>UF</button>
-            <button className={'seg-opt ' + (scope === 'municipio' ? 'on' : '')} onClick={() => setScope('municipio')}>Município</button>
+            {muniCapable && (
+              <button className={'seg-opt ' + (scope === 'municipio' ? 'on' : '')} onClick={() => setScope('municipio')}>Município</button>
+            )}
           </div>
         </div>
       </div>
@@ -254,12 +264,23 @@ function ViewGeography({ families, conventions, summary, database }) {
             )}
           </>
         )}
-        {scope === 'municipio' && (
-          <div className="muni-list">
-            {muniScaled.data
-              .filter(m => valueKey === 'value' || (m[valueKey] != null && m[valueKey] > 0))
-              .map((m, i, arr) => {
-                const max = Math.max(...arr.map(x => x[valueKey] || 0));
+        {scope === 'municipio' && (() => {
+          const rows = muniScaled.data
+            .filter(m => valueKey === 'value' || (m[valueKey] != null && m[valueKey] > 0));
+          if (!rows.length) {
+            return (
+              <p className="caption" style={{ padding: '12px' }}>
+                A lista por município aparece ao <strong>recortar a geografia</strong> — selecione
+                uma mesorregião/microrregião, região intermediária/imediata ou municípios
+                específicos no filtro. Sem um recorte sub-UF ativo, use a granularidade
+                <strong> UF</strong> ou <strong> Região</strong>.
+              </p>
+            );
+          }
+          const max = Math.max(...rows.map(x => x[valueKey] || 0)) || 1;
+          return (
+            <div className="muni-list">
+              {rows.map((m, i) => {
                 const v = m[valueKey] || 0;
                 return (
                   <div key={m.city + m.uf} className="muni-row">
@@ -272,8 +293,9 @@ function ViewGeography({ families, conventions, summary, database }) {
                   </div>
                 );
               })}
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="card">
