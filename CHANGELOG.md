@@ -11,6 +11,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.5.3] — 2026-06-23
+
+Remediation of the 2026-06-23 **full-codebase audit** (13-dimension, adversarially-verified;
+report at `docs/audits/full_codebase_audit_2026-06-23.md`). Baseline health was already A− with
+0 critical issues; the changes below close 2 displayed-number HIGHs, a cluster of geography-feature
+gaps, and routine hardening.
+
+### Fixed
+- **The UN Comtrade banco no longer sums the whole world's trade for 2022-2023.** Its own
+  overviewTS + productTS read the multi-reporter `serving_comtrade_annual` mart WITHOUT pinning a
+  reporter, so for the all-reporters backfill years the "Valor total" KPI and the value/volume
+  series conflated every country's trade (a large spurious jump at 2022). Both readers now pin
+  `reporter = Brazil`, matching the already-correct partner/flow/cross-source readers. (audit NUM-1)
+- **Sub-UF / município geography filters now survive Compartilhar / Citar.** The five v1.5.2 geo
+  dimensions were missing from the share-link codec, so a cited panel silently dropped the
+  territorial narrowing; they now round-trip through the URL (and `urlDecodeNum` rejects a malformed
+  numeric param instead of propagating `NaN`). (audit RVC-1)
+- **The Geography "Município" granularity panel shows real data.** It rendered an always-empty
+  legacy list (no backend producer); it now ranks municípios from the live município cube, with an
+  honest empty-state, and the button is hidden for UF-only trade bancos. (audit GEO-1)
+- **Value/Volume and Concentration views no longer flash a basket-dropped figure** during the
+  product × UF cube load — they honour the same `geoComboPending` guard the Overview already used.
+  (audit DATA-1)
+- **Ingestion robustness:** an empty/truncated COMEX download is retried as a transient instead of a
+  hard chunk failure (COMEX-1); the SIDRA drain deadline scales with a state's município count so a
+  dense state can't time out on a slow night (IBGE-1); the run monitor no longer crashes on a null
+  scalar and stops printing a bogus `rows=0` (OBS-1/2).
+- **`embrapa doctor`** backup-freshness compares fractional days, so a snapshot just past the
+  threshold is correctly flagged stale.
+
+### Changed
+- **API hardening:** `POST /api/municipio-yearly` caps + type-checks `cityCodes` (a pathological or
+  non-list payload is a clean 400), the app sets `MAX_CONTENT_LENGTH`, and `_json_safe` serializes
+  `decimal.Decimal`. (audit SEC-1/2/4, JSON-1)
+- **dbt tests:** the Gold→serving value-conservation test and the unconvertible-quantity
+  curation-surface test now cover PPM and COMTRADE; `dim_geo_municipio`'s sub-UF columns are
+  documented for `persist_docs`. (audit DBT-1/2/3)
+- **CI / infra:** the release workflow runs a lint+test gate before publishing the prod image; the
+  deploy scripts fail loudly instead of silently defaulting to `:latest`; the destructive-command
+  hook now covers `gcloud run jobs` / `scheduler` / `secrets` / `iam` / `monitoring` delete.
+  (audit INFRA-1/2/3)
+- Documentation sweep (README / ARCHITECTURE / ROADMAP / SECURITY / dbt) to reflect IBGE PPM, the
+  v1.5.2 geography feature, and the current supported version. (audit DOC-1..9)
+
+### Security
+- **Dependency CVE bumps** (`uv lock --upgrade`): cryptography 48 → 49 (the one with unambiguous prod
+  reach — the TLS path to GCP), Flask 3.0.3 → 3.1.3, Werkzeug 3.0.6 → 3.1.8, pydantic-settings
+  2.14.1 → 2.14.2, msgpack 1.1.2 → 1.2.1. The remaining advisories in the set were present in the
+  lockfile but not reachable in this codebase.
+
+---
+
 ## [1.5.2] — 2026-06-23
 
 The **IBGE sub-UF geography** feature (shipped in #157 but previously undocumented) plus
