@@ -76,6 +76,7 @@ legacy keyfile mode):
   - IBGE SIDRA API reachable ✓
   - IBGE PAM SIDRA (5457) reachable ✓
   - PAM variable codes ✓
+  - IBGE PPM SIDRA (3939+74) reachable ✓
   - BCB SGS API reachable ✓
   - COMEX Stat (MDIC) reachable ✓
   - UN Comtrade API reachable ✓

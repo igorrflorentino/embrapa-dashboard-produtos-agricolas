@@ -375,6 +375,9 @@ function Dashboard() {
   useEffect(() => {
     const all = window.visibleBancos ? window.visibleBancos() : (window.BANCOS || []);
     all.forEach((b) => window.dataStore && window.dataStore.loadMeta && window.dataStore.loadMeta(b.id));
+    // Warm the IBGE municipal mesh (the sub-UF + município cascade universe) once at
+    // startup so the geography filter's new levels are populated before first open.
+    if (window.geoMesh) window.geoMesh();
   }, []);
 
   // URL write-back: mirror the app state into the query string (replaceState, no

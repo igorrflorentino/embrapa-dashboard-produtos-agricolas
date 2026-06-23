@@ -21,6 +21,13 @@
       3. insert_overwrite replaces only the affected reference_year partitions.
     On `--full-refresh` (or first build), the {% if is_incremental() %} block
     is skipped and we scan all of Bronze.
+
+    SEED CHANGES DON'T PROPAGATE INCREMENTALLY: this model ref()s the
+    historical_currency_factors, unit_family_conversions and product_unit_factors
+    seeds, but the incremental gate keys off NEW Bronze ingestion_timestamps — a
+    seed edit bumps none, so it never reaches already-built reference_year
+    partitions. After editing any of those seeds, rebuild with
+    `dbt build --select silver_ibge_pevs+ --full-refresh`.
 -#}
 
 {% if is_incremental() %}

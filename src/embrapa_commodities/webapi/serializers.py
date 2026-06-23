@@ -356,6 +356,71 @@ def _uf_yearly(df: pd.DataFrame | None) -> list[dict]:
     ]
 
 
+def _municipio_yearly(df: pd.DataFrame | None) -> list[dict]:
+    # Per-(município, year) rows backing the sub-UF + live-município geography
+    # cascade. SAME per-family scaling as _uf_yearly (value ÷1e6 → mi, q_mass ÷1e3 →
+    # mil t, q_vol ÷1e6 → mi m³, q_count ÷1e6 → mi un) so the client can aggregate
+    # município rows up to ANY level and stay byte-consistent with the UF cube. The
+    # município's UF/região/meso/micro/intermediária/imediata are NOT carried per row
+    # (that would bloat ~5570× years × products) — the client maps cityCode → ancestry
+    # via /geo-mesh, served once and cached.
+    if _empty(df):
+        return []
+    return [
+        {
+            "year": int(r.reference_year),
+            "cityCode": str(r.city_code),
+            "uf": r.state_acronym,
+            "value": _num(r.total_value) / 1e6,
+            "q_mass": _num(getattr(r, "q_mass", 0)) / 1e3,
+            "q_vol": _num(getattr(r, "q_vol", 0)) / 1e6,
+            "q_count": _num(getattr(r, "q_count", 0)) / 1e6,
+        }
+        for r in df.itertuples()
+    ]
+
+
+def serialize_municipio_yearly(df: pd.DataFrame | None) -> dict:
+    """seam.geo_municipio_yearly() → { municipioYearly: [{year, cityCode, uf, value,
+    q_mass, q_vol, q_count}] }.
+
+    The basket-scoped per-(município, year) cube — the finest geography grain. The
+    client joins ``cityCode`` to /geo-mesh to roll it up to the selected sub-UF level
+    (meso/micro/intermediária/imediata) or down to município. Empty list when the
+    banco has no município grain (COMEX/COMTRADE)."""
+    return {"municipioYearly": _municipio_yearly(df)}
+
+
+def serialize_geo_mesh(df: pd.DataFrame | None) -> dict:
+    """seam.geo_mesh() → { municipios: [{cityCode, cityName, uf, region, meso, micro,
+    intermediaria, imediata}] }, each sub-UF level an {code, name} pair.
+
+    The static IBGE municipal mesh universe (~5570). The SPA builds the geography
+    cascade's per-level option lists + the cityCode→ancestry map from this single
+    cached payload. An empty {code:'', name:''} pair means the município has no
+    grouping at that level (e.g. a post-classic município has no meso/micro)."""
+    if _empty(df):
+        return {"municipios": []}
+    return {
+        "municipios": [
+            {
+                "cityCode": str(r.city_code),
+                "cityName": r.city_name,
+                "uf": r.state_acronym,
+                "region": r.region_abbrev,
+                "meso": {"code": str(r.meso_code or ""), "name": r.meso_name or ""},
+                "micro": {"code": str(r.micro_code or ""), "name": r.micro_name or ""},
+                "intermediaria": {
+                    "code": str(r.intermediaria_code or ""),
+                    "name": r.intermediaria_name or "",
+                },
+                "imediata": {"code": str(r.imediata_code or ""), "name": r.imediata_name or ""},
+            }
+            for r in df.itertuples()
+        ]
+    }
+
+
 def serialize_product_uf(df: pd.DataFrame | None) -> dict:
     """seam.product_uf_ranking() → { uf: [{uf, name, region, value, q_mass, q_vol, q_count}] }.
 

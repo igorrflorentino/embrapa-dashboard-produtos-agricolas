@@ -69,6 +69,7 @@ The macro `dbt/macros/generate_schema_name.sql` enforces:
 - Land in the same dataset as Silver.
 - Key seed: `historical_currency_factors` — date-aware multiplier that absorbs the "Mil" multiplier AND cumulative Brazilian currency reforms. **Without this factor, pre-1994 values are 10⁶–10⁹× too large.**
 - Seed join is date-aware: `(unit_of_measure, reference_year BETWEEN year_from AND year_to)`.
+- **Editing a seed an INCREMENTAL model consumes** (`silver_ibge_pevs` ref()s `historical_currency_factors` / `unit_family_conversions` / `product_unit_factors`) needs `dbt build --select silver_ibge_pevs+ --full-refresh` — the incremental gate only re-scans Bronze years with new ingestions, so a seed-only change never reaches already-built partitions otherwise.
 
 ### Macros — `dbt/macros/`
 

@@ -392,6 +392,41 @@ def test_geo_yearly_renames_comex_value_column(monkeypatch):
     assert float(out.loc[0, "total_value"]) == 7e6
 
 
+def test_geo_yearly_threads_flow_to_comex_reader(monkeypatch):
+    """A picked direction reaches the COMEX by-(UF, year) cube reader — so a product
+    basket's map/hero stays consistent with the flow-filtered snapshot. The audit M2
+    gap was the cube summing every flow while the snapshot honoured the direction."""
+    seam = _seam()
+    captured = {}
+
+    def fake(*a, **k):
+        captured["flow"] = k.get("flow", "MISSING")
+        return pd.DataFrame(
+            {"state_acronym": ["PA"], "reference_year": [2022], "total_value_usd": [1.0]}
+        )
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", fake)
+    seam.geo_yearly("mdic_comex", {"currency": "USD", "correction": "Nominal"}, {"flow": "export"})
+    assert captured["flow"] == "export"
+
+
+def test_geo_yearly_flow_all_and_absent_resolve_to_none(monkeypatch):
+    """'all'/absent flow → None (sum every flow), so an unfiltered basket cube is
+    byte-identical to before the flow param threaded through."""
+    seam = _seam()
+    captured = {}
+
+    def fake(*a, **k):
+        captured["flow"] = k.get("flow", "MISSING")
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", fake)
+    seam.geo_yearly("mdic_comex", {"currency": "USD", "correction": "Nominal"}, {"flow": "all"})
+    assert captured["flow"] is None
+    seam.geo_yearly("mdic_comex", {"currency": "USD", "correction": "Nominal"}, None)
+    assert captured["flow"] is None
+
+
 def test_geo_yearly_none_for_banco_without_geo_grain():
     """COMTRADE is country-pair (no UF) → geo_yearly returns None (the route then
     serializes { ufYearly: [] } and the client keeps its national series)."""

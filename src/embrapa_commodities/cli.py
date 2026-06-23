@@ -572,7 +572,20 @@ def ingest_comtrade(
             )
 
     if quota_hit:
-        raise typer.Exit(code=1)
+        # Daily quota exhaustion is EXPECTED and self-healing: the next scheduled run
+        # resumes from the un-archived chunks (no data lost), so it is NOT a job
+        # failure. Exit 0 so the Cloud Monitoring job-failure alert stops paging on
+        # every backfill day — UNLESS a genuine (non-quota) chunk also failed, which
+        # must still alert.
+        if tracker.chunks_failed:
+            for chunk_id, err in tracker.chunks_failed:
+                console.print(f"  [red]✗[/red] {chunk_id} — {err}")
+            raise typer.Exit(code=1)
+        console.print(
+            f"[dim]Quota-limited run: {len(tracker.chunks_ok)} chunk(s) archived; "
+            "resume on the next scheduled run.[/dim]"
+        )
+        raise typer.Exit(code=0)
     _summarize_and_exit(
         tracker,
         label="COMTRADE",
@@ -635,7 +648,7 @@ def ingest_reconcile(
         min=1,  # reject 0 (silent no-op) / negative (ValueError) — same as ibge-batch.
     ),
 ) -> None:
-    """Full re-download of every nightly source — the deliberate escape hatch.
+    """Full re-download of every delta/ETag source — the deliberate escape hatch.
 
     Unlike the nightly delta (which only revisits a recent window), reconcile
     IGNORES each source's delta/ETag short-circuit and re-fetches the WHOLE
@@ -643,10 +656,12 @@ def ingest_reconcile(
     year — e.g. IBGE revising a 1999 PEVS value — which the delta would never
     re-query, and it also force-unsticks a source frozen for any reason.
 
-    Per source: IBGE runs year-CHUNKED (like `ibge-batch`, so the huge
+    Per source: IBGE PEVS runs year-CHUNKED (like `ibge-batch`, so the huge
     1986→today SIDRA pull survives an unattended slow-byte deadline); BCB
-    inflation/FX and COMEX run with `--full`. COMTRADE is excluded (key-gated),
-    exactly like `ingest all`. Continue-on-failure at the source level.
+    inflation/FX, COMEX, and the out-of-`all` annual SIDRA sources PAM/PPM run with
+    `--full` (single-shot, deadline-resilient since the #148 dynamic SIDRA timeout),
+    so an old-year revision to PAM/PPM is caught too. COMTRADE is excluded
+    (key-gated), exactly like `ingest all`. Continue-on-failure at the source level.
 
     Bronze only — run `dbt build` afterward to propagate the refreshed Bronze to
     Silver/Gold (`make reconcile` chains both). The incremental Silver is
@@ -689,14 +704,22 @@ def _reconcile_ibge(settings: Settings, chunk_years: int | None) -> list[tuple[s
 
 
 def _reconcile_full_sources(settings: Settings) -> list[tuple[str, str]]:
-    """BCB inflation/FX + COMEX phase: ``--full`` re-fetches each one's whole
-    configured window. Reuse the same INGESTS registry as ``ingest all``, skipping
-    IBGE (already done, chunked) and the out-of-``all`` COMTRADE. Gate on
-    accepts_full exactly like ``ingest all`` so a future non-delta source added to
-    the batch wouldn't trip on an unexpected full= kwarg."""
+    """Full phase for every non-PEVS, non-COMTRADE source: ``--full`` re-fetches
+    each one's whole configured window. Covers BCB inflation/FX, COMEX **and** the
+    out-of-``all`` annual SIDRA sources PAM/PPM — so reconcile catches an old-year
+    revision to them (their nightly-absent + monthly-delta paths never would).
+    Skips IBGE PEVS (already done, chunked) and COMTRADE (key-gated). Gate on
+    accepts_full so a future non-delta source wouldn't trip on an unexpected full=
+    kwarg. NOTE: a full PPM pull is heavier (1974→ both SIDRA tables); on a
+    memory-constrained reconcile Job, bump the Job memory as for the PPM backfill."""
     failures: list[tuple[str, str]] = []
     for spec in INGESTS:
-        if not spec.in_all or spec.name == "ibge":
+        # Reconcile re-fetches every delta/ETag source FULLY — including the
+        # out-of-`all` annual SIDRA sources PAM/PPM, so an upstream CORRECTION to an
+        # old PAM/PPM year is caught too (the nightly delta + their monthly
+        # schedulers never re-query it). Skip only `ibge` (already done year-chunked
+        # above) and `comtrade` (key-gated, excluded exactly like `ingest all`).
+        if spec.name in {"ibge", "comtrade"}:
             continue
         kwargs = {"full": True} if spec.accepts_full else {}
         console.print(f"[bold]→ {spec.label}[/bold] [dim](full)[/dim]")

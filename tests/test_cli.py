@@ -370,7 +370,9 @@ def test_ingest_comtrade_quota_exhausted_reports_and_exits(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
     """A quota error mid-run surfaces a clean 'quota exhausted — re-run to resume'
-    message and exits 1 (no traceback)."""
+    message and exits 0 — daily quota exhaustion is EXPECTED and self-healing (the
+    next scheduled run resumes from the un-archived chunks), so it must NOT trip the
+    Cloud Run job-failure alert. A genuine (non-quota) chunk failure still exits 1."""
     from embrapa_commodities.comtrade.client import ComtradeQuotaError
 
     _wire_comtrade(monkeypatch, settings)
@@ -384,7 +386,7 @@ def test_ingest_comtrade_quota_exhausted_reports_and_exits(
 
     result = runner.invoke(cli.app, ["ingest", "comtrade"])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 0, result.output
     assert "quota exhausted" in result.output
     assert "re-run to resume" in result.output
 
@@ -593,8 +595,9 @@ def _wire_reconcile(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None
 def test_ingest_reconcile_chunks_ibge_and_fulls_bcb_comex(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
-    """IBGE runs year-CHUNKED (full per chunk); BCB×2 + COMEX run once with full=True;
-    COMTRADE (out of `all`) is never touched."""
+    """IBGE PEVS runs year-CHUNKED (full per chunk); PAM/PPM + BCB×2 + COMEX run once
+    with full=True (PAM/PPM are out of `all` but reconcile still catches their old-year
+    revisions); COMTRADE (out of `all`, key-gated) is never touched."""
     settings.ibge_start_year = 2010
     settings.ibge_end_year = 2012  # 3 chunks at chunk_years=1
     _wire_reconcile(monkeypatch, settings)
@@ -606,6 +609,12 @@ def test_ingest_reconcile_chunks_ibge_and_fulls_bcb_comex(
         lambda s, **kw: ibge_chunks.append((s.ibge_start_year, s.ibge_end_year)) or "dest",
     )
     full_seen: list[str] = []
+    monkeypatch.setattr(
+        cli.pam_pipeline, "run", lambda s, full: full_seen.append(f"pam-{full}") or ""
+    )
+    monkeypatch.setattr(
+        cli.ppm_pipeline, "run", lambda s, full: full_seen.append(f"ppm-{full}") or ""
+    )
     monkeypatch.setattr(
         cli.bcb_inflation, "run", lambda s, full: full_seen.append(f"inflation-{full}") or ""
     )
@@ -621,10 +630,11 @@ def test_ingest_reconcile_chunks_ibge_and_fulls_bcb_comex(
     result = runner.invoke(cli.app, ["ingest", "reconcile"])
 
     assert result.exit_code == 0, result.output
-    # IBGE: one full=True load per year chunk (2010, 2011, 2012).
+    # IBGE PEVS: one full=True load per year chunk (2010, 2011, 2012).
     assert ibge_chunks == [(2010, 2010), (2011, 2011), (2012, 2012)]
-    # BCB + COMEX: each once, forced full.
-    assert full_seen == ["inflation-True", "currency-True", "comex-True"]
+    # PAM/PPM (out of `all`) + BCB + COMEX: each once, forced full, in INGESTS order —
+    # reconcile catches old-year revisions to PAM/PPM too.
+    assert full_seen == ["pam-True", "ppm-True", "inflation-True", "currency-True", "comex-True"]
     # COMTRADE is key-gated / out of `all` — reconcile never re-ingests it.
     comtrade.assert_not_called()
 
@@ -639,6 +649,8 @@ def test_ingest_reconcile_continues_after_a_source_fails(
 
     ran: list[str] = []
     monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, **kw: ran.append("ibge") or "dest")
+    monkeypatch.setattr(cli.pam_pipeline, "run", lambda s, full: ran.append("pam") or "")
+    monkeypatch.setattr(cli.ppm_pipeline, "run", lambda s, full: ran.append("ppm") or "")
 
     def boom(_s: Settings, full: bool) -> str:
         ran.append("inflation")
@@ -650,7 +662,7 @@ def test_ingest_reconcile_continues_after_a_source_fails(
 
     result = runner.invoke(cli.app, ["ingest", "reconcile"])
 
-    assert ran == ["ibge", "inflation", "currency", "comex"]
+    assert ran == ["ibge", "pam", "ppm", "inflation", "currency", "comex"]
     assert result.exit_code == 1
     assert "1 source(s) failed" in result.output
     assert "BCB inflation" in result.output
@@ -672,6 +684,8 @@ def test_ingest_reconcile_records_ibge_chunk_failure_but_runs_rest(
 
     monkeypatch.setattr(cli.ibge_pipeline, "run", flaky)
     ran_other: list[str] = []
+    monkeypatch.setattr(cli.pam_pipeline, "run", lambda s, full: ran_other.append("pam") or "")
+    monkeypatch.setattr(cli.ppm_pipeline, "run", lambda s, full: ran_other.append("ppm") or "")
     monkeypatch.setattr(
         cli.bcb_inflation, "run", lambda s, full: ran_other.append("inflation") or ""
     )
@@ -682,8 +696,8 @@ def test_ingest_reconcile_records_ibge_chunk_failure_but_runs_rest(
 
     assert result.exit_code == 1
     assert "IBGE PEVS" in result.output  # the failed leg is named in the summary
-    # Continue-on-failure across sources: BCB + COMEX still ran.
-    assert ran_other == ["inflation", "currency", "comex"]
+    # Continue-on-failure across sources: PAM/PPM + BCB + COMEX still ran.
+    assert ran_other == ["pam", "ppm", "inflation", "currency", "comex"]
 
 
 def test_ingest_reconcile_raises_when_ibge_start_year_unset(

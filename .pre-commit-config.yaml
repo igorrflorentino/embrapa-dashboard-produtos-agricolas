@@ -9,8 +9,12 @@ repos:
     hooks:
       - id: gitleaks
 
+  # Keep `rev` in step with the `ruff` pin resolved in uv.lock (CI runs the synced
+  # ruff). Dependabot has no pre-commit updater, so bump this by hand (or via
+  # `pre-commit autoupdate`) when the dev-group ruff moves — a drifted hook would
+  # format/lint differently than CI.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.15.13
     hooks:
       - id: ruff
         args: [--fix]

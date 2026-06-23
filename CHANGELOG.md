@@ -9,7 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-_Nada ainda — `1.5.1` é o release atual._
+Audit remediation (2026-06-22 quality audit — see `docs/audits/quality_audit_2026-06-22.md`).
+All 11 findings (0 critical/high, 2 medium, 9 low) resolved; the security core was
+re-confirmed clean.
+
+### Fixed
+- **The Geography view now honours the flow filter for a COMEX product basket.** The
+  basket-scoped `/api/geo-yearly` cube dropped the active export/import direction (while
+  the snapshot applied it), so VALOR TOTAL + the choropleth showed all-flows figures,
+  internally inconsistent with the flow-filtered rest of the app. `flow` now threads the
+  frontend cache key + request → `/geo-yearly` → `seam.geo_yearly` → the gateway reader
+  (which already applied it). (audit M2)
+- **`ingest reconcile` now covers the PAM and PPM SIDRA sources.** The old-year
+  upstream-revision escape hatch skipped every `in_all=False` source, so a correction to
+  an old PPM (live) or PAM year was never re-queried; reconcile now re-fetches them
+  `--full` alongside BCB/COMEX (COMTRADE stays excluded, key-gated). (audit M1)
+- **UN Comtrade daily-quota exhaustion exits 0, not 1.** Quota is expected and
+  self-healing (the next scheduled run resumes), so it no longer trips the Cloud Run
+  job-failure alert; a genuine non-quota chunk failure still exits 1. (audit L6)
+- **`fetch_banco_metadata` now honours `CACHE_CLASSIFICATION_TIMEOUT`.** It was the one
+  curation-class read left pinned at the decoration-time default, contradicting its own
+  "a Console maturity flip reflects within the window" contract. (audit L8c)
+
+### Changed
+- **pre-commit ruff pinned to v0.15.13** (was v0.6.9), matching the ruff CI runs, so the
+  local hook can't format/lint differently than CI. (audit L1)
+- **Dependabot now watches the Docker base images** (`deploy/webapi`, `deploy/ingestion`)
+  so a `python:3.12-slim` / `node:22-slim` CVE surfaces as a PR. (audit L2)
+- **`__version__` reads from package metadata** and `pyproject` version bumped to `1.5.1`
+  (was a stale `1.0.0`; `__init__` was `0.1.0`). Nothing user-facing read either —
+  cosmetic. (audit L3)
+- **A warn-severity `not_null` test on the curation `edited_by` author** closes the one
+  untested column on the SCD2 audit trail. (audit L8b)
+- **`sa-secret-reader-prod` dev-workflow grant doc corrected** to `roles/bigquery.user`
+  (matching the permission matrix + the ps1 grant script; the walkthrough said
+  `jobUser`). (audit L7)
+
+### Docs
+- Added IBGE PPM to the ARCHITECTURE folder/model/scheduler trees, the `doctor` sample in
+  `docs/testing.md`, and the dataset list in `docs/ownership_transfer.md` (PPM has been
+  live since v1.3.0 but was missing from these). (audit L4)
+- Documented the one accepted long-lived SA key (`sa-claude-code-web-dev`) + a 90-day
+  rotation reminder in `SECURITY.md` / `docs/auth_architecture.md` (both previously
+  claimed "no long-lived keyfiles"). (audit L7)
+- Noted that editing a seed an incremental model consumes needs `--full-refresh`
+  (silver_ibge_pevs header + the dbt-workflow skill). (audit L8a)
 
 ---
 

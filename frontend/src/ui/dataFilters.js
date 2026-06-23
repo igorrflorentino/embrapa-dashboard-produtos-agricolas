@@ -36,6 +36,80 @@
     return 1.00; // custom range — no fabricated share (was 0.66)
   }
 
+  // ── Sub-UF / município geography facets (the IBGE mesh cascade) ─────────────
+  // The FilterMenu emits five CODE arrays — mesos/micros (classic division) +
+  // inters/imediatas (2017 division) + munis. A facet CONSTRAINS the data only when
+  // it is a PROPER, NON-EMPTY subset of its universe: null, [] (a cascade-emptied
+  // child — selecting a parent after "Limpar" leaves children empty), and the full
+  // selection ALL mean "no constraint". This both avoids fetching the heavy município
+  // cube when nothing is narrowed AND keeps a parent-only narrowing (e.g. one
+  // mesorregião, children untouched/empty) correct. Needs the mesh for the per-level
+  // universe sizes.
+  const GEO_FACET_KEYS = ['mesos', 'micros', 'inters', 'imediatas', 'munis'];
+  const _facetCode = {
+    mesos: (m) => (m.meso && m.meso.code) || '',
+    micros: (m) => (m.micro && m.micro.code) || '',
+    inters: (m) => (m.intermediaria && m.intermediaria.code) || '',
+    imediatas: (m) => (m.imediata && m.imediata.code) || '',
+    munis: (m) => m.cityCode,
+  };
+  function geoFacetSets(summary, mesh) {
+    const sets = {};
+    const constrained = {};
+    const universe = {};
+    if (mesh) {
+      for (const k of GEO_FACET_KEYS) {
+        const u = new Set();
+        for (const m of mesh) { const c = _facetCode[k](m); if (c) u.add(c); }
+        universe[k] = u.size;
+      }
+    }
+    let active = false;
+    for (const k of GEO_FACET_KEYS) {
+      const arr = summary[k];
+      sets[k] = arr == null ? null : new Set(arr);
+      const c = !!(mesh && sets[k] && sets[k].size > 0 && sets[k].size < (universe[k] || Infinity));
+      constrained[k] = c;
+      if (c) active = true;
+    }
+    return { sets, constrained, active };
+  }
+  // A município passes a facet iff that facet does NOT constrain, or its code is in
+  // the selection. A blank code ('' — e.g. a post-classic município has no classic
+  // meso/micro) is never in the set, so a NARROWING classic facet correctly excludes
+  // it (it genuinely belongs to no mesorregião); it stays filterable by the 2017
+  // levels it does have, and is unaffected when a facet isn't narrowing.
+  function muniPassesFacets(anc, gf) {
+    const ok = (k, code) => !gf.constrained[k] || gf.sets[k].has(code);
+    return ok('mesos', (anc.meso && anc.meso.code) || '')
+      && ok('micros', (anc.micro && anc.micro.code) || '')
+      && ok('inters', (anc.intermediaria && anc.intermediaria.code) || '')
+      && ok('imediatas', (anc.imediata && anc.imediata.code) || '')
+      && (!gf.constrained.munis || gf.sets.munis.has(anc.cityCode));
+  }
+  // Roll the município cube up to (UF, year), summing ONLY the municípios that clear
+  // every active facet (resolved via the mesh cityCode→ancestry). Output rows are
+  // shape-identical to the UF cube (window.geoYearly), so they slot straight into the
+  // existing geoSource / ufData / sumStates logic — the map stays a UF choropleth,
+  // narrowed to the selected sub-UF groups.
+  function rollupMuniCubeToUf(muniCube, mesh, gf) {
+    const anc = {};
+    for (const m of mesh) anc[m.cityCode] = m;
+    const byUfYear = new Map();
+    for (const r of muniCube) {
+      const a = anc[r.cityCode];
+      if (!a || !muniPassesFacets(a, gf)) continue;
+      const key = `${r.uf}|${r.year}`;
+      let row = byUfYear.get(key);
+      if (!row) { row = { uf: r.uf, year: r.year, value: 0, q_mass: 0, q_vol: 0, q_count: 0 }; byUfYear.set(key, row); }
+      row.value += r.value || 0;
+      row.q_mass += r.q_mass || 0;
+      row.q_vol += r.q_vol || 0;
+      row.q_count += r.q_count || 0;
+    }
+    return [...byUfYear.values()];
+  }
+
   window.applyFilters = function (summary, bancoId) {
     summary = summary || {};
 
@@ -104,12 +178,38 @@
     const stateNarrowing =
       hasGeoData && stateSet != null &&
       (stateSet.size === 0 || stateSet.size < _ufUniverse);
-    // The basket-scoped cube (null until the fetch lands, or for a non-geo banco).
-    // Only fetched when a basket is active — a state-only narrowing reads the
+    // Sub-UF / município narrowing (the IBGE mesh cascade): when the user picks
+    // specific meso/micro/intermediária/imediata/município groups, the UF cube is too
+    // coarse — pull the município cube (basket-scoped, /api/municipio-yearly) and roll
+    // it up to (UF, year) over ONLY the municípios passing every active facet (via the
+    // mesh). The result is UF-yearly rows, so it flows through the SAME series/map
+    // logic below; the map stays a UF choropleth, narrowed to the chosen sub-UF groups.
+    // Fetch the mesh up front (cheap, cached) so geoFacetSets can size each facet's
+    // universe and decide whether it genuinely narrows (proper non-empty subset).
+    const _hasGeoKeys = GEO_FACET_KEYS.some((k) => summary[k] != null);
+    const mesh = (_hasGeoKeys && window.geoMesh) ? window.geoMesh() : null;
+    const geoFacets = geoFacetSets(summary, mesh);
+    // Resolve the active sub-UF/município selection to its município code set (via the
+    // mesh) and pass it to the cube, so the Gold scan covers only those cities.
+    const narrowedCities = (geoFacets.active && mesh)
+      ? mesh.filter((m) => muniPassesFacets(m, geoFacets)).map((m) => m.cityCode)
+      : null;
+    const muniCube = (geoFacets.active && narrowedCities && narrowedCities.length && window.municipioYearly)
+      ? window.municipioYearly(bancoId, summary, narrowedCities) : null;
+    const subUfCube = (muniCube && muniCube.length && mesh)
+      ? rollupMuniCubeToUf(muniCube, mesh, geoFacets) : null;
+    // The basket-scoped (UF × year) cube (null until the fetch lands, or for a non-geo
+    // banco). Only fetched when a basket is active — a state-only narrowing reads the
     // all-products ufYearly already in the snapshot (no extra round-trip).
-    const geoCube = (basketActive && window.geoYearly)
+    const basketGeoCube = (basketActive && window.geoYearly)
       ? window.geoYearly(bancoId, summary) : null;
+    // The sub-UF rollup takes precedence (it's the finer, facet-narrowed grid); else
+    // the basket cube; else null (state-only narrowing reads the snapshot's ufYearly).
+    const geoCube = subUfCube || basketGeoCube;
     const useCube = !!(geoCube && geoCube.length);
+    // True while a sub-UF facet is active but its município cube hasn't landed — the
+    // view holds the value at a loading state rather than show the unfiltered figure.
+    const subUfPending = hasGeoData && geoFacets.active && !subUfCube;
     // The (UF × year) source for the geo-derived series/map: the basket cube when
     // ready, else the snapshot's all-products grid (for the state-only case).
     const geoSource = useCube ? geoCube : ufYearlyAll;
@@ -183,7 +283,8 @@
     // We refuse to show that wrong number: flag it so the view holds the value at a
     // loading state until the cube resolves (then it computes the exact selection),
     // instead of reporting a figure that disregards the user's product filter.
-    const geoComboPending = hasGeoData && basketActive && stateNarrowing && !useCube;
+    const geoComboPending =
+      (hasGeoData && basketActive && stateNarrowing && !useCube) || subUfPending;
 
     // Tile-grid (col/row) join for cube-derived UF rows: the snapshot's ufData is
     // already decorated (decorate.js), but cube rows come straight from the serializer,

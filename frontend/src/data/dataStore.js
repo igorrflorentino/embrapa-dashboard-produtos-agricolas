@@ -203,6 +203,12 @@ window.dataStore = {
   // read this so their value column matches the snapshot's exactly.
   conv: () => ({ ...activeConv }),
 
+  // The active flow (export/import). Like conv(), producers that fetch their OWN
+  // flow-scoped resources (the geo-yearly cube in producers.js) read this so the
+  // cube honours the SAME server-side flow filter as the snapshot — otherwise a
+  // COMEX product basket would render all-flows totals against a flow-filtered app.
+  flow: () => activeFlow,
+
   // Live provenance for a banco. The numeric coverage (rows, products, UFs, year
   // span) + the last-refresh stamp are overlaid from /api/source-meta when it has
   // resolved, so every consumer (hero counters + denominators, Sobre, Saúde) reads

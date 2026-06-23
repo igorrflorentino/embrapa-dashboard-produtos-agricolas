@@ -52,10 +52,10 @@ gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
   --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --role=roles/bigquery.dataEditor
 
-# Run BigQuery jobs
+# Run BigQuery jobs + create own datasets (dbt builds the dbt_dev_* schemas)
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
   --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --role=roles/bigquery.jobUser
+  --role=roles/bigquery.user
 
 # Read GCS landing data
 gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \

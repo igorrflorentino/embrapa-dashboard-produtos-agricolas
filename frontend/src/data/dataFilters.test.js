@@ -54,6 +54,48 @@ async function loadApplyFilters() {
   return window.applyFilters;
 }
 
+// Mesh + município cube fixtures: 3 PA municípios across 2 mesorregiões. A meso
+// filter must narrow the per-UF total to only that meso's municípios (rolled up to
+// UF × year via the mesh) — the sub-UF geography feature.
+const GEO_MESH = [
+  { cityCode: '1', cityName: 'Cidade 1', uf: 'PA', region: 'N',
+    meso: { code: 'M1', name: 'Meso 1' }, micro: { code: 'mi1', name: 'Mic 1' },
+    intermediaria: { code: 'I1', name: 'Int 1' }, imediata: { code: 'im1', name: 'Ime 1' } },
+  { cityCode: '2', cityName: 'Cidade 2', uf: 'PA', region: 'N',
+    meso: { code: 'M1', name: 'Meso 1' }, micro: { code: 'mi2', name: 'Mic 2' },
+    intermediaria: { code: 'I1', name: 'Int 1' }, imediata: { code: 'im2', name: 'Ime 2' } },
+  { cityCode: '3', cityName: 'Cidade 3', uf: 'PA', region: 'N',
+    meso: { code: 'M2', name: 'Meso 2' }, micro: { code: 'mi3', name: 'Mic 3' },
+    intermediaria: { code: 'I2', name: 'Int 2' }, imediata: { code: 'im3', name: 'Ime 3' } },
+];
+const MUNI_CUBE = [
+  { year: 2021, cityCode: '1', uf: 'PA', value: 60, q_mass: 30, q_vol: 0, q_count: 0 },
+  { year: 2021, cityCode: '2', uf: 'PA', value: 30, q_mass: 15, q_vol: 0, q_count: 0 },
+  { year: 2021, cityCode: '3', uf: 'PA', value: 10, q_mass: 5, q_vol: 0, q_count: 0 },
+];
+
+describe('applyFilters — sub-UF (mesorregião) narrowing rolls the município cube up by UF', () => {
+  beforeEach(() => { delete window.applyFilters; delete window.geoMesh; delete window.municipioYearly; });
+
+  it('sums only the selected mesorregião’s municípios into the per-UF total', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoMesh = () => GEO_MESH;
+    window.municipioYearly = () => MUNI_CUBE;
+    // Meso M1 = cidades 1 + 2 (value 60 + 30 = 90); cidade 3 (M2, value 10) excluded.
+    const f = applyFilters({ mesos: ['M1'] }, 'ibge_pevs');
+    const pa = f.ufData.find((u) => u.uf === 'PA');
+    expect(pa.value).toBe(90); // NOT the all-meso 100 — the M2 município is dropped
+  });
+
+  it('holds at a loading state while the município cube has not landed', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoMesh = () => GEO_MESH;
+    window.municipioYearly = () => null; // fetch pending
+    const f = applyFilters({ mesos: ['M1'] }, 'ibge_pevs');
+    expect(f.geoComboPending).toBe(true);
+  });
+});
+
 describe('applyFilters — no fabricated geographic split under a basket (F1.5)', () => {
   beforeEach(() => {
     // clean any prior window.applyFilters binding
