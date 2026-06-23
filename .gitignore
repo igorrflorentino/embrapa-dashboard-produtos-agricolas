@@ -235,6 +235,11 @@ data/
 *.parquet
 .gcp-credentials.json
 
+# Reporting / data-export snapshots (regenerate via scripts/export_commodity_*.py)
+/inventario_commodities.csv
+/inventario_commodities_consolidado.csv
+/inventario_commodities_por_conceito_resumo.csv
+
 # Any service-account keyfile or base64-encoded keyfile, anywhere in the tree.
 # Covers files like sa-claude-code-web-dev-key.json, sa-secret-reader-*.b64, etc.
 sa-*.json
