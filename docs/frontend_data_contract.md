@@ -141,6 +141,29 @@ One annual series per product, keyed by the same `code` as `products`.
 - `label`, `color` = mapped by the React frontend from `id` (keep the palette in
   the frontend; backend ships only `id`+`count`).
 
+### 3.6 Sub-UF geography cascade — `geo-mesh` + município cube (IBGE PEVS/PAM/PPM)
+The geography filter descends BELOW UF via two dedicated endpoints (the snapshot stays
+UF-grained). Two PARALLEL IBGE divisions sit between UF and município and do **not** nest:
+classic **mesorregião → microrregião** and 2017 **região intermediária → imediata**; a
+município passes the cascade iff it clears every active facet (intersection).
+
+- **`GET /api/geo-mesh`** → `{ municipios: [{ cityCode, cityName, uf, region, meso, micro,
+  intermediaria, imediata }] }`. Each sub-UF level is a `{ code, name }` pair — blank
+  `{code:'',name:''}` for a município with no grouping at that level (e.g. a post-2017
+  município has no classic meso/micro). The static IBGE mesh (~5570 rows, from
+  `dim_geo_municipio`), fetched once + cached; the cascade builds its level option-lists +
+  the `cityCode → ancestry` map from it. `{ municipios: [] }` if the dim isn't built.
+- **`POST /api/municipio-yearly`** — body `{ cityCodes: [...] }`; `banco` / `codes` /
+  `currency` / `correction` in the query string → `{ municipioYearly: [{ year, cityCode,
+  uf, value, q_mass, q_vol, q_count }] }`. The basket + **city-scoped** per-(município,
+  year) cube, read straight from Gold (`maximum_bytes_billed`-guarded). **POST, not GET**:
+  the resolved city set can be hundreds of codes — too large for a query string (gunicorn's
+  ~4 KB request-line limit → 414). A **non-empty `cityCodes` is required** (so the backend
+  never scans the full ~146k-row município grid). Same `/1e6`-style scaling as `ufData`
+  (§3.4). The client rolls these city rows up to whichever sub-UF level is active.
+  `{ municipioYearly: [] }` for a banco with no município grain (COMEX/COMTRADE) or a
+  not-built table.
+
 ---
 
 ## 4. Generic adapters (brief §3)

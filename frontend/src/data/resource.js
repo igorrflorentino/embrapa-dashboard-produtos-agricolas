@@ -42,7 +42,9 @@ export function get(key) {
 }
 
 /** Kick off a fetch for key (idempotent — no-op if already pending/ready).
- *  urlFactory is a function so the URL is only built when actually fetching. */
+ *  urlFactory is a function so the URL is only built when actually fetching. It
+ *  returns either a URL string (GET) or a `[url, init]` tuple (e.g. a POST whose
+ *  body carries a payload too large for a query string — the município cube). */
 export function ensure(key, urlFactory) {
   const e = cache.get(key);
   if (e && (e.state === 'pending' || e.state === 'ready')) return;
@@ -56,7 +58,9 @@ export function ensure(key, urlFactory) {
   const myGen = (gen.get(key) || 0) + 1;
   gen.set(key, myGen);
   cache.set(key, { state: 'pending', attempts });
-  fetch(urlFactory())
+  const req = urlFactory();
+  const [url, init] = Array.isArray(req) ? req : [req];
+  fetch(url, init)
     .then((r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();

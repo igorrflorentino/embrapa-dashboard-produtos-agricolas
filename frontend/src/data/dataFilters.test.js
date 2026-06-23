@@ -94,6 +94,15 @@ describe('applyFilters — sub-UF (mesorregião) narrowing rolls the município 
     const f = applyFilters({ mesos: ['M1'] }, 'ibge_pevs');
     expect(f.geoComboPending).toBe(true);
   });
+
+  it('loaded-but-EMPTY cube reads as honest empty — not stuck-loading, not all-UF (audit B)', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoMesh = () => GEO_MESH;
+    window.municipioYearly = () => []; // fetched, zero rows (the meso produces none of the basket)
+    const f = applyFilters({ mesos: ['M1'] }, 'ibge_pevs');
+    expect(f.geoComboPending).toBe(false); // loaded-empty is NOT pending (no eternal spinner)
+    expect(f.ufData).toEqual([]); // empty selection → empty map, NOT the all-UF fallback
+  });
 });
 
 describe('applyFilters — no fabricated geographic split under a basket (F1.5)', () => {

@@ -22,6 +22,7 @@ erDiagram
     dim_geo_br               ||--o{ gold_pevs_production : "state_acronym"
     dim_geo_br               ||--o{ gold_pam_production  : "state_acronym"
     dim_geo_br               ||--o{ gold_comex_flows     : "state_acronym (UF of NCM)"
+    dim_geo_municipio        ||--o{ gold_pevs_production : "city_code (sub-UF geo cube)"
     dim_code_industrialization_scd2  |o--o| gold_commodity_crosswalk : "(source, code) · is_current (gated)"
 
     gold_pevs_production {
@@ -90,6 +91,15 @@ erDiagram
         string   state_name
         string   region                 "Norte / Nordeste / Centro-Oeste / Sudeste / Sul"
         string   region_abbrev          "N / NE / CO / SE / S (frontend ufData)"
+    }
+    dim_geo_municipio {
+        string   city_code          PK "IBGE 7-digit (→ gold_*_production.city_code)"
+        string   state_acronym          "→ dim_geo_br"
+        string   region_abbrev          "N / NE / CO / SE / S"
+        string   meso_code              "classic division: mesorregião"
+        string   micro_code             "classic division: microrregião"
+        string   intermediaria_code     "2017 division: região intermediária"
+        string   imediata_code          "2017 division: região imediata"
     }
     dim_code_industrialization_scd2 {
         string   source             PK

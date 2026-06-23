@@ -251,8 +251,10 @@ def fetch_production_by_municipio_yearly(
     scoped + the run_query maximum_bytes_billed guard) since município is the finest,
     on-demand grain and a mart would near-duplicate Gold. ``city_codes`` is what keeps
     a narrowed selection cheap (the client passes only the selected municípios' codes).
-    ``None`` for a source with no município grain (COMEX/COMTRADE)."""
-    if source not in _MUNICIPIO_SOURCES:
+    ``None`` for a source with no município grain (COMEX/COMTRADE), or when no
+    ``city_codes`` scope is given — the cube is always city-scoped, so an empty set
+    means "nothing to fetch" rather than a full ~146k-row município grid scan."""
+    if source not in _MUNICIPIO_SOURCES or not city_codes:
         return None
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_gold_dataset", _GOLD_TABLE[source])

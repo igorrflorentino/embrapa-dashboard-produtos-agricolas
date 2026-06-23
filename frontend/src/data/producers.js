@@ -153,20 +153,23 @@ window.municipioYearly = function municipioYearly(bancoId, summary, cityCodes) {
     : { currency: 'BRL', correction: 'IPCA' };
   const codes = filterCodes(summary); // undefined = all products; comma list otherwise
   // cityCodes = the município code set of the active sub-UF/município selection
-  // (resolved client-side from the mesh). Passing it scopes the Gold scan to those
-  // cities — a one-mesorregião narrowing fetches ~tens of cities, not all ~5570.
-  const cc = (cityCodes && cityCodes.length) ? cityCodes.join(',') : undefined;
-  const key = `municipioYearly:${bancoId}:${conv.currency}|${conv.correction}:${codes ?? '*'}:${cc ?? '*'}`;
-  ensure(
-    key,
-    () => `${API}/municipio-yearly?${qs({
+  // (resolved client-side from the mesh), scoping the Gold scan to those cities. The
+  // cube is ALWAYS city-scoped — with no city set there is nothing to fetch.
+  if (!cityCodes || !cityCodes.length) return null;
+  // The set can be hundreds of codes, so POST it in the body — a GET query string
+  // would overflow gunicorn's request-line limit (~4 KB → HTTP 414) for a broad sub-UF
+  // selection. The cache key still carries the full list (an in-memory Map key, not a
+  // URL → no length limit), so distinct selections never collide.
+  const key = `municipioYearly:${bancoId}:${conv.currency}|${conv.correction}:${codes ?? '*'}:${cityCodes.join(',')}`;
+  ensure(key, () => [
+    `${API}/municipio-yearly?${qs({
       banco: bancoId,
       codes,
-      cityCodes: cc,
       currency: conv.currency,
       correction: conv.correction,
     })}`,
-  );
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cityCodes }) },
+  ]);
   const data = get(key);
   return data && Array.isArray(data.municipioYearly) ? data.municipioYearly : null;
 };

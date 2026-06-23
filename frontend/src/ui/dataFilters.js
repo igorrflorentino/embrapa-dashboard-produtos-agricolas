@@ -194,25 +194,35 @@
     const narrowedCities = (geoFacets.active && mesh)
       ? mesh.filter((m) => muniPassesFacets(m, geoFacets)).map((m) => m.cityCode)
       : null;
-    const muniCube = (geoFacets.active && narrowedCities && narrowedCities.length && window.municipioYearly)
-      ? window.municipioYearly(bancoId, summary, narrowedCities) : null;
-    const subUfCube = (muniCube && muniCube.length && mesh)
-      ? rollupMuniCubeToUf(muniCube, mesh, geoFacets) : null;
+    // A sub-UF/município narrowing is active once the mesh is loaded AND a facet narrows.
+    const subUfActive = narrowedCities != null;
+    // The município cube is TRI-STATE: null = fetch in flight; [] = loaded-but-empty
+    // (zero cities pass the facets, or those cities produce none of the basket); [...] =
+    // rows. We MUST distinguish loaded-empty from not-loaded so an empty selection shows
+    // an honest "no data" instead of an eternal spinner — and NEVER falls back to the
+    // all-UF grid (which would display data the selection explicitly excludes).
+    const muniCube = subUfActive
+      ? (narrowedCities.length && window.municipioYearly
+          ? window.municipioYearly(bancoId, summary, narrowedCities)
+          : []) // zero cities pass → determinately empty, not a pending fetch
+      : null;
+    const subUfLoaded = subUfActive && muniCube != null; // [] counts as loaded
+    const subUfCube = (subUfLoaded && mesh) ? rollupMuniCubeToUf(muniCube, mesh, geoFacets) : null;
     // The basket-scoped (UF × year) cube (null until the fetch lands, or for a non-geo
     // banco). Only fetched when a basket is active — a state-only narrowing reads the
     // all-products ufYearly already in the snapshot (no extra round-trip).
     const basketGeoCube = (basketActive && window.geoYearly)
       ? window.geoYearly(bancoId, summary) : null;
-    // The sub-UF rollup takes precedence (it's the finer, facet-narrowed grid); else
-    // the basket cube; else null (state-only narrowing reads the snapshot's ufYearly).
-    const geoCube = subUfCube || basketGeoCube;
-    const useCube = !!(geoCube && geoCube.length);
-    // True while a sub-UF facet is active but its município cube hasn't landed — the
-    // view holds the value at a loading state rather than show the unfiltered figure.
-    const subUfPending = hasGeoData && geoFacets.active && !subUfCube;
-    // The (UF × year) source for the geo-derived series/map: the basket cube when
-    // ready, else the snapshot's all-products grid (for the state-only case).
-    const geoSource = useCube ? geoCube : ufYearlyAll;
+    // Precedence: a sub-UF narrowing OWNS the geo grid (its rollup once loaded — even
+    // when empty); else the basket cube; else the snapshot's all-products grid.
+    const geoCube = subUfActive ? subUfCube : basketGeoCube;
+    const useCube = subUfActive ? subUfLoaded : !!(geoCube && geoCube.length);
+    // Pending ONLY while the cube fetch is in flight (null) — NOT when it loaded empty.
+    const subUfPending = hasGeoData && subUfActive && !subUfLoaded;
+    // The (UF × year) source for the geo-derived series/map. A sub-UF narrowing reads its
+    // own rollup (rows, or [] when empty/pending) — never the all-UF fallback; else the
+    // basket cube when ready, else the snapshot's all-products grid.
+    const geoSource = subUfActive ? (subUfCube || []) : (useCube ? geoCube : ufYearlyAll);
     // When narrowing states, restrict to the selected UFs; with no narrowing sum the
     // WHOLE grid (incl. COMEX non-state pseudo-origins) so the national total matches
     // PRODUCT_TS_T exactly (those pseudo-origins are not selectable UFs).
@@ -232,7 +242,12 @@
     // can't: a real state narrowing, OR a basket whose territorial cube has loaded —
     // and only when the (UF × year) grid actually carries rows (a snapshot without
     // ufYearly falls back to the national series rather than zeroing it out).
-    const geoDerivedTs = hasGeoData && geoSource.length > 0 && (stateNarrowing || useCube);
+    // For a sub-UF narrowing, ALWAYS use the cube-derived series once loaded — even if
+    // it sums to zero (an empty selection must read as zero, not the national curve).
+    const geoDerivedTs = hasGeoData && (
+      (subUfActive && subUfLoaded) ||
+      (!subUfActive && geoSource.length > 0 && (stateNarrowing || useCube))
+    );
 
     // ── Aggregated time series ────────────────────────────────────────
     const allYears = OVERVIEW_T.map(d => d.y).filter(y => y >= yearStart && y <= yearEnd);
@@ -310,9 +325,11 @@
       .map(r => r.year)
       .filter(y => typeof y === 'number' && y >= yearStart && y <= yearEnd);
     const ufLatestYear = ufYearsInWindow.length ? Math.max(...ufYearsInWindow) : yearEnd;
-    const ufData = useCube
+    // A sub-UF narrowing reads the cube even while pending/empty (geoCube=null → []),
+    // so the map shows loading/empty rather than the all-UF snapshot it excludes.
+    const ufData = (subUfActive || useCube)
       ? _decorateUf(
-          geoCube
+          (geoCube || [])
             .filter(r => r.year === ufLatestYear)
             .filter(u => !stateSet || stateSet.has(u.uf))
             .map(r => ({ uf: r.uf, name: r.name, region: r.region,
