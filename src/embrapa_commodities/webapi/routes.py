@@ -127,6 +127,11 @@ def _authorize_curator():
     try:
         author = current_author()
     except InvalidIapAssertionError as exc:
+        # The message is either our own fail-closed misconfig hint ("set IAP_AUDIENCE")
+        # or a google-auth verification reason. Both reach ONLY an IAP-authenticated
+        # caller (no secret/token is ever echoed — the JWT itself is not), and the
+        # IAP_AUDIENCE hint is a deliberately-surfaced operator deployment aid, so it is
+        # returned verbatim by design (audit SEC-3: kept, info-level, no secret leak).
         return None, (jsonify(error=str(exc)), 403)
     except PermissionError as exc:  # MissingAuthorError (+ any other) → no identity
         return None, (jsonify(error=str(exc)), 401)
@@ -162,6 +167,13 @@ def source_meta():
     _ensure_banco_metadata_table()
     raw = seam.source_meta(request.args.get("banco", ""))
     return jsonify(serializers.serialize_source_meta(raw))
+
+
+# Cap the number of município codes a single /municipio-yearly request may carry.
+# The legitimate IBGE municipal universe is ~5570; a small margin above it rejects a
+# pathological IN-list (giant query/param payload) with a clean 400 while never
+# blocking a real "all municípios in a sub-UF" selection. Mirrors _MAX_TABLE_FILTERS.
+_MAX_MUNICIPIO_CODES = 5600
 
 
 # ── raw table inspection ("Dados" perspective) ─────────────────────────────────
@@ -310,9 +322,21 @@ def municipio_yearly():
     if err:
         return err
     body = request.get_json(silent=True) or {}
-    city = [c for c in (body.get("cityCodes") or []) if c]  # drop blanks
+    raw_codes = body.get("cityCodes")
+    # Must be a LIST: a bare string would otherwise char-split into bogus single-char
+    # codes (e.g. "3550308" → ['3','5',...]); a non-list is a clean 400, not a silent
+    # mis-parse (mirrors _parse_table_filters' type discipline).
+    if not isinstance(raw_codes, list):
+        return jsonify(error="cityCodes deve ser uma lista não vazia."), 400
+    city = [str(c) for c in raw_codes if c]  # drop blanks; codes bind as STRING
     if not city:
         return jsonify(error="cityCodes (lista não vazia) é obrigatório."), 400
+    # Cap the IN-list so a pathological request can't build a giant query/param payload
+    # (the maximum_bytes_billed guard bounds the SCAN, not the parse/param overhead).
+    if len(city) > _MAX_MUNICIPIO_CODES:
+        return jsonify(
+            error=f"cityCodes excede o limite de {_MAX_MUNICIPIO_CODES} municípios."
+        ), 400
     codes = request.args.get("codes")
     summary: dict = {"cityCodes": city}
     if codes:

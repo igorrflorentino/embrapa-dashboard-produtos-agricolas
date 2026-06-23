@@ -133,21 +133,32 @@ _RETRY_BUDGET_MAX_S: float = 1800.0
 _ALL_VARIABLES_VOLUME: int = 5
 
 
-def _request_deadlines(n_periods: int, n_products: int, variables: str) -> tuple[float, float]:
+def _request_deadlines(
+    n_periods: int, n_products: int, variables: str, geo_units: int = 1
+) -> tuple[float, float]:
     """Volume-scaled ``(drain_deadline_s, retry_budget_s)`` for one SIDRA request.
 
-    The drain deadline scales linearly with ``periods × products × variables`` above
-    the flat REQUEST_TOTAL_DEADLINE_S floor; the retry budget is a multiple of it.
-    Both are clamped so a pathological request can't wait forever. ``variables`` is
-    the ``v/`` selector — an explicit comma list counts its codes, ``'all'`` uses a
-    moderate constant.
+    The drain deadline scales linearly with ``periods × products × variables ×
+    geo_units`` above the flat REQUEST_TOTAL_DEADLINE_S floor; the retry budget is a
+    multiple of it. Both are clamped so a pathological request can't wait forever.
+    ``variables`` is the ``v/`` selector — an explicit comma list counts its codes,
+    ``'all'`` uses a moderate constant.
+
+    ``geo_units`` is the queried geography's municipality count (the response also
+    grows ~linearly with it). For an ``n6`` per-state slice callers pass the worst-case
+    ``LARGEST_STATE_MUNICIPALITY_COUNT`` so a DENSE state (MG, 853) gets the same
+    generous drain ceiling as a sparse one instead of the average-absorbed budget that
+    could still time out on a slow night (IBGE-1). Default ``1`` leaves the aggregated
+    (n1/n3) budgets exactly as before. The deadline is a CAP, not a forced wait — a fast
+    response still completes early — so clamping n6 calls to the ceiling is purely
+    protective.
     """
     n_vars = (
         _ALL_VARIABLES_VOLUME
         if variables.strip() == "all"
         else max(1, sum(1 for v in variables.split(",") if v.strip()))
     )
-    units = max(1, n_periods) * max(1, n_products) * n_vars
+    units = max(1, n_periods) * max(1, n_products) * n_vars * max(1, geo_units)
     drain = min(
         _DEADLINE_MAX_S,
         max(REQUEST_TOTAL_DEADLINE_S, _DEADLINE_BASE_S + _DEADLINE_PER_UNIT_S * units),
@@ -327,10 +338,14 @@ def _fetch_block(
         products,
     )
     # Scale the per-attempt drain + cumulative retry budget to THIS block's volume
-    # (periods × products × variables) so a wide-window / many-product request gets
-    # proportionally longer than the flat 75s — and each halved recursion below
-    # recomputes its own (smaller) budget.
-    drain_s, retry_budget_s = _request_deadlines(len(periods), len(products), variables)
+    # (periods × products × variables × municipality count) so a wide-window /
+    # many-product / DENSE-state request gets proportionally longer than the flat 75s —
+    # and each halved recursion below recomputes its own (smaller) budget. An n6
+    # per-state slice's response is dominated by the state's município count, so it
+    # uses the worst-case LARGEST_STATE_MUNICIPALITY_COUNT (IBGE-1); aggregated levels
+    # (n1/n3) keep geo_units=1.
+    geo_units = LARGEST_STATE_MUNICIPALITY_COUNT if geo_level == "n6" else 1
+    drain_s, retry_budget_s = _request_deadlines(len(periods), len(products), variables, geo_units)
     try:
         response = _http_get(url, total_deadline_s=drain_s, retry_budget_s=retry_budget_s)
     except SidraLimitExceeded:

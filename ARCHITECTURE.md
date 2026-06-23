@@ -8,12 +8,12 @@
 
 ## Pipeline Overview
 
-The project implements a **Medallion architecture** (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS), enriched with FX rates (USD, EUR) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
+The project implements a **Medallion architecture** (Bronze → Silver → Gold) for historical analysis of Brazilian extractive vegetable production (IBGE PEVS) — alongside crop (PAM) and livestock (PPM) production and foreign trade (MDIC COMEX, UN Comtrade) — enriched with FX rates (USD, EUR) and inflation indices (IPCA, IGP-M, IGP-DI) from Brazil's Central Bank.
 
 ```
  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
  │ IBGE SIDRA │ │ IBGE SIDRA │ │  BCB SGS   │ │  BCB SGS   │ │ MDIC COMEX │ │ UN Comtrade  │
- │  (PEVS)    │ │   (PAM)    │ │(Inflation) │ │    (FX)    │ │ (bulk CSV) │ │ (API keyed)  │
+ │  (PEVS)    │ │ (PAM·PPM)  │ │(Inflation) │ │    (FX)    │ │ (bulk CSV) │ │ (API keyed)  │
  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬───────┘
        │              │              │              │              │               │
        └──────┬───────┴──────────────┴──────────────┴──────────────┴───────────────┘
@@ -196,6 +196,9 @@ embrapa-dashboard-commodities/
 │   │   ├── commodity_crosswalk.csv   # Cross-source bridge (commodity ↔ pevs/ncm/hs6)
 │   │   ├── product_unit_factors.csv  # Statistical-unit → base factor (mass/volume) by NCM
 │   │   ├── unit_family_conversions.csv  # Unit families and conversions (mass/volume)
+│   │   ├── comex_ncm_succession.csv  # Retired→current NCM map (code-history, silver_comex)
+│   │   ├── comtrade_hs_succession.csv  # Retired→current HS6 map (code-history, silver_comtrade)
+│   │   └── ibge_municipio_mesh.csv   # ~5570-município sub-UF mesh (v1.5.2 geography cascade)
 │   └── tests/                        # Custom dbt tests
 │
 ├── frontend/                         # ⭐ React SPA (Vite) — the dashboard UI
@@ -247,6 +250,8 @@ embrapa-dashboard-commodities/
 │   ├── setup_dev_env.py              # Unified cross-platform setup
 │   ├── test_setup.py                 # Setup tests
 │   ├── refresh_comtrade_country_seed.py  # Updates the comtrade_country.csv seed (M49)
+│   ├── refresh_ibge_municipio_mesh.py  # Regenerates the ibge_municipio_mesh seed (sub-UF, v1.5.2)
+│   ├── dbt-with-env.sh               # Runs dbt with the project's .env exported
 │   ├── grant-sa-iam-roles.ps1        # IAM roles
 │   ├── setup-claude-code-web-sa.sh   # SA for Claude Code Web
 │   └── claude-hooks/                 # Security hooks (block-dangerous-commands, protect-secrets)
@@ -391,6 +396,7 @@ materialized pre-aggregation, partitioned by year and clustered by the filters.
 |---|---|---|
 | `serving_pevs_annual` | year × UF × produto × família | overviewTS · productTS · ufData (PEVS) |
 | `serving_pam_annual` | year × UF × produto × família | overview · produtividade (área × rendimento) (PAM) |
+| `serving_ppm_annual` | year × UF × produto × família (measure_kind stock\|flow) | overview · Rebanho (PPM herd + animal production) |
 | `serving_comex_annual` | year × flow × NCM × UF × country | overview · produto · UF · partner · flow (COMEX) |
 | `serving_comex_seasonality` | year × month × flow × NCM × UF | monthlyData / sazonalidade (dual-metric value\|weight) |
 | `serving_comtrade_annual` | year × flow × cmd × reporter × partner | partner · flow · market-share (COMTRADE) |

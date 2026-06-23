@@ -13,6 +13,12 @@
 window.URL_STATE_KEYS = [
   'v', 'b', 'ip', 'cur', 'corr', 'mu', 'vu', 'as',
   'pb', 'fl', 'st', 'vmn', 'vmx', 'sd', 'ed', 'fx',
+  // Sub-UF / município geography (v1.5.2): mesorregião (me), microrregião (mc),
+  // região intermediária (it), região imediata (im), município (mn). null="all"
+  // (omitted), so a non-narrowing selection never bloats the URL — only an actual
+  // sub-UF/município narrowing travels (and the município subset stays small, the
+  // 414-safe counterpart to the POST /api/municipio-yearly query path).
+  'me', 'mc', 'it', 'im', 'mn',
   'xs', 'xm', 'xy0', 'xy1',
 ];
 
@@ -30,10 +36,14 @@ window.urlDecodeArr = (q, key) => {
   return v.split(',').filter(Boolean);
 };
 
-// Numeric param: absent/'' → null, else Number.
+// Numeric param: absent/'' → null, else a FINITE number. A malformed value
+// (?vmn=abc) decodes to null rather than NaN, so a hand-edited/garbage share URL
+// can't propagate NaN into value-range filters or the cross-view year bounds.
 window.urlDecodeNum = (q, key) => {
   const v = q.get(key);
-  return (v === null || v === '') ? null : Number(v);
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 };
 
 // Does this query string carry any of OUR keys? (Decoder gate.)

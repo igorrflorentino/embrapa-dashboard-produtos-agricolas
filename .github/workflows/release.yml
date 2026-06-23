@@ -67,8 +67,59 @@ permissions:
   id-token: write
 
 jobs:
+  # Quality gate BEFORE building the prod image. A `v*` tag can point at ANY commit
+  # (not only a CI-green main tip) and ci.yml runs on push/PR to main, NOT on tag
+  # refs — so without this, a tag on an un-tested commit would publish a deployable
+  # `:latest` that bypassed every check (INFRA-1). Runs the credential-free subset
+  # (ruff + pytest + ESLint + vitest); dbt parse / sqlfluff need a warehouse and stay
+  # in the main-branch CI. build-and-push `needs:` this, so a red gate blocks the image.
+  gate:
+    name: Gate (lint + tests)
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12.11"
+
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies (reproducible via uv.lock)
+        run: uv sync --frozen
+
+      - name: Lint (ruff check + ruff format --check)
+        run: make lint
+
+      - name: Test (pytest)
+        run: make test
+
+      - name: Set up Node 22 (npm cache keyed on the lockfile)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend install (reproducible via package-lock.json)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend lint + test (ESLint + Vitest)
+        working-directory: frontend
+        run: npm run lint && npm test
+
   build-and-push:
     name: Build + push image
+    # Gate first: never publish a prod image from a commit that failed lint/tests.
+    needs: gate
     # Forks can't reach the WIF provider (security boundary).
     if: github.event.repository.fork == false
     runs-on: ubuntu-latest

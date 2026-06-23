@@ -287,6 +287,7 @@ def _overview_ts(df: pd.DataFrame | None) -> list[dict]:
     for r in df.itertuples():
         q_mass = _num(getattr(r, "q_mass", 0)) / 1e3
         q_vol = _num(getattr(r, "q_vol", 0)) / 1e6
+        q_count = _num(getattr(r, "q_count", 0)) / 1e6  # un → mi un (head / eggs)
         out.append(
             {
                 "y": int(r.reference_year),
@@ -294,6 +295,7 @@ def _overview_ts(df: pd.DataFrame | None) -> list[dict]:
                 "q": q_mass,
                 "q_mass": q_mass,
                 "q_vol": q_vol,
+                "q_count": q_count,
             }
         )
     return out

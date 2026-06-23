@@ -203,6 +203,12 @@ def test_request_deadlines_scale_with_volume() -> None:
     drain_all, _ = client._request_deadlines(13, 8, "all")
     assert drain_all > drain_big
 
+    # geo_units (an n6 per-state slice's município count) folds into the volume, so a
+    # dense-state municipal request gets a strictly longer drain than the same request
+    # at an aggregated level (geo_units=1) — the IBGE-1 fix.
+    drain_geo, _ = client._request_deadlines(1, 1, "105", client.LARGEST_STATE_MUNICIPALITY_COUNT)
+    assert drain_geo > drain_small
+
     # A pathological request is clamped to the drain ceiling, never unbounded; the
     # retry budget follows as ceiling × MULT (within _RETRY_BUDGET_MAX_S).
     drain_huge, retry_huge = client._request_deadlines(60, 60, "all")
@@ -233,7 +239,11 @@ def test_fetch_block_forwards_volume_scaled_deadlines(
     products = ["2670", "2675", "2672", "32794", "2681", "2677", "32796", "2680"]  # 8
     client._fetch_block("3939", periods, "n6", "in n3 41", "79", products, variables="105")
 
-    expected_drain, expected_retry = client._request_deadlines(len(periods), len(products), "105")
+    # The n6 per-state path folds in the worst-case município count (IBGE-1), so the
+    # forwarded deadlines must match _request_deadlines WITH that geo factor.
+    expected_drain, expected_retry = client._request_deadlines(
+        len(periods), len(products), "105", client.LARGEST_STATE_MUNICIPALITY_COUNT
+    )
     assert captured["total_deadline_s"] == expected_drain
     assert captured["retry_budget_s"] == expected_retry
     assert captured["total_deadline_s"] > client.REQUEST_TOTAL_DEADLINE_S  # the fix

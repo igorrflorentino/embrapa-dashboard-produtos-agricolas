@@ -18,9 +18,15 @@
 -- Fails (returns a row) when |serving_total - gold_total| exceeds 1e-6 of the Gold
 -- total, per source.
 
+-- PPM is the source MOST exposed to a future crosswalk fan-out: serving_ppm_annual
+-- LEFT JOINs a hand-rolled prefix-LIKE ppm_xwalk, where two ppm prefixes matching one
+-- product_code would duplicate rows. Its stock rows carry NULL val_yearfx_usd, but SUM
+-- skips NULLs identically on both sides (as for PEVS/PAM pre-1994), so the comparison
+-- stays exact (DBT-1).
 {% set pairs = [
     ('pevs',     'serving_pevs_annual',     'gold_pevs_production'),
     ('pam',      'serving_pam_annual',      'gold_pam_production'),
+    ('ppm',      'serving_ppm_annual',      'gold_ppm_production'),
     ('comex',    'serving_comex_annual',    'gold_comex_flows'),
     ('comtrade', 'serving_comtrade_annual', 'gold_comtrade_flows')
 ] %}

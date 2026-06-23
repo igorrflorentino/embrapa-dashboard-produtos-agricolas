@@ -152,6 +152,12 @@ window.municipioYearly = function municipioYearly(bancoId, summary, cityCodes) {
     ? window.dataStore.conv()
     : { currency: 'BRL', correction: 'IPCA' };
   const codes = filterCodes(summary); // undefined = all products; comma list otherwise
+  // INVARIANT (DATA-4): flow is deliberately omitted from the key AND the request below
+  // because the município cube is only ever reached for a geo banco (the `provides` guard
+  // above), and the geo (IBGE production) bancos have NO flow dimension. If a flow-bearing
+  // source ever gains a município grain, ADD flow to BOTH the key and the request here —
+  // otherwise this would silently serve all-flows totals under a flow-filtered app (the
+  // exact bug window.geoYearly's flow-key prevents).
   // cityCodes = the município code set of the active sub-UF/município selection
   // (resolved client-side from the mesh), scoping the Gold scan to those cities. The
   // cube is ALWAYS city-scoped — with no city set there is nothing to fetch.

@@ -25,6 +25,7 @@ import-only columns.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import logging
 import os
@@ -100,7 +101,17 @@ def _ca_bundle() -> str:
         fh.write("\n")
         fh.write(SECTIGO_INTERMEDIATE_PEM)
     _ca_bundle_path = path
+    # Best-effort cleanup at interpreter exit so the (public-cert) temp PEM doesn't
+    # linger after the process ends (COMEX-2). Created at most once per process; the OS
+    # would reclaim it on container exit anyway — this just keeps a long-lived dev shell tidy.
+    atexit.register(_unlink_quietly, path)
     return path
+
+
+def _unlink_quietly(path: str) -> None:
+    """Delete a temp file, swallowing the error if it's already gone (atexit handler)."""
+    with contextlib.suppress(OSError):
+        os.unlink(path)
 
 
 class ComexRequestError(Exception):
@@ -269,6 +280,18 @@ def _csv_to_parquet(csv_path: str, parquet_path: str) -> int:
                 writer = pq.ParquetWriter(parquet_path, table.schema, compression="snappy")
             writer.write_table(table)
             rows += len(chunk)
+    except pd.errors.EmptyDataError as exc:
+        # A truly-empty (0-byte) download — a transient empty 200, or a slow-byte abort
+        # that truncated the stream to zero before the per-attempt deadline fired —
+        # yields "no columns to parse". EmptyDataError is a plain ValueError (not a
+        # RequestException), so the download retry policy would NOT catch it and the
+        # chunk would be recorded as a HARD failure (exit 1 / alert). Reclassify it as a
+        # retryable transient so continue-on-failure + the next scheduled run re-attempt
+        # it (COMEX-1). A header-only CSV (valid 0-row) parses fine and never reaches here.
+        raise ComexTransientError(
+            f"empty Comex CSV ({csv_path}) — no columns to parse, likely a "
+            "truncated/empty download; will retry"
+        ) from exc
     finally:
         if writer is not None:
             writer.close()

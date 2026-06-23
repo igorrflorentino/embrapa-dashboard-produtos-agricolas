@@ -42,7 +42,16 @@ REGION="$(WEBAPI_REGION="${WEBAPI_REGION:-$(get_env WEBAPI_REGION)}" resolve_reg
 SERVICE_NAME="${WEBAPI_SERVICE_NAME:-embrapa-dashboard}"
 AR_REPO="${WEBAPI_AR_REPO:-embrapa-services}"
 WEBAPI_SA="${WEBAPI_SA:-sa-web-dashboard-prod@${PROJECT}.iam.gserviceaccount.com}"
-TAG="${WEBAPI_TAG:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo latest)}"
+# Image tag = explicit WEBAPI_TAG, else the current git SHA. Do NOT silently fall back
+# to the mutable ':latest' when git can't resolve a SHA (non-git dir / detached shallow
+# checkout): combined with WEBAPI_SKIP_BUILD that would deploy whatever ':latest' points
+# at — which release.yml moves on every tag — instead of the intended revision (INFRA-3).
+if [ -n "${WEBAPI_TAG:-}" ]; then
+  TAG="$WEBAPI_TAG"
+else
+  TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  [ -n "$TAG" ] || { echo "ERROR: cannot resolve a git SHA for the image tag and WEBAPI_TAG is unset; set WEBAPI_TAG explicitly (refusing to deploy the mutable ':latest')." >&2; exit 1; }
+fi
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE_NAME}:${TAG}"
 MEMORY="${WEBAPI_MEMORY:-1Gi}"
 CPU="${WEBAPI_CPU:-1}"

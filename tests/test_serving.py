@@ -1531,6 +1531,65 @@ def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
     assert "reporter" not in recorded["params"]
 
 
+def test_fetch_comtrade_overview_pins_reporter_to_brazil(monkeypatch):
+    """The UN COMTRADE banco's OWN overviewTS must be Brazil's view, not a sum over
+    every reporter — the serving_comtrade_annual mart is multi-reporter, so the
+    all-reporters years (2022-2023) would otherwise add the whole world's trade
+    (regression guard for the NUM-1 audit finding)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_overview(year_start=2022, cmd_codes=("440710",))
+
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "reporter_iso_a3 = @reporter" in recorded["query"]
+    assert recorded["params"]["reporter"].value == "BRA"
+
+
+def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
+    """productTS for the multi-reporter COMTRADE mart pins Brazil (NUM-1); the
+    single-reporter production marts (PEVS/PAM/PPM) and Brazil's-own-customs COMEX
+    must NOT add a reporter predicate."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_product_timeseries("un_comtrade", year_start=2022, codes=("440710",))
+    assert "reporter_iso_a3 = @reporter" in recorded["query"]
+    assert recorded["params"]["reporter"].value == "BRA"
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_product_timeseries("ibge_pevs", year_start=2022, codes=("3405",))
+    assert "reporter" not in recorded["query"]
+    assert "reporter" not in recorded["params"]
+
+
 @pytest.mark.parametrize(
     ("call", "expect_table"),
     [

@@ -87,6 +87,26 @@ describe('applyFilters — sub-UF (mesorregião) narrowing rolls the município 
     expect(pa.value).toBe(90); // NOT the all-meso 100 — the M2 município is dropped
   });
 
+  it('builds topMunis from the cube, ranked, named via the mesh (GEO-1)', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoMesh = () => GEO_MESH;
+    window.municipioYearly = () => MUNI_CUBE;
+    // Meso M1 = cidades 1 (60) + 2 (30); cidade 3 (M2) excluded. Ranked desc, named.
+    const f = applyFilters({ mesos: ['M1'] }, 'ibge_pevs');
+    expect(f.topMunis.map((m) => [m.city, m.value])).toEqual([
+      ['Cidade 1', 60],
+      ['Cidade 2', 30],
+    ]);
+  });
+
+  it('topMunis is empty without a sub-UF narrowing (no always-empty legacy path)', async () => {
+    const applyFilters = await loadApplyFilters();
+    window.geoMesh = () => GEO_MESH;
+    window.municipioYearly = () => MUNI_CUBE;
+    const f = applyFilters({}, 'ibge_pevs'); // no geo narrowing → cube not fetched
+    expect(f.topMunis).toEqual([]);
+  });
+
   it('holds at a loading state while the município cube has not landed', async () => {
     const applyFilters = await loadApplyFilters();
     window.geoMesh = () => GEO_MESH;

@@ -31,8 +31,8 @@ models:
     gold:
       +materialized: table
       +schema: "{{ env_var('BQ_GOLD_DATASET', 'gold') }}"
-    # Conformed dimensions (dim_date, dim_geo_br). Build-time inputs to the
-    # serving marts, so they live alongside the curated Gold layer. The SCD2
+    # Conformed dimensions (dim_date, dim_geo_br, dim_geo_municipio). Build-time
+    # inputs to the serving marts, so they live alongside the curated Gold layer. The SCD2
     # curation dim overrides its own schema → the serving dataset (it is read
     # live by the dashboard) and is gated behind var('enable_curation').
     core:

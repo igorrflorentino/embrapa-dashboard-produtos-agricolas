@@ -62,6 +62,15 @@ const PATTERNS = [
   { level: 'high', id: 'bq-drop',             regex: /\bbq\s+query\b.*\bDROP\s+(TABLE|DATASET|SCHEMA)\b/i,                 reason: 'DROP via bq query deletes BigQuery objects' },
   { level: 'high', id: 'gcloud-delete-proj',   regex: /\bgcloud\s+projects\s+delete\b/,                                   reason: 'gcloud projects delete is catastrophic' },
   { level: 'high', id: 'gcloud-delete-svc',    regex: /\bgcloud\s+run\s+services\s+delete\b/,                             reason: 'gcloud run services delete removes Cloud Run service' },
+  // The ingestion Job, its schedulers, the COMTRADE secret, the runtime SAs and the
+  // alert policies are equally destructive prod surface this repo provisions: deleting
+  // the Job/scheduler silently stops nightly Bronze refresh; the secret breaks Comtrade
+  // ingest (INFRA-2). Mirror the services-delete guard for each.
+  { level: 'high', id: 'gcloud-delete-job',    regex: /\bgcloud\s+run\s+jobs\s+delete\b/,                                 reason: 'gcloud run jobs delete removes the ingestion Job (stops nightly Bronze)' },
+  { level: 'high', id: 'gcloud-delete-sched',  regex: /\bgcloud\s+scheduler\s+jobs\s+delete\b/,                           reason: 'gcloud scheduler jobs delete removes a nightly/reconcile trigger' },
+  { level: 'high', id: 'gcloud-delete-secret', regex: /\bgcloud\s+secrets\s+delete\b/,                                    reason: 'gcloud secrets delete removes a prod secret (e.g. the COMTRADE key)' },
+  { level: 'high', id: 'gcloud-delete-sa',     regex: /\bgcloud\s+iam\s+service-accounts\s+delete\b/,                     reason: 'gcloud iam service-accounts delete removes a runtime SA' },
+  { level: 'high', id: 'gcloud-delete-alert',  regex: /\bgcloud\s+(alpha\s+|beta\s+)?monitoring\s+policies\s+delete\b/,    reason: 'gcloud monitoring policies delete removes an alert policy' },
   { level: 'high', id: 'gcloud-delete-bucket', regex: /\b(gcloud\s+storage|gsutil)\s+(rm|rb)\s+.*gs:\/\//,                 reason: 'deleting GCS bucket or objects' },
   { level: 'high', id: 'gsutil-rm-r',          regex: /\bgsutil\s+(-m\s+)?rm\s+(-r\s+)?gs:\/\//,                          reason: 'recursive GCS deletion' },
 

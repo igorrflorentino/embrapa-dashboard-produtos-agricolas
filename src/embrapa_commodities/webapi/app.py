@@ -11,6 +11,7 @@ gunicorn entrypoint: ``embrapa_commodities.webapi.app:app``.
 from __future__ import annotations
 
 import datetime
+import decimal
 import logging
 import math
 import os
@@ -53,7 +54,12 @@ def _json_safe(obj):
         return bool(obj)
     if isinstance(obj, np.integer):
         return int(obj)
-    if isinstance(obj, np.floating):
+    # decimal.Decimal (a BigQuery NUMERIC/BIGNUMERIC column materializes as one in
+    # df.values.tolist() — the raw-table inspector) is not a float subclass, so the
+    # stdlib encoder would 500 on it. Coerce to float and fall through to the NaN/Inf
+    # guard (a NUMERIC NaN is then mapped to null too). No Gold/serving column is
+    # NUMERIC today, so this is cheap latent insurance (JSON-1).
+    if isinstance(obj, (np.floating, decimal.Decimal)):
         obj = float(obj)  # fall through to the NaN/Inf check below
     if isinstance(obj, float):
         return None if (math.isnan(obj) or math.isinf(obj)) else obj
@@ -91,6 +97,14 @@ def _spa_dir() -> Path | None:
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=None)
     app.json = SafeJSONProvider(app)
+
+    # Bound the request body so a POST endpoint (/municipio-yearly, the curation
+    # writers) can't buffer an arbitrarily large payload before the handler runs;
+    # Flask returns 413 for an oversize body. 1 MiB comfortably fits the largest
+    # legitimate body (the município code list, itself capped at _MAX_MUNICIPIO_CODES)
+    # while closing the defense-in-depth gap behind IAP. Defense in depth, not the
+    # primary guard — IAP gates the front and gunicorn/Cloud Run impose their own limits.
+    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
     # flask-caching needs GCP settings (project/dataset/TTLs). Best-effort so the
     # module still imports for lint/tests without a configured .env; at runtime

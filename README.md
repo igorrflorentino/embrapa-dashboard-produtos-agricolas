@@ -17,16 +17,17 @@ Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scienti
 ```
 IBGE PEVS API    ─┐
 IBGE PAM API     ─┤
-BCB Inflation    ─┤
-BCB Currency     ─┼─► Python (src/embrapa_commodities) — two-phase
-MDIC COMEX CSV   ─┤   extract → GCS raw/ (verbatim) → filter → BigQuery Bronze
+IBGE PPM API     ─┤
+BCB Inflation    ─┼─► Python (src/embrapa_commodities) — two-phase
+BCB Currency     ─┤   extract → GCS raw/ (verbatim) → filter → BigQuery Bronze
+MDIC COMEX CSV   ─┤                                           │
 UN Comtrade API  ─┘                                           │
                                                               ▼
                               dbt-bigquery ──► Silver (typed + chained IPCA)
                                                               │
                                                               ▼
-                  gold_pevs_production · gold_pam_production · gold_comex_flows
-                            · gold_comtrade_flows (physical tables)
+        gold_pevs_production · gold_pam_production · gold_ppm_production
+              · gold_comex_flows · gold_comtrade_flows (physical tables)
                                                               │
                                        dbt core/ + serving/ ──► conformed dims + marts
                                                               │   pre-aggregated (Pushdown Computing)

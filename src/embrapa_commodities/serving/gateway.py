@@ -386,6 +386,11 @@ def fetch_comtrade_overview(
         codes=tuple(cmd_codes),
         flow=flow,
         value_column=value_column,
+        # serving_comtrade_annual is multi-reporter (grain carries reporter_code); pin
+        # Brazil so the banco's OWN overviewTS is Brazil's view, not a sum over every
+        # reporter (which conflates the whole world's trade in the all-reporters years).
+        reporter_column="reporter_iso_a3",
+        reporter_value=settings.comtrade_brazil_iso,
     )
     return run_query(sql, params)
 
@@ -761,6 +766,12 @@ def fetch_product_timeseries(
     table_name, code_col, _, default_value = _product_source(source)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
+    # serving_comtrade_annual is multi-reporter (grain carries reporter_code); pin
+    # Brazil so the banco's OWN productTS is Brazil's view, not a sum over every
+    # reporter (which conflates the whole world's trade in the all-reporters years).
+    # Production/COMEX marts have no reporter dimension → leave the pin unset.
+    reporter_column = "reporter_iso_a3" if source == "un_comtrade" else None
+    reporter_value = settings.comtrade_brazil_iso if source == "un_comtrade" else None
     sql, params = sqlbuild.product_timeseries(
         table,
         code_column=code_col,
@@ -770,6 +781,8 @@ def fetch_product_timeseries(
         codes=tuple(codes),
         uf_codes=tuple(uf_codes),
         flow=flow,
+        reporter_column=reporter_column,
+        reporter_value=reporter_value,
     )
     return run_query(sql, params)
 

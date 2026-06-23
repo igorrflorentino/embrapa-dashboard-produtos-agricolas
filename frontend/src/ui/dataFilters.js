@@ -5,9 +5,8 @@
 //   { basket:    string[]  // product codes;  null = all · [] = none
 //   , flags:     string[]  // quality flags;   null = all · [] = none
 //   , states:    string[]  // UF codes;        null = all · [] = none
-//   , munis:     string[]  // município codes (cascade); narrows topMunis
-//   , muniNames: string[]  // selected município NAMES — the data keys topMunis
-//                          //   by city name, so the engine matches on these
+//   , munis:     string[]  // município codes (cascade); narrows the município cube
+//                          //   (and thus the cube-ranked topMunis), code-keyed
 //   , nations, regions     // cascade parents; their effect reaches the data
 //                          //   through `states` (deselecting prunes states)
 //   , startDate, endDate   // 'YYYY-MM-01'
@@ -138,7 +137,6 @@
     const UF_DATA_T    = snap.ufData     || [];
     const QUALITY_T    = snap.quality    || [];
     const QUALITY_TS_T = snap.qualityTs  || [];
-    const TOP_MUNIS_T  = snap.topMunis   || [];
     const REGIONS_T    = snap.regions    || window.REGIONS || [];
 
     const allProducts = PRODUCTS_T.map(p => p.code);
@@ -186,8 +184,17 @@
     // logic below; the map stays a UF choropleth, narrowed to the chosen sub-UF groups.
     // Fetch the mesh up front (cheap, cached) so geoFacetSets can size each facet's
     // universe and decide whether it genuinely narrows (proper non-empty subset).
-    const _hasGeoKeys = GEO_FACET_KEYS.some((k) => summary[k] != null);
+    // Only a NON-EMPTY facet array is a real narrowing that needs the heavy IBGE mesh:
+    // null (all) and [] (a cascade-emptied child) both mean "no constraint" (see above),
+    // so a trade banco — whose hidden cascade stays at full selection (→ null) — never
+    // triggers a wasted ~5570-row mesh fetch (DATA-2).
+    const _hasGeoKeys = GEO_FACET_KEYS.some((k) => Array.isArray(summary[k]) && summary[k].length);
     const mesh = (_hasGeoKeys && window.geoMesh) ? window.geoMesh() : null;
+    // A real sub-UF narrowing was requested but the mesh hasn't landed yet: treat the
+    // geography as PENDING (below) so the views show loading rather than the un-narrowed
+    // all-UF grid for that transient (GEO-2). Mitigated by main.jsx warming the mesh at
+    // startup, so this is usually already false by the time a filter is applied.
+    const subUfMeshPending = _hasGeoKeys && !mesh;
     const geoFacets = geoFacetSets(summary, mesh);
     // Resolve the active sub-UF/município selection to its município code set (via the
     // mesh) and pass it to the cube, so the Gold scan covers only those cities.
@@ -299,7 +306,9 @@
     // loading state until the cube resolves (then it computes the exact selection),
     // instead of reporting a figure that disregards the user's product filter.
     const geoComboPending =
-      (hasGeoData && basketActive && stateNarrowing && !useCube) || subUfPending;
+      (hasGeoData && basketActive && stateNarrowing && !useCube) ||
+      subUfPending ||
+      (hasGeoData && subUfMeshPending);
 
     // Tile-grid (col/row) join for cube-derived UF rows: the snapshot's ufData is
     // already decorated (decorate.js), but cube rows come straight from the serializer,
@@ -380,26 +389,40 @@
       };
     }).filter(r => r.ufs > 0);
 
-    // top municipios — keep ones whose product is in basket AND uf is in stateSet
-    // AND that survive the município selection. The município picker is an
-    // explicit PARTIAL list of leaders, so matching is by city name (the data
-    // has no município code): a city the picker can address passes only when
-    // selected; a city outside the picker's universe is governed by the UF
-    // filter alone. munis == null (or muniNames absent) ⇒ no município filter.
-    const productNamesInBasket = new Set(
-      selectedProducts.map(c => (PRODUCTS_T.find(p => p.code === c) || {}).name).filter(Boolean)
-    );
-    const muniNameSet = summary.muniNames == null ? null : new Set(summary.muniNames);
-    const muniUniverse = window.MUNI_PICKER_NAMES || new Set();
-    const topMunis = TOP_MUNIS_T
-      .filter(m => productNamesInBasket.has(m.product))
-      .filter(m => !stateSet || stateSet.has(m.uf))
-      .filter(m => {
-        if (!muniNameSet) return true;            // no município filter → all
-        if (!muniUniverse.has(m.city)) return true; // unlisted leader → UF-governed
-        return muniNameSet.has(m.city);           // listed → must be selected
-      })
-      .map(m => ({ ...m })); // values already at municipality level
+    // top municipios — ranked from the REAL basket-scoped município cube
+    // (window.municipioYearly), latest year in window, cityCode→name via the mesh.
+    // The cube is fetched only when a sub-UF/município narrowing is active, so without
+    // a narrowing the list is empty and the Geografia view shows an honest empty-state
+    // (prompting a sub-UF/município filter) rather than a silently blank panel. This
+    // replaces the legacy name-keyed snapshot.topMunis path, which had no backend
+    // producer (always []) and a dead muniNames filter. Values are already at the
+    // município grain and per-family scaled identically to ufData (value mi, q_mass
+    // mil t, q_vol mi m³, q_count mi un), so they slot into the same valueKey/mul.
+    let topMunis = [];
+    if (subUfLoaded && mesh && Array.isArray(muniCube) && muniCube.length) {
+      const meshByCode = {};
+      for (const m of mesh) meshByCode[m.cityCode] = m;
+      const muniYears = muniCube
+        .map(r => r.year)
+        .filter(y => typeof y === 'number' && y >= yearStart && y <= yearEnd);
+      const muniLatest = muniYears.length ? Math.max(...muniYears) : null;
+      if (muniLatest != null) {
+        topMunis = muniCube
+          .filter(r => r.year === muniLatest)
+          .filter(r => !stateSet || stateSet.has(r.uf))
+          // Apply the same facet filter as the UF rollup — robust even if the cube
+          // returns cities beyond the narrowed set (it shouldn't, but don't trust it).
+          .filter(r => { const a = meshByCode[r.cityCode]; return a && muniPassesFacets(a, geoFacets); })
+          .map(r => ({
+            city: (meshByCode[r.cityCode] || {}).cityName || r.cityCode,
+            uf: r.uf,
+            product: '',  // the cube is basket-aggregated (no per-product split here)
+            value: r.value, q_mass: r.q_mass, q_vol: r.q_vol, q_count: r.q_count,
+          }))
+          .sort((a, b) => (b.value || 0) - (a.value || 0))
+          .slice(0, 100);
+      }
+    }
 
     // ── Top products composition (donut / share) ─────────────────────
     // Take last endpoint from per-product TS, keep only basket products.

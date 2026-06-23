@@ -267,7 +267,7 @@ function GeoColumn({
         {!disabledReason && filtered.length === 0 && (
           <div className="fm-geo-empty">Nenhum resultado.</div>
         )}
-        {!disabledReason && filtered.map(item => {
+        {!disabledReason && filtered.slice(0, GEO_RENDER_CAP).map(item => {
           const on = selected.has(item[keyAttr]);
           const meta = getMeta ? getMeta(item) : null;
           return (
@@ -279,6 +279,12 @@ function GeoColumn({
             </label>
           );
         })}
+        {!disabledReason && filtered.length > GEO_RENDER_CAP && (
+          <div className="fm-geo-allnote">
+            Mostrando {GEO_RENDER_CAP} de {filtered.length} — refine a busca para ver os demais
+            (as ações em massa abaixo afetam todos os {filtered.length}).
+          </div>
+        )}
       </div>
 
       <BulkActions
@@ -299,6 +305,19 @@ function GeoColumn({
 // The menu is SCOPED to the active banco (chosen in the sidebar):
 //   • live banco  → full functional filter sections
 //   • soon banco  → read-only preview of its planned filter dimensions
+// A sub-UF facet narrows the data only as a PROPER subset of its universe; a full
+// selection means "no narrowing" → emit null so dataFilters skips it and the share
+// URL omits it (instead of serializing every código). namesObj is the per-level
+// {code: name} map whose key count IS the universe size.
+const _geoArr = (set, namesObj) =>
+  set.size >= Object.keys(namesObj).length ? null : [...set];
+
+// Cap how many geo checkboxes render at once. The município column's universe is ~5570;
+// rendering them all on first open is jank/memory the list rarely needs (RVC-5). Bulk
+// actions still operate on the full search-filtered set — only the visible DOM is capped,
+// and a note nudges the user to search to narrow further.
+const GEO_RENDER_CAP = 300;
+
 // onApply receives a display-summary object the trigger row can render as
 // chips. `value` is the currently-APPLIED raw filter (basket/flags/states/…);
 // the panel seeds itself from it each time it opens, so it always mirrors
@@ -600,12 +619,16 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
         states:    [...states],
         // The four sub-UF levels (two parallel IBGE divisions) + município, all
         // CODE-keyed off the mesh — dataFilters rolls the município cube up to the
-        // active level via /api/geo-mesh. null = "all" (no narrowing at that level).
-        mesos:     [...mesos],
-        micros:    [...micros],
-        inters:    [...inters],
-        imediatas: [...imediatas],
-        munis:     [...munis],
+        // active level via /api/geo-mesh. A FULL selection emits null = "all" (no
+        // narrowing): dataFilters treats null and the full set identically, and the
+        // share-URL codec then omits it instead of serializing every código (which
+        // for the ~5570-município universe would rebuild the very long URL the
+        // POST /api/municipio-yearly path was created to avoid).
+        mesos:     _geoArr(mesos, mesoNames),
+        micros:    _geoArr(micros, microNames),
+        inters:    _geoArr(inters, interNames),
+        imediatas: _geoArr(imediatas, imediataNames),
+        munis:     munis.size >= MUNIS.length ? null : [...munis],
         startDate, endDate,
         valueMin:  vMin,  valueMax: vMax,
         // Fluxo (server-side): omitted when 'all' so the summary/URL stay clean and

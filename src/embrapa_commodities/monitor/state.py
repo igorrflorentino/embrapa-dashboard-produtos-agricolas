@@ -113,8 +113,6 @@ _DIAGNOSIS_PATTERNS: list[tuple[tuple[str, ...], str]] = [
         ("memoryerror", "out of memory"),
         "Out of memory — reduce --chunk-years.",
     ),
-    # Two-condition pattern: both "permission denied" AND "gs://" must appear.
-    # Handled specially in the loop below.
     (
         ("returned no rows", "no rows for the requested"),
         "SIDRA returned empty — the year has probably not been published yet "
@@ -321,8 +319,11 @@ def _summarize_chunk_start(ev: dict[str, Any]) -> str:
 
 
 def _summarize_chunk_end(ev: dict[str, Any]) -> str:
+    # `... or 0`, not get(..., 0): a present-but-null scalar (torn/foreign log line)
+    # would make dict.get return None and crash the f-string format (OBS-2).
     return (
-        f"chunk {ev.get('chunk_id')} ok rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
+        f"chunk {ev.get('chunk_id')} ok "
+        f"rows={ev.get('rows') or 0:,} {ev.get('duration_s') or 0:.1f}s"
     )
 
 
@@ -331,7 +332,7 @@ def _summarize_chunk_error(ev: dict[str, Any]) -> str:
 
 
 def _summarize_state_end(ev: dict[str, Any]) -> str:
-    return f"{ev.get('state')} ok rows={ev.get('rows', 0):,} {ev.get('duration_s', 0):.1f}s"
+    return f"{ev.get('state')} ok rows={ev.get('rows') or 0:,} {ev.get('duration_s') or 0:.1f}s"
 
 
 def _summarize_state_error(ev: dict[str, Any]) -> str:
@@ -347,7 +348,18 @@ def _summarize_retry(ev: dict[str, Any]) -> str:
 
 
 def _summarize_pipeline_end(ev: dict[str, Any]) -> str:
-    return f"done rows={ev.get('rows_total', 0):,} dur={ev.get('duration_s', 0):.1f}s"
+    # The running row total lives in MonitorState.rows_total / the progress bar, NOT on
+    # this event — pipeline_run/chunked_run emit duration + chunks_ok/chunks_failed. Show
+    # rows only when a producer actually carries rows_total (don't fabricate a rows=0),
+    # and the chunk tally otherwise. `... or 0` guards a present-but-null scalar (OBS-1/2).
+    parts: list[str] = []
+    if ev.get("rows_total") is not None:
+        parts.append(f"rows={ev.get('rows_total') or 0:,}")
+    ok, failed = ev.get("chunks_ok"), ev.get("chunks_failed")
+    if ok is not None or failed is not None:
+        parts.append(f"chunks {ok or 0} ok/{failed or 0} failed")
+    parts.append(f"dur={ev.get('duration_s') or 0:.1f}s")
+    return "done " + " ".join(parts)
 
 
 _SUMMARIZERS: dict[str, Any] = {

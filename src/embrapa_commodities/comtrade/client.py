@@ -380,7 +380,19 @@ def fetch_chunk_adaptive(
     than return the truncated frame and let it be archived as if complete, this
     emits a ``truncated`` event and raises :class:`ComtradeTruncationError` so the
     chunk is left un-archived for a later run to re-attempt (not expected within
-    the 0801+44 scope)."""
+    the 0801+44 scope).
+
+    PRECONDITION — ``years`` must be a single year: the splitter divides only
+    reporters → flows → cmd_codes, NOT years (sync_raw always calls per-year, so a
+    year split would never help). If a future caller passed a multi-year list and a
+    single (reporter, flow, cmd, multi-year) call hit the cap, it would raise a FALSE
+    ComtradeTruncationError ("un-splittable") even though splitting by year would
+    resolve it. The assert pins the invariant so that change can't silently lose data
+    (COMTRADE-1)."""
+    assert len(years) == 1, (
+        "fetch_chunk_adaptive splits reporters/flows/cmd_codes but NOT years; pass a "
+        f"single year (got {years!r}) or add 'years' to the split dimensions first."
+    )
     df = fetch_chunk(
         base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
     )

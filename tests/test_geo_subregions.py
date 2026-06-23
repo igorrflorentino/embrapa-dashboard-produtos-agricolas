@@ -105,6 +105,40 @@ def test_serialize_municipio_yearly_empty():
     assert serializers.serialize_municipio_yearly(None) == {"municipioYearly": []}
 
 
+def test_serialize_municipio_yearly_coerces_nan_to_zero():
+    """A município producing only a value-less stock (NULL total_value), or a family with
+    no rows, arrives as NaN/None — _num must map it to 0.0 (JSON-safe), never NaN (TEST-4)."""
+    import numpy as np
+
+    from embrapa_commodities.webapi import serializers
+
+    df = pd.DataFrame(
+        [
+            {
+                "reference_year": 2023,
+                "city_code": "1500602",
+                "state_acronym": "PA",
+                "total_value": np.nan,  # value-less stock
+                "q_mass": np.nan,
+                "q_vol": np.nan,
+                "q_count": 3e6,
+            }
+        ]
+    )
+    row = serializers.serialize_municipio_yearly(df)["municipioYearly"][0]
+    assert row["value"] == 0.0
+    assert row["q_mass"] == 0.0
+    assert row["q_vol"] == 0.0
+    assert row["q_count"] == 3.0  # the one present family still scales (÷1e6)
+
+
+def test_serialize_geo_mesh_empty_frame():
+    """An empty DataFrame (not just None) → {municipios: []}, never a NaN-bearing row (TEST-4)."""
+    from embrapa_commodities.webapi import serializers
+
+    assert serializers.serialize_geo_mesh(pd.DataFrame()) == {"municipios": []}
+
+
 def test_serialize_geo_mesh_shape_and_blank_levels():
     from embrapa_commodities.webapi import serializers
 
@@ -162,10 +196,20 @@ def test_geo_municipio_yearly_threads_basket_to_gateway(monkeypatch):
 
     monkeypatch.setattr(seam.gateway, "fetch_production_by_municipio_yearly", fake)
     seam.geo_municipio_yearly(
-        "ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"basket": ["3405"]}
+        "ibge_pevs",
+        {"currency": "BRL", "correction": "IPCA"},
+        {"basket": ["3405"], "cityCodes": ["1500602", "1500701"]},
     )
     assert captured["product_codes"] == ("3405",)
     assert captured["source"] == "ibge_pevs"
+    # The convention→deflation column mapping must thread through this seam (TEST-3):
+    # IPCA/BRL resolves to the real-IPCA-BRL column, NOT the nominal val_yearfx_usd —
+    # else the município geography would silently show the wrong (nominal) series.
+    assert captured["value_column"] == "val_real_ipca_brl"
+    # And the city scoping must reach the gateway (cost guard + correct selection).
+    # (The default value_column would be the nominal val_yearfx_usd, so asserting the
+    # real-IPCA-BRL column above proves the convention is honored, not trivially fixed.)
+    assert tuple(captured["city_codes"]) == ("1500602", "1500701")
 
 
 def test_geo_municipio_yearly_none_for_non_geo_banco():
