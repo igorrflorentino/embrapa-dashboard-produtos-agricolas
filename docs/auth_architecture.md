@@ -295,7 +295,11 @@ Console → Security → IAP ("Get JWT audience code") for the Cloud Run resourc
 
 ## Credential Management
 
-**There are no long-lived JSON keyfiles in this architecture.** Developers
+**There are no long-lived JSON keyfiles in the data pipeline or dashboard
+runtime.** (One acknowledged exception: the optional `sa-claude-code-web-dev`
+sandbox SA created by `scripts/setup-claude-code-web-sa.sh` for the Claude Code
+web UI uses a long-lived key — scoped read-only to data plus a dev-only write
+sandbox, never prod write. Rotate it at least every 90 days.) Developers
 authenticate with their personal Google account (`gcloud auth
 application-default login`) and impersonate `sa-secret-reader-prod` for
 their daily work.

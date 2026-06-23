@@ -84,7 +84,9 @@ def _year_bounds(
 # ``state_acronym`` is the UF-of-origin column the COMEX trade marts expose, used
 # by the optional UF filter on the flow/partner readers (the filter VALUES stay
 # bound — only this identifier is interpolated).
-ALLOWED_FILTER_COLUMNS = frozenset({"product_code", "ncm_code", "cmd_code", "state_acronym"})
+ALLOWED_FILTER_COLUMNS = frozenset(
+    {"product_code", "ncm_code", "cmd_code", "state_acronym", "city_code"}
+)
 
 # Dimension columns the trade builders interpolate into SELECT / GROUP BY (origin,
 # destination, partner — which differ by source: UF/country for COMEX,
@@ -312,6 +314,76 @@ def production_by_uf_yearly(
         order by state_acronym, reference_year
     """
     return sql, params
+
+
+def production_by_municipio_yearly(
+    table: str,
+    *,
+    year_start: int | None = None,
+    year_end: int | None = None,
+    product_codes: Sequence[str] = (),
+    city_codes: Sequence[str] = (),
+    value_column: str = "val_real_ipca_brl",
+) -> tuple[str, list]:
+    """Production by (município, year) straight from ``gold_<source>_production``,
+    which is ALREADY município-grained — backs the sub-UF + live-município geography
+    cascade.
+
+    Município is the finest grain and an on-demand/gated level, so it reads Gold
+    DIRECTLY (basket-scoped + the gateway's ``maximum_bytes_billed`` guard) rather
+    than via a redundant ~município-grain serving mart that would nearly duplicate
+    Gold. ``city_codes`` is the KEY cost control: the client resolves the active
+    sub-UF/município selection to its município code set via the cached mesh and
+    passes it here, so a one-mesorregião narrowing scans ~tens of cities, not all
+    ~5570 — the full município×year grid is ~146k rows, far too heavy to ship whole.
+    The client then rolls these (already-narrowed) city rows up to the selected level.
+    Quantities split by ``family`` so they are only ever summed WITHIN a unit family —
+    identical rule to :func:`production_by_uf_yearly`."""
+    value_column = _validate_column(value_column, ALLOWED_VALUE_COLUMNS, "value_column")
+    conditions: list[str] = []
+    params: list = []
+    _year_bounds(conditions, params, year_start, year_end)
+    _in_array(conditions, params, "product_code", "product_codes", product_codes)
+    _in_array(conditions, params, "city_code", "city_codes", city_codes)
+    sql = f"""
+        select
+            city_code,
+            state_acronym,
+            reference_year,
+            sum({value_column})      as total_value,
+            sum(case when family = 'massa'    then qty_base end) as q_mass,
+            sum(case when family = 'volume'   then qty_base end) as q_vol,
+            sum(case when family = 'contagem' then qty_base end) as q_count
+        from `{table}`
+        {_where(conditions)}
+        group by city_code, state_acronym, reference_year
+        order by city_code, reference_year
+    """
+    return sql, params
+
+
+def geo_municipio_mesh(table: str) -> tuple[str, list]:
+    """The full IBGE municipal territorial mesh (``dim_geo_municipio``) — every
+    município with its UF + grande região AND BOTH sub-UF divisions (classic
+    mesorregião/microrregião and current intermediária/imediata).
+
+    Static reference (~5570 rows), served once and cached: the SPA's geo cascade
+    resolves ``city_code`` → ancestry, builds the per-level option lists from it,
+    and aggregates the município cube up to the selected level. No params (the whole
+    mesh is small and shared across bancos/conventions)."""
+    sql = f"""
+        select
+            city_code, city_name,
+            uf_code, state_acronym, state_name,
+            region_code, region_abbrev, region_name,
+            meso_code, meso_name,
+            micro_code, micro_name,
+            intermediaria_code, intermediaria_name,
+            imediata_code, imediata_name
+        from `{table}`
+        order by city_code
+    """
+    return sql, []
 
 
 def productivity(

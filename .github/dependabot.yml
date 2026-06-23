@@ -42,3 +42,21 @@ updates:
       npm:
         patterns:
           - "*"
+
+  # Cloud Run image base layers (deploy/*/Dockerfile). Both pin python:3.12-slim /
+  # node:22-slim by floating tag; the docker updater bumps the pinned base (and,
+  # once digest-pinned, the @sha256 digest) so a base-image CVE surfaces as a PR
+  # instead of going stale — the container analogue of the pip/npm updaters above.
+  # One updater per Dockerfile directory.
+  - package-ecosystem: docker
+    directory: /deploy/webapi
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+  - package-ecosystem: docker
+    directory: /deploy/ingestion
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

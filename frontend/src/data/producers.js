@@ -104,8 +104,14 @@ window.geoYearly = function geoYearly(bancoId, summary) {
   const conv = window.dataStore && window.dataStore.conv
     ? window.dataStore.conv()
     : { currency: 'BRL', correction: 'IPCA' };
+  // Flow (export/import) is a SERVER-SIDE filter (the trade marts are pre-aggregated
+  // over flow), so it belongs in the cube's cache key + request exactly like the
+  // snapshot's — without it a COMEX basket renders all-flows VALOR TOTAL/map while
+  // the rest of the app is flow-filtered. 'all'/absent → omitted (sum every flow).
+  const flow = window.dataStore && window.dataStore.flow ? window.dataStore.flow() : 'all';
+  const flowParam = flow && flow !== 'all' ? flow : undefined;
   const codes = filterCodes(summary); // undefined = all products; comma list otherwise
-  const key = `geoYearly:${bancoId}:${conv.currency}|${conv.correction}:${codes ?? '*'}`;
+  const key = `geoYearly:${bancoId}:${conv.currency}|${conv.correction}|${flow}:${codes ?? '*'}`;
   ensure(
     key,
     () => `${API}/geo-yearly?${qs({
@@ -113,10 +119,56 @@ window.geoYearly = function geoYearly(bancoId, summary) {
       codes,
       currency: conv.currency,
       correction: conv.correction,
+      flow: flowParam,
     })}`,
   );
   const data = get(key);
   return data && Array.isArray(data.ufYearly) ? data.ufYearly : null;
+};
+
+// ── IBGE municipal mesh universe (sub-UF + município cascade) ──────────────────
+// One-shot fetch of every município → UF + grande região + BOTH sub-UF divisions
+// (classic meso/micro, 2017 intermediária/imediata). Banco-agnostic + static, so it
+// has no convention/basket in its key — fetched once and cached. Backs the geo
+// cascade's sub-UF + município option lists AND the cityCode→ancestry map that
+// dataFilters uses to roll the município cube up to the selected level. Returns the
+// municipios array (or null until the fetch lands).
+window.geoMesh = function geoMesh() {
+  const key = 'geoMesh';
+  ensure(key, () => `${API}/geo-mesh`);
+  const data = get(key);
+  return data && Array.isArray(data.municipios) ? data.municipios : null;
+};
+
+// Basket-scoped per-(município, year) cube — the FINEST geography grain. Mirrors
+// window.geoYearly (keyed by banco + convention + basket), but at município grain so
+// the client can roll it up to whichever sub-UF level is active (via geoMesh). No
+// flow (production bancos have none). Returns null until loaded; an empty array for a
+// banco with no município grain (COMEX/COMTRADE → the BFF returns []).
+window.municipioYearly = function municipioYearly(bancoId, summary, cityCodes) {
+  const b = window.bancoById && window.bancoById(bancoId);
+  if (!b || !(b.provides || []).includes('geo')) return null;
+  const conv = window.dataStore && window.dataStore.conv
+    ? window.dataStore.conv()
+    : { currency: 'BRL', correction: 'IPCA' };
+  const codes = filterCodes(summary); // undefined = all products; comma list otherwise
+  // cityCodes = the município code set of the active sub-UF/município selection
+  // (resolved client-side from the mesh). Passing it scopes the Gold scan to those
+  // cities — a one-mesorregião narrowing fetches ~tens of cities, not all ~5570.
+  const cc = (cityCodes && cityCodes.length) ? cityCodes.join(',') : undefined;
+  const key = `municipioYearly:${bancoId}:${conv.currency}|${conv.correction}:${codes ?? '*'}:${cc ?? '*'}`;
+  ensure(
+    key,
+    () => `${API}/municipio-yearly?${qs({
+      banco: bancoId,
+      codes,
+      cityCodes: cc,
+      currency: conv.currency,
+      correction: conv.correction,
+    })}`,
+  );
+  const data = get(key);
+  return data && Array.isArray(data.municipioYearly) ? data.municipioYearly : null;
 };
 
 // ── cross-source comparable series ────────────────────────────────────────────

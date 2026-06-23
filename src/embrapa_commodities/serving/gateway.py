@@ -230,6 +230,56 @@ def fetch_production_by_uf_yearly(
     return run_query(sql, params)
 
 
+# PEVS-shaped sources whose Gold is município-grained (carry city_code + family +
+# qty_base). COMEX (UF origin only) and COMTRADE (international) have no município
+# grain, so the município geo cube does not apply to them.
+_MUNICIPIO_SOURCES = frozenset({"ibge_pevs", "ibge_pam", "ibge_ppm"})
+
+
+@cache.memoize()
+def fetch_production_by_municipio_yearly(
+    year_start: int | None = None,
+    year_end: int | None = None,
+    product_codes: Sequence[str] = (),
+    city_codes: Sequence[str] = (),
+    value_column: str = "val_real_ipca_brl",
+    source: str = "ibge_pevs",
+):
+    """Production by (município, year) for a PEVS-shaped source, straight from
+    gold_<source>_production (already município-grained) — backs the sub-UF +
+    live-município geography cascade. Reads Gold directly (basket + ``city_codes``
+    scoped + the run_query maximum_bytes_billed guard) since município is the finest,
+    on-demand grain and a mart would near-duplicate Gold. ``city_codes`` is what keeps
+    a narrowed selection cheap (the client passes only the selected municípios' codes).
+    ``None`` for a source with no município grain (COMEX/COMTRADE)."""
+    if source not in _MUNICIPIO_SOURCES:
+        return None
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", _GOLD_TABLE[source])
+    sql, params = sqlbuild.production_by_municipio_yearly(
+        table,
+        year_start=year_start,
+        year_end=year_end,
+        product_codes=tuple(product_codes),
+        city_codes=tuple(city_codes),
+        value_column=value_column,
+    )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_geo_municipio_mesh():
+    """The full IBGE municipal mesh (``dim_geo_municipio``): every município → its UF
+    + grande região + BOTH sub-UF divisions (classic meso/micro, 2017
+    intermediária/imediata). Static (~5570 rows); served once and memoized so the
+    SPA's geo cascade builds its per-level option lists + the city→ancestry map from
+    a single cached read."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", "dim_geo_municipio")
+    sql, params = sqlbuild.geo_municipio_mesh(table)
+    return run_query(sql, params)
+
+
 @cache.memoize()
 def fetch_productivity(
     product_code: str,

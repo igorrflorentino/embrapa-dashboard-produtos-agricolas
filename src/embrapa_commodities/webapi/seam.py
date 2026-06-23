@@ -423,13 +423,48 @@ def geo_yearly(banco_id: str, conv: dict, summary: dict | None = None) -> pd.Dat
         return None
     value_col, _ = effective_value_column(banco, conv)
     codes = _basket(summary)
+    # Flow (export/import) is server-side here too — without it the basket cube would
+    # sum every flow while the snapshot honours the selected direction (a wrong,
+    # internally-inconsistent VALOR TOTAL / map for a COMEX basket). None = every flow.
+    flow = _flow_from_summary(summary)
     if banco_id == "mdic_comex":
-        df = gateway.fetch_comex_by_uf_yearly(ncm_codes=codes, value_column=value_col)
+        df = gateway.fetch_comex_by_uf_yearly(ncm_codes=codes, value_column=value_col, flow=flow)
         if df is not None:
             df = df.rename(columns={"total_value_usd": "total_value"})
         return df
     return gateway.fetch_production_by_uf_yearly(
         product_codes=codes, value_column=value_col, source=banco_id
+    )
+
+
+def geo_mesh() -> pd.DataFrame | None:
+    """The IBGE municipal territorial mesh (dim_geo_municipio) — banco-agnostic.
+    Every município → UF + grande região + BOTH sub-UF divisions (classic
+    meso/micro, 2017 intermediária/imediata). Backs the SPA geo cascade's sub-UF +
+    município option lists + the city→ancestry map. ``None`` if the dim isn't built."""
+    return gateway.fetch_geo_municipio_mesh()
+
+
+def geo_municipio_yearly(
+    banco_id: str, conv: dict, summary: dict | None = None
+) -> pd.DataFrame | None:
+    """Per-(município, year) cube for the SELECTED basket — the FINEST geography
+    grain, backing the sub-UF + live-município cascade. The client rolls these city
+    rows up to whichever level is active (meso/micro/intermediária/imediata/UF) via
+    ``geo_mesh()``. Same value column as snapshot/``geo_yearly`` so the basis matches.
+    ``None`` for a banco with no município grain (COMEX is UF-origin, COMTRADE
+    international)."""
+    banco = banco_by_id(banco_id)
+    if banco_id not in _LIVE_SOURCES or not banco or "geo" not in banco.provides:
+        return None
+    value_col, _ = effective_value_column(banco, conv)
+    codes = _basket(summary)
+    # The client resolves the active sub-UF/município selection to its município code
+    # set (via the cached mesh) and sends it as cityCodes, so a narrowed selection
+    # scans only those cities — never the whole ~5570-município grid.
+    city_codes = tuple((summary or {}).get("cityCodes") or ())
+    return gateway.fetch_production_by_municipio_yearly(
+        product_codes=codes, city_codes=city_codes, value_column=value_col, source=banco_id
     )
 
 

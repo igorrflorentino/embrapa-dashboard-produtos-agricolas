@@ -46,7 +46,7 @@ Critical vulnerabilities affecting production data will be prioritized.
 
 A summary of the implemented practices. Full technical details in [`ARCHITECTURE.md` → Security and Authentication](ARCHITECTURE.md#security-and-authentication) and [`docs/iam_setup.md`](docs/iam_setup.md).
 
-- **Authentication**: Service Account Impersonation (OAuth 2.0) — no distributed JSON keyfile. Details in [`docs/auth_architecture.md`](docs/auth_architecture.md).
+- **Authentication**: Service Account Impersonation (OAuth 2.0) — no distributed JSON keyfile in the data pipeline or dashboard runtime. Details in [`docs/auth_architecture.md`](docs/auth_architecture.md). **Single accepted exception:** the `sa-claude-code-web-dev` sandbox SA ([`scripts/setup-claude-code-web-sa.sh`](scripts/setup-claude-code-web-sa.sh)) uses a long-lived JSON key, scoped read-only to data plus a dev-only write sandbox (no prod write). Rotate it at least every 90 days (delete the old key, re-run the setup script).
 - **Credential protection**: gitleaks in pre-commit, a comprehensive `.gitignore`, sensitive variables filtered out of the logs.
 - **Infrastructure**: Cloud Run with mandatory IAM, 4 Service Accounts with minimal roles, budget alerts.
 - **Dependencies**: deterministic lockfile (`uv.lock`), `--frozen` in CI, dev/runtime separation.

@@ -57,6 +57,39 @@ models:
               arguments:
                 values: ["N", "NE", "CO", "SE", "S"]
 
+  - name: dim_geo_municipio
+    description: |
+      Conformed MUNICIPALITY dimension (~5570 rows, one per IBGE município).
+      Maps each 7-digit city_code (the SIDRA n6 code Gold carries) to BOTH IBGE
+      sub-UF divisions — classic mesorregião→microrregião and current (2017)
+      região intermediária→imediata — plus the shared UF + grande região. Backs
+      the dashboard's sub-UF geography filters and the live município level; the
+      serving município cube joins gold_<source>_production on city_code.
+      meso_*/micro_* are intentionally blank for municípios created after the
+      classic division froze (warn-tested in the seed).
+    columns:
+      - name: city_code
+        description: "7-digit IBGE município code. Primary key (~5570 rows)."
+        tests:
+          - not_null
+          - unique
+      - name: city_name
+        tests: [not_null]
+      - name: state_acronym
+        description: "Two-letter UF; every município resolves to a real UF in dim_geo_br."
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_geo_br')
+                field: state_acronym
+      - name: region_abbrev
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["N", "NE", "CO", "SE", "S"]
+
   - name: dim_code_industrialization_scd2
     description: |
       Type-2 SCD derived from research_inputs.code_industrialization_log — the
@@ -96,3 +129,11 @@ models:
       - name: is_current
         description: "True when valid_to IS NULL (the live classification)."
         tests: [not_null]
+      - name: edited_by
+        description: "Curation author (IAP email) captured at write time — the audit-trail identity."
+        tests:
+          # warn (not error): a soft data-quality signal on an append-only audit log —
+          # a null author shouldn't hard-fail a build, but it must surface.
+          - not_null:
+              config:
+                severity: warn

@@ -129,67 +129,11 @@ const STATES = [
   { uf: 'SC', name: 'Santa Catarina',      region: 'S'  },
 ];
 
-// Município universe — HONEST sourcing (#24): the real picker universe is
-// resolved PER BANCO from the active snapshot's `topMunis` cities (see `MUNIS`
-// inside the component). The frozen list below is only a labelled SAMPLE of
-// leading PEVS municipalities, used purely as a graceful fallback for offline
-// dev/preview — it is NEVER presented as the full universe. In production the
-// município endpoint is not wired yet (decorate.js: topMunis defaults to []),
-// so the live snapshot yields no cities and the Municípios column is GATED
-// behind an honest "disponível em breve" disabled state rather than parading
-// this 40-row sample as the real 5 570-município universe.
-const MUNI_SAMPLE = [
-  // Norte
-  { code: '1302603', name: 'Manaus',         uf: 'AM' },
-  { code: '1501402', name: 'Belém',          uf: 'PA' },
-  { code: '1503606', name: 'Itacoatiara',    uf: 'AM' },
-  { code: '1507300', name: 'Marabá',         uf: 'PA' },
-  { code: '1506807', name: 'Santarém',       uf: 'PA' },
-  { code: '1504208', name: 'Parintins',      uf: 'AM' },
-  { code: '1100205', name: 'Porto Velho',    uf: 'RO' },
-  { code: '1100122', name: 'Cacoal',         uf: 'RO' },
-  { code: '1200401', name: 'Rio Branco',     uf: 'AC' },
-  { code: '1600303', name: 'Macapá',         uf: 'AP' },
-  { code: '1400100', name: 'Boa Vista',      uf: 'RR' },
-  { code: '1721000', name: 'Palmas',         uf: 'TO' },
-  { code: '1505031', name: 'Oriximiná',      uf: 'PA' },
-  // Nordeste
-  { code: '2111300', name: 'São Luís',       uf: 'MA' },
-  { code: '2105302', name: 'Imperatriz',     uf: 'MA' },
-  { code: '2101400', name: 'Bacabal',        uf: 'MA' },
-  { code: '2211001', name: 'Teresina',       uf: 'PI' },
-  { code: '2927408', name: 'Salvador',       uf: 'BA' },
-  { code: '2304400', name: 'Fortaleza',      uf: 'CE' },
-  { code: '2611606', name: 'Recife',         uf: 'PE' },
-  { code: '2102309', name: 'Caxias',         uf: 'MA' },
-  // Centro-Oeste
-  { code: '5103403', name: 'Cuiabá',         uf: 'MT' },
-  { code: '5108402', name: 'Sinop',          uf: 'MT' },
-  { code: '5002704', name: 'Campo Grande',   uf: 'MS' },
-  { code: '5208707', name: 'Goiânia',        uf: 'GO' },
-  { code: '5300108', name: 'Brasília',       uf: 'DF' },
-  // Sudeste
-  { code: '3550308', name: 'São Paulo',      uf: 'SP' },
-  { code: '3304557', name: 'Rio de Janeiro', uf: 'RJ' },
-  { code: '3106200', name: 'Belo Horizonte', uf: 'MG' },
-  { code: '3205309', name: 'Vitória',        uf: 'ES' },
-  { code: '3157807', name: 'Uberlândia',     uf: 'MG' },
-  // Sul
-  { code: '4106902', name: 'Curitiba',       uf: 'PR' },
-  { code: '4314902', name: 'Porto Alegre',   uf: 'RS' },
-  { code: '4205407', name: 'Florianópolis',  uf: 'SC' },
-  { code: '4106407', name: 'Cascavel',       uf: 'PR' },
-  { code: '4307005', name: 'Erechim',        uf: 'RS' },
-  { code: '4304572', name: 'Caxias do Sul',  uf: 'RS' },
-  { code: '4209102', name: 'Lages',          uf: 'SC' },
-];
-
-// window.MUNI_PICKER_NAMES (read by dataFilters.js to decide which município
-// names the picker can address) is published PER BANCO from inside the
-// component, since the addressable universe is now snapshot-derived rather than
-// a frozen module-level list. Seed it to empty so that — before any banco opens
-// the menu — no município name is wrongly claimed as picker-addressable.
-window.MUNI_PICKER_NAMES = new Set();
+// The município universe is now the IBGE territorial mesh (/api/geo-mesh, via
+// window.geoMesh) — real, code-keyed, ~5570 municípios with their full sub-UF
+// ancestry — resolved inside the component (see `MUNIS`). The old frozen 40-row
+// MUNI_SAMPLE and the name-keyed window.MUNI_PICKER_NAMES path were removed with
+// the gated, snapshot-topMunis approach they served.
 
 // ----- icons ------------------------------------------------------
 const I = {
@@ -409,48 +353,36 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       .map(p => ({ code: p.code, name: p.name, unit: p.unit, family: p.family }));
   }, [banco]);
 
-  // Município universe — resolved PER BANCO from the live snapshot's `topMunis`
-  // cities (#24). The snapshot keys municípios by NAME (no município code in the
-  // data), so the picker keys on the city name too — which is exactly what the
-  // engine matches on (summary.muniNames). When the snapshot carries no município
-  // rows — the real production case, since the município endpoint isn't wired and
-  // topMunis defaults to [] (decorate.js) — `MUNIS` is empty and `muniUniverseLive`
-  // is false, so the column renders an honest "disponível em breve" disabled state
-  // instead of presenting the frozen MUNI_SAMPLE as the real universe. The sample
-  // is used only as an offline-dev fallback when there is no dataStore at all.
-  const { MUNIS, muniUniverseLive } = useMemo(() => {
-    const snap = (window.dataStore && window.dataStore.get && window.dataStore.get(banco))
-              || (window.snapshotFor && window.snapshotFor(banco)) || null;
-    const cities = (snap && Array.isArray(snap.topMunis)) ? snap.topMunis : null;
-    if (cities && cities.length) {
-      // De-dupe the snapshot's leader rows into a (name, uf) município list.
-      const seen = new Set();
-      const list = [];
-      cities.forEach(m => {
-        if (!m || !m.city || seen.has(m.city)) return;
-        seen.add(m.city);
-        list.push({ code: m.city, name: m.city, uf: m.uf });
-      });
-      return { MUNIS: list, muniUniverseLive: true };
-    }
-    // No live município universe: fall back to the labelled sample ONLY when
-    // there's no dataStore (offline dev). With a dataStore present but empty,
-    // keep MUNIS empty so the column is honestly gated as "em breve".
-    const offline = !(window.dataStore && window.dataStore.get);
-    return { MUNIS: offline ? MUNI_SAMPLE : [], muniUniverseLive: false };
-  }, [banco]);
+  // Município + sub-UF universe — the IBGE territorial mesh (/api/geo-mesh, via
+  // window.geoMesh). Every município → its 7-digit city_code + UF + grande região +
+  // BOTH sub-UF divisions (classic mesorregião/microrregião, 2017 região
+  // intermediária/imediata). This makes município a REAL, code-keyed filter (the old
+  // path was name-keyed off the snapshot's topMunis and gated off in prod) and feeds
+  // the four sub-UF cascade levels. A UF-origin banco (geoLevel !== 'municipio', e.g.
+  // COMEX) has no city_code, so the mesh is not loaded and only nação ▸ região ▸ UF
+  // render. The mesh is static + cached; main.jsx's resource subscription re-renders
+  // this menu once it lands, so the first open may briefly show empty sub-UF columns.
+  const mesh = (showMunis && window.geoMesh) ? window.geoMesh() : null;
+  const { MUNIS, mesoNames, microNames, interNames, imediataNames } = useMemo(() => {
+    const meso = {}, micro = {}, inter = {}, imediata = {};
+    const list = (mesh || []).map(m => {
+      const mc = (m.meso && m.meso.code) || '';
+      const cc = (m.micro && m.micro.code) || '';
+      const ic = (m.intermediaria && m.intermediaria.code) || '';
+      const ec = (m.imediata && m.imediata.code) || '';
+      if (mc) meso[mc] = m.meso.name;
+      if (cc) micro[cc] = m.micro.name;
+      if (ic) inter[ic] = m.intermediaria.name;
+      if (ec) imediata[ec] = m.imediata.name;
+      return { code: m.cityCode, name: m.cityName, uf: m.uf,
+               meso: mc, micro: cc, intermediaria: ic, imediata: ec };
+    });
+    return { MUNIS: list, mesoNames: meso, microNames: micro, interNames: inter, imediataNames: imediata };
+  }, [mesh]);
 
-  // Publish the addressable município universe for dataFilters.js. A município
-  // the picker can't address stays governed by the UF filter alone (never wrongly
-  // excluded). Keyed by NAME — the same key the engine matches on.
-  React.useEffect(() => {
-    window.MUNI_PICKER_NAMES = new Set(MUNIS.map(m => m.name));
-  }, [MUNIS]);
-
-  // The município dimension is a REAL filter slice only when the column is both
-  // declared (geoLevel === 'municipio') AND backed by a live universe. When the
-  // universe isn't live the column is gated/disabled, so it must never count as
-  // an active geographic slice in the summary/chips (else "X de 0 municípios").
+  // município is LIVE once the mesh has loaded (it carries the full ~5570 universe);
+  // until then (or for a UF-origin banco) the columns are gated.
+  const muniUniverseLive = MUNIS.length > 0;
   const muniSliceable = showMunis && muniUniverseLive;
 
   // Period bounds + quick-ranges from the ACTIVE banco's snapshot (same source as
@@ -473,9 +405,27 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     nations,  setNations,
     regions,  setRegions,
     states,   setStates,
+    mesos,    setMesos,
+    micros,   setMicros,
+    inters,   setInters,
+    imediatas, setImediatas,
     munis,    setMunis,
-    eligibleRegions, eligibleStates, eligibleMunis,
+    eligibleRegions, eligibleStates,
+    eligibleMesos, eligibleMicros, eligibleInters, eligibleImediatas,
+    eligibleMunis,
   } = window.useGeoCascade({ regionsUniverse: FM_REGIONS, statesUniverse: STATES, munisUniverse: MUNIS });
+
+  // The four sub-UF levels arrive from the engine as arrays of CODES; GeoColumn
+  // wants {code, name} items, so decorate each with its mesh name (falling back to
+  // the code). Memoized on the eligible list + the name map.
+  const mesoItems = useMemo(
+    () => eligibleMesos.map(c => ({ code: c, name: mesoNames[c] || c })), [eligibleMesos, mesoNames]);
+  const microItems = useMemo(
+    () => eligibleMicros.map(c => ({ code: c, name: microNames[c] || c })), [eligibleMicros, microNames]);
+  const interItems = useMemo(
+    () => eligibleInters.map(c => ({ code: c, name: interNames[c] || c })), [eligibleInters, interNames]);
+  const imediataItems = useMemo(
+    () => eligibleImediatas.map(c => ({ code: c, name: imediataNames[c] || c })), [eligibleImediatas, imediataNames]);
 
   // search strings, one per multi-select
   const [qProducts, setQProducts] = useState('');
@@ -483,6 +433,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [qNations,  setQNations]  = useState('');
   const [qRegions,  setQRegions]  = useState('');
   const [qStates,   setQStates]   = useState('');
+  const [qMesos,    setQMesos]    = useState('');
+  const [qMicros,   setQMicros]   = useState('');
+  const [qInters,   setQInters]   = useState('');
+  const [qImediatas, setQImediatas] = useState('');
   const [qMunis,    setQMunis]    = useState('');
 
   // period — seeded from the active banco's bounds (the open-effect below
@@ -515,6 +469,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       setNations( v.nations != null ? new Set(v.nations) : new Set(['BR']));
       setRegions( v.regions != null ? new Set(v.regions) : new Set(FM_REGIONS.map(r => r.id)));
       setStates(  v.states  != null ? new Set(v.states)  : new Set(STATES.map(s => s.uf)));
+      setMesos(    v.mesos     != null ? new Set(v.mesos)     : new Set(Object.keys(mesoNames)));
+      setMicros(   v.micros    != null ? new Set(v.micros)    : new Set(Object.keys(microNames)));
+      setInters(   v.inters    != null ? new Set(v.inters)    : new Set(Object.keys(interNames)));
+      setImediatas(v.imediatas != null ? new Set(v.imediatas) : new Set(Object.keys(imediataNames)));
       setMunis(   v.munis   != null ? new Set(v.munis)   : new Set(MUNIS.map(m => m.code)));
       const sd = v.startDate || `${yearStart}-01`;
       const ed = v.endDate   || `${yearEnd}-12`;
@@ -640,10 +598,14 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
         nations:   [...nations],
         regions:   [...regions],
         states:    [...states],
+        // The four sub-UF levels (two parallel IBGE divisions) + município, all
+        // CODE-keyed off the mesh — dataFilters rolls the município cube up to the
+        // active level via /api/geo-mesh. null = "all" (no narrowing at that level).
+        mesos:     [...mesos],
+        micros:    [...micros],
+        inters:    [...inters],
+        imediatas: [...imediatas],
         munis:     [...munis],
-        // Selected município NAMES (the data keys by city name, not code) so
-        // the engine can actually narrow topMunis by the município selection.
-        muniNames: [...munis].map(c => (MUNIS.find(m => m.code === c) || {}).name).filter(Boolean),
         startDate, endDate,
         valueMin:  vMin,  valueMax: vMax,
         // Fluxo (server-side): omitted when 'all' so the summary/URL stay clean and
@@ -661,12 +623,17 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     setNations(new Set(['BR']));
     setRegions(new Set(FM_REGIONS.map(r => r.id)));
     setStates(new Set(STATES.map(s => s.uf)));
+    setMesos(new Set(Object.keys(mesoNames)));
+    setMicros(new Set(Object.keys(microNames)));
+    setInters(new Set(Object.keys(interNames)));
+    setImediatas(new Set(Object.keys(imediataNames)));
     setMunis(new Set(MUNIS.map(m => m.code)));
     applyQuick('all');
     setValueMin(null);
     setValueMax(null);
     setFlow('all');
-    [setQProducts, setQFlags, setQNations, setQRegions, setQStates, setQMunis].forEach(fn => fn(''));
+    [setQProducts, setQFlags, setQNations, setQRegions, setQStates,
+     setQMesos, setQMicros, setQInters, setQImediatas, setQMunis].forEach(fn => fn(''));
   };
 
   if (!open) return null;
@@ -831,7 +798,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 <div className="fm-section-head-l">
                   <span className="fm-section-label"><span className="fm-section-num">03</span>Geografia</span>
                   <span className="fm-cascade-hint">
-                    {I.cascade} Seleção em cascata · nação ▸ região ▸ estado{showMunis ? ' ▸ município' : ''}
+                    {I.cascade} Seleção em cascata · nação ▸ região ▸ estado{showMunis ? ' ▸ meso/microrregião · inter/imediata ▸ município' : ''}
                   </span>
                 </div>
                 <span className="fm-section-meta">
@@ -881,6 +848,72 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   setSearch={setQStates}
                   disabledReason={eligibleRegions.length === 0 || regions.size === 0 ? 'Selecione ao menos uma região.' : null}
                 />
+                {/* Sub-UF: the TWO parallel IBGE divisions (classic meso/micro,
+                    2017 intermediária/imediata). They refine the UF independently;
+                    a município passes the cascade iff it clears every active facet.
+                    Only the município-grained bancos (PEVS/PAM/PPM) render them. */}
+                {showMunis && (<>
+                <GeoColumn
+                  title="Mesorregiões"
+                  items={mesoItems}
+                  keyAttr="code"
+                  displayAttr="name"
+                  getMeta={(x) => x.code}
+                  selected={mesos}
+                  setSelected={setMesos}
+                  search={qMesos}
+                  setSearch={setQMesos}
+                  disabledReason={
+                    !muniUniverseLive ? 'Carregando malha do IBGE…'
+                      : states.size === 0 ? 'Selecione ao menos um estado.' : null
+                  }
+                />
+                <GeoColumn
+                  title="Microrregiões"
+                  items={microItems}
+                  keyAttr="code"
+                  displayAttr="name"
+                  getMeta={(x) => x.code}
+                  selected={micros}
+                  setSelected={setMicros}
+                  search={qMicros}
+                  setSearch={setQMicros}
+                  disabledReason={
+                    !muniUniverseLive ? 'Carregando malha do IBGE…'
+                      : mesos.size === 0 ? 'Selecione ao menos uma mesorregião.' : null
+                  }
+                />
+                <GeoColumn
+                  title="Reg. intermediárias"
+                  items={interItems}
+                  keyAttr="code"
+                  displayAttr="name"
+                  getMeta={(x) => x.code}
+                  selected={inters}
+                  setSelected={setInters}
+                  search={qInters}
+                  setSearch={setQInters}
+                  disabledReason={
+                    !muniUniverseLive ? 'Carregando malha do IBGE…'
+                      : states.size === 0 ? 'Selecione ao menos um estado.' : null
+                  }
+                />
+                <GeoColumn
+                  title="Reg. imediatas"
+                  items={imediataItems}
+                  keyAttr="code"
+                  displayAttr="name"
+                  getMeta={(x) => x.code}
+                  selected={imediatas}
+                  setSelected={setImediatas}
+                  search={qImediatas}
+                  setSearch={setQImediatas}
+                  disabledReason={
+                    !muniUniverseLive ? 'Carregando malha do IBGE…'
+                      : inters.size === 0 ? 'Selecione ao menos uma região intermediária.' : null
+                  }
+                />
+                </>)}
                 {showMunis && (
                 <GeoColumn
                   title="Municípios"
@@ -892,12 +925,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   setSelected={setMunis}
                   search={qMunis}
                   setSearch={setQMunis}
-                  // Gate the column when no live município universe is available
-                  // (endpoint not wired): honest "em breve" instead of parading a
-                  // frozen sample as the universe. When live, keep cascade gating.
+                  // Município is LIVE via the IBGE mesh (code-keyed). Gate only while
+                  // the mesh loads, or when its parent UF level is empty.
                   disabledReason={
                     !muniUniverseLive
-                      ? 'Seleção por município disponível em breve.'
+                      ? 'Carregando malha do IBGE…'
                       : eligibleStates.length === 0 || states.size === 0
                         ? 'Selecione ao menos um estado.'
                         : null
@@ -909,12 +941,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               {showMunis && (
               <div className="fm-geo-foot">
                 <span className="fm-section-meta">
-                  {/* Honest footer (#24): when the snapshot serves municípios,
-                      state the real count it covers; otherwise say the slice
-                      isn't wired yet — never the fabricated "5 570" link. */}
+                  {/* Footer: the IBGE mesh universe (full ~5570), driving the
+                      município + the two parallel sub-UF divisions. */}
                   {muniUniverseLive
-                    ? `Cobertura atual: ${MUNIS.length} ${MUNIS.length === 1 ? 'município' : 'municípios'} com dados no recorte ativo.`
-                    : 'Recorte por município ainda não disponível neste banco — em breve.'}
+                    ? `Malha IBGE: ${MUNIS.length} municípios · mesorregião/microrregião + região intermediária/imediata.`
+                    : 'Carregando a malha municipal do IBGE…'}
                 </span>
               </div>
               )}

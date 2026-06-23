@@ -338,3 +338,66 @@ seeds:
         tests: [not_null]
       - name: commodity_name
         tests: [not_null]
+
+  # ─── IBGE municipal territorial mesh (sub-UF geography) ─────────────────────
+  - name: ibge_municipio_mesh
+    description: |
+      IBGE territorial mesh: each município (7-digit city_code — the SIDRA n6 code
+      Gold already carries) → its sub-UF groupings, in BOTH parallel IBGE
+      divisions. The two divisions do NOT nest into each other:
+        • classic census : mesorregião (4-digit) → microrregião (5-digit) → município
+        • current (2017)  : região intermediária (4-digit) → região imediata (6-digit) → município
+      Both branches share the same UF + grande região (macrorregião). Backs the
+      sub-UF geography filters and the live município level (dim_geo_municipio →
+      the serving município cube). Regenerate with
+      `uv run python scripts/refresh_ibge_municipio_mesh.py`. ~5570 rows, one per município.
+    config:
+      column_types:
+        city_code: string
+        city_name: string
+        uf_code: string
+        state_acronym: string
+        state_name: string
+        region_code: string
+        region_abbrev: string
+        region_name: string
+        meso_code: string
+        meso_name: string
+        micro_code: string
+        micro_name: string
+        intermediaria_code: string
+        intermediaria_name: string
+        imediata_code: string
+        imediata_name: string
+    columns:
+      - name: city_code
+        tests: [not_null, unique]
+      - name: city_name
+        tests: [not_null]
+      - name: state_acronym
+        tests: [not_null]
+      - name: region_abbrev
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["N", "NE", "CO", "SE", "S"]
+      # Sub-UF codes are WARN (not error): an occasional IBGE API gap for a newly
+      # created município must not hard-fail the build — it degrades to "not
+      # filterable at that level", and the warn surfaces it for a seed refresh.
+      - name: meso_code
+        tests:
+          - not_null:
+              config: { severity: warn }
+      - name: micro_code
+        tests:
+          - not_null:
+              config: { severity: warn }
+      - name: intermediaria_code
+        tests:
+          - not_null:
+              config: { severity: warn }
+      - name: imediata_code
+        tests:
+          - not_null:
+              config: { severity: warn }

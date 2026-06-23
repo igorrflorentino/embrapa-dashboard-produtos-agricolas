@@ -115,10 +115,11 @@ embrapa-dashboard-commodities/
 │   │   ├── format.py                 # pt-BR formatting + monetary column naming
 │   │   └── registries.py             # Banco/metric/view registries (ex-Dash package)
 │   │
-│   ├── ibge/                         # IBGE SIDRA pipelines (PEVS + PAM)
+│   ├── ibge/                         # IBGE SIDRA pipelines (PEVS + PAM + PPM)
 │   │   ├── client.py                 # HTTP client SIDRA API
 │   │   ├── pipeline.py               # PEVS Bronze orchestration (table 289)
-│   │   └── pam_pipeline.py           # PAM Bronze orchestration (table 5457)
+│   │   ├── pam_pipeline.py           # PAM Bronze orchestration (table 5457)
+│   │   └── ppm_pipeline.py           # PPM Bronze orchestration (tables 3939 herd + 74 animal)
 │   │
 │   ├── bcb/                          # Central Bank pipelines
 │   │   ├── client.py                 # SGS API HTTP client
@@ -145,6 +146,7 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _silver.yml           # Silver schema + tests
 │   │   │   ├── silver_ibge_pevs.sql  # Typed PEVS + dedup (incremental)
 │   │   │   ├── silver_ibge_pam.sql   # Typed PAM + dedup (incremental)
+│   │   │   ├── silver_ibge_ppm.sql   # Typed PPM (herd 3939 + animal 74 union) + dedup
 │   │   │   ├── silver_bcb_inflation.sql  # IPCA chain index
 │   │   │   ├── silver_bcb_currency.sql   # BCB FX (daily USD/EUR PTAX)
 │   │   │   ├── silver_currency.sql       # BCB FX, normalized for Gold
@@ -154,6 +156,7 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _gold.yml             # Gold schema + tests
 │   │   │   ├── gold_pevs_production.sql  # Gold IBGE PEVS (form: production)
 │   │   │   ├── gold_pam_production.sql   # Gold IBGE PAM (form: production; área × rendimento)
+│   │   │   ├── gold_ppm_production.sql   # Gold IBGE PPM (form: production; herd stock + animal flow)
 │   │   │   ├── gold_comex_flows.sql      # Gold COMEX (form: flows, Brazil)
 │   │   │   ├── gold_comtrade_flows.sql   # Gold COMTRADE (form: flows, global bilateral)
 │   │   │   ├── gold_commodity_crosswalk.sql  # Cross-source bridge (source,code)→commodity
@@ -168,6 +171,7 @@ embrapa-dashboard-commodities/
 │   │       ├── _serving.yml
 │   │       ├── serving_pevs_annual.sql
 │   │       ├── serving_pam_annual.sql
+│   │       ├── serving_ppm_annual.sql
 │   │       ├── serving_comex_annual.sql
 │   │       ├── serving_comex_seasonality.sql
 │   │       ├── serving_comtrade_annual.sql
@@ -334,7 +338,7 @@ as a per-run stamped object (append-only trail).
 - UN Comtrade table: `gold_comtrade_flows` — **global** bilateral trade, one row per `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Same 4 conventions over `primaryValue` (US$), but **annual** deflation (year-average FX, year-end inflation index — like PEVS) because the grain is annual. Bilateral geography: `reporter` + `partner` (both M49 → name/ISO3). No double-counting (World dropped in Silver), so `SUM` over partners is the true bilateral total.
 - **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the `commodity_crosswalk` seed (prefix-based links) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
 - **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `maturity`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
-- **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
+- **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM, PPM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Four currency conventions (applicable to any monetary Gold table):
   - `val_yearfx_*` — nominal value converted at the year-average FX. NULL for foreign currencies pre-1994.
   - `val_real_{ipca,igpm,igpdi}_*` — value deflated by the IPCA / IGP-M / IGP-DI chain, projected to today. **Use this column for cross-year comparisons.**
@@ -616,10 +620,11 @@ typical failures of a public source:
 > `cloudbuild.yaml`, `deploy.sh` (build + create/update the Job by reading the `.env`),
 > `schedule.sh` (nightly trigger), `schedule_reconcile.sh` (monthly deep-refresh),
 > `schedule_comtrade.sh` (monthly UN Comtrade backfill), `schedule_pam.sh` (monthly
-> IBGE PAM trigger) and `alert.sh` (failure alert).
+> IBGE PAM trigger), `schedule_ppm.sh` (monthly IBGE PPM trigger) and `alert.sh`
+> (failure alert).
 > Shortcuts: `make ingest-job-deploy`, `make ingest-job-schedule`,
 > `make ingest-job-reconcile-schedule`, `make ingest-job-comtrade-schedule`,
-> `make ingest-job-pam-schedule`, `make ingest-job-alert`. The actual deploy
+> `make ingest-job-pam-schedule`, `make ingest-job-ppm-schedule`, `make ingest-job-alert`. The actual deploy
 > (running the scripts in the GCP project) is
 > an operator step — the backend they invoke (`embrapa ingest all`) is already
 > ready and is the same path tested locally. Note: `reconcile` is **operator-triggered**

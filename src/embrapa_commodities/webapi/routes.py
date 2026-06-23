@@ -266,15 +266,54 @@ def geo_yearly():
     /snapshot; ``codes`` (comma-joined product codes; absent = all) pushes the active
     product basket down to the by-UF-yearly mart so the territorial split respects the
     selected products. The year window is left open (full history) — the client slices
-    period + state. { ufYearly: [] } when the banco has no geo grain."""
+    period + state; ``flow`` (export/import) re-queries server-side like /snapshot
+    (absent/``all`` sums every flow). { ufYearly: [] } when the banco has no geo grain."""
     banco = request.args.get("banco", "")
     conv, err = _conversion_or_400()
     if err:
         return err
     codes = request.args.get("codes")
-    summary = {"basket": codes.split(",")} if codes else None
-    df = seam.geo_yearly(banco, conv, summary)
+    flow = request.args.get("flow")
+    summary: dict = {}
+    if codes:
+        summary["basket"] = codes.split(",")
+    if flow:
+        summary["flow"] = flow
+    df = seam.geo_yearly(banco, conv, summary or None)
     return jsonify(serializers.serialize_geo_yearly(df))
+
+
+@api.get("/geo-mesh")
+def geo_mesh():
+    """The IBGE municipal territorial mesh (static, ~5570 rows): every município →
+    UF + grande região + BOTH sub-UF divisions (classic mesorregião/microrregião,
+    current região intermediária/imediata). Banco-agnostic — the SPA fetches it once
+    to build the geography cascade's sub-UF + município option lists and the
+    cityCode→ancestry map. { municipios: [] } if the dim isn't built."""
+    return jsonify(serializers.serialize_geo_mesh(seam.geo_mesh()))
+
+
+@api.get("/municipio-yearly")
+def municipio_yearly():
+    """Basket-scoped per-(município, year) cube — the FINEST geography grain, backing
+    the live-município + sub-UF cascade (the client rolls it up to the selected level
+    via /geo-mesh). currency+correction pick the deflated value column server-side,
+    same as /snapshot; ``codes`` pushes the active product basket down. Reads Gold
+    directly (basket-scoped + cost-guarded). { municipioYearly: [] } when the banco
+    has no município grain (COMEX/COMTRADE)."""
+    banco = request.args.get("banco", "")
+    conv, err = _conversion_or_400()
+    if err:
+        return err
+    codes = request.args.get("codes")
+    city = request.args.get("cityCodes")
+    summary: dict = {}
+    if codes:
+        summary["basket"] = codes.split(",")
+    if city:
+        summary["cityCodes"] = city.split(",")
+    df = seam.geo_municipio_yearly(banco, conv, summary or None)
+    return jsonify(serializers.serialize_municipio_yearly(df))
 
 
 @api.get("/products-by-uf")
