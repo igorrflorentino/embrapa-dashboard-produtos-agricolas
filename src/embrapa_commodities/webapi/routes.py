@@ -276,7 +276,7 @@ def geo_yearly():
     flow = request.args.get("flow")
     summary: dict = {}
     if codes:
-        summary["basket"] = codes.split(",")
+        summary["basket"] = [c for c in codes.split(",") if c]  # blank-strip (consistency)
     if flow:
         summary["flow"] = flow
     df = seam.geo_yearly(banco, conv, summary or None)
@@ -293,26 +293,31 @@ def geo_mesh():
     return jsonify(serializers.serialize_geo_mesh(seam.geo_mesh()))
 
 
-@api.get("/municipio-yearly")
+@api.post("/municipio-yearly")
 def municipio_yearly():
     """Basket-scoped per-(município, year) cube — the FINEST geography grain, backing
     the live-município + sub-UF cascade (the client rolls it up to the selected level
-    via /geo-mesh). currency+correction pick the deflated value column server-side,
-    same as /snapshot; ``codes`` pushes the active product basket down. Reads Gold
-    directly (basket-scoped + cost-guarded). { municipioYearly: [] } when the banco
-    has no município grain (COMEX/COMTRADE)."""
+    via /geo-mesh). **POST, not GET**: the resolved city set can be hundreds of codes,
+    which would overflow a GET request line (gunicorn's default ~4 KB limit → 414), so
+    ``cityCodes`` travels in the JSON body. A NON-EMPTY ``cityCodes`` is REQUIRED — the
+    client only calls this once a sub-UF/município narrowing resolves to a city set, so
+    an absent/empty one is a 400, and the backend never scans the full ~146k-row
+    município grid. currency+correction pick the deflated value column server-side;
+    ``codes`` (URL query) pushes the active product basket down. { municipioYearly: [] }
+    when the banco has no município grain (COMEX/COMTRADE)."""
     banco = request.args.get("banco", "")
     conv, err = _conversion_or_400()
     if err:
         return err
+    body = request.get_json(silent=True) or {}
+    city = [c for c in (body.get("cityCodes") or []) if c]  # drop blanks
+    if not city:
+        return jsonify(error="cityCodes (lista não vazia) é obrigatório."), 400
     codes = request.args.get("codes")
-    city = request.args.get("cityCodes")
-    summary: dict = {}
+    summary: dict = {"cityCodes": city}
     if codes:
-        summary["basket"] = codes.split(",")
-    if city:
-        summary["cityCodes"] = city.split(",")
-    df = seam.geo_municipio_yearly(banco, conv, summary or None)
+        summary["basket"] = [c for c in codes.split(",") if c]  # blank-strip (consistency)
+    df = seam.geo_municipio_yearly(banco, conv, summary)
     return jsonify(serializers.serialize_municipio_yearly(df))
 
 

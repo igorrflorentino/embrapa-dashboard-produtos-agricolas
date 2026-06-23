@@ -9,9 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-Audit remediation (2026-06-22 quality audit — see `docs/audits/quality_audit_2026-06-22.md`).
-All 11 findings (0 critical/high, 2 medium, 9 low) resolved; the security core was
-re-confirmed clean.
+The **IBGE sub-UF geography** feature (shipped in #157 but previously undocumented) plus
+two rounds of audit remediation: the 2026-06-22 quality audit (11 findings — see
+`docs/audits/quality_audit_2026-06-22.md`) and a 2026-06-23 manual-scan follow-up on the
+freshly-shipped geo code (3 edge-case robustness bugs). Security core re-confirmed clean.
+
+### Added
+- **Sub-UF geography + live município filter (IBGE municipal mesh).** The geography filter
+  now offers the IBGE territorial levels BETWEEN UF and município — BOTH parallel divisions:
+  classic **mesorregião → microrregião** and 2017 **região intermediária → imediata** — plus
+  **município** as a live filter. Backed by a new `ibge_municipio_mesh` seed (~5570 municípios
+  → both divisions; refreshed by `scripts/refresh_ibge_municipio_mesh.py`), the conformed
+  `dim_geo_municipio` dim, a município-grained serving cube read straight from Gold
+  (city-scoped + `maximum_bytes_billed`-guarded), and two BFF routes: `GET /api/geo-mesh`
+  (the cascade universe) + `POST /api/municipio-yearly` (the basket + city-scoped cube). The
+  cascade engine reconciles two parallel sub-UF branches with a "following" refill (re-selecting
+  a parent restores its children). Applies to the municipality-grained IBGE bancos
+  (`ibge_pevs`/`ibge_pam`/`ibge_ppm`); COMEX (UF-origin) / COMTRADE (international) are unaffected.
 
 ### Fixed
 - **The Geography view now honours the flow filter for a COMEX product basket.** The
@@ -30,6 +44,19 @@ re-confirmed clean.
 - **`fetch_banco_metadata` now honours `CACHE_CLASSIFICATION_TIMEOUT`.** It was the one
   curation-class read left pinned at the decoration-time default, contradicting its own
   "a Console maturity flip reflects within the window" contract. (audit L8c)
+- **The município cube is requested via POST, so a broad sub-UF selection no longer 414s.**
+  A wide narrowing (e.g. most mesorregiões of a large UF) resolves to thousands of city codes;
+  sent in a GET query string they overflowed gunicorn's request-line limit (~4 KB → HTTP 414).
+  They now travel in the POST body, and a non-empty city set is required — so the backend never
+  scans the full ~146k-row município grid. (audit 2026-06-23 A/D)
+- **An empty sub-UF selection reads as honest "no data", not an eternal spinner.** A
+  legitimately-empty município cube (`[]`) was conflated with not-yet-loaded (`null`), pinning
+  the view at a permanent loading state; an empty result also no longer silently falls back to
+  the all-UF grid (which showed data the selection excludes). (audit 2026-06-23 B)
+- **A not-yet-built `dim_geo_municipio` degrades to an empty payload, not a 500.** The geo
+  readers now catch `NotFound` (mirroring `banco_metadata_overrides`), so a fresh/dev/PEVS-only
+  environment returns `{municipios: []}` instead of 500-ing the whole geography menu — matching
+  the documented contract. (audit 2026-06-23 C)
 
 ### Changed
 - **pre-commit ruff pinned to v0.15.13** (was v0.6.9), matching the ruff CI runs, so the
@@ -54,6 +81,10 @@ re-confirmed clean.
   claimed "no long-lived keyfiles"). (audit L7)
 - Noted that editing a seed an incremental model consumes needs `--full-refresh`
   (silver_ibge_pevs header + the dbt-workflow skill). (audit L8a)
+- **Documented the sub-UF geography feature across the living docs** (ARCHITECTURE,
+  `docs/gold_data_model.md`, `docs/frontend_data_contract.md`, CLAUDE.md, `scripts/README.md`) —
+  it had shipped in #157 with only a `PLANS/` entry. Added a cross-source `dim_geo_municipio`
+  vs `dim_geo_br` UF→região consistency test. (audit 2026-06-23 docs)
 
 ---
 

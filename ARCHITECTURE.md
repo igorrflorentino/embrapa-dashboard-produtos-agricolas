@@ -166,6 +166,7 @@ embrapa-dashboard-commodities/
 │   │   │   ├── _core.yml
 │   │   │   ├── dim_date.sql          # Calendar (month grain, pt-BR labels)
 │   │   │   ├── dim_geo_br.sql        # 27 UFs → name/region/abbrev (N·NE·CO·SE·S)
+│   │   │   ├── dim_geo_municipio.sql # ~5570 municípios → both sub-UF divisions (meso/micro + intermediária/imediata)
 │   │   │   └── dim_code_industrialization_scd2.sql  # Per-code curation SCD2 (view; gated)
 │   │   └── serving/                  # ⭐ Pre-aggregated marts for the webapi dashboard
 │   │       ├── _serving.yml
@@ -396,9 +397,15 @@ materialized pre-aggregation, partitioned by year and clustered by the filters.
 | `serving_quality_by_source` | source × data_quality_flag | quality donut |
 
 **Conformed dimensions** (`dbt/models/core/`): `dim_date` (month grain, pt-BR
-labels, quarter/semester) and `dim_geo_br` (27 UFs → name / region / abbreviation
-N·NE·CO·SE·S) are the **single source** of the serving joins. They live in the Gold dataset
-(they are *build* inputs baked into the marts, not read live by the UI). The marts
+labels, quarter/semester), `dim_geo_br` (27 UFs → name / region / abbreviation
+N·NE·CO·SE·S), and `dim_geo_municipio` (~5570 municípios → UF + grande região + BOTH
+sub-UF divisions: classic mesorregião/microrregião and 2017 intermediária/imediata) are
+the **single source** of the serving joins. They live in the Gold dataset (they are
+*build* inputs baked into the marts, not read live by the UI). `dim_geo_municipio` is the
+near-live exception: it backs the SPA geography cascade via `GET /api/geo-mesh` (static
+universe, cached) and the city-scoped `POST /api/municipio-yearly` cube (read straight
+from Gold — basket + `city_codes` scoped, `maximum_bytes_billed`-guarded), since the
+sub-UF levels are too fine to pre-aggregate as a mart. The marts
 carry `commodity_id` (via `gold_commodity_crosswalk`) so a row can be linked to
 its cross-source commodity.
 

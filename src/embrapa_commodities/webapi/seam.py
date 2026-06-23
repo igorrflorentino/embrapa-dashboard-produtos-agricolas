@@ -442,7 +442,14 @@ def geo_mesh() -> pd.DataFrame | None:
     Every município → UF + grande região + BOTH sub-UF divisions (classic
     meso/micro, 2017 intermediária/imediata). Backs the SPA geo cascade's sub-UF +
     município option lists + the city→ancestry map. ``None`` if the dim isn't built."""
-    return gateway.fetch_geo_municipio_mesh()
+    try:
+        return gateway.fetch_geo_municipio_mesh()
+    except NotFound:
+        # dim_geo_municipio not built yet (fresh/dev/PEVS-only env) → degrade to the
+        # documented empty payload (serialize_geo_mesh(None) → {"municipios": []}),
+        # NOT a 500 that breaks the whole geography filter menu. Mirrors
+        # banco_metadata_overrides. Any other error still propagates.
+        return None
 
 
 def geo_municipio_yearly(
@@ -463,9 +470,14 @@ def geo_municipio_yearly(
     # set (via the cached mesh) and sends it as cityCodes, so a narrowed selection
     # scans only those cities — never the whole ~5570-município grid.
     city_codes = tuple((summary or {}).get("cityCodes") or ())
-    return gateway.fetch_production_by_municipio_yearly(
-        product_codes=codes, city_codes=city_codes, value_column=value_col, source=banco_id
-    )
+    try:
+        return gateway.fetch_production_by_municipio_yearly(
+            product_codes=codes, city_codes=city_codes, value_column=value_col, source=banco_id
+        )
+    except NotFound:
+        # gold_<source>_production not built → documented None (serialize_municipio_yearly
+        # (None) → {"municipioYearly": []}), not a 500. Other errors still propagate.
+        return None
 
 
 def productivity(banco_id: str, crop: str | None, summary: dict | None = None) -> dict | None:

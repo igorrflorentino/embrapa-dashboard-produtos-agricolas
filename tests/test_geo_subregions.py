@@ -186,3 +186,37 @@ def test_municipio_cube_gateway_skips_non_municipal_source():
     with app.app_context():
         # mdic_comex is UF-origin only — no município cube, returns None WITHOUT a query.
         assert gateway.fetch_production_by_municipio_yearly(source="mdic_comex") is None
+
+
+def test_municipio_cube_gateway_requires_city_codes():
+    # Cost guard (audit D): the cube is ALWAYS city-scoped, so an empty city set returns
+    # None WITHOUT a query — never a full ~146k-row município grid scan.
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    app, _ = _bind_simplecache()
+    with app.app_context():
+        assert (
+            gateway.fetch_production_by_municipio_yearly(source="ibge_pevs", city_codes=()) is None
+        )
+
+
+def test_geo_readers_degrade_to_none_on_missing_table(monkeypatch):
+    # A missing dim_geo_municipio / Gold table raises NotFound; the seam must degrade to
+    # None (→ serializer empty payload), NOT let it 500 the geography menu (audit C).
+    from google.api_core.exceptions import NotFound
+
+    seam = _seam()
+
+    def boom(*a, **k):
+        raise NotFound("table not built")
+
+    monkeypatch.setattr(seam.gateway, "fetch_geo_municipio_mesh", boom)
+    monkeypatch.setattr(seam.gateway, "fetch_production_by_municipio_yearly", boom)
+    assert seam.geo_mesh() is None
+    assert (
+        seam.geo_municipio_yearly(
+            "ibge_pevs", {"currency": "BRL", "correction": "IPCA"}, {"cityCodes": ["1"]}
+        )
+        is None
+    )
