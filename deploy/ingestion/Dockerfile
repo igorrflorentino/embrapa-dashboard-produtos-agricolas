@@ -10,7 +10,7 @@
 #   Local:       docker build -f deploy/ingestion/Dockerfile -t embrapa-ingest-all .
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 
 RUN pip install --no-cache-dir "uv>=0.5,<1.0"
 
@@ -29,7 +29,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
 # ── runtime ──────────────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 1000 appuser
