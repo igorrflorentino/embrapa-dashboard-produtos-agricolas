@@ -318,6 +318,45 @@ def test_municipio_yearly_requires_nonempty_city_codes(monkeypatch):
     assert client.post(base, json={"cityCodes": "3550308"}).status_code == 400
 
 
+def test_municipio_yearly_caps_city_codes_count(monkeypatch):
+    """SEC-1/TEST-2: a cityCodes list past _MAX_MUNICIPIO_CODES must 400 with the pt-BR
+    limit message BEFORE the seam runs. The numeric cap added in the prior audit had no
+    regression test, so a future off-by-one or removal would have gone unnoticed."""
+    from embrapa_commodities.webapi import routes, seam
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite over-limit cityCodes")
+
+    monkeypatch.setattr(seam, "geo_municipio_yearly", must_not_run)
+    over = [str(i) for i in range(routes._MAX_MUNICIPIO_CODES + 1)]
+    resp = client.post(
+        "/api/municipio-yearly?banco=ibge_pevs&currency=BRL&correction=IPCA",
+        json={"cityCodes": over},
+    )
+    assert resp.status_code == 400
+    assert "excede o limite" in resp.get_json()["error"]
+
+
+def test_basket_codes_count_is_capped(monkeypatch):
+    """SEC-1: the product-basket `codes` IN-list is bounded symmetrically with cityCodes.
+    An over-long ?codes list 400s as JSON (via the blueprint HTTPException handler)
+    BEFORE the seam runs, instead of building an unbounded IN-list."""
+    from embrapa_commodities.webapi import routes, seam
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite over-limit basket codes")
+
+    monkeypatch.setattr(seam, "geo_yearly", must_not_run)
+    big = ",".join(str(i) for i in range(routes._MAX_BASKET_CODES + 1))
+    resp = client.get(f"/api/geo-yearly?banco=ibge_pevs&currency=BRL&correction=IPCA&codes={big}")
+    assert resp.status_code == 400
+    assert "excede o limite" in resp.get_json()["error"]
+
+
 def test_municipio_yearly_threads_cities_and_basket_to_seam(monkeypatch):
     """A non-empty cityCodes → 200; the route blank-strips the city list, pushes the
     ?codes basket down, and threads currency/correction to the seam."""

@@ -54,3 +54,29 @@ describe('Donut — coerces missing/non-numeric values (M5)', () => {
     expect(legendPercents(container)).toEqual(['40%', '60%']);
   });
 });
+
+describe('Donut — single 100% slice renders a visible ring, not a blank one (NUM-3)', () => {
+  it('draws a full <circle> (not a zero-length arc path) for a lone 100% slice', () => {
+    // The common single-product selection: one datum at share=1.0. A path arc whose
+    // start/end coincide is omitted by the renderer (blank ring); we draw a circle.
+    const { container } = render(<Donut data={[{ name: 'Açaí', share: 1, color: 'var(--viz-1)' }]} />);
+    expect(legendPercents(container)).toEqual(['100%']);
+    // The outer ring is now a full circle of radius r (size/2 = 80), plus the inner
+    // white hole — so there are two <circle>s and NO slice <path>.
+    const circles = container.querySelectorAll('svg circle');
+    expect(circles.length).toBe(2);
+    expect(slicePaths(container)).toEqual([]);
+    const outer = circles[0];
+    expect(Number(outer.getAttribute('r'))).toBeGreaterThan(0);
+    expect(outer.getAttribute('fill')).toBe('var(--viz-1)');
+  });
+
+  it('keeps drawing arc <path>s when the ring is split across multiple slices', () => {
+    const { container } = render(
+      <Donut data={[{ name: 'A', share: 0.5 }, { name: 'B', share: 0.5 }]} />,
+    );
+    // Two genuine wedges → two paths (the 0.5/0.5 endpoints are distinct, unaffected).
+    expect(slicePaths(container).length).toBe(2);
+    slicePaths(container).forEach((d) => expect(d).not.toMatch(/NaN/));
+  });
+});

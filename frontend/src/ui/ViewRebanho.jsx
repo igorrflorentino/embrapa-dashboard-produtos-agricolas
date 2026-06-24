@@ -56,12 +56,10 @@ function ViewRebanho({ summary, conventions, database }) {
 
   if (!available.length) {
     return (
-      <div className="card subtle">
-        <p className="caption" style={{ padding: '20px 4px', textAlign: 'center' }}>
-          Nenhum rebanho (estoque) na seleção atual. Ajuste os filtros para incluir
-          espécies do efetivo dos rebanhos.
-        </p>
-      </div>
+      <window.EmptyCard>
+        Nenhum rebanho (estoque) na seleção atual. Ajuste os filtros para incluir
+        espécies do efetivo dos rebanhos.
+      </window.EmptyCard>
     );
   }
 

@@ -16,7 +16,7 @@ import json
 import logging
 
 from flask import Blueprint, jsonify, request
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving.curation import (
@@ -32,6 +32,7 @@ from .format import _CORRECTION_INFIX, _CURRENCY_SUFFIX
 logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__)
+
 
 # Canonical convention vocabularies (the keys monetary_column matches on). Read
 # straight from the format maps — not duplicated — so a new currency/correction
@@ -175,6 +176,14 @@ def source_meta():
 # blocking a real "all municípios in a sub-UF" selection. Mirrors _MAX_TABLE_FILTERS.
 _MAX_MUNICIPIO_CODES = 5600
 
+# Cap the number of product/UF codes any basket IN-list query param (`codes`/`states`)
+# may carry. Real baskets are a few dozen products and ≤27 UFs, so this only rejects a
+# pathological list; it makes every user-driven IN-list bounded symmetrically with
+# _MAX_MUNICIPIO_CODES / _MAX_TABLE_FILTERS (SEC-1) — `codes` travels in the GET query
+# string, so gunicorn's request-line limit already bounds it, but the explicit cap keeps
+# the contract uniform regardless of transport.
+_MAX_BASKET_CODES = 600
+
 
 # ── raw table inspection ("Dados" perspective) ─────────────────────────────────
 
@@ -288,7 +297,7 @@ def geo_yearly():
     flow = request.args.get("flow")
     summary: dict = {}
     if codes:
-        summary["basket"] = [c for c in codes.split(",") if c]  # blank-strip (consistency)
+        summary["basket"] = _csv_param(codes)  # blank-strip + cap (SEC-1)
     if flow:
         summary["flow"] = flow
     df = seam.geo_yearly(banco, conv, summary or None)
@@ -340,7 +349,7 @@ def municipio_yearly():
     codes = request.args.get("codes")
     summary: dict = {"cityCodes": city}
     if codes:
-        summary["basket"] = [c for c in codes.split(",") if c]  # blank-strip (consistency)
+        summary["basket"] = _csv_param(codes)  # blank-strip + cap (SEC-1)
     df = seam.geo_municipio_yearly(banco, conv, summary)
     return jsonify(serializers.serialize_municipio_yearly(df))
 
@@ -386,10 +395,14 @@ def _csv_param(raw: str | None) -> list[str]:
     """Split a comma-joined query param into a list, dropping blanks.
 
     ``None`` (param absent) and ``''`` (cleared / all) both yield an empty list —
-    i.e. no filter on that dimension."""
+    i.e. no filter on that dimension. An over-long list is rejected with a 400
+    (``_MAX_BASKET_CODES``) so every IN-list is bounded symmetrically (SEC-1)."""
     if not raw:
         return []
-    return [c for c in raw.split(",") if c]
+    items = [c for c in raw.split(",") if c]
+    if len(items) > _MAX_BASKET_CODES:
+        raise BadRequest(f"Lista de códigos excede o limite de {_MAX_BASKET_CODES}.")
+    return items
 
 
 def _filter_summary() -> dict | None:

@@ -44,7 +44,7 @@ const PATTERNS = [
   { level: 'critical', id: 'rm-system',        regex: /\brm\s+(-.+\s+)*\/(etc|usr|var|bin|sbin|lib|boot|dev|proc|sys)(\/|\s|$)/, reason: 'rm targeting system directory' },
   { level: 'critical', id: 'rm-cwd',           regex: /\brm\s+(-.+\s+)*(\.\/?\s|\.\/\*|\*\s)(\s|$|[;&|])/,                 reason: 'rm deleting current directory contents' },
   { level: 'critical', id: 'dd-disk',          regex: /\bdd\b.+of=\/dev\/(sd[a-z]|nvme|hd[a-z]|vd[a-z]|xvd[a-z])/,        reason: 'dd writing to disk device' },
-  { level: 'critical', id: 'mkfs',             regex: /\bmkfs(\.\\w+)?\s+\/dev\/(sd[a-z]|nvme|hd[a-z]|vd[a-z])/,           reason: 'mkfs formatting disk' },
+  { level: 'critical', id: 'mkfs',             regex: /\bmkfs(\.\w+)?\s+\/dev\/(sd[a-z]|nvme|hd[a-z]|vd[a-z])/,            reason: 'mkfs formatting disk' },
   { level: 'critical', id: 'fork-bomb',        regex: /:\(\)\s*\{.*:\s*\|\s*:.*&/,                                         reason: 'fork bomb detected' },
 
   // ── HIGH – Significant risk, data loss, security ────────────────────────
@@ -75,7 +75,11 @@ const PATTERNS = [
   { level: 'high', id: 'gsutil-rm-r',          regex: /\bgsutil\s+(-m\s+)?rm\s+(-r\s+)?gs:\/\//,                          reason: 'recursive GCS deletion' },
 
   // ── HIGH – dbt-specific ─────────────────────────────────────────────────
-  { level: 'high', id: 'dbt-prod-no-refresh',  regex: /\bdbt\s+(run|build)\s+.*--target\s+prod\b(?!.*--full-refresh)/,      reason: 'dbt run on prod without --full-refresh (use make dbt-build-prod)' },
+  // Lookaheads (not a fixed `--target prod … then --full-refresh` order) so the flag
+  // order doesn't matter: `dbt build --full-refresh --target prod` is correctly ALLOWED
+  // while `dbt build --target prod` (no refresh) is blocked, regardless of where the
+  // flags sit relative to each other (INFRA-2).
+  { level: 'high', id: 'dbt-prod-no-refresh',  regex: /\bdbt\s+(run|build)\b(?=.*--target\s+prod\b)(?!.*--full-refresh)/,   reason: 'dbt run on prod without --full-refresh (use make dbt-build-prod)' },
 
   // ── STRICT – Cautionary ─────────────────────────────────────────────────
   { level: 'strict', id: 'any-force-push',     regex: /\bgit\s+push\s+.*--force\b/,                                       reason: 'any force push can rewrite history' },
@@ -94,6 +98,19 @@ function log(data) {
     const file = path.join(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.jsonl`);
     fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), hook: 'block-dangerous-commands', ...data }) + '\n');
   } catch { /* logging must never break the hook */ }
+}
+
+// ── Pure matcher (exported for unit tests) ──────────────────────────────────
+// Return the first PATTERN that fires for `command` at the given safety level, or null.
+// No I/O — so scripts/ finally has a deterministic, network-free test surface.
+function firstMatch(command, level = SAFETY_LEVEL) {
+  if (!command) return null;
+  const activeLevel = LEVEL_ORDER[level] ?? 1;
+  for (const pattern of PATTERNS) {
+    if (LEVEL_ORDER[pattern.level] > activeLevel) continue;
+    if (pattern.regex.test(command)) return pattern;
+  }
+  return null;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -120,21 +137,19 @@ function main() {
     process.exit(0); // nothing to check
   }
 
-  const activeLevel = LEVEL_ORDER[SAFETY_LEVEL] ?? 1;
-
-  for (const pattern of PATTERNS) {
-    if (LEVEL_ORDER[pattern.level] > activeLevel) continue;
-    if (pattern.regex.test(command)) {
-      const msg = `🛑 BLOCKED [${pattern.id}]: ${pattern.reason}`;
-      log({ status: 'blocked', id: pattern.id, level: pattern.level, command: command.slice(0, 200), reason: pattern.reason });
-      // Output JSON to block the tool call
-      console.log(JSON.stringify({ decision: 'block', reason: msg }));
-      process.exit(0);
-    }
+  const pattern = firstMatch(command);
+  if (pattern) {
+    const msg = `🛑 BLOCKED [${pattern.id}]: ${pattern.reason}`;
+    log({ status: 'blocked', id: pattern.id, level: pattern.level, command: command.slice(0, 200), reason: pattern.reason });
+    // Output JSON to block the tool call
+    console.log(JSON.stringify({ decision: 'block', reason: msg }));
+    process.exit(0);
   }
 
   log({ status: 'allowed', command: command.slice(0, 200) });
   process.exit(0);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { PATTERNS, firstMatch, SAFETY_LEVEL };

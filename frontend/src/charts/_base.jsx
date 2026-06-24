@@ -8,6 +8,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import Plotly from './plotlyBundle';
+import { magnitudeParts } from './magnitude.js';
 
 const root = () => document.documentElement;
 
@@ -55,18 +56,15 @@ export function withAlpha(color, alpha = 0.12) {
  *  This formats a tick value into the SAME pt-BR magnitude words, keeping every
  *  value axis consistent with the labels and with each other. */
 export function ptBrMagnitude(v) {
-  const a = Math.abs(v);
-  let factor = 1;
-  let suffix = '';
-  if (a >= 1e9) { factor = 1e9; suffix = ' bi'; }
-  else if (a >= 1e6) { factor = 1e6; suffix = ' mi'; }
-  else if (a >= 1e3) { factor = 1e3; suffix = ' mil'; }
+  // Shared bi/mi/mil ladder (magnitude.js) — same kernel as window.autoScaleNum, so the
+  // value axis and the KPI cards can't drift (FINDING #9 / DEDUP-7).
+  const { factor, suffix } = magnitudeParts(v);
   const scaled = v / factor;
   // Up to 1 decimal for readability; drop a trailing ",0".
   const txt = scaled.toLocaleString('pt-BR', {
     maximumFractionDigits: Math.abs(scaled) < 10 ? 1 : 0,
   });
-  return txt + suffix;
+  return suffix ? `${txt} ${suffix}` : txt;
 }
 
 /** A small set of "nice" axis ticks over [0, max], labelled in pt-BR magnitude

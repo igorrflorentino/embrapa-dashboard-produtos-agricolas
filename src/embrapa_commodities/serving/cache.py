@@ -27,10 +27,14 @@ flask-caching/Werkzeug behaviour, not our bug):
 
   * Eviction at the 500-entry threshold (Werkzeug default) prunes expired-then-
     oldest entries NON-atomically. Under concurrent writes an entry can be
-    evicted slightly early or a stale one linger briefly. The serving keyspace is
-    tiny (a handful of mart shapes + one classification read), so the cap is never
-    realistically hit; if it were, an early eviction is just a cache miss → a
-    correct re-query. No correctness impact, only a marginal extra BigQuery read.
+    evicted slightly early or a stale one linger briefly. Most of the keyspace is
+    tiny (a handful of mart shapes + one classification read), BUT the raw-table
+    inspection ("Dados") readers memoize on arbitrary user-supplied (filter-value,
+    offset) tuples, so an authenticated caller CAN generate many distinct keys —
+    the 500-entry cap (each entry <= RAW_TABLE_MAX_LIMIT rows) is therefore the
+    LOAD-BEARING memory bound now, not a never-hit theoretical one. It is still not
+    an exhaustion vector (total memory stays bounded); an early eviction is just a
+    cache miss → a correct re-query. (Relevant for a future Redis migration.)
   * Invalidation via ``delete_memoized`` bumps a version sentinel instead of
     deleting entries, so orphaned values persist until their TTL (documented at
     the call site in ``serving.curation``). Bounded, eventual (<= TTL) — fine here.

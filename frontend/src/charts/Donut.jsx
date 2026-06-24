@@ -27,6 +27,11 @@ function Donut({ data = [], size = 160, valueKey = 'share' }) {
     const xi1 = r + ir * Math.cos(a1);
     const yi1 = r + ir * Math.sin(a1);
     return {
+      // A slice spanning the whole circle (e.g. a single 100% product) has coincident
+      // arc endpoints, so the SVG <path> is zero-length and renders nothing (a blank
+      // ring). Flag it and draw a full <circle> instead; the inner white circle below
+      // still punches the donut hole. Covers the common single-product selection.
+      full: end - start >= 0.9999,
       d: `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${ir} ${ir} 0 ${large} 0 ${xi0} ${yi0} Z`,
       fill: d.color || 'var(--viz-1)',
     };
@@ -36,7 +41,9 @@ function Donut({ data = [], size = 160, valueKey = 'share' }) {
     <div className="donut-wrap">
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
         {slices.map((s, i) => (
-          <path key={i} d={s.d} fill={s.fill} />
+          s.full
+            ? <circle key={i} cx={r} cy={r} r={r} fill={s.fill} />
+            : <path key={i} d={s.d} fill={s.fill} />
         ))}
         <circle cx={r} cy={r} r={ir - 2} fill="#fff" />
       </svg>

@@ -69,20 +69,18 @@ function ViewValueVolume({ families, conventions, summary, database }) {
   const _scaleStack = (layers, key, unit) => {
     if (!layers.length || !layers[0].data.length) return { layers, label: unit };
     if (!conv.autoScale) return { layers, label: unit };
-    const yearTotals = layers[0].data.map((_, i) =>
-      layers.reduce((s, l) => s + (l.data[i][key] || 0), 0));
-    const max = Math.max(...yearTotals);
+    // Aggregate the per-year stacked total BY YEAR, not by array index: product layers
+    // are ragged (a product introduced later has a shorter series), so the old
+    // index-aligned sum threw a TypeError on the short layer (blanking the view) or
+    // silently dropped a longer layer's tail years. (shared helper · seriesUtils.js)
+    const max = window.stackYearMax(layers, key);
     const { factor, suffix } = window.autoScaleNum(max);
     if (!suffix) return { layers, label: unit };
-    const CURRENCY_SYMS = ['R$', 'US$', '€'];
     const out = layers.map(l => ({
       ...l,
       data: l.data.map(d => ({ ...d, [key]: d[key] / factor })),
     }));
-    const label = CURRENCY_SYMS.includes(unit)
-      ? `${unit} ${suffix}`
-      : `${suffix} ${unit}`.trim();
-    return { layers: out, label };
+    return { layers: out, label: window.scaleLabel(unit, suffix) };  // shared grammar (DEDUP-9)
   };
 
   const valueStackScaled = _scaleStack(valueStacked, 'v', fx.symbol);

@@ -23,12 +23,17 @@
 -- product_code would duplicate rows. Its stock rows carry NULL val_yearfx_usd, but SUM
 -- skips NULLs identically on both sides (as for PEVS/PAM pre-1994), so the comparison
 -- stays exact (DBT-1).
+-- serving_comex_seasonality is also a value rollup of gold_comex_flows (it just keeps
+-- reference_month + a 1:1 dim_date LEFT JOIN, which dim_date.date_month's unique test
+-- keeps fan-out-free), so reconcile it too — making the conservation guarantee explicit
+-- rather than delegated solely to the dim_date + grain-uniqueness tests (DBT-6).
 {% set pairs = [
-    ('pevs',     'serving_pevs_annual',     'gold_pevs_production'),
-    ('pam',      'serving_pam_annual',      'gold_pam_production'),
-    ('ppm',      'serving_ppm_annual',      'gold_ppm_production'),
-    ('comex',    'serving_comex_annual',    'gold_comex_flows'),
-    ('comtrade', 'serving_comtrade_annual', 'gold_comtrade_flows')
+    ('pevs',              'serving_pevs_annual',       'gold_pevs_production'),
+    ('pam',               'serving_pam_annual',        'gold_pam_production'),
+    ('ppm',               'serving_ppm_annual',        'gold_ppm_production'),
+    ('comex',             'serving_comex_annual',      'gold_comex_flows'),
+    ('comex_seasonality', 'serving_comex_seasonality', 'gold_comex_flows'),
+    ('comtrade',          'serving_comtrade_annual',   'gold_comtrade_flows')
 ] %}
 
 with checks as (

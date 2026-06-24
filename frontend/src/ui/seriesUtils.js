@@ -54,13 +54,37 @@ window.pearsonByYear = (ptsA, ptsB, key = 'v') => {
   return window.pearson(ga, gb);
 };
 
-// Compound annual growth rate, in PERCENT, over `periods` intervals.
+// Compound annual growth rate, in PERCENT, over `periods` intervals. `periods` MUST be
+// the calendar-YEAR span (last.y - first.y), NOT the array length: per-product series are
+// ragged (the backend emits only existing (code, year) rows, no padding to a common axis),
+// so an internal year gap makes the element count smaller than the true span and would
+// overstate the annualized rate. Derive it via window.spanYears(pts).
 window.cagrPct = (v0, vT, periods) => {
-  const p = periods || 1;
+  const p = periods > 0 ? periods : 1;
   return v0 > 0 ? (Math.pow(vT / v0, 1 / p) - 1) * 100 : 0;
 };
 // Accumulated change from v0 to vT, in PERCENT.
 window.accumPct = (v0, vT) => (v0 > 0 ? ((vT - v0) / v0) * 100 : 0);
+// Calendar-year span of a year-sorted points array (last.y - first.y) — the correct
+// `periods` argument for cagrPct. Falls back to 1 for a single/empty series (avoids a
+// degenerate 1/0 exponent). Centralizes the expression so ViewProductCompare and
+// ViewCrossSource cannot drift apart.
+window.spanYears = (pts) => {
+  const a = pts || [];
+  return (a.length ? a[a.length - 1]?.y - a[0]?.y : 0) || 1;
+};
+// Per-year stacked total max across ragged layers, aligned BY YEAR (.y) not by array
+// index. Layers can differ in length (a product introduced later has a shorter series),
+// so index-summing either throws on the short layer (`l.data[i]` undefined) or silently
+// drops the longer layer's tail years. Mirrors the StackedArea axis-max computation.
+window.stackYearMax = (layers, key = 'v') => {
+  const totals = {};
+  (layers || []).forEach((l) => (l.data || []).forEach((d) => {
+    const v = Number(d[key]);
+    if (Number.isFinite(v)) totals[d.y] = (totals[d.y] || 0) + v;
+  }));
+  return Math.max(0, ...Object.values(totals));
+};
 
 // Ordinary-least-squares linear trend over points keyed by `.y` (x = year) and a
 // value key. Returns { slope, intercept, predict(x), line } where `line` is the

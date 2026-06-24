@@ -11,7 +11,7 @@ Focus: **stabilization, observability and basic automation**.
 
 ### Pipeline & Data
 - [x] **Ingestion orchestration**: `embrapa ingest all` packaged as a **Cloud Run Job** (batch, not Service) + a **Cloud Scheduler** trigger overnight (off-peak) — artifacts in [`deploy/ingestion/`](deploy/ingestion/) (`make ingest-job-deploy` / `make ingest-job-schedule`); re-run `make ingest-job-deploy` after schema/arg changes. Leverages the resilience from `tenacity` (retry/slow-byte) + the BCB/COMEX delta. See [ARCHITECTURE § Ingestion orchestration](ARCHITECTURE.md#ingestion-orchestration-cloud-run-job--cloud-scheduler).
-- [ ] Ingestion failure notifications (email or Slack webhook)
+- [x] Ingestion failure notifications — **email** channel live ([`deploy/ingestion/alert.sh`](deploy/ingestion/alert.sh) + `make ingest-job-alert`, a Cloud Monitoring alert policy on Job failure); Slack webhook still pending
 - [x] Integrate SQLFluff into CI (dedicated gating `sqlfluff` CI job)
 - [ ] End-to-end integrity tests (row counts Bronze → Silver → Gold)
 

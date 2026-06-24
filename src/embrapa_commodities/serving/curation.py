@@ -24,8 +24,9 @@ from collections.abc import Mapping
 
 from google.cloud import bigquery
 
-from embrapa_commodities.config import Settings, get_credentials, get_settings
+from embrapa_commodities.config import Settings, get_settings
 from embrapa_commodities.gcp.bigquery import ensure_dataset
+from embrapa_commodities.gcp.clients import resolve_bq_client
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
@@ -91,11 +92,7 @@ BANCO_METADATA_SCHEMA = [
 
 
 def _bq_client(settings: Settings) -> bigquery.Client:
-    return bigquery.Client(
-        project=settings.gcp_project_id,
-        location=settings.bq_location,
-        credentials=get_credentials(settings),
-    )
+    return resolve_bq_client(settings)
 
 
 def ensure_curators_table(

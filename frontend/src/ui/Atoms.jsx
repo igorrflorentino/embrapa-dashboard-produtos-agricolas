@@ -59,4 +59,17 @@ function UfScopePicker({ value, onChange, label = 'Recorte por UF' }) {
   );
 }
 
-Object.assign(window, { SectionHeader, NotApplicableNote, UfScopePicker });
+// EmptyCard — the canonical full-card "no data here" early-return state: a subtle card
+// wrapping a centered caption. Was hand-written identically across several views'
+// empty states (DEDUP-10). `children` is the pt-BR message.
+function EmptyCard({ children }) {
+  return (
+    <div className="card subtle">
+      <p className="caption" style={{ padding: '20px 4px', textAlign: 'center' }}>
+        {children}
+      </p>
+    </div>
+  );
+}
+
+Object.assign(window, { SectionHeader, NotApplicableNote, UfScopePicker, EmptyCard });

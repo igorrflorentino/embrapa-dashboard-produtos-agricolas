@@ -38,3 +38,15 @@ select 'gold_comtrade_flows' as model, family, unit_native, count(*) as n
 from {{ ref('gold_comtrade_flows') }}
 where qty_native is not null and qty_base is null
 group by 1, 2, 3
+
+union all
+
+-- PAM shares the same unit-family seed path (the monetary + family-coherence tests
+-- already cover it), so include it on the curation worklist too. Vacuous today (PAM's
+-- only quantity unit is Toneladas, always convertible) but a future SIDRA 5457 revision
+-- reporting an unmapped unit would otherwise produce a qty_native-not-null/qty_base-NULL
+-- row that no curation surface catches (DBT-5).
+select 'gold_pam_production' as model, family, unit_native, count(*) as n
+from {{ ref('gold_pam_production') }}
+where qty_native is not null and qty_base is null
+group by 1, 2, 3

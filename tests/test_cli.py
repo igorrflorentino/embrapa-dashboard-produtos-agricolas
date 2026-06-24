@@ -216,9 +216,7 @@ def test_ingest_ibge_batch_auto_chunk_iterates_full_window(
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     # Force a known chunk size (1 year) so we know exactly how many calls happen.
     monkeypatch.setattr(cli, "recommended_chunk_years", lambda n_products: 1)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
 
     pipeline_run = MagicMock(return_value="proj.bronze_ibge.sidra_t289_raw")
     monkeypatch.setattr(cli.ibge_pipeline, "run", pipeline_run)
@@ -243,9 +241,7 @@ def test_ingest_ibge_batch_manual_chunk_size_overrides_auto(
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     auto = MagicMock(return_value=999)  # should NOT be called when --chunk-years given.
     monkeypatch.setattr(cli, "recommended_chunk_years", auto)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
 
     pipeline_run = MagicMock(return_value="proj.bronze_ibge.sidra_t289_raw")
     monkeypatch.setattr(cli.ibge_pipeline, "run", pipeline_run)
@@ -278,9 +274,7 @@ def test_ingest_ibge_batch_continues_after_chunk_failure(
     settings.ibge_end_year = 2012
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli, "recommended_chunk_years", lambda n_products: 1)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
 
     call_log: list[int] = []
 
@@ -308,9 +302,7 @@ def _wire_comtrade(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> Setti
     settings.comtrade_api_key = "k"
     settings.comtrade_reporters = "76,842"  # explicit list → no list_reporters() call
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
     monkeypatch.setattr(cli.comtrade_pipeline, "ensure_destination", lambda s, c: "p.d.t")
     monkeypatch.setattr(cli.comtrade_pipeline, "bronze_one", lambda *a, **k: "p.d.t")
     return settings
@@ -413,9 +405,7 @@ def _wire_comex(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, chunks: list[tuple[str, int]]
 ) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
     monkeypatch.setattr(cli.comex_pipeline, "ensure_destination", lambda s, c: "p.d.t")
     monkeypatch.setattr(cli.comex_pipeline, "all_chunks", lambda s: chunks)
     monkeypatch.setattr(cli.comex_pipeline, "bronze_one", lambda *a, **k: "p.d.t")
@@ -587,9 +577,7 @@ def _wire_reconcile(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None
     """Stub GCP + chunk sizing so reconcile's IBGE batch leg runs offline (1-year chunks)."""
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli, "recommended_chunk_years", lambda n_products: 1)
-    monkeypatch.setattr(cli, "get_credentials", lambda s: None)
-    monkeypatch.setattr(cli.storage, "Client", MagicMock())
-    monkeypatch.setattr(cli.bigquery, "Client", MagicMock())
+    monkeypatch.setattr(cli, "resolve_clients", lambda s: (MagicMock(), MagicMock()))
 
 
 def test_ingest_reconcile_chunks_ibge_and_fulls_bcb_comex(

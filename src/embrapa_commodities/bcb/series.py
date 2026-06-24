@@ -24,9 +24,10 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 from embrapa_commodities.bcb.client import fetch_series
-from embrapa_commodities.config import Settings, get_credentials
+from embrapa_commodities.config import Settings
 from embrapa_commodities.core import land_raw, list_raw, read_raw
 from embrapa_commodities.gcp.bigquery import ensure_dataset, latest_reference_date, load_dataframe
+from embrapa_commodities.gcp.clients import resolve_clients
 
 logger = logging.getLogger(__name__)
 
@@ -225,11 +226,7 @@ def run(
     queries the Bronze table. ``from_raw`` skips the SGS fetch and rebuilds
     Bronze from the whole archived raw trail (re-derive without re-fetching).
     """
-    creds = get_credentials(settings)
-    bq_client = bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+    bq_client, storage_client = resolve_clients(settings)
     dataset_id = f"{settings.gcp_project_id}.{settings.bq_bronze_bcb_dataset}"
     ensure_dataset(bq_client, dataset_id, settings.bq_location)
     destination = f"{dataset_id}.{spec.table(settings)}"

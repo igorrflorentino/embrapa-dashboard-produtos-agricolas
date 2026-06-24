@@ -22,6 +22,7 @@ function stubGlobals(filtered) {
   window.SectionHeader = ({ overline, title }) => (
     <div className="sh"><span className="sh-ov">{overline}</span><span className="sh-title">{title}</span></div>
   );
+  window.EmptyCard = ({ children }) => <div className="card subtle">{children}</div>;
   window.UnitFamilyTag = ({ family }) => <span className="uft">{family}</span>;
   window.KpiCardSpark = ({ label, value, sub }) => (
     <div className="kpi"><span className="kpi-label">{label}</span><span className="kpi-value">{value}</span><span className="kpi-sub">{sub}</span></div>

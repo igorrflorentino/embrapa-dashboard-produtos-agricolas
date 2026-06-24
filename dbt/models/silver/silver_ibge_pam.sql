@@ -130,11 +130,11 @@ select
     case when p.variable_code = '{{ var_quantity }}'
         then coalesce(ufc.family, 'desconhecida') end       as family,
     case when p.variable_code = '{{ var_quantity }}'
-        then ufc.base_unit end                              as base_unit,
+        then coalesce(ufp.base_unit, ufc.base_unit) end     as base_unit,
     case when p.variable_code = '{{ var_quantity }}'
         then p.raw_numeric_value end                        as qty_native,
     case when p.variable_code = '{{ var_quantity }}'
-        then p.raw_numeric_value * ufc.to_base end          as qty_base,
+        then p.raw_numeric_value * coalesce(ufp.to_base, ufc.to_base) end as qty_base,
 
     p.ingestion_timestamp
 from parsed p
@@ -143,3 +143,11 @@ left join {{ ref('historical_currency_factors') }} fx
     and p.reference_year between fx.year_from and fx.year_to
 left join {{ ref('unit_family_conversions') }} ufc
     on lower(trim(p.unit_of_measure)) = ufc.unit_raw
+-- Per-product unit override, wired identically to silver_ibge_pevs so all three IBGE
+-- silvers behave uniformly (DBT-4). Staged/inert today: product_unit_factors ships only
+-- source='_reference' sentinel rows, so no 'pam' unit is overridden yet — but a future
+-- per-product PAM factor now takes effect (matching PEVS) instead of silently no-op-ing.
+left join {{ ref('product_unit_factors') }} ufp
+    on ufp.source = 'pam'
+    and ufp.product_code = p.product_code
+    and lower(trim(p.unit_of_measure)) = ufp.unit_raw

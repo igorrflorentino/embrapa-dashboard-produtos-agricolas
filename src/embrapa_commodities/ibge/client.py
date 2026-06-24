@@ -144,29 +144,38 @@ def _request_deadlines(
     ``variables`` is the ``v/`` selector — an explicit comma list counts its codes,
     ``'all'`` uses a moderate constant.
 
-    ``geo_units`` is the queried geography's municipality count (the response also
-    grows ~linearly with it). For an ``n6`` per-state slice callers pass the worst-case
-    ``LARGEST_STATE_MUNICIPALITY_COUNT`` so a DENSE state (MG, 853) gets the same
-    generous drain ceiling as a sparse one instead of the average-absorbed budget that
-    could still time out on a slow night (IBGE-1). Default ``1`` leaves the aggregated
-    (n1/n3) budgets exactly as before. The deadline is a CAP, not a forced wait — a fast
-    response still completes early — so clamping n6 calls to the ceiling is purely
-    protective.
+    ``geo_units`` is the queried geography's municipality count (the response also grows
+    ~linearly with it). It scales the per-attempt DRAIN cap ONLY: for an ``n6`` per-state
+    slice callers pass the worst-case ``LARGEST_STATE_MUNICIPALITY_COUNT`` so a DENSE
+    state (MG, 853) gets the generous 600s drain ceiling on a slow night (IBGE-1). The
+    cumulative RETRY budget deliberately does NOT fold in ``geo_units`` — it tracks the
+    request's own ``periods × products × variables`` volume — so a sparse single-year n6
+    slice keeps the lean ~187s retry budget instead of inheriting the saturated
+    ceiling × MULT (which would let a single stalled state re-attempt for most of the
+    nightly task window). Default ``1`` leaves the aggregated (n1/n3) budgets exactly as
+    before. The drain is a CAP, not a forced wait — a fast response completes early — so
+    clamping n6 drains to the ceiling is purely protective.
     """
     n_vars = (
         _ALL_VARIABLES_VOLUME
         if variables.strip() == "all"
         else max(1, sum(1 for v in variables.split(",") if v.strip()))
     )
-    units = max(1, n_periods) * max(1, n_products) * n_vars * max(1, geo_units)
+    core_units = max(1, n_periods) * max(1, n_products) * n_vars
+    # Per-attempt drain CAP scales with the FULL volume, incl. the queried geography size.
+    units = core_units * max(1, geo_units)
     drain = min(
         _DEADLINE_MAX_S,
         max(REQUEST_TOTAL_DEADLINE_S, _DEADLINE_BASE_S + _DEADLINE_PER_UNIT_S * units),
     )
-    # ``drain`` is already clamped to [75, 600], so a fixed multiple gives a retry
-    # budget in [187.5, 1500] — comfortably >= the lean PER_CALL_RETRY_BUDGET_S floor
-    # for the smallest request and bounded by _RETRY_BUDGET_MAX_S for the largest.
-    retry_budget = min(_RETRY_BUDGET_MAX_S, drain * _RETRY_BUDGET_MULT)
+    # Cumulative retry budget tracks the request's OWN (geo-independent) volume, so a
+    # sparse single-year n6 slice keeps the lean budget even though its drain is capped at
+    # the ceiling. Without this, every n6 call inherited 600 × MULT = 1500s (IBGE-1).
+    core_drain = min(
+        _DEADLINE_MAX_S,
+        max(REQUEST_TOTAL_DEADLINE_S, _DEADLINE_BASE_S + _DEADLINE_PER_UNIT_S * core_units),
+    )
+    retry_budget = min(_RETRY_BUDGET_MAX_S, core_drain * _RETRY_BUDGET_MULT)
     return drain, retry_budget
 
 
