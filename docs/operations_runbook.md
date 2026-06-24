@@ -184,11 +184,30 @@ bq query --use_legacy_sql=false \
 
 Reply to the reporter directly — their e-mail is the `submitted_by` column.
 
-**Closing the loop with GitHub (optional).** Set `FEEDBACK_GITHUB_REPO` (`owner/name`) and
-`FEEDBACK_GITHUB_TOKEN` (a token with `issues:write`, supplied via env / Secret Manager) on
-the Cloud Run service to have every report ALSO opened as a GitHub issue (labelled
-`feedback` + category). The forward is best-effort: if GitHub is unreachable the report is
-still durably in BigQuery (`issue_url` is then null) — it is never lost or blocked.
+**Closing the loop with GitHub (optional).** Each report is ALSO opened as a GitHub issue
+(labelled `feedback` + category) when the service has `FEEDBACK_GITHUB_REPO` (`owner/name`)
+**and** the `FEEDBACK_GITHUB_TOKEN` secret. The forward is best-effort — if GitHub is
+unreachable the report is still durably in BigQuery (`issue_url` then null), never lost or
+blocked.
+
+Wire it up (one-time):
+
+1. Create a **fine-grained** GitHub token scoped to **only** that repo with **Issues:
+   Read and write** (not a broad classic PAT), then store it in Secret Manager:
+
+   ```bash
+   printf '%s' "<TOKEN>" | gcloud secrets create feedback-github-token \
+     --data-file=- --project="$GCP_PROJECT_ID"
+   gcloud secrets add-iam-policy-binding feedback-github-token \
+     --member="serviceAccount:sa-web-dashboard-prod@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+     --role="roles/secretmanager.secretAccessor" --project="$GCP_PROJECT_ID"
+   ```
+
+2. Set `FEEDBACK_GITHUB_REPO` in the deploy `.env` (it is in the deploy allowlist). The token
+   is mounted automatically: `deploy/webapi/deploy.sh` adds
+   `--set-secrets FEEDBACK_GITHUB_TOKEN=feedback-github-token:latest` whenever the secret
+   exists (override the name with `FEEDBACK_GITHUB_TOKEN_SECRET`), so a routine redeploy
+   **keeps** the loop active — it is never a plaintext env var.
 
 ## Backing up prod Gold from a local / dev machine
 

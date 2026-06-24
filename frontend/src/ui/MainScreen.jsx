@@ -35,52 +35,26 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     );
   }
 
-  // Enriquecimento — one screen per tool (the old combined ?ip=curation aliases to
-  // the industrialization screen so existing deep links still resolve).
-  if (infoPage === 'enrich_industrial' || infoPage === 'curation') {
+  // FROZEN (Curadoria deferred to the "Versão Futura" roadmap phase): the enrichment
+  // editor screens are hidden. The components stay imported (scaffold), but any stale deep
+  // link (?ip=curation / enrich_industrial / enrich_market) now lands on a neutral notice
+  // instead of rendering the frozen editor — so the app is fully decoupled from curation
+  // even via direct URL. Restore these screens alongside the feature. (audit FREEZE-1)
+  if (infoPage === 'enrich_industrial' || infoPage === 'enrich_market' || infoPage === 'curation') {
     return (
-      <div className="screen" data-screen-label="Engenharia de atributos · Nível de industrialização">
+      <div className="screen" data-screen-label="Engenharia de atributos · indisponível">
         <div className="page-hero">
           <div>
-            <div className="overline">Engenharia de atributos · conhecimento do pesquisador</div>
-            <h1 className="page-title">Nível de industrialização</h1>
+            <div className="overline">Engenharia de atributos</div>
+            <h1 className="page-title">Funcionalidade em desenvolvimento</h1>
             <p className="page-sub">
-              Aqui você classifica cada produto em um nível: <strong>Bruta</strong> (in natura, sem
-              transformação), <strong>Processada</strong> (beneficiada pela indústria) ou
-              <strong> Misturado</strong> (quando o código junta os dois e não dá para separar).
-              Basta escolher na tabela abaixo e clicar em <strong>Aplicar à base</strong>.
-              Com essa marcação, o painel consegue separar quanto de cada commodity sai do país
-              ainda bruta e quanto sai já industrializada — e acompanhar, ano a ano, se a produção
-              brasileira está <strong>agregando mais valor</strong>. O que você define fica salvo e
-              passa a valer para todos os pesquisadores.
+              A <strong>Curadoria</strong> (engenharia de atributos — classificação do nível de
+              industrialização e da finalidade econômica) foi adiada para a <strong>Versão
+              Futura</strong> do projeto e está temporariamente indisponível. Ela retornará quando
+              for concluída e validada com os pesquisadores.
             </p>
           </div>
         </div>
-        <window.ViewEnrichmentIndustrialization />
-      </div>
-    );
-  }
-
-  if (infoPage === 'enrich_market') {
-    return (
-      <div className="screen" data-screen-label="Engenharia de atributos · Tipo de Mercado">
-        <div className="page-hero">
-          <div>
-            <div className="overline">Engenharia de atributos · conhecimento do pesquisador</div>
-            <h1 className="page-title">Tipo de Mercado</h1>
-            <p className="page-sub">
-              Cada operação de comércio exterior combina um <strong>regime aduaneiro</strong> (a
-              forma como a mercadoria entra ou sai do país — exportação definitiva, drawback,
-              entreposto, etc.) com um <strong>fluxo</strong> (importação, exportação,
-              reexportação…). Aqui você indica, para cada combinação, se ela atende ao
-              <strong> consumo</strong> final ou ao <strong>processamento</strong> industrial.
-              A matriz mostra o valor em dólar de cada combinação — comece pelas que mais pesam.
-              Assim o painel revela se a commodity é negociada para uso final ou como insumo da
-              indústria. O que você define fica salvo e passa a valer para todos os pesquisadores.
-            </p>
-          </div>
-        </div>
-        <window.ViewEnrichmentMarketNature />
       </div>
     );
   }

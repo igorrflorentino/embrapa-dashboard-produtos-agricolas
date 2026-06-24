@@ -126,7 +126,10 @@ const GLOSSARY = {
     ],
   },
 
-  curadoria: {
+  // FROZEN (Curadoria deferred to the "Versão Futura" phase, audit FREEZE-1): the glossary
+  // section for the hidden curation feature is commented out so users aren't shown docs for an
+  // unavailable tool. Restore alongside the feature.
+  /* curadoria: {
     label: 'Curadoria',
     sub:   'Engenharia de atributos — conhecimento do pesquisador sobre os dados',
     kind:  'tema',
@@ -140,7 +143,7 @@ const GLOSSARY = {
       { term: 'Valor agregado', cat: 'Análise', short: 'Exportação separada entre bruta e processada, com participação do processado no tempo e prêmio de preço do processado sobre o bruto.' },
       { term: 'Rascunho → aplicado', cat: 'Operação', short: 'As classificações ficam em rascunho até você clicar em "Aplicar à base"; a partir daí ficam salvas e as análises se atualizam ao vivo para todos os pesquisadores. O histórico de alterações é preservado.' },
     ],
-  },
+  }, */
 
   // Statistical methods that surface in the perspective names/descriptions
   // (views.js) but a low-IT researcher would not know — glossed in plain pt-BR.

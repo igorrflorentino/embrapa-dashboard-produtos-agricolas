@@ -19,6 +19,7 @@ from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from embrapa_commodities.config import get_settings
+from embrapa_commodities.serving.cache import cache
 from embrapa_commodities.serving.curation import (
     ensure_banco_metadata_table,
     ensure_curators_table,
@@ -532,13 +533,28 @@ def cross_mirror():
 
 
 # ─── Feedback ("Reportar problema") ─────────────────────────────────────────────
+def _peek_author():
+    """Best-effort author for the per-author rate-limit key; None when no trustworthy
+    identity is present (record_feedback then raises the real 401/403)."""
+    try:
+        return current_author()
+    except Exception:  # fall through; record_feedback raises the real 401/403
+        return None
+
+
 @api.post("/feedback")
 def feedback_submit():
     """Append one user feedback report (bug/dúvida/sugestão) and best-effort open a
     GitHub issue. ANY IAP-authenticated user may submit (no curator allowlist); the
     author is captured server-side from IAP — there is no client-supplied identity.
-    400 on empty/over-length message or bad category; 401/403 on no/forged identity."""
+    A short per-author cooldown debounces double-clicks/abuse (SEC-2). 400 on empty/
+    over-length message or bad category; 401/403 on no/forged identity; 429 on cooldown."""
     body = request.get_json(silent=True) or {}
+    cooldown = get_settings().feedback_cooldown_seconds
+    author = _peek_author()
+    rl_key = f"fb:cooldown:{author.lower()}" if author else None
+    if rl_key and cooldown and cache.get(rl_key):
+        return jsonify(error="Aguarde alguns segundos antes de enviar outro feedback."), 429
     try:
         result = record_feedback(
             category=body.get("category", "bug"),
@@ -549,6 +565,7 @@ def feedback_submit():
             banco=body.get("banco"),
             app_version=body.get("app_version"),
             browser_info=body.get("browser_info"),
+            author=author,
         )
     except FeedbackValidationError as exc:
         return jsonify(error=str(exc)), 400
@@ -556,6 +573,8 @@ def feedback_submit():
         return jsonify(error=str(exc)), 403
     except PermissionError as exc:  # MissingAuthorError → no trustworthy identity
         return jsonify(error=str(exc)), 401
+    if rl_key and cooldown:
+        cache.set(rl_key, 1, timeout=cooldown)
     return jsonify(result)
 
 

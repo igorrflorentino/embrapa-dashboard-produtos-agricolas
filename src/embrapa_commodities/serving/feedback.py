@@ -117,8 +117,13 @@ def _forward_to_github(
     import requests
 
     title = f"[Feedback/{category}] {message.splitlines()[0][:80]}"
+    # SEC-1: the body renders as Markdown — fence the user message so it cannot inject
+    # Markdown or @-mention pings; neutralise triple-backtick runs so it cannot break out.
+    safe_message = message.replace("```", "ʼʼʼ")
     body = [
-        message,
+        "```text",
+        safe_message,
+        "```",
         "",
         "---",
         f"- **Reportado por:** {submitted_by}",
@@ -159,16 +164,18 @@ def record_feedback(
     banco: str | None = None,
     app_version: str | None = None,
     browser_info: str | None = None,
+    author: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> dict:
-    """Append one feedback report and best-effort open a GitHub issue.
+    """Append one feedback report (durably) and then best-effort open a GitHub issue.
 
-    ``headers`` is the inbound request's headers; the author email is read from the
-    IAP-verified header (never the service account). Raises :class:`FeedbackValidationError`
-    (→ 400) on an empty/over-length message or bad category, and ``PermissionError`` /
-    ``InvalidIapAssertionError`` (→ 401/403) when no trustworthy identity is present.
-    Returns the row as written (including the GitHub ``issue_url`` when forwarded).
+    The author email is ``author`` when given (the route captures it once for the rate-limit),
+    else read from the IAP-verified header in ``headers`` (never the service account). Raises
+    :class:`FeedbackValidationError` (→ 400) on an empty/over-length message or bad category,
+    and ``PermissionError`` / ``InvalidIapAssertionError`` (→ 401/403) when no trustworthy
+    identity is present. The BigQuery write happens BEFORE the GitHub forward (audit FB-1), so a
+    GitHub failure can never lose the report; ``issue_url`` is stamped back on success.
     """
     category = (category or "bug").strip().lower()
     message = _validate(category, message)
@@ -179,8 +186,9 @@ def record_feedback(
     app_version = _clip(app_version, MAX_VERSION_LEN)
     browser_info = _clip(browser_info, MAX_UA_LEN)
 
-    # Identity first — a missing/forged author raises here, before any write.
-    submitted_by = author_email_from_headers(
+    # Identity first — a missing/forged author raises here, before any write. Use the
+    # caller-supplied author when given (the route captures it once for the rate-limit).
+    submitted_by = author or author_email_from_headers(
         headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
     )
     feedback_id = uuid.uuid4().hex
@@ -188,25 +196,17 @@ def record_feedback(
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_feedback_log_table)
     ensure_feedback_log_table(cfg, bq)
 
-    issue_url = _forward_to_github(
-        cfg,
-        category=category,
-        message=message,
-        submitted_by=submitted_by,
-        url=url,
-        view_id=view_id,
-        banco=banco,
-    )
-
-    sql = f"""
+    # FB-1: durable BigQuery write FIRST (issue_url NULL) so a GitHub hiccup can never lose
+    # the report. The GitHub forward + the issue_url stamp happen afterwards.
+    insert_sql = f"""
         insert into `{table_fqn}`
             (feedback_id, category, message, url, view_id, banco, app_version,
              browser_info, submitted_by, submitted_at, issue_url)
         values
             (@feedback_id, @category, @message, @url, @view_id, @banco, @app_version,
-             @browser_info, @submitted_by, current_timestamp(), @issue_url)
+             @browser_info, @submitted_by, current_timestamp(), null)
     """
-    params = [
+    insert_params = [
         bigquery.ScalarQueryParameter("feedback_id", "STRING", feedback_id),
         bigquery.ScalarQueryParameter("category", "STRING", category),
         bigquery.ScalarQueryParameter("message", "STRING", message),
@@ -216,9 +216,37 @@ def record_feedback(
         bigquery.ScalarQueryParameter("app_version", "STRING", app_version),
         bigquery.ScalarQueryParameter("browser_info", "STRING", browser_info),
         bigquery.ScalarQueryParameter("submitted_by", "STRING", submitted_by),
-        bigquery.ScalarQueryParameter("issue_url", "STRING", issue_url),
     ]
-    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    bq.query(
+        insert_sql, job_config=bigquery.QueryJobConfig(query_parameters=insert_params)
+    ).result()
+
+    # The report is now safe in BigQuery — best-effort open a GitHub issue and stamp it back.
+    issue_url = _forward_to_github(
+        cfg,
+        category=category,
+        message=message,
+        submitted_by=submitted_by,
+        url=url,
+        view_id=view_id,
+        banco=banco,
+    )
+    if issue_url:
+        try:
+            bq.query(
+                f"update `{table_fqn}` set issue_url = @issue_url where feedback_id = @feedback_id",
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("issue_url", "STRING", issue_url),
+                        bigquery.ScalarQueryParameter("feedback_id", "STRING", feedback_id),
+                    ]
+                ),
+            ).result()
+        except Exception as exc:  # the issue exists; stamping it back is best-effort
+            logger.warning(
+                "feedback %s: issue created but issue_url stamp failed: %s", feedback_id, exc
+            )
+
     logger.info(
         "feedback (%s) by %s%s", category, submitted_by, f" → {issue_url}" if issue_url else ""
     )
