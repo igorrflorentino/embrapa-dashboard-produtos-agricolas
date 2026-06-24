@@ -209,8 +209,7 @@ See [docs/ownership_transfer.md](docs/ownership_transfer.md). Nothing is hardcod
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture — stack, folder structure, data flow |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide — commits, branches, PRs |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [TODO.md](TODO.md) | Macro list of pending and completed tasks |
-| [ROADMAP.md](ROADMAP.md) | Future vision (short, medium and long term) |
+| Roadmap (Google Drive) | Project vision & evolution tracking — maintained outside the repo for business leadership (replaces `ROADMAP.md` + `TODO.md`). Link: _add the Google Doc URL_ |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 | [PLANS/](PLANS/) | Detailed plans for complex features |
 
