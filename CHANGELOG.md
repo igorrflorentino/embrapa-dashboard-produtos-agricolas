@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
-Second-pass remediation of the 2026-06-23 **post-release audit** of v1.5.3 (15-dimension,
-adversarially-verified; 37 confirmed findings). The prior wave (`[1.5.3]`) landed clean — this
-pass fixes what it missed or under-hardened, plus a focused deduplication sweep. Validated:
-903 pytest / 265 vitest green; ruff+format+eslint clean; `vite build`, `dbt parse`, `dbt compile`
+## [1.6.0] — 2026-06-24
+
+Headline release of the 2026-06-24 work: the **in-app feedback channel** ("Reportar problema" →
+append-only BigQuery log + IAP author + optional best-effort GitHub-issue loop), **roadmap management
+moved to Google Drive** (`ROADMAP.md` / `TODO.md` retired), the **Curadoria feature frozen** (deferred
+to the "Versão Futura" roadmap phase, hidden from the UI), and the **rolldown-vite dev server repaired**
+(`npm run dev` was blank-screening on a CJS `require` the dev server didn't rewrite to ESM). Plus the
+second-pass remediation of the 2026-06-23 **post-release audit** of v1.5.3 (15-dimension,
+adversarially-verified; 37 confirmed findings) and a focused deduplication sweep. Validated:
+910 pytest / 267 vitest green; ruff+format+eslint clean; `vite build`, `dbt parse`, `dbt compile`
 and `sqlfluff` clean.
 
 ### Fixed
