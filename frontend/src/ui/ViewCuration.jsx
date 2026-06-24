@@ -1,3 +1,10 @@
+// ─── FROZEN FEATURE: Curadoria / enriquecimento — postponed to "Versão Futura" ────
+// Leadership decision (2026-06): partially built + not yet validated. Its UI entry
+// points (the "Engenharia de atributos" sidebar section in AppShell.jsx) are hidden
+// and the app runs fully decoupled. Kept as the scaffold for the real future
+// implementation — do not delete. Reachable only via stale ?ip=enrich_industrial /
+// ?ip=curation deep links, and inert unless dbt is built with `enable_curation: true`.
+//
 // ViewCuration.jsx — the researcher ENRICHMENT surface, split into ONE SCREEN
 // PER TOOL so each enrichment can be done on its own:
 //   • ViewEnrichmentIndustrialization — "Nível de industrialização" (codes table)

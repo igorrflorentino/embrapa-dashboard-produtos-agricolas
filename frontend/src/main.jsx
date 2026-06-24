@@ -81,6 +81,9 @@ import './ui/ViewPartners.jsx';
 import './ui/ViewCrossSource.jsx';
 import './ui/ViewsMultiSource.jsx';
 import './ui/ViewsChain.jsx';
+// FROZEN (Curadoria — postponed to "Versão Futura"): kept imported so the components
+// stay defined and any stale curated/enrich deep link degrades gracefully. The UI
+// entry points are hidden in views.js + AppShell.jsx — see those files.
 import './ui/ViewCuration.jsx';
 import './ui/ViewCuratedAnalyses.jsx';
 import './ui/ViewAbout.jsx';

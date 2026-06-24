@@ -106,6 +106,16 @@ window.VIEW_GROUPS = [
         desc: 'Quantos meses os embarques (MDIC, mensal) seguem o pico da safra (IBGE). Perfis mensais sobrepostos e correlação cruzada por defasagem.' },
     ],
   },
+  // ─── FROZEN FEATURE: "Análises curadas" (data-curation perspectives) ──────────
+  // Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06):
+  // partially built + NOT yet validated, so these curation perspectives are HIDDEN
+  // from the topnav and the app runs fully decoupled from them. The group is kept
+  // verbatim below as the scaffold for the real future implementation — DO NOT
+  // delete. To revive: un-comment this group, restore the "Engenharia de atributos"
+  // sidebar section in AppShell.jsx, and build dbt with `--vars 'enable_curation: true'`.
+  // The VIEW_COMPONENTS mappings + main.jsx imports stay live on purpose, so a stale
+  // `?v=curated_value_added` deep link degrades gracefully instead of crashing.
+  /*
   {
     id: 'curated',
     label: 'Análises curadas',
@@ -119,6 +129,7 @@ window.VIEW_GROUPS = [
         desc: 'Valor comercializado por finalidade econômica (consumo × processamento), a partir da classificação curada do par regime × fluxo. Cruzada com a direção, separa comprar/vender para consumir ou processar.' },
     ],
   },
+  */
   {
     id: 'documentation',
     label: 'Documentação do banco',
@@ -174,6 +185,8 @@ window.VIEW_COMPONENTS = {
   cross_mirror:          'ViewMirror',
   cross_chain:           'ViewChainBalance',
   cross_lag:             'ViewHarvestLag',
+  // FROZEN (see the commented "Análises curadas" group above): kept mapped so a stale
+  // `?v=curated_value_added` deep link still resolves to a gracefully-empty component.
   curated_value_added:   'ViewValueAdded',
   curated_market_nature: 'ViewMarketNature',
 };

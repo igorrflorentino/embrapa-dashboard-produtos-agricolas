@@ -1,3 +1,10 @@
+// ─── FROZEN FEATURE: curated analyses (Curadoria) — postponed to "Versão Futura" ──
+// Leadership decision (2026-06): partially built + not yet validated. The two views
+// (Valor agregado / Finalidade econômica) are hidden from the topnav (views.js) and
+// the app runs fully decoupled. Kept as the scaffold for the real future
+// implementation — do not delete. They degrade to an honest empty state when the
+// curation data is absent.
+//
 // ViewCuratedAnalyses.jsx — analyses POWERED BY the enrichment layer. They
 // subscribe to the store, so editing the Curadoria re-renders them live.
 //   · ViewValueAdded   — exports split by industrialization (bruta × processada)

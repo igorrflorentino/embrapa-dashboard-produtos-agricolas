@@ -530,6 +530,13 @@ def cross_mirror():
     return jsonify(serializers.serialize_trade_mirror(seam.trade_mirror(_commodity())))
 
 
+# ─── FROZEN FEATURE: Curadoria / enrichment endpoints ───────────────────────────
+# The curated value-added + market-nature readers (below) and the /curation/* editor
+# read/write routes are postponed to the "Versão Futura" roadmap phase (leadership
+# decision, 2026-06). Their UI entry points are hidden (views.js + AppShell.jsx), so
+# the app runs fully decoupled; the routes stay registered + tested and degrade
+# gracefully (empty results when `enable_curation` is unbuilt). Kept as the scaffold
+# for the real future implementation — do not delete.
 @api.get("/cross/value-added")
 def cross_value_added():
     """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""

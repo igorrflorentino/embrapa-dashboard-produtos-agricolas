@@ -1,4 +1,10 @@
-"""Append-only curation writers — the backend of the dashboard's "Save" button.
+"""FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
+(leadership decision, 2026-06): partially built + not yet validated. The UI entry
+points are hidden and the app runs fully decoupled; this module is reached only via
+the (UI-hidden) ``/api/curation/*`` routes and stays inert unless dbt is built with
+``enable_curation: true``. Kept as the scaffold for the real future implementation.
+
+Append-only curation writers — the backend of the dashboard's "Save" button.
 
 The dashboard curates at two grains, each backed by an append-only log here:
   * per-CODE industrialization (``record_code_industrialization`` →

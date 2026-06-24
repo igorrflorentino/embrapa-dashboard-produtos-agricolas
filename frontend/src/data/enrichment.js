@@ -1,3 +1,9 @@
+// ─── FROZEN FEATURE: curation store (Curadoria) — postponed to "Versão Futura" ────
+// Leadership decision (2026-06): partially built + not yet validated. Hidden from the
+// UI (views.js + AppShell.jsx); the app runs fully decoupled. Kept as the scaffold for
+// the real future implementation — do not delete. Inert unless its (UI-hidden)
+// /api/curation/* routes are exercised; reads degrade gracefully when unbuilt.
+//
 // enrichment.js — curation layer, API-backed. Two institutional axes, both
 // append-only SCD2 logs joined to the Gold/Bronze universe at read time:
 //

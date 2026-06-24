@@ -1,4 +1,10 @@
-"""Curadoria + enrichment readers for the seam layer.
+"""FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
+(leadership decision, 2026-06): partially built + not yet validated. UI entry points
+hidden; the app runs fully decoupled. The readers below already degrade gracefully
+when the gated SCD2 view / log tables are absent. Kept as the scaffold for the real
+future implementation — do not delete.
+
+Curadoria + enrichment readers for the seam layer.
 
 The per-code industrialization curation (bruta/processada), the value-added
 analysis that splits COMEX exports by that curated level, and the market-nature

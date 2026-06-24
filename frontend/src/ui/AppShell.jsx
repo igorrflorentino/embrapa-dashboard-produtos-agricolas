@@ -456,6 +456,14 @@ function AppShell({
             })
           )}
 
+          {/* ─── FROZEN FEATURE: "Engenharia de atributos" (Curadoria editor) ─────────
+              Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06):
+              partially built + NOT yet validated, so the curation editor is HIDDEN from the
+              sidebar and the app runs fully decoupled from it. Kept verbatim as the scaffold
+              for the real future implementation — DO NOT delete. To revive: un-comment this
+              section + the "Análises curadas" group in views.js, and build dbt with
+              `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
+              ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>
@@ -465,6 +473,7 @@ function AppShell({
                {...clickable(() => onInfo('enrich_market'))}>
             <window.Icon name="trending_up"/>Tipo de Mercado
           </div>
+          */}
 
           <div className="side-section">Informações</div>
           <div className={'side-item ' + (infoPage === 'about' ? 'active' : '')}

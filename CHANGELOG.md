@@ -60,6 +60,17 @@ and `sqlfluff` clean.
   `PLANS/` (engineering specs) stays in-repo and `CHANGELOG.md` remains the canonical per-version
   record of what shipped.
 
+### Changed (product / scope)
+- **Curation/enrichment ("Curadoria") frozen — deferred to the "Versão Futura" roadmap phase.**
+  Per leadership decision, the partially-built, not-yet-validated data-curation feature (the per-code
+  industrialization + market-nature editor and its two curated analyses) is now HIDDEN from the
+  dashboard UI: the "Análises curadas" perspectives (`frontend/src/ui/views.js`) and the "Engenharia
+  de atributos" sidebar editor (`AppShell.jsx`) are commented out behind FROZEN banners. The app runs
+  100% decoupled from it; the backend routes, serving writers, and the SCD2 dbt view (already gated by
+  `enable_curation`, default false) are kept in place + tested as the scaffold for the real future
+  implementation, each marked with FROZEN comments. The operations runbook now warns against prod
+  activation while frozen. No data or behaviour change for any active view.
+
 ### Added (tests)
 - Regression tests for the ragged-series fixes (`cagrPct`/`spanYears`/`stackYearMax`, single-slice
   Donut), the `_MAX_MUNICIPIO_CODES`/`_MAX_BASKET_CODES` caps, the n6 retry-budget decoupling, the

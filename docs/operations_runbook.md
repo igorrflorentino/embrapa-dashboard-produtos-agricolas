@@ -135,6 +135,14 @@ Details: `src/embrapa_commodities/serving/iap.py` and
 
 ## Activating curation in prod (one-time) and keeping it built
 
+> ⚠️ **FROZEN — Curadoria postponed to the "Versão Futura" roadmap phase (2026-06).**
+> The curation/enrichment feature is partially built, not yet validated, and **hidden
+> from the dashboard UI** (its topnav perspectives in `frontend/src/ui/views.js` and the
+> "Engenharia de atributos" sidebar editor in `AppShell.jsx` are commented out behind
+> FROZEN banners). The app runs fully decoupled from it. **Do not activate it in prod**
+> until the feature is revived and validated — the steps below are kept for that future
+> reactivation.
+
 The SCD2 curation view (`dim_code_industrialization_scd2`) is gated by
 `var('enable_curation', false)` so a fresh project builds green before the
 curation log tables exist. Activating curation in prod is therefore two steps:
