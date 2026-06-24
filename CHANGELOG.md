@@ -71,6 +71,17 @@ and `sqlfluff` clean.
   implementation, each marked with FROZEN comments. The operations runbook now warns against prod
   activation while frozen. No data or behaviour change for any active view.
 
+### Added
+- **In-app feedback channel ("Reportar problema").** A new dashboard button opens a modal
+  (bug / dúvida / sugestão) that POSTs to `/api/feedback`; the report is written to an
+  append-only `feedback_log` BigQuery table, with the author captured from the IAP identity
+  and reproduction context auto-attached (the permalink to the current view/filters, app
+  version, optional user-agent). When `FEEDBACK_GITHUB_REPO` + `FEEDBACK_GITHUB_TOKEN` are
+  set, each report ALSO opens a GitHub issue (best-effort — a failure never blocks or loses
+  the BigQuery write); unset = BigQuery-only. Reuses the curation append-log + IAP-author
+  pattern. (`serving/feedback.py`, `webapi/routes.py`, `frontend/src/ui/FeedbackModal.jsx`,
+  `frontend/src/data/feedback.js`.)
+
 ### Added (tests)
 - Regression tests for the ragged-series fixes (`cagrPct`/`spanYears`/`stackYearMax`, single-slice
   Donut), the `_MAX_MUNICIPIO_CODES`/`_MAX_BASKET_CODES` caps, the n6 retry-budget decoupling, the
