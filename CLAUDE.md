@@ -29,7 +29,7 @@ Built for **Embrapa researchers** — the purpose is historical/scientific explo
 | `ARCHITECTURE.md` | Technical deep-dive: folder structure, data flow, stack decisions |
 | `CONTRIBUTING.md` | Commit conventions, branch flow, PR process |
 | `CHANGELOG.md` | Version history (Keep a Changelog format) |
-| Roadmap (Google Drive) | Project vision & evolution tracking for business leadership — kept **outside the repo** (replaces the former `ROADMAP.md` + `TODO.md`). Link: _add the Google Doc URL_. `PLANS/` (engineering specs) and `CHANGELOG.md` (per-version record) stay in-repo. |
+| Roadmap (Google Drive) | Project vision & evolution tracking for business leadership — kept **outside the repo** (replaces the former `ROADMAP.md` + `TODO.md`): [Roadmap — Google Drive](https://docs.google.com/document/d/1UByZ_THIJcqtYizZWrOSDsMpM_XCptj0f29VcymcPXE/edit?usp=sharing). `PLANS/` (engineering specs) and `CHANGELOG.md` (per-version record) stay in-repo. |
 | `SECURITY.md` | Vulnerability reporting policy |
 | `PLANS/` | Detailed feature plans (one .md per feature) |
 | `docs/` | Deep-dive docs (setup, IAM, testing, cost safety, etc.) |
