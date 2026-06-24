@@ -13,6 +13,8 @@
 //     correction: 'Nominal'|'IPCA'|'IGP-M'|'IGP-DI',
 //     units: { mass: 't', volume: 'm³', … }  // display unit per family }
 
+import { magnitudeParts } from '../charts/magnitude.js';
+
 function MetricConventions({ value, onChange, families, banco }) {
   const set = (patch) => onChange({ ...value, ...patch });
 
@@ -150,15 +152,11 @@ window.clampConvention = (conv) => {
 // Display unit chosen for a family (falls back to the registry default).
 window.unitOf = (conv, fam) => (conv && conv.units && conv.units[fam]) || window.defaultUnitOf(fam);
 
-// Auto-scale helper — picks a (factor, suffix) so the number sits in a
-// readable magnitude. Used only when conv.autoScale === true.
-window.autoScaleNum = (v) => {
-  const a = Math.abs(v);
-  if (a >= 1e9) return { factor: 1e9, suffix: 'bi' };
-  if (a >= 1e6) return { factor: 1e6, suffix: 'mi' };
-  if (a >= 1e3) return { factor: 1e3, suffix: 'mil' };
-  return { factor: 1, suffix: '' };
-};
+// Auto-scale helper — picks a (factor, suffix) so the number sits in a readable
+// magnitude. Used only when conv.autoScale === true. The bi/mi/mil ladder is the SHARED
+// kernel (magnitude.js), identical to the chart axis's ptBrMagnitude so the two can't
+// drift (DEDUP-7).
+window.autoScaleNum = magnitudeParts;
 
 function _fmtRescaled(v, conv, unitSuffix) {
   if (conv.autoScale) {
@@ -299,12 +297,19 @@ window.countAxisLabel  = (conv) => window.unitOf(conv, 'count');
 window.conventionMonetaryLabel = (conv) =>
   conv.currency + (conv.correction === 'Nominal' ? ' · nominal' : ' · ' + conv.correction);
 
+// scaleLabel — axis/series label grammar for a magnitude-scaled unit: a currency symbol
+// sits BEFORE the magnitude suffix ("R$ bi"), a physical unit AFTER ("bi t"). Single
+// source for the symbol list + ordering so the three scalers (scaleSeries, ValueVolume
+// _scaleStack, Geography heatScaled) can't drift when a symbol changes — the CNY removal
+// showed the list does churn (DEDUP-9). Pure string / label-only — never touches a value.
+window.SCALE_CURRENCY_SYMS = ['R$', 'US$', '€'];
+window.scaleLabel = (unit, suffix) =>
+  window.SCALE_CURRENCY_SYMS.includes(unit) ? `${unit} ${suffix}` : `${suffix} ${unit}`.trim();
+
 // scaleSeries — rescales a series + returns the matching axis label.
 // When conv.autoScale is OFF, returns the data as-is and unitSuffix only.
 // When ON, divides every value by autoScale(refMagnitude).factor and
-// builds the label respecting unit grammar:
-//   currency → "R$ bi"  (symbol before suffix)
-//   physical → "bi t"   (suffix before unit)
+// builds the label respecting unit grammar (see scaleLabel).
 window.scaleSeries = (series, refMag, conv, valueKey, unitSuffix) => {
   if (!conv.autoScale) {
     return { data: series, label: unitSuffix };
@@ -312,13 +317,7 @@ window.scaleSeries = (series, refMag, conv, valueKey, unitSuffix) => {
   const { factor, suffix } = window.autoScaleNum(refMag);
   if (!suffix) return { data: series, label: unitSuffix };
   const data = series.map(d => ({ ...d, [valueKey]: d[valueKey] / factor }));
-  // Currency symbols sit BEFORE the magnitude suffix ("R$ bi"),
-  // physical units sit AFTER ("bi t").
-  const CURRENCY_SYMS = ['R$', 'US$', '€'];
-  const label = CURRENCY_SYMS.includes(unitSuffix)
-    ? `${unitSuffix} ${suffix}`
-    : `${suffix} ${unitSuffix}`.trim();
-  return { data, label };
+  return { data, label: window.scaleLabel(unitSuffix, suffix) };
 };
 
 window.MetricConventions = MetricConventions;

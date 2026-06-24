@@ -39,8 +39,8 @@ def test_run_extracts_every_gold_table(settings: Settings) -> None:
     `gold_nfe_*`) are added later.
     """
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
@@ -69,8 +69,8 @@ def test_run_filters_by_prefix_and_table_type(settings: Settings) -> None:
     that protects against backing up unrelated artefacts.
     """
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
@@ -95,8 +95,8 @@ def test_run_filters_by_prefix_and_table_type(settings: Settings) -> None:
 def test_run_raises_when_dataset_is_empty(settings: Settings) -> None:
     """Gold dataset has no matching tables → RuntimeError pointing at dbt-build-prod."""
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
@@ -113,8 +113,8 @@ def test_run_writes_success_marker_after_all_extracts(settings: Settings) -> Non
     not count as complete (see test_run_skips_marker_when_extract_fails).
     """
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client") as gcs_cls,
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client") as gcs_cls,
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
@@ -147,8 +147,8 @@ def test_run_skips_marker_when_extract_fails(settings: Settings) -> None:
     crashed half-backup — writing it on failure would defeat the check.
     """
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client") as gcs_cls,
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client") as gcs_cls,
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value
@@ -171,8 +171,8 @@ def test_run_skips_marker_when_extract_fails(settings: Settings) -> None:
 def test_run_uses_parquet_snappy_format(settings: Settings) -> None:
     """ExtractJobConfig must be Parquet + Snappy so backups are restorable."""
     with (
-        patch("embrapa_commodities.backup.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.backup.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq_cls,
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.backup.ensure_bucket"),
     ):
         client = bq_cls.return_value

@@ -162,8 +162,7 @@ function ViewGeography({ families, conventions, summary, database }) {
     if (!conv.autoScale) return { rows: heatRows, label: unit };
     const { factor, suffix } = window.autoScaleNum(heatMax);
     if (!suffix) return { rows: heatRows, label: unit };
-    const CURRENCY_SYMS = ['R$', 'US$', '€'];
-    const label = CURRENCY_SYMS.includes(unit) ? `${unit} ${suffix}` : `${suffix} ${unit}`.trim();
+    const label = window.scaleLabel(unit, suffix);  // shared grammar (DEDUP-9)
     return {
       rows: heatRows.map(r => ({
         ...r,

@@ -13,7 +13,6 @@ from pathlib import Path
 from types import ModuleType
 
 import typer
-from google.cloud import bigquery, storage
 from rich.console import Console
 from rich.table import Table
 
@@ -23,13 +22,14 @@ from embrapa_commodities.bcb import inflation as bcb_inflation
 from embrapa_commodities.comex import pipeline as comex_pipeline
 from embrapa_commodities.comtrade import pipeline as comtrade_pipeline
 from embrapa_commodities.comtrade.client import ComtradeQuotaError
-from embrapa_commodities.config import Settings, get_credentials, get_settings
+from embrapa_commodities.config import Settings, get_settings
 from embrapa_commodities.core import (
     ChunkOutcome,
     ChunkTracker,
     chunked_run,
     pipeline_run,
 )
+from embrapa_commodities.gcp.clients import resolve_clients
 from embrapa_commodities.ibge import pam_pipeline, ppm_pipeline
 from embrapa_commodities.ibge import pipeline as ibge_pipeline
 from embrapa_commodities.ibge.client import recommended_chunk_years
@@ -362,11 +362,7 @@ def _ibge_batch_ingest(settings: Settings, chunk_years: int | None) -> ChunkTrac
     )
 
     # Build clients once; reuse across all chunks to avoid repeated auth.
-    creds = get_credentials(settings)
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
-    bq_client = bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
+    bq_client, storage_client = resolve_clients(settings)
 
     # ibge-batch drives its own per-chunk loop (each chunk is a year-range that
     # calls ibge_pipeline.run with full=True); chunked_run owns the event
@@ -475,11 +471,7 @@ def ingest_comex(
     `embrapa monitor` progress.
     """
     settings = get_settings()
-    creds = get_credentials(settings)
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
-    bq_client = bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
+    bq_client, storage_client = resolve_clients(settings)
     total = len(comex_pipeline.all_chunks(settings))
     mode = "from-raw" if from_raw else ("full" if full else "delta")
     params = {"full": full, "from_raw": from_raw, "flows": settings.comex_flows_list}
@@ -531,11 +523,7 @@ def ingest_comtrade(
             "(free key from comtradedeveloper.un.org)."
         )
         raise typer.Exit(code=1)
-    creds = get_credentials(settings)
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
-    bq_client = bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
+    bq_client, storage_client = resolve_clients(settings)
     # Resolve reporters once (here, for the header count) — run() resolves them
     # again from the same resolve_reporters(), so the two never drift.
     reporters = comtrade_pipeline.resolve_reporters(settings)

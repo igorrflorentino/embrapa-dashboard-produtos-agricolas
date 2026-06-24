@@ -387,12 +387,13 @@ def fetch_chunk_adaptive(
     year split would never help). If a future caller passed a multi-year list and a
     single (reporter, flow, cmd, multi-year) call hit the cap, it would raise a FALSE
     ComtradeTruncationError ("un-splittable") even though splitting by year would
-    resolve it. The assert pins the invariant so that change can't silently lose data
-    (COMTRADE-1)."""
-    assert len(years) == 1, (
-        "fetch_chunk_adaptive splits reporters/flows/cmd_codes but NOT years; pass a "
-        f"single year (got {years!r}) or add 'years' to the split dimensions first."
-    )
+    resolve it. This unconditional check pins the invariant so that change can't silently
+    lose data — a plain ``assert`` would be stripped under ``python -O`` (COMTRADE-1)."""
+    if len(years) != 1:
+        raise ValueError(
+            "fetch_chunk_adaptive splits reporters/flows/cmd_codes but NOT years; pass a "
+            f"single year (got {years!r}) or add 'years' to the split dimensions first."
+        )
     df = fetch_chunk(
         base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
     )

@@ -24,9 +24,10 @@ import json
 import logging
 from datetime import UTC, datetime
 
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
-from embrapa_commodities.config import Settings, get_credentials
+from embrapa_commodities.config import Settings
+from embrapa_commodities.gcp.clients import resolve_clients
 from embrapa_commodities.gcp.storage import ensure_bucket
 
 logger = logging.getLogger(__name__)
@@ -75,12 +76,8 @@ def run(settings: Settings) -> tuple[str, list[str]]:
     Raises ``RuntimeError`` if the Gold dataset has no matching tables (typical
     when the user runs ``backup-gold`` before any ``make dbt-build-prod``).
     """
-    creds = get_credentials(settings)
-    storage_client = storage.Client(project=settings.gcp_project_id, credentials=creds)
+    bq_client, storage_client = resolve_clients(settings)
     ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
-    bq_client = bigquery.Client(
-        project=settings.gcp_project_id, location=settings.bq_location, credentials=creds
-    )
 
     table_fqns = _gold_tables(settings, bq_client)
     if not table_fqns:

@@ -2136,6 +2136,11 @@ def test_comtrade_cpc_value_dedups_append_only_bronze():
     # Same exclusions as Silver: World partner aggregate + legacy HS4 rows.
     assert "partnercode != '0'" in flat
     assert "length(cmdcode) = 6" in flat
+    # DBT-2: also pin the other three breakdown axes to '0' exactly like Silver, so the
+    # customs-procedure sum can never pick up a mot/mos/partner2 breakdown row.
+    assert "motcode = '0'" in flat
+    assert "partner2code = '0'" in flat
+    assert "moscode = '0'" in flat
 
 
 def test_comtrade_cpc_value_filters_cmd_codes_when_scoped():
@@ -2181,9 +2186,12 @@ def test_comtrade_cpc_value_projects_columns_and_keeps_predicates_after_batch_se
 
 def test_current_flow_market_latest_wins_and_drops_cleared():
     query, params = sql.current_flow_market("p.research_inputs.flow_market_log")
-    low = query.lower()
+    low = " ".join(query.lower().split())  # collapse whitespace for matching
     assert "row_number() over" in low
-    assert "partition by customs_code, flow_code order by edited_at desc" in low
+    # Latest-wins per pair, breaking same-microsecond ties on change_id DESC so a
+    # clear-vs-set race resolves deterministically — same tiebreaker the code SCD2 uses
+    # (DBT-3).
+    assert "partition by customs_code, flow_code order by edited_at desc, change_id desc" in low
     assert "where rn = 1 and market != ''" in low  # a cleared (empty) market is dropped
     assert params == []
 

@@ -64,11 +64,9 @@ function ViewProductProfile({ families, summary, database, conventions }) {
 
   if (!activeCode) {
     return (
-      <div className="card subtle">
-        <p className="caption" style={{ padding: '20px 4px', textAlign: 'center' }}>
-          Nenhum produto disponível na seleção atual. Ajuste os filtros para escolher uma commodity.
-        </p>
-      </div>
+      <window.EmptyCard>
+        Nenhum produto disponível na seleção atual. Ajuste os filtros para escolher uma commodity.
+      </window.EmptyCard>
     );
   }
 

@@ -333,7 +333,11 @@ seeds:
           - not_null
           - accepted_values:
               arguments:
-                values: ["pevs", "pam", "comex", "comtrade"]
+                # 'ppm' is pre-accepted so the documented PPM commodity-linkage step
+                # (seeding a source='ppm' row, joined live in serving_ppm_annual) does
+                # not hard-fail `dbt build` the moment it is followed; inert while the
+                # seed ships zero ppm rows (DBT-1).
+                values: ["pevs", "pam", "ppm", "comex", "comtrade"]
       - name: code_prefix
         tests: [not_null]
       - name: commodity_name

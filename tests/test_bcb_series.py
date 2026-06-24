@@ -212,8 +212,8 @@ def _raw_roundtrip():
 @pytest.mark.parametrize("spec, label, codes, labels", SPECS)
 def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, settings) -> None:
     with (
-        patch("embrapa_commodities.bcb.series.bigquery.Client"),
-        patch("embrapa_commodities.bcb.series.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch(
             "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
@@ -232,8 +232,8 @@ def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, s
 def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, settings) -> None:
     land, read = _raw_roundtrip()
     with (
-        patch("embrapa_commodities.bcb.series.bigquery.Client"),
-        patch("embrapa_commodities.bcb.series.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
         patch("embrapa_commodities.bcb.series.land_raw", side_effect=land),
@@ -250,8 +250,8 @@ def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, 
 def test_run_raw_basename_is_runstamped_under_kind(spec, label, codes, labels, settings) -> None:
     land, read = _raw_roundtrip()
     with (
-        patch("embrapa_commodities.bcb.series.bigquery.Client"),
-        patch("embrapa_commodities.bcb.series.storage.Client"),
+        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
+        patch("embrapa_commodities.gcp.clients.storage.Client"),
         patch("embrapa_commodities.bcb.series.ensure_dataset"),
         patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
         patch("embrapa_commodities.bcb.series.land_raw", side_effect=land) as land_mock,

@@ -194,7 +194,7 @@ window.FILTER_SCHEMAS = {
       { id: 'periodo',  tier: 'universal', type: 'date-range',
         requires: null, backed: true,
         label: 'Período',                  column: 'ano',
-        hint: 'Anual, de 1988 ao presente.' },
+        hint: 'Anual, de 1989 ao presente.' },
       { id: 'hs6',      tier: 'shared',    type: 'multi-tree',
         requires: 'product', backed: true,
         label: 'Produto · HS6',            column: 'hs6',

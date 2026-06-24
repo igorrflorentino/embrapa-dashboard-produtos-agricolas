@@ -94,3 +94,28 @@ describe('clampConvention guards the unservable USD × IGP-M/IGP-DI combos', () 
     expect(window.clampConvention(undefined)).toBeUndefined();
   });
 });
+
+describe('scaleLabel — shared magnitude-label grammar (DEDUP-9)', () => {
+  it('puts a currency SYMBOL before the magnitude suffix ("R$ bi")', () => {
+    expect(window.scaleLabel('R$', 'bi')).toBe('R$ bi');
+    expect(window.scaleLabel('US$', 'mi')).toBe('US$ mi');
+    expect(window.scaleLabel('€', 'mil')).toBe('€ mil');
+  });
+
+  it('puts a PHYSICAL unit after the magnitude suffix ("bi t")', () => {
+    expect(window.scaleLabel('t', 'bi')).toBe('bi t');
+    expect(window.scaleLabel('m³', 'mi')).toBe('mi m³');
+  });
+
+  it('trims to the bare suffix when the physical unit is empty', () => {
+    expect(window.scaleLabel('', 'bi')).toBe('bi');
+  });
+
+  it('drives all three scalers off ONE symbol list (so they cannot drift)', () => {
+    // scaleSeries, ValueVolume _scaleStack and Geography heatScaled all call scaleLabel,
+    // so changing window.SCALE_CURRENCY_SYMS changes the grammar in lockstep.
+    expect(window.SCALE_CURRENCY_SYMS).toContain('R$');
+    expect(window.SCALE_CURRENCY_SYMS).toContain('US$');
+    expect(window.SCALE_CURRENCY_SYMS).toContain('€');
+  });
+});

@@ -216,6 +216,23 @@ def test_request_deadlines_scale_with_volume() -> None:
     assert retry_huge == pytest.approx(client._DEADLINE_MAX_S * client._RETRY_BUDGET_MULT)
     assert retry_huge <= client._RETRY_BUDGET_MAX_S
 
+    # IBGE-1 regression guard: geo_units saturates the n6 DRAIN to the 600s cap, but the
+    # RETRY budget must stay volume-proportional — otherwise a sparse single-year state
+    # inherits the saturated ceiling × MULT (1500s) and one stalled state can eat the
+    # whole nightly task window. A single-year n6 slice gets a strictly SMALLER retry
+    # budget than a wide one (and the SAME lean budget as a small aggregated request),
+    # even though both n6 slices share the saturated drain cap.
+    drain_n6_1y, retry_n6_1y = client._request_deadlines(
+        1, 1, "105", client.LARGEST_STATE_MUNICIPALITY_COUNT
+    )
+    drain_n6_big, retry_n6_big = client._request_deadlines(
+        13, 8, "105", client.LARGEST_STATE_MUNICIPALITY_COUNT
+    )
+    assert drain_n6_1y == client._DEADLINE_MAX_S  # both saturate the drain cap …
+    assert drain_n6_big == client._DEADLINE_MAX_S
+    assert retry_n6_1y < retry_n6_big  # … but the retry budget is volume-proportional
+    assert retry_n6_1y == pytest.approx(retry_small)  # sparse single-year n6 keeps the lean budget
+
 
 def test_fetch_block_forwards_volume_scaled_deadlines(
     monkeypatch: pytest.MonkeyPatch, sidra_payload: list[dict]

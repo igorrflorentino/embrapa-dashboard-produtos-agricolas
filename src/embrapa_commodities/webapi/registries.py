@@ -19,7 +19,7 @@ Status model (three axes, kept distinct):
 
 This repo has five live Gold sources: PEVS, COMEX, COMTRADE (estável/beta), IBGE PAM
 (beta — ``gold_pam_production``, wired end-to-end incl. the produtividade view, #105)
-and IBGE PPM (livestock — ``gold_ppm_production``; PEVS-shaped, NO produtividade).
+and IBGE PPM (livestock — ``gold_ppm_production``; adds the herd axis, NO produtividade).
 Only SEFAZ NFe has no Gold table here, so it stays a ``planejado``
 placeholder (the design system's supported "launch without all bancos" path) — a
 lead decision recorded with the user.
@@ -105,6 +105,7 @@ CAPABILITIES: dict[str, dict] = {
     "quality": {"label": "dimensão de qualidade"},
     "area": {"label": "área plantada / colhida"},
     "yield": {"label": "rendimento (produtividade kg/ha)"},
+    "herd": {"label": "efetivo de rebanho (estoque em cabeças)"},
 }
 
 
@@ -346,9 +347,10 @@ BANCOS: list[Banco] = [
         source="IBGE",
         table="gold_ppm_production",
         # PPM is livestock → NO planted area → NO 'yield' capability (the Produtividade
-        # view stays dark). Capability-wise PEVS-shaped, NOT PAM-shaped. Keep in sync
-        # with the frontend bancos.js provides list.
-        provides=("product", "geo", "quality"),
+        # view stays dark). It DOES add the 'herd' axis (efetivo, estoque em cabeças) that
+        # gates the dedicated 'Rebanho' perspective, so it is NOT plain PEVS-shaped. Keep
+        # in sync with the frontend bancos.js provides list.
+        provides=("product", "geo", "quality", "herd"),
         base_currency="BRL",
         geo_level="municipio",
         dimensions={**_UF_DIMS, "product": {"codeLabel": "Código PPM"}},
@@ -453,6 +455,15 @@ VIEW_GROUPS: list[ViewGroup] = [
                 exportable=True,
                 desc="Séries históricas de valor e quantidade da cesta, segregadas por "
                 "família de unidades.",
+            ),
+            View(
+                "rebanho",
+                "Rebanho",
+                "live",
+                requires=("herd",),
+                desc="O efetivo dos rebanhos (estoque em cabeças, por espécie). Exclusivo "
+                "da Pesquisa da Pecuária Municipal (IBGE PPM) — cabeças não têm valor "
+                "monetário e não se somam entre espécies.",
             ),
         ),
     ),
@@ -839,7 +850,7 @@ FILTER_SCHEMAS: dict[str, dict] = {
                 "type": "date-range",
                 "label": "Período",
                 "column": "reference_year",
-                "hint": "Anual, de 2022 ao presente.",
+                "hint": "Anual, de 1989 ao presente.",
             },
             {
                 "id": "hs6",

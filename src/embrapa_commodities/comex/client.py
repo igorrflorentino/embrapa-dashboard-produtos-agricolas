@@ -286,8 +286,11 @@ def _csv_to_parquet(csv_path: str, parquet_path: str) -> int:
         # yields "no columns to parse". EmptyDataError is a plain ValueError (not a
         # RequestException), so the download retry policy would NOT catch it and the
         # chunk would be recorded as a HARD failure (exit 1 / alert). Reclassify it as a
-        # retryable transient so continue-on-failure + the next scheduled run re-attempt
-        # it (COMEX-1). A header-only CSV (valid 0-row) parses fine and never reaches here.
+        # transient so continue-on-failure carries the run and the NEXT SCHEDULED RUN
+        # re-attempts the chunk (COMEX-1). Note: this does NOT trigger an in-run tenacity
+        # retry — extract_to_parquet is undecorated and only _download_to_disk carries
+        # http_retry_policy; an immediate retry would re-truncate identically anyway. A
+        # header-only CSV (valid 0-row) parses fine and never reaches here.
         raise ComexTransientError(
             f"empty Comex CSV ({csv_path}) — no columns to parse, likely a "
             "truncated/empty download; will retry"

@@ -57,6 +57,56 @@ describe('pearsonByYear — aligns two series BY YEAR, not by array index (M2)',
   });
 });
 
+describe('cagrPct + spanYears — annualize over the calendar-YEAR span, not array length (NUM-1)', () => {
+  it('spanYears returns the calendar span, immune to internal year gaps', () => {
+    // A 4-element window covering 2000..2005 spans 5 years, NOT 3 (length-1). This is
+    // exactly the case that made the old `win.length - 1` overstate the CAGR.
+    expect(window.spanYears([{ y: 2000 }, { y: 2001 }, { y: 2004 }, { y: 2005 }])).toBe(5);
+    expect(window.spanYears([{ y: 1995 }, { y: 2024 }])).toBe(29);
+  });
+
+  it('spanYears falls back to 1 for a single/empty series (no 1/0 exponent)', () => {
+    expect(window.spanYears([{ y: 2010 }])).toBe(1);
+    expect(window.spanYears([])).toBe(1);
+    expect(window.spanYears(undefined)).toBe(1);
+  });
+
+  it('CAGR over a gapped window uses the 5-year span (≈14.87%), not the 3-period count', () => {
+    const win = [{ y: 2000, v: 100 }, { y: 2001, v: 110 }, { y: 2004, v: 180 }, { y: 2005, v: 200 }];
+    const v0 = win[0].v, vT = win[win.length - 1].v;
+    const correct = window.cagrPct(v0, vT, window.spanYears(win));   // (200/100)^(1/5)-1
+    const buggy = window.cagrPct(v0, vT, win.length - 1);           // (200/100)^(1/3)-1
+    expect(correct).toBeCloseTo((Math.pow(2, 1 / 5) - 1) * 100, 6);
+    expect(buggy).toBeGreaterThan(correct + 5); // the old index path materially overstates
+  });
+
+  it('returns the analytic CAGR for a clean N-year span and 0 for a non-positive base', () => {
+    // 100 → 200 over 10 years = 2^(1/10)-1 ≈ 7.18% a.a.
+    expect(window.cagrPct(100, 200, 10)).toBeCloseTo((Math.pow(2, 0.1) - 1) * 100, 6);
+    expect(window.cagrPct(0, 200, 10)).toBe(0);   // v0 <= 0 → 0
+    expect(window.cagrPct(100, 200, 0)).toBeCloseTo(100, 6); // periods<=0 → 1 (single point)
+  });
+});
+
+describe('stackYearMax — per-year stacked max across RAGGED layers, by year not index (NUM-2)', () => {
+  it('aggregates by .y so a shorter layer never throws or drops tail years', () => {
+    const layers = [
+      { data: [{ y: 2000, q: 10 }, { y: 2001, q: 20 }, { y: 2002, q: 30 }] }, // full span
+      { data: [{ y: 2002, q: 5 }] },                                          // introduced late
+    ];
+    // 2002 total = 30 + 5 = 35 is the max; the old index path read layers[1].data[1]
+    // (undefined) and threw a TypeError that blanked the whole ValueVolume view.
+    expect(() => window.stackYearMax(layers, 'q')).not.toThrow();
+    expect(window.stackYearMax(layers, 'q')).toBe(35);
+  });
+
+  it('ignores non-finite values and returns 0 for empty input', () => {
+    expect(window.stackYearMax([{ data: [{ y: 2000, v: NaN }, { y: 2001, v: 7 }] }])).toBe(7);
+    expect(window.stackYearMax([])).toBe(0);
+    expect(window.stackYearMax(undefined)).toBe(0);
+  });
+});
+
 describe('linearFit — OLS trend line (the "linha de tendência" overlay)', () => {
   it('recovers the slope/intercept of a perfectly linear series', () => {
     // v = 2·y - 4000 over 2000..2003

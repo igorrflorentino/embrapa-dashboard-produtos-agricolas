@@ -74,7 +74,7 @@ function ViewCrossSource({ value, onChange }) {
   const items = seriesResults.map(s => {
     const pts = s.points;
     const v0 = pts[0]?.v || 0, vT = pts[pts.length - 1]?.v || 0;
-    return { ...s, v0, vT, cagr: window.cagrPct(v0, vT, pts.length - 1), accum: window.accumPct(v0, vT) };
+    return { ...s, v0, vT, cagr: window.cagrPct(v0, vT, window.spanYears(pts)), accum: window.accumPct(v0, vT) };
   });
 
   // ── Pairwise correlation on YoY growth, aligned BY YEAR (point.y), not array

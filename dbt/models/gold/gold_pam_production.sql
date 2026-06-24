@@ -61,77 +61,7 @@ with base_pam as (
 
 ),
 
-inflation_year_end as (
-
-    select
-        reference_year,
-        max(case when series_code = '{{ var("inflation_series_ipca")  }}' then index_value end) as ipca_year_end,
-        max(case when series_code = '{{ var("inflation_series_igpm")  }}' then index_value end) as igpm_year_end,
-        max(case when series_code = '{{ var("inflation_series_igpdi") }}' then index_value end) as igpdi_year_end
-    from (
-        select reference_year, series_code, index_value
-        from {{ ref('silver_bcb_inflation') }}
-        where index_value is not null
-        qualify row_number() over (
-            partition by reference_year, series_code
-            order by reference_month desc
-        ) = 1
-    )
-    group by reference_year
-
-),
-
-inflation_latest as (
-
-    select
-        max(case when series_code = '{{ var("inflation_series_ipca")  }}' then index_value end) as ipca_current,
-        max(case when series_code = '{{ var("inflation_series_igpm")  }}' then index_value end) as igpm_current,
-        max(case when series_code = '{{ var("inflation_series_igpdi") }}' then index_value end) as igpdi_current
-    from (
-        select series_code, index_value
-        from {{ ref('silver_bcb_inflation') }}
-        where index_value is not null
-        qualify row_number() over (
-            partition by series_code
-            order by reference_date desc
-        ) = 1
-    )
-
-),
-
-fx_year as (
-
-    select
-        reference_year,
-        avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
-    from {{ ref('silver_currency') }}
-    where brl_per_foreign_unit is not null
-        -- 1994 changeover (Plano Real, 1994-07-01): PTAX before that date is
-        -- CR$/unit, after it R$/unit. Average only the R$ half for 1994 so
-        -- val_yearfx_* stays correct if PAM_START_YEAR is lowered to 1994
-        -- (mirrors gold_pevs_production). Pre-1994 years are guarded below.
-        and (reference_year != 1994 or reference_date >= date(1994, 7, 1))
-    group by reference_year
-
-),
-
-fx_latest as (
-
-    select
-        max(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_current,
-        max(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_current
-    from (
-        select currency, brl_per_foreign_unit
-        from {{ ref('silver_currency') }}
-        where brl_per_foreign_unit is not null
-        qualify row_number() over (
-            partition by currency
-            order by reference_date desc
-        ) = 1
-    )
-
-),
+{{ annual_deflation_ctes() }},
 
 enriched as (
 

@@ -17,11 +17,9 @@ function ViewProductivity({ summary, conventions, database }) {
 
   if (!data) {
     return (
-      <div className="card subtle">
-        <p className="caption" style={{ padding: '20px 4px', textAlign: 'center' }}>
-          Esta fonte não expõe rendimento agrícola. Selecione um banco com a dimensão de produtividade.
-        </p>
-      </div>
+      <window.EmptyCard>
+        Esta fonte não expõe rendimento agrícola. Selecione um banco com a dimensão de produtividade.
+      </window.EmptyCard>
     );
   }
 

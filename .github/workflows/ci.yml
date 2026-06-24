@@ -136,6 +136,13 @@ jobs:
       - name: Test (vitest run)
         run: npm test
 
+      # The Claude Code safety hooks (scripts/claude-hooks/) are plain Node, outside the
+      # npm project, so guard them with Node's built-in test runner — no extra deps. This
+      # is scripts/'s only automated coverage; it locks the mkfs / dbt-prod regexes.
+      - name: Hook tests (node --test, scripts/claude-hooks)
+        working-directory: ${{ github.workspace }}
+        run: node --test "scripts/claude-hooks/*.test.js"
+
       # Non-gating dependency advisory: surfaces high/critical npm advisories
       # without red-lighting PRs (continue-on-error). It stays informational on
       # purpose — the dev-only vite/esbuild advisory has no production reach (the

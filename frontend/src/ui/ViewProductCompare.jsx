@@ -52,7 +52,7 @@ function ViewProductCompare({ summary, conventions, database }) {
       m0, mT,
       vT: win[win.length - 1]?.v || 0,
       qT: win[win.length - 1]?.q || 0,
-      cagr: window.cagrPct(m0, mT, win.length - 1),
+      cagr: window.cagrPct(m0, mT, window.spanYears(win)),
       accum: window.accumPct(m0, mT),
     };
   });

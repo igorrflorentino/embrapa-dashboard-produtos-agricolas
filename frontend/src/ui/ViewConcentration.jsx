@@ -18,8 +18,11 @@ function ViewConcentration({ summary, conventions, database }) {
   // banco's current year) or when the UF data stops short of the window end.
   const meta = (window.dataStore && window.dataStore.meta) ? window.dataStore.meta(database) : null;
   const lm = (meta && meta.latest) || null;
-  const yearPartialCal = !!lm && lm.yearComplete === false && lm.completeYear != null
-    && filtered.yearEnd > lm.completeYear;
+  // Align with ViewOverview/ViewGeography: a null completeYear still counts as partial
+  // (the backend never emits yearComplete=false with completeYear=null today, but keep
+  // the three views robust to that) (DOC-8).
+  const yearPartialCal = !!lm && lm.yearComplete === false
+    && (lm.completeYear == null || filtered.yearEnd > lm.completeYear);
   const prodYearTag = `${filtered.yearEnd}${yearPartialCal ? ' (parcial)' : ''}`;
   const geoYear = filtered.ufLatestYear;
   const geoPartial = filtered.ufYearPartial || (yearPartialCal && geoYear === filtered.yearEnd);

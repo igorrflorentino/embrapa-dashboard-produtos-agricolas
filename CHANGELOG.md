@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+Second-pass remediation of the 2026-06-23 **post-release audit** of v1.5.3 (15-dimension,
+adversarially-verified; 37 confirmed findings). The prior wave (`[1.5.3]`) landed clean — this
+pass fixes what it missed or under-hardened, plus a focused deduplication sweep. Validated:
+903 pytest / 265 vitest green; ruff+format+eslint clean; `vite build`, `dbt parse`, `dbt compile`
+and `sqlfluff` clean.
+
+### Fixed
+- **CAGR ("CAGR a.a.") no longer inflated for series with internal year gaps.** Both
+  ViewProductCompare AND ViewCrossSource annualized over the array length instead of the
+  calendar-year span; per-product series are ragged (the backend emits only existing
+  `(code, year)` rows), so a gapped window overstated the rate. Both now derive the period from
+  the year span via a shared `window.spanYears` helper.
+- **The "Valor e volume" view no longer blanks on auto-scaled stacked composition.** Its
+  per-year stack total was computed by array index across ragged product layers, throwing a
+  `TypeError` (or silently dropping tail years). Now aggregates by year via `window.stackYearMax`.
+- **The composition Donut renders a visible ring for a single 100% slice** (a full-circle SVG
+  arc collapsed to a blank ring — the common single-product selection).
+- **Sub-UF/município IBGE ingestion robustness:** the IBGE-1 deadline fix had saturated every
+  per-state retry budget to the 600s drain ceiling; the retry budget is now decoupled (geo-scaled
+  drain CAP, request-volume retry budget), so one slow state can't eat the nightly task timeout.
+- **dbt:** the `commodity_crosswalk` seed now pre-accepts `'ppm'` (the documented PPM-linkage step
+  no longer hard-fails `dbt build`); `comtrade_cpc_value` pins the `mot/mos/partner2` breakdown
+  axes like Silver (no double-count); the flow-market "current" read breaks `edited_at` ties on
+  `change_id` deterministically.
+- **Local safety hook:** the `mkfs` guard now blocks `mkfs.ext4`/`mkfs.xfs` (a `\\w` regex typo let
+  the only form anyone types through), and the dbt-prod guard no longer false-positives on
+  `--full-refresh --target prod` flag order.
+
+### Changed (security / hardening / internal)
+- **Cost guard:** the product-basket `codes` IN-list is now capped symmetrically with `cityCodes`
+  (`_MAX_BASKET_CODES`), via `_csv_param` (SEC-1).
+- **Promoted the COMTRADE single-year invariant from `assert` to an unconditional raise** (survives
+  `python -O`).
+- **Deduplication** (each behaviour-preserving + verified): a shared `annual_deflation_ctes()` dbt
+  macro replaces the FX+inflation CTE block copied across the four Gold models (−243 lines; compiled
+  SQL proven byte-identical via offline `dbt compile` + normalized diff); `resolve_clients` /
+  `resolve_bq_client` now own client construction (was inlined in 5+ sites); a `magnitude.js`
+  kernel + `window.scaleLabel` end the bi/mi/mil ladder + currency-label grammar duplication; an
+  `EmptyCard` atom replaces three copied empty-states. PAM/PPM now wire the `product_unit_factors`
+  override like PEVS (inert today — uniform behaviour).
+- **Docs/parity sweep:** COMTRADE coverage start year reconciled to 1989 in both filter hints;
+  `webapi/registries.py` gains the PPM `herd` capability + `rebanho` view; `contracts.js`,
+  `cache.py` and `.env.example` (`BQ_BANCO_METADATA_TABLE`) brought current; ROADMAP marks the
+  shipped ingestion email-alert.
+
+### Added (tests)
+- Regression tests for the ragged-series fixes (`cagrPct`/`spanYears`/`stackYearMax`, single-slice
+  Donut), the `_MAX_MUNICIPIO_CODES`/`_MAX_BASKET_CODES` caps, the n6 retry-budget decoupling, the
+  dbt `change_id` tiebreaker + breakdown pins, and `scaleLabel`.
+- **First automated coverage for `scripts/`:** Node `--test` cases for the safety-hook regexes (wired
+  into CI) and a fixture test for the IBGE municipal mesh-seed generator (`_row()`).
+
 ---
 
 ## [1.5.3] — 2026-06-23

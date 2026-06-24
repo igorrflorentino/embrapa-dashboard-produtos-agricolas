@@ -894,6 +894,16 @@ def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, l
         "customsCode is not null",
         "partnerCode != '0'",  # World aggregate — summing it double-counts partners
         "length(cmdCode) = 6",  # HS6 leaves only — a legacy HS4 row double-counts
+        # Pin the OTHER three breakdown axes to their fully-aggregated value, exactly as
+        # silver_comtrade_flows does (motCode/partner2Code/mosCode = '0'), so the
+        # customs-procedure sum can never pick up a mot/mos/partner2 breakdown row and
+        # double-count (DBT-2). Today every non-C00 row already carries these = '0' under
+        # the single-axis breakdown model, so this is defensive parity, not a value
+        # change — but it keeps the sum provably equal to the C00 total split by
+        # procedure even if the API ever emits a customs × (mot|mos|partner2) cross-row.
+        "motCode = '0'",
+        "partner2Code = '0'",
+        "mosCode = '0'",
     ]
     params: list = []
     if codes:
@@ -951,12 +961,18 @@ def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, l
 
 def current_flow_market(table: str) -> tuple[str, list]:
     """Current (customs_code, flow_code) → market from the append-only flow-market
-    log: the latest edit per pair (a cleared market = empty string is dropped)."""
+    log: the latest edit per pair (a cleared market = empty string is dropped).
+
+    The latest-wins ordering breaks ties on the surrogate ``change_id`` (DESC), exactly
+    like ``dim_code_industrialization_scd2`` — so two edits to the same pair landing on
+    the same ``edited_at`` microsecond resolve deterministically (a clear-vs-set race
+    can't non-deterministically drop or keep the pair) (DBT-3)."""
     sql = f"""
         select customs_code, flow_code, market, edited_by, edited_at
         from (
             select *, row_number() over (
-                partition by customs_code, flow_code order by edited_at desc
+                partition by customs_code, flow_code
+                order by edited_at desc, change_id desc
             ) as rn
             from `{table}`
         )

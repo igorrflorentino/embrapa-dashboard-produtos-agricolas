@@ -214,6 +214,9 @@ window.QUALITY_FLAGS = [
 // ────────────────────────────────────────────────────────────────────
 // Formatters
 // ────────────────────────────────────────────────────────────────────
+// bi/mi/mil ladder kept local on purpose: fmtBRL thresholds on the SIGNED value (n >= 1e9,
+// not |n|) and uses per-tier decimals, so it can't share magnitude.js's abs-based kernel
+// verbatim — but it must stay aligned with it (DEDUP-7).
 window.fmtBRL = (n) => {
   if (n == null) return '—';
   if (n >= 1e9) return 'R$ ' + (n / 1e9).toFixed(2).replace('.', ',') + ' bi';
@@ -243,7 +246,9 @@ window.numBR = (v, d = 0) =>
 window.pctBR = (v, d = 1) => window.numBR(v, d) + '%';
 
 // Compact row-counter label (mi / mil) for provenance "Linhas" readouts.
-// Shared by MainScreen + ViewHealth (was duplicated verbatim in both).
+// Shared by MainScreen + ViewHealth (was duplicated verbatim in both). Deliberately a
+// 2-tier SUBSET of magnitude.js (no 'bi' — row counts never reach 1e9), so it keeps its
+// own ladder (DEDUP-7).
 window.fmtRows = (n) => {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
   if (n >= 1e3) return (n / 1e3).toFixed(0) + ' mil';
