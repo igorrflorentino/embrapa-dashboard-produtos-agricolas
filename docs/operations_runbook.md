@@ -135,6 +135,14 @@ Details: `src/embrapa_commodities/serving/iap.py` and
 
 ## Activating curation in prod (one-time) and keeping it built
 
+> ⚠️ **FROZEN — Curadoria postponed to the "Versão Futura" roadmap phase (2026-06).**
+> The curation/enrichment feature is partially built, not yet validated, and **hidden
+> from the dashboard UI** (its topnav perspectives in `frontend/src/ui/views.js` and the
+> "Engenharia de atributos" sidebar editor in `AppShell.jsx` are commented out behind
+> FROZEN banners). The app runs fully decoupled from it. **Do not activate it in prod**
+> until the feature is revived and validated — the steps below are kept for that future
+> reactivation.
+
 The SCD2 curation view (`dim_code_industrialization_scd2`) is gated by
 `var('enable_curation', false)` so a fresh project builds green before the
 curation log tables exist. Activating curation in prod is therefore two steps:
@@ -159,6 +167,28 @@ curation log tables exist. Activating curation in prod is therefore two steps:
 Local prod builds after activation should also carry the var (e.g. the
 `make reconcile` chained build runs plain `dbt build --target prod` — re-run
 the command from step 1 afterwards if a curation-view change is pending).
+
+## Triaging user feedback ("Reportar problema")
+
+The dashboard's **Reportar problema** button writes each report (bug / dúvida / sugestão)
+to the append-only `research_inputs.feedback_log` BigQuery table (auto-created on first
+write), with the submitter captured from IAP and a permalink to the current view/filters
+attached. Triage by querying the table:
+
+```bash
+bq query --use_legacy_sql=false \
+  "SELECT submitted_at, category, submitted_by, message, url, issue_url
+   FROM \`${GCP_PROJECT_ID}.research_inputs.feedback_log\`
+   ORDER BY submitted_at DESC LIMIT 50"
+```
+
+Reply to the reporter directly — their e-mail is the `submitted_by` column.
+
+**Closing the loop with GitHub (optional).** Set `FEEDBACK_GITHUB_REPO` (`owner/name`) and
+`FEEDBACK_GITHUB_TOKEN` (a token with `issues:write`, supplied via env / Secret Manager) on
+the Cloud Run service to have every report ALSO opened as a GitHub issue (labelled
+`feedback` + category). The forward is best-effort: if GitHub is unreachable the report is
+still durably in BigQuery (`issue_url` is then null) — it is never lost or blocked.
 
 ## Backing up prod Gold from a local / dev machine
 

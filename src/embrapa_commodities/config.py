@@ -347,6 +347,16 @@ class Settings(BaseSettings):
     # Append-only log of the (customs procedure × flow) → economic-purpose market
     # curation (consumo/processamento). Backs the market-nature analysis.
     bq_flow_market_log_table: str = Field(default="flow_market_log")
+    # ─── User feedback ("Reportar problema") ──────────────────────────────────
+    # Append-only feedback/issue reports (bug/dúvida/sugestão) written by ANY
+    # IAP-authenticated user, in the research_inputs dataset (auto-created on first write).
+    bq_feedback_log_table: str = Field(default="feedback_log")
+    # "Loop fechado": when BOTH are set, each report is ALSO opened as a GitHub issue
+    # (best-effort — a failure never blocks/loses the BigQuery write). Repo as
+    # "owner/name"; the token needs issues:write and comes from the env/Secret Manager,
+    # NEVER committed. Leave both unset to keep feedback BigQuery-only.
+    feedback_github_repo: str | None = Field(default=None)
+    feedback_github_token: str | None = Field(default=None)
 
     # ─── Cache (flask-caching) ────────────────────────────────────────────────
     # SimpleCache (per-instance) scales to N Cloud Run instances for free: marts

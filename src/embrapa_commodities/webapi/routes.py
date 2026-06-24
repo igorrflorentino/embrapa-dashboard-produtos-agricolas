@@ -23,6 +23,7 @@ from embrapa_commodities.serving.curation import (
     ensure_banco_metadata_table,
     ensure_curators_table,
 )
+from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
 from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
@@ -530,6 +531,41 @@ def cross_mirror():
     return jsonify(serializers.serialize_trade_mirror(seam.trade_mirror(_commodity())))
 
 
+# ─── Feedback ("Reportar problema") ─────────────────────────────────────────────
+@api.post("/feedback")
+def feedback_submit():
+    """Append one user feedback report (bug/dúvida/sugestão) and best-effort open a
+    GitHub issue. ANY IAP-authenticated user may submit (no curator allowlist); the
+    author is captured server-side from IAP — there is no client-supplied identity.
+    400 on empty/over-length message or bad category; 401/403 on no/forged identity."""
+    body = request.get_json(silent=True) or {}
+    try:
+        result = record_feedback(
+            category=body.get("category", "bug"),
+            message=body.get("message", ""),
+            headers=request.headers,
+            url=body.get("url"),
+            view=body.get("view"),
+            banco=body.get("banco"),
+            app_version=body.get("app_version"),
+            browser_info=body.get("browser_info"),
+        )
+    except FeedbackValidationError as exc:
+        return jsonify(error=str(exc)), 400
+    except InvalidIapAssertionError as exc:
+        return jsonify(error=str(exc)), 403
+    except PermissionError as exc:  # MissingAuthorError → no trustworthy identity
+        return jsonify(error=str(exc)), 401
+    return jsonify(result)
+
+
+# ─── FROZEN FEATURE: Curadoria / enrichment endpoints ───────────────────────────
+# The curated value-added + market-nature readers (below) and the /curation/* editor
+# read/write routes are postponed to the "Versão Futura" roadmap phase (leadership
+# decision, 2026-06). Their UI entry points are hidden (views.js + AppShell.jsx), so
+# the app runs fully decoupled; the routes stay registered + tested and degrade
+# gracefully (empty results when `enable_curation` is unbuilt). Kept as the scaffold
+# for the real future implementation — do not delete.
 @api.get("/cross/value-added")
 def cross_value_added():
     """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""

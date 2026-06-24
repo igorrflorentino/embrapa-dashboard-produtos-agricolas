@@ -255,5 +255,8 @@ artifacts/
 
 
 # Frontend (React/Vite)
+node_modules/
 frontend/node_modules/
 frontend/dist/
+# Vitest cache (can land at the worktree root when run via npm --prefix)
+.vite/

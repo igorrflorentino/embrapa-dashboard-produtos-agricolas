@@ -28,6 +28,7 @@ import './ui/MetricConventions.jsx';
 import './data/dataStore.js';
 import './data/producers.js';
 import './data/enrichment.js';
+import './data/feedback.js'; // window.postFeedback — the "Reportar problema" channel
 import './ui/contracts.js'; // runtime contract-drift lint: audits live producers vs SNAPSHOT_CONTRACTS on load
 
 // ── charts (NEW — Plotly for analytical charts; SVG ports for tile-map/donut) ─
@@ -61,6 +62,7 @@ import './ui/DataBoundary.jsx';
 import './ui/Glossary.jsx';
 import './ui/FilterMenu.jsx';
 import './ui/FilterTriggerBar.jsx';
+import './ui/FeedbackModal.jsx';
 import './ui/AppShell.jsx';
 import './ui/MainScreen.jsx';
 
@@ -81,6 +83,9 @@ import './ui/ViewPartners.jsx';
 import './ui/ViewCrossSource.jsx';
 import './ui/ViewsMultiSource.jsx';
 import './ui/ViewsChain.jsx';
+// FROZEN (Curadoria — postponed to "Versão Futura"): kept imported so the components
+// stay defined and any stale curated/enrich deep link degrades gracefully. The UI
+// entry points are hidden in views.js + AppShell.jsx — see those files.
 import './ui/ViewCuration.jsx';
 import './ui/ViewCuratedAnalyses.jsx';
 import './ui/ViewAbout.jsx';

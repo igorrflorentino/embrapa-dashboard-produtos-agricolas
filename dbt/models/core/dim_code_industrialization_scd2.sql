@@ -6,6 +6,12 @@
     )
 }}
 
+-- FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
+-- (leadership decision, 2026-06): partially built + not yet validated, hidden from the
+-- UI, app fully decoupled. This model self-disables via the `enable_curation` flag in
+-- the config above, so default builds skip it. Kept as the scaffold for the real
+-- future implementation — do not delete.
+
 -- ────────────────────────────────────────────────────────────────────────────
 -- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only
 -- per-CODE industrialization log. Classifies each raw Gold CODE (NCM / PEVS
