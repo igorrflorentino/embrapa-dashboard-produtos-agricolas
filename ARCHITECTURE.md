@@ -626,7 +626,7 @@ typical failures of a public source:
   COMEX re-downloads only when the ETag changes; COMTRADE is resumable by daily quota.
   No leg re-pulls the entire history — re-running the Job is idempotent
   enough for a blind cron.
-- A total failure emits an event (the basis for the ROADMAP's failure notification).
+- A total failure emits an event (the basis for the ingestion failure-notification alert).
 
 > **Artifacts** in [`deploy/ingestion/`](deploy/ingestion/): `Dockerfile` (the Job's
 > image — distinct from the dashboard *Service*'s Dockerfile in `deploy/webapi/`),

@@ -51,8 +51,14 @@ and `sqlfluff` clean.
   override like PEVS (inert today — uniform behaviour).
 - **Docs/parity sweep:** COMTRADE coverage start year reconciled to 1989 in both filter hints;
   `webapi/registries.py` gains the PPM `herd` capability + `rebanho` view; `contracts.js`,
-  `cache.py` and `.env.example` (`BQ_BANCO_METADATA_TABLE`) brought current; ROADMAP marks the
-  shipped ingestion email-alert.
+  `cache.py` and `.env.example` (`BQ_BANCO_METADATA_TABLE`) brought current.
+
+### Removed
+- **`ROADMAP.md` and `TODO.md` retired from the repo.** Project vision and evolution tracking now
+  live in a Google Drive document maintained for business leadership (a simpler, render-friendly
+  view for non-technical stakeholders). The doc map in `README.md` / `CLAUDE.md` points there;
+  `PLANS/` (engineering specs) stays in-repo and `CHANGELOG.md` remains the canonical per-version
+  record of what shipped.
 
 ### Added (tests)
 - Regression tests for the ragged-series fixes (`cagrPct`/`spanYears`/`stackYearMax`, single-slice
