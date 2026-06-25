@@ -36,7 +36,7 @@ pass. The broader, mature dimensions show no new code-level defects on direct re
 | High | 0 |
 | Medium | 0 |
 | Low | 1 (DOC-2, fixed) |
-| Info | 1 (DATA-1, operator-owed) |
+| Info | 0 (DATA-1 verified live — resolved, see below) |
 
 ## Confirmation: the PR #173 remediation holds
 
@@ -65,12 +65,25 @@ pass. The broader, mature dimensions show no new code-level defects on direct re
 - **Fix (applied):** the line now states curation is built but FROZEN/deferred to *Versão Futura*,
   not activatable, with the backend/dbt kept as gated scaffold.
 
-### ℹ️ INFO
+### ℹ️ DATA-1 — live grain + conservation re-check (**RESOLVED this session, via `bq`**)
 
-- **DATA-1 (operator-owed):** the CHANGELOG "Fixed" grain claims (`commodity_crosswalk` `'ppm'`,
-  `comtrade_cpc_value` axis pins) were validated only by `dbt compile`, not a live `dbt build`
-  against prod BigQuery — the sandbox has no `*.googleapis.com` network. A `bigquery-debug` round
-  should confirm `gold_*` grain uniqueness. (Carried over from the partial audit; unchanged.)
+Originally operator-owed (the sandbox was thought to lack `*.googleapis.com`); in fact the
+BigQuery CLI reaches prod with the owner ADC, so the check was run live. `dbt.exe` won't spawn on
+this Windows venv ("Access is denied" on the freshly-`uv`-built binary), so the
+`dbt_utils.unique_combination_of_columns` grain tests were reproduced as equivalent
+`GROUP BY <natural key> HAVING COUNT(*) > 1` queries against prod `gold` (column-pruned, byte-capped):
+
+| Check | Result |
+|---|---|
+| **Grain uniqueness** — all 7 Gold tables | **PASS** — 0 duplicate natural keys each (pevs / pam / ppm / comex / comtrade / commodity_crosswalk / source_metadata) |
+| **Conservation** — `gold_source_metadata.total_rows` vs actual `COUNT(*)` | **exact match** for all 5 sources (pevs 331,544 · pam 1,124,058 · ppm 2,405,516 · comex 352,157 · comtrade 2,294,874) |
+| **COMTRADE bilateral invariant** — `partner_code = '0'` (World) rows | **0** — World dropped in Silver, so `SUM` over partner is a true total (no double-count) |
+| **COMTRADE coverage** | 212 reporters; Brazil (M49 76) present (31,285 rows) |
+| **Crosswalk sources** | `comex, comtrade, pevs` — matches the accepted-values contract |
+
+No grain, conservation, or double-count defect on prod. **DATA-1 closed.** The CHANGELOG grain
+claims (`commodity_crosswalk`, `comtrade` axis pins), previously `dbt compile`-only, now hold
+against the live prod tables.
 
 ## Dimension coverage (with depth)
 
@@ -90,6 +103,8 @@ an independent adversarial agent (the workflow was throttled) — see the recomm
 1. **Re-run the full adversarial agent audit when the server rate-limit clears** — resume
    `wf_1ac506c9-741` (waves of 2, 2-lens). This gives the confirmatory dimensions an independent
    machine pass; this report's direct review is a strong but single-reviewer substitute.
-2. **DATA-1:** an operator `dbt build` + grain re-check on prod BigQuery.
+2. ~~**DATA-1:** an operator `dbt build` + grain re-check on prod BigQuery.~~ **Done this session**
+   via `bq` (grain + conservation + COMTRADE invariants all green — see DATA-1 above).
 
-No code remediation is required from this pass beyond DOC-2 (already applied).
+No code remediation is required from this pass beyond DOC-2 (already applied). All audit findings
+are now either fixed or verified — **nothing outstanding**.

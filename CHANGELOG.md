@@ -38,6 +38,12 @@ Remediation of the 2026-06-24 post-v1.6.0 deep audit (report:
 ### Docs
 - Operations runbook + `.env.example`: the feedback `FEEDBACK_GITHUB_*` Secret Manager wiring +
   the fine-grained `issues:write` token guidance (audit DOC-1).
+- Completed the 2026-06-24 deep audit (`docs/audits/deep_audit_2026-06-24_v1.6.0_complete.md`):
+  confirms every fix above holds, corrects a stale `CLAUDE.md` line that called the **frozen**
+  Curadoria "activatable" (audit DOC-2), and records the **live prod grain + conservation
+  re-check** (audit DATA-1) — all 7 Gold tables grain-unique, `gold_source_metadata` ties exactly
+  to the facts (e.g. comtrade 2,294,874 rows), and the COMTRADE World-partner double-count guard
+  holds (0 rows).
 
 ## [1.6.0] — 2026-06-24
 
