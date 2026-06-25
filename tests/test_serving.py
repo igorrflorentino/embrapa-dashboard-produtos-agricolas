@@ -2473,20 +2473,20 @@ def test_gateway_seed_catalog_and_allowlist_boundary():
 
     seeds = gateway.seed_tables()
     by_id = {s["id"]: s for s in seeds}
-    # Every shipped reference seed is consultable, each with a pt-BR label + description.
+    # commodity_crosswalk became the editable Curadoria catalog — NO longer a read-only seed.
+    assert "commodity_crosswalk" not in by_id
+    # The remaining consultable seeds are read-only calibration / source-faithful data.
     assert {
-        "commodity_crosswalk",
         "historical_currency_factors",
         "unit_family_conversions",
         "ibge_municipio_mesh",
     } <= set(by_id)
     assert all(s.get("label") and s.get("description") for s in seeds)
-    # commodity_crosswalk is the editable catalog seed; calibration seeds are read-only.
-    assert by_id["commodity_crosswalk"]["editable"] is True
-    assert by_id["historical_currency_factors"]["editable"] is False
-    assert by_id["unit_family_conversions"]["editable"] is False
+    assert all(s["editable"] is False for s in seeds)
     # SECURITY: an id outside the catalog is refused (before any table_ref/get_settings),
-    # even when it names a real BigQuery table that is NOT a seed.
+    # including the RETIRED commodity_crosswalk seed and a real table that is NOT a seed.
+    with pytest.raises(ValueError):
+        gateway._resolve_seed_table("commodity_crosswalk")
     with pytest.raises(ValueError):
         gateway._resolve_seed_table("gold_pevs_production")
     with pytest.raises(ValueError):

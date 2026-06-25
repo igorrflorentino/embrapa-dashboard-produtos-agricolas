@@ -480,6 +480,12 @@ function AppShell({
               section + the "Análises curadas" group in views.js, and build dbt with
               `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
               ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
+          <div className="side-section">Curadoria</div>
+          <div className={'side-item ' + (infoPage === 'cadastro_commodities' ? 'active' : '')}
+               {...clickable(() => onInfo('cadastro_commodities'))}>
+            <window.Icon name="inventory_2"/>Cadastro de commodities
+          </div>
+
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>

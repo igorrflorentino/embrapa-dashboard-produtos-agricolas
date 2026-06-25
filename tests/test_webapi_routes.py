@@ -1148,9 +1148,10 @@ def test_seeds_route_lists_reference_seeds(monkeypatch):
     assert resp.status_code == 200
     body = resp.get_json()
     by_id = {s["id"]: s for s in body}
-    assert by_id["commodity_crosswalk"]["editable"] is True
+    # commodity_crosswalk is now the editable catalog (edited via Cadastro), not a seed.
+    assert "commodity_crosswalk" not in by_id
     assert by_id["historical_currency_factors"]["editable"] is False
-    assert all(s.get("label") and s.get("description") for s in body)
+    assert all(s.get("label") and s.get("description") and s["editable"] is False for s in body)
 
 
 def test_seed_route_threads_pagination_sort_filters_to_seam(monkeypatch):

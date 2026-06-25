@@ -1145,13 +1145,10 @@ def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
 # factor silently rescales every historical value by 10^6–10^9, so those stay read-only.
 # Labels/descriptions are pt-BR (the end user reads them — project language rule).
 _SEED_CATALOG: list[tuple[str, str, bool, str]] = [
-    (
-        "commodity_crosswalk",
-        "Crosswalk de commodities",
-        True,
-        "Liga o mesmo produto entre as fontes (PEVS/PAM/COMEX/COMTRADE) por prefixo de "
-        "código. É a base do catálogo de commodities — editável pelo cadastro autorizado.",
-    ),
+    # NOTE: commodity_crosswalk is NOT here — it became the editable Curadoria catalog
+    # (research_inputs.commodity_catalog_log → dim_commodity_catalog), edited via the
+    # "Cadastro de commodities" admin view, not consulted as a read-only seed. The seeds
+    # below are all read-only CALIBRATION / source-faithful dimensions (engineer-owned).
     (
         "historical_currency_factors",
         "Fatores de reforma monetária",
