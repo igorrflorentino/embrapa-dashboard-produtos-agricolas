@@ -118,15 +118,25 @@ come from two places, and **which one is active depends on `IAP_AUDIENCE`**:
   header is only spoofable when IAP is **not** in front (e.g. local dev), which is
   why this mode is paired with `CURATION_DEV_AUTHOR` for local dev only.
 
+> **Note (2026-06):** with **Curadoria frozen**, the live consumer of this verified
+> identity is the **feedback channel** — `submitted_by` in `feedback_log` flows
+> through the same `serving/iap.py` path, and the per-author feedback cooldown
+> (SEC-2) only engages when `IAP_AUDIENCE` is set. So this stays a prod concern even
+> though curation writes are dormant — keep it armed.
+
 Operator steps (one-time per deployment):
 
 1. Get the audience string: Console → Security → Identity-Aware Proxy → ⋮ on the
    **Cloud Run resource** → "Get JWT audience code" (the direct Cloud Run IAP form).
    *(Only in the future external-LB + IAP topology would it instead take the form
    `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`.)*
-2. Set `IAP_AUDIENCE=<that string>` in the `.env` used for deploys —
-   `deploy/webapi/deploy.sh` forwards it to the Cloud Run Service — and run
-   `make webapi-deploy`.
+2. Set `IAP_AUDIENCE=<that string>` in **`deploy/webapi/.env.prod`** (copy
+   `deploy/webapi/.env.prod.example`). That git-ignored file holds prod-only env
+   that must NOT live in the dev/worktree repo-root `.env`; `deploy.sh` layers it on
+   top of `.env` (prod values win), so a routine `make webapi-deploy` **keeps**
+   `IAP_AUDIENCE` armed instead of dropping it — which previously forced an
+   out-of-band / image-only deploy to restore. (`FEEDBACK_GITHUB_REPO` belongs here
+   too.) Then run `make webapi-deploy`.
 3. Verify: a curation save in prod records the IAP identity; with a wrong
    audience the write is rejected rather than silently mis-attributed.
 

@@ -150,6 +150,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+# Prod-only Cloud Run env overrides (real values); the .env.prod.example template IS committed.
+deploy/webapi/.env.prod
 .venv
 env/
 venv/
