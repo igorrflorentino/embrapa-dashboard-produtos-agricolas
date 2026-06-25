@@ -2651,6 +2651,135 @@ def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeyp
     assert table_arg.clustering_fields == ["banco", "codigo_commodity"]
 
 
+# ── Curadoria lifecycle: orphan → Descontinuado (non-destructive) ─────────────
+
+
+def _one_orphan_df():
+    import pandas as pd
+
+    return pd.DataFrame(
+        [
+            {
+                "codigo_commodity": "20079926",
+                "banco": "comex",
+                "code_prefix": "20079926",
+                "agrupamento": "Cupuaçu",
+            }
+        ]
+    )
+
+
+def test_ensure_catalog_lifecycle_log_table_schema(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    monkeypatch.setattr(catalog_lifecycle, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = catalog_lifecycle.ensure_catalog_lifecycle_log_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".catalog_lifecycle_log")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} >= {
+        "element_kind",
+        "banco",
+        "code",
+        "status",
+        "scheduled_purge_note",
+        "edited_by",
+        "change_id",
+    }
+    assert table_arg.clustering_fields == ["element_kind", "banco"]
+
+
+def test_auto_mark_orphans_marks_new_with_system_author(monkeypatch):
+    """A detected orphan (removed + Gold lingering) is marked 'descontinuado' by the
+    reserved system author, with the deletion warning — and NEVER deleted."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import NotFound
+
+    from embrapa_commodities.serving import catalog_lifecycle, gateway
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
+
+    def _no_log():
+        raise NotFound("no lifecycle log yet")
+
+    monkeypatch.setattr(gateway, "fetch_lifecycle_status", _no_log)
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
+    inserted = []
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_insert_lifecycle_event",
+        lambda bq, table_fqn, **kw: inserted.append(kw),
+    )
+    monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+
+    res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
+    assert res == {"detected": 1, "newly_marked": 1, "already_marked": 0}
+    ev = inserted[0]
+    assert ev["status"] == "descontinuado"
+    assert ev["edited_by"] == "system:orphan-detector"
+    assert ev["banco"] == "comex" and ev["code"] == "20079926"
+    assert ev["purge_note"]  # carries the deletion warning
+
+
+def test_auto_mark_orphans_is_idempotent_when_already_marked(monkeypatch):
+    """Re-running the marker is a no-op for an already-Descontinuado element (the
+    deterministic change_id is already seen)."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import NotFound
+
+    from embrapa_commodities.serving import catalog_lifecycle, gateway
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
+
+    def _no_log():
+        raise NotFound("no lifecycle log yet")
+
+    monkeypatch.setattr(gateway, "fetch_lifecycle_status", _no_log)
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(
+        catalog_lifecycle, "_change_id_seen", lambda *a, **k: True
+    )  # already recorded
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_insert_lifecycle_event",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("must not insert when already marked")
+        ),
+    )
+
+    res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
+    assert res == {"detected": 1, "newly_marked": 0, "already_marked": 1}
+
+
+def test_orphan_worklist_marks_descontinuado_with_warning(monkeypatch):
+    """seam.orphan_worklist marks each detected orphan 'descontinuado' with the default
+    deletion warning when nothing was recorded yet (flagged_at None)."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import NotFound
+
+    from embrapa_commodities.serving import gateway
+    from embrapa_commodities.webapi import seam_curation
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
+
+    def _no_log():
+        raise NotFound("no lifecycle log yet")
+
+    monkeypatch.setattr(gateway, "fetch_lifecycle_status", _no_log)
+    out = seam_curation.orphan_worklist()
+    assert out["total"] == 1
+    o = out["orphans"][0]
+    assert o["status"] == "descontinuado" and o["codigo_commodity"] == "20079926"
+    assert o["flagged_at"] is None and o["warning"]  # default warning before the marker runs
+
+
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():
     # A DATE/TIMESTAMP column binds as STRING and must compare against CAST(col AS STRING),
     # else BigQuery raises a type mismatch (TIMESTAMP = STRING param) → an opaque 500. A

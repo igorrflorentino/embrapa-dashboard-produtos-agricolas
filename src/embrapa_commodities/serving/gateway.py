@@ -745,6 +745,88 @@ def fetch_catalog_editors(resource: str):
     return run_query(sql, params)
 
 
+# Gold fact tables per source, for the orphan diff (DISTINCT code is column-pruned → cheap).
+_GOLD_CODE_SOURCES = {
+    "pevs": ("gold_pevs_production", "product_code"),
+    "comex": ("gold_comex_flows", "ncm_code"),
+    "comtrade": ("gold_comtrade_flows", "cmd_code"),
+    "pam": ("gold_pam_production", "product_code"),
+    "ppm": ("gold_ppm_production", "product_code"),
+}
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_orphan_commodities():
+    """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
+    the catalog, was REMOVED (current state active=false), and whose Gold data STILL
+    lingers (a code matching its prefix exists in the banco's Gold table). This is NOT
+    "every uncataloged Gold code" (the catalog is a cross-source bridge, not a full
+    registry — that diff would false-flag ~111 legitimate products); only a removal
+    leaves data behind. Raises NotFound when the catalog log is absent (→ no orphans).
+    Bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    log = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+    )
+    tombstoned_sql = f"""
+        select codigo_commodity, banco, code_prefix, agrupamento from (
+          select *, row_number() over (
+            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{log}`
+        ) where _rn = 1 and not active
+    """
+    # Step 1 (cheap — scans only the small catalog log): the tombstoned entries. The
+    # COMMON case (nothing removed) returns here WITHOUT scanning any Gold table, so the
+    # editor's orphan read is fast unless a removal actually happened.
+    tomb = run_query(tombstoned_sql, [])
+    if tomb is None or tomb.empty:
+        return tomb
+    # Step 2: keep only those whose prefix still matches Gold codes in the banco (data
+    # lingers) — scanning ONLY the Gold tables for the bancos that have a removal.
+    bancos = {b for b in tomb["banco"].tolist() if b in _GOLD_CODE_SOURCES}
+    if not bancos:
+        return tomb.iloc[0:0]
+    gold_union = " union all ".join(
+        f"select '{src}' as src, {col} as code from "
+        f"`{sqlbuild.table_ref(settings, 'bq_gold_dataset', tbl)}`"
+        for src, (tbl, col) in _GOLD_CODE_SOURCES.items()
+        if src in bancos
+    )
+    sql = f"""
+        with tombstoned as ({tombstoned_sql}),
+        gold_codes as ({gold_union})
+        select distinct t.codigo_commodity, t.banco, t.code_prefix, t.agrupamento
+        from tombstoned t
+        where exists (
+          select 1 from gold_codes g where g.src = t.banco and g.code like t.code_prefix || '%'
+        )
+    """
+    return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_lifecycle_status():
+    """Current lifecycle status per (element_kind, banco, code) from the lifecycle log
+    (latest-wins): the flagged_at + reason + purge note for each Descontinuado/purged
+    element. Raises NotFound when the log is absent (nothing marked yet)."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_catalog_lifecycle_log_table
+    )
+    sql = f"""
+        select element_kind, banco, code, status, reason, scheduled_purge_note,
+               edited_at as flagged_at
+        from (
+          select *, row_number() over (
+            partition by element_kind, banco, code order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table}`
+        ) where _rn = 1
+    """
+    return run_query(sql, [])
+
+
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.

@@ -424,6 +424,12 @@ class Settings(BaseSettings):
     # of editors, keyed by (resource, email). Empty/absent → no allowlist (any
     # IAP-authenticated caller may edit that catalog). Console-managed, auto-created.
     bq_catalog_editors_table: str = Field(default="catalog_editors")
+    # Append-only catalog LIFECYCLE log: orphan→Descontinuado events + the eventual
+    # human purge. An orphan is a commodity that WAS in the catalog, was removed
+    # (tombstoned), and whose Gold data still lingers ("ficou órfão") — auto-marked
+    # "descontinuado" with a deletion warning, but NEVER auto-deleted (a human runs the
+    # purge, backup-first). Auto-created on first mark.
+    bq_catalog_lifecycle_log_table: str = Field(default="catalog_lifecycle_log")
     # Per-query byte ceiling on the /api serving path (gateway.run_query): caps a
     # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
     # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)

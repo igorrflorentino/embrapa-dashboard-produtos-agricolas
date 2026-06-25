@@ -237,6 +237,15 @@ def catalog_entry_remove():
     return jsonify(seam.remove_catalog_entry(body))
 
 
+@api.get("/catalog/orphans")
+def catalog_orphans():
+    """Orphan commodities — removed from the catalog with Gold data still lingering —
+    marked Descontinuado, each with a deletion warning. Read-only detection (open behind
+    IAP); the physical purge is a SEPARATE human-gated, backup-first operator step (never
+    automatic). Empty before any removal."""
+    return jsonify(serializers.serialize_orphan_worklist(seam.orphan_worklist()))
+
+
 @api.get("/source-meta")
 def source_meta():
     """Provenance row for a banco (backs the page-hero meta); {} if absent.

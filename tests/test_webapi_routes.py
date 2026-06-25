@@ -1306,3 +1306,33 @@ def test_catalog_entry_remove_threads_to_seam(monkeypatch):
     )
     assert resp.status_code == 200
     assert captured["codigo_commodity"] == "4403" and resp.get_json()["active"] is False
+
+
+def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
+    """GET /api/catalog/orphans returns the orphan worklist (read-only detection); the
+    physical purge is a separate human-gated step, never triggered by this read."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "orphan_worklist",
+        lambda: {
+            "orphans": [
+                {
+                    "codigo_commodity": "20079926",
+                    "banco": "comex",
+                    "agrupamento": "Cupuaçu",
+                    "code_prefix": "20079926",
+                    "status": "descontinuado",
+                    "flagged_at": None,
+                    "warning": "será removida por um operador",
+                }
+            ],
+            "total": 1,
+        },
+    )
+    resp = client.get("/api/catalog/orphans")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["total"] == 1 and body["orphans"][0]["status"] == "descontinuado"

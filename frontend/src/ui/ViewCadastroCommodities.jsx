@@ -47,6 +47,7 @@ function ViewCadastroCommodities() {
   const [busy, setBusy] = useCcState(false);
   const [draft, setDraft] = useCcState({ ..._CC_EMPTY_DRAFT });
   const [showAdd, setShowAdd] = useCcState(false);
+  const [orphans, setOrphans] = useCcState([]);
 
   const load = () => {
     setData((d) => ({ ...d, loading: true, error: null }));
@@ -54,6 +55,11 @@ function ViewCadastroCommodities() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setData({ entries: d.entries || [], by_agrupamento: d.by_agrupamento || [], loading: false, error: null }))
       .catch((e) => setData({ entries: [], by_agrupamento: [], loading: false, error: String(e.message || e) }));
+    // Orphans (removed from the catalog, Gold data lingering) — shown as Descontinuados.
+    fetch('/api/catalog/orphans')
+      .then((r) => (r.ok ? r.json() : { orphans: [] }))
+      .then((d) => setOrphans(d.orphans || []))
+      .catch(() => setOrphans([]));
   };
   useCcEffect(load, []);
 
@@ -136,6 +142,36 @@ function ViewCadastroCommodities() {
                     color: status.kind === 'ok' ? 'var(--ok, #1b7f3b)' : 'var(--err, #b71c1c)' }}>
           {status.msg}
         </p>
+      )}
+
+      {orphans.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--err, #b71c1c)' }}>
+          <window.SectionHeader
+            overline="Descontinuados"
+            title={`${orphans.length.toLocaleString('pt-BR')} órfã(s) — aguardando remoção`}
+          />
+          <p className="caption" style={{ margin: '0 2px 8px' }}>
+            Removidas do cadastro, mas os dados já baixados continuam no Gold. Serão removidos
+            por um operador (com backup), <strong>nunca automaticamente</strong>.
+          </p>
+          <div className="dt-wrap">
+            <table className="dt-table">
+              <thead>
+                <tr><th>Agrupamento</th><th>Banco</th><th>Código</th><th>Marcado em</th></tr>
+              </thead>
+              <tbody>
+                {orphans.map((o) => (
+                  <tr key={o.banco + '|' + o.codigo_commodity}>
+                    <td>{o.agrupamento || '—'}</td>
+                    <td>{_CC_BANCO_LABEL[o.banco] || o.banco}</td>
+                    <td className="tnum">{o.codigo_commodity}</td>
+                    <td className="caption">{o.flagged_at ? String(o.flagged_at).slice(0, 10) : 'detectado agora'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <div className="pp-selector" style={{ marginBottom: 8 }}>

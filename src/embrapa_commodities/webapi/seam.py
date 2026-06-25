@@ -798,6 +798,7 @@ from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-ex
     COMMODITY_CATALOG_RESOURCE,
     catalog_editor_emails,
     catalog_worklist,
+    orphan_worklist,
     record_catalog_entry,
     remove_catalog_entry,
 )

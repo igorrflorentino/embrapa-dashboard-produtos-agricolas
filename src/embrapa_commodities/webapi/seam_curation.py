@@ -108,3 +108,44 @@ def catalog_editor_emails(resource: str = COMMODITY_CATALOG_RESOURCE) -> set[str
     if df is None or df.empty:
         return set()
     return {str(e).strip().lower() for e in df["email"] if e}
+
+
+def orphan_worklist() -> dict:
+    """Orphan commodities — removed from the catalog with Gold data still lingering —
+    overlaid with their Descontinuado lifecycle status (flagged date + deletion warning).
+    Backs the editor's "Descontinuados" section. Empty (not an error) before any catalog
+    exists. The orphan IS descontinuado by definition; ``flagged_at`` is None until the
+    auto-marker has recorded it (the doctor/CLI cadence)."""
+    from embrapa_commodities.serving.catalog_lifecycle import PURGE_WARNING
+
+    try:
+        orphans = gateway.fetch_orphan_commodities()
+    except NotFound:
+        orphans = None
+    if orphans is None or orphans.empty:
+        return {"orphans": [], "total": 0}
+    try:
+        status_df = gateway.fetch_lifecycle_status()
+        status = (
+            {(r.element_kind, r.banco, str(r.code)): r for r in status_df.itertuples()}
+            if status_df is not None and not status_df.empty
+            else {}
+        )
+    except NotFound:
+        status = {}
+    rows = []
+    for o in orphans.itertuples():
+        code = str(o.codigo_commodity)
+        st = status.get(("commodity", o.banco, code))
+        rows.append(
+            {
+                "codigo_commodity": code,
+                "banco": o.banco,
+                "agrupamento": o.agrupamento,
+                "code_prefix": str(o.code_prefix),
+                "status": "descontinuado",
+                "flagged_at": str(st.flagged_at) if st is not None else None,
+                "warning": (st.scheduled_purge_note if st is not None else PURGE_WARNING),
+            }
+        )
+    return {"orphans": rows, "total": len(rows)}

@@ -26,13 +26,14 @@ const ENTRIES = {
   by_agrupamento: [{ agrupamento: 'Madeira', n: 2, bancos: ['comex', 'comtrade'] }],
 };
 
-function mockFetch(entries = ENTRIES) {
+function mockFetch(entries = ENTRIES, orphans = { orphans: [], total: 0 }) {
   global.fetch = vi.fn((url, opts) => {
     if (opts && opts.method === 'POST') {
       postBody = JSON.parse(opts.body);
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve(entries), text: () => Promise.resolve('') });
+    const body = String(url).includes('/api/catalog/orphans') ? orphans : entries;
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(body), text: () => Promise.resolve('') });
   });
 }
 
@@ -89,5 +90,21 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     expect(postBody.codigo_commodity).toBe('4403');
     expect(postBody.banco).toBe('comex');
     confirmSpy.mockRestore();
+  });
+
+  it('surfaces orphans as Descontinuados with the human-only deletion warning', async () => {
+    mockFetch(ENTRIES, {
+      orphans: [{
+        codigo_commodity: '20079926', banco: 'comex', agrupamento: 'Cupuaçu',
+        code_prefix: '20079926', status: 'descontinuado', flagged_at: null,
+        warning: 'será removida por um operador',
+      }],
+      total: 1,
+    });
+    const { container } = render(<ViewCadastroCommodities />);
+    await waitFor(() => expect(container.textContent).toContain('Descontinuados'));
+    expect(container.textContent).toContain('Cupuaçu');
+    expect(container.textContent).toContain('20079926');
+    expect(container.textContent).toContain('nunca automaticamente');
   });
 });

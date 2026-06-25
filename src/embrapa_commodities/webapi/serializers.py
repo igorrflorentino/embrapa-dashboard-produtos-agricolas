@@ -851,3 +851,11 @@ def serialize_catalog_worklist(worklist: dict | None) -> dict:
         "total": int(worklist.get("total", 0)),
         "by_agrupamento": worklist.get("by_agrupamento", []),
     }
+
+
+def serialize_orphan_worklist(worklist: dict | None) -> dict:
+    """seam.orphan_worklist() → the Descontinuados payload (already JSON-native): orphan
+    commodities + their flagged date + deletion warning. Normalizes None to empty."""
+    if not worklist:
+        return {"orphans": [], "total": 0}
+    return {"orphans": worklist.get("orphans", []), "total": int(worklist.get("total", 0))}
