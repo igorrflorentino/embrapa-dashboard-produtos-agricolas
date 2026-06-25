@@ -244,6 +244,33 @@ def table():
     return jsonify(serializers.serialize_table_page(page))
 
 
+# ── seed reference consultation (the "Referências" perspective) ────────────────
+
+
+@api.get("/seeds")
+def seeds():
+    """Read-only seed reference tables a researcher may consult ('Referências') to
+    confirm the values the pipeline relies on. Banco-agnostic (shared reference data)."""
+    return jsonify(seam.seed_tables())
+
+
+@api.get("/seed")
+def seed():
+    """One page of rows for a consultable seed reference table — the SAME grid contract
+    as /api/table, but seed-scoped (the Silver reference tables) and READ-ONLY. The id +
+    every order/filter COLUMN are validated server-side against the allowlist / the live
+    schema; an unknown id → 400 (the gateway allowlist is the boundary)."""
+    page = seam.seed_page(
+        request.args.get("id", ""),
+        limit=request.args.get("limit", 100, type=int),
+        offset=request.args.get("offset", 0, type=int),
+        order_by=request.args.get("order_by") or None,
+        order_dir=request.args.get("order_dir", "asc"),
+        filters=_parse_table_filters(request.args.get("filters")),
+    )
+    return jsonify(serializers.serialize_seed_page(page))
+
+
 # ── per-banco snapshot ─────────────────────────────────────────────────────────
 
 

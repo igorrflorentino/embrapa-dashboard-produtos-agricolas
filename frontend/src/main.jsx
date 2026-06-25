@@ -73,6 +73,7 @@ import './ui/ViewGeography.jsx';
 import './ui/ViewConcentration.jsx';
 import './ui/ViewQuality.jsx';
 import './ui/ViewDados.jsx';
+import './ui/ViewReferencias.jsx'; // read-only seed reference consultation ("Referências")
 import './ui/ViewProductProfile.jsx';
 import './ui/ViewProductCompare.jsx';
 import './ui/ViewRebanho.jsx';

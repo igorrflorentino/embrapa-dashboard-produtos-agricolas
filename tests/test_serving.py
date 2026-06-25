@@ -2465,6 +2465,59 @@ def test_gateway_inspectable_tables_and_allowlist_boundary():
         gateway._resolve_inspect_table("ibge_pevs", "bronze_ibge")  # not allowlisted at all
 
 
+def test_gateway_seed_catalog_and_allowlist_boundary():
+    """The 'Referências' seed catalog: the editable flag distinguishes the editable
+    catalog seed from the read-only CALIBRATION seeds, and an id outside the catalog is
+    refused before any BigQuery / table_ref call (the security boundary)."""
+    from embrapa_commodities.serving import gateway
+
+    seeds = gateway.seed_tables()
+    by_id = {s["id"]: s for s in seeds}
+    # Every shipped reference seed is consultable, each with a pt-BR label + description.
+    assert {
+        "commodity_crosswalk",
+        "historical_currency_factors",
+        "unit_family_conversions",
+        "ibge_municipio_mesh",
+    } <= set(by_id)
+    assert all(s.get("label") and s.get("description") for s in seeds)
+    # commodity_crosswalk is the editable catalog seed; calibration seeds are read-only.
+    assert by_id["commodity_crosswalk"]["editable"] is True
+    assert by_id["historical_currency_factors"]["editable"] is False
+    assert by_id["unit_family_conversions"]["editable"] is False
+    # SECURITY: an id outside the catalog is refused (before any table_ref/get_settings),
+    # even when it names a real BigQuery table that is NOT a seed.
+    with pytest.raises(ValueError):
+        gateway._resolve_seed_table("gold_pevs_production")
+    with pytest.raises(ValueError):
+        gateway._resolve_seed_table("../etc/passwd")
+
+
+def test_serialize_seed_page_reuses_grid_and_adds_editable():
+    """serialize_seed_page == the table-page grid shape + an ``editable`` flag; ``None``
+    degrades to an empty, non-editable page (never crashes)."""
+    import pandas as pd
+
+    from embrapa_commodities.webapi import serializers
+
+    page = {
+        "columns": [{"name": "commodity_id", "type": "STRING"}],
+        "df": pd.DataFrame({"commodity_id": ["acai"]}),
+        "total": 1,
+        "table": "commodity_crosswalk",
+        "label": "Crosswalk de commodities",
+        "grain": "Liga o mesmo produto entre as fontes.",
+        "editable": True,
+    }
+    out = serializers.serialize_seed_page(page)
+    assert out["editable"] is True
+    assert out["table"] == "commodity_crosswalk"
+    assert out["rows"] == [["acai"]]
+    assert out["grain"].startswith("Liga o mesmo produto")
+    empty = serializers.serialize_seed_page(None)
+    assert empty["editable"] is False and empty["rows"] == []
+
+
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():
     # A DATE/TIMESTAMP column binds as STRING and must compare against CAST(col AS STRING),
     # else BigQuery raises a type mismatch (TIMESTAMP = STRING param) → an opaque 500. A

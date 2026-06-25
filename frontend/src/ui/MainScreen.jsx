@@ -60,23 +60,29 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   }
 
   if (infoPage) {
+    const _infoTitle = infoPage === 'about'
+      ? 'Sobre o dashboard'
+      : infoPage === 'referencias'
+        ? 'Tabelas de referência'
+        : 'Saúde do sistema';
+    const _infoSub = infoPage === 'about'
+      ? 'O que é o dashboard, quais bancos compõem a base, como os dados são processados e como interpretar cada perspectiva.'
+      : infoPage === 'referencias'
+        ? 'Consulte os valores de referência que o pipeline usa (conversões, fatores de moeda, dimensões de código, crosswalk de commodities). Confira se estão corretos e, se notar um erro, avise a equipe pela própria linha.'
+        : 'Status das execuções de pipeline, frescor dos dados e qualidade das tabelas Gold.';
     return (
       <div className="screen">
         <div className="page-hero">
           <div>
             <div className="overline">Informações</div>
-            <h1 className="page-title">
-              {infoPage === 'about' ? 'Sobre o dashboard' : 'Saúde do sistema'}
-            </h1>
-            <p className="page-sub">
-              {infoPage === 'about'
-                ? 'O que é o dashboard, quais bancos compõem a base, como os dados são processados e como interpretar cada perspectiva.'
-                : 'Status das execuções de pipeline, frescor dos dados e qualidade das tabelas Gold.'}
-            </p>
+            <h1 className="page-title">{_infoTitle}</h1>
+            <p className="page-sub">{_infoSub}</p>
           </div>
         </div>
         {infoPage === 'about' ? (
           <window.ViewAbout />
+        ) : infoPage === 'referencias' ? (
+          <window.ViewReferencias />
         ) : infoPage === 'health' ? (
           <window.ViewHealth />
         ) : (

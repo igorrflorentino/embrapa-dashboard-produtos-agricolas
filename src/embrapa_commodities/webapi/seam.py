@@ -700,6 +700,52 @@ def table_page(
     }
 
 
+# ── Seed reference consultation (the "Referências" perspective) ────────────────
+
+
+def seed_tables() -> list[dict]:
+    """The read-only seed reference tables a researcher may consult ('Referências').
+    Banco-agnostic — the seeds are shared reference data, not per-banco."""
+    return gateway.seed_tables()
+
+
+def seed_page(
+    seed_id: str,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: tuple = (),
+) -> dict:
+    """One page of rows for a consultable seed + schema, total, label, description and
+    editable flag (serialize_seed_page shapes it). An unknown seed id raises ValueError
+    → HTTP 400 — we FAIL LOUD rather than returning a silent empty page, so a broken id
+    is visible instead of looking like an empty reference table."""
+    meta = next((s for s in gateway.seed_tables() if s["id"] == seed_id), None)
+    if meta is None:
+        raise ValueError(f"seed {seed_id!r} is not a consultable reference table")
+    schema = gateway.fetch_seed_schema(seed_id)
+    df = gateway.fetch_seed_rows(
+        seed_id,
+        limit=limit,
+        offset=offset,
+        order_by=order_by,
+        order_dir=order_dir,
+        filters=filters,
+    )
+    total = gateway.fetch_seed_count(seed_id, filters)
+    return {
+        "columns": schema["columns"],
+        "df": df,
+        "total": total,
+        "table": seed_id,
+        "label": meta["label"],
+        "grain": meta["description"],
+        "editable": meta["editable"],
+    }
+
+
 # ── Cross-source analytics + atributos — extracted to seam_cross / seam_attribute_engineering ──
 # Re-exported so the public seam surface stays unchanged after the split (routes +
 # tests reference seam.market_share, seam._xyear, seam.curation_worklist, …). The

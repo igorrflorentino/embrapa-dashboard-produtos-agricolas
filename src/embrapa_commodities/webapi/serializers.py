@@ -828,3 +828,14 @@ def serialize_table_page(page: dict | None) -> dict:
         "label": page.get("label"),
         "grain": page.get("grain"),
     }
+
+
+def serialize_seed_page(page: dict | None) -> dict:
+    """seam.seed_page() → the table-page grid shape + an ``editable`` flag.
+
+    Reuses :func:`serialize_table_page` (identical grid contract — columns/rows/total/
+    table/label/grain, with ``grain`` carrying the seed's pt-BR description) and adds
+    ``editable`` so the UI shows a read-only badge + the "report a value" affordance."""
+    out = serialize_table_page(page)
+    out["editable"] = bool(page.get("editable")) if page else False
+    return out

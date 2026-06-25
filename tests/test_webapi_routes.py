@@ -1134,3 +1134,65 @@ def test_table_route_rejects_out_of_allowlist_table_end_to_end(monkeypatch):
     # a Bronze table is not inspectable for any banco (no Silver/Bronze exposure).
     resp2 = client.get("/api/table?banco=ibge_ppm&table=bronze_ibge")
     assert resp2.status_code == 400
+
+
+# ── seed reference consultation (the "Referências" perspective) ────────────────
+
+
+def test_seeds_route_lists_reference_seeds(monkeypatch):
+    """GET /api/seeds lists the consultable reference seeds through the REAL seam→gateway
+    (a static catalog, no BigQuery). Each entry carries the editable flag + a pt-BR label
+    + description so the UI can render a read-only badge with its reason."""
+    client = _client(monkeypatch)
+    resp = client.get("/api/seeds")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    by_id = {s["id"]: s for s in body}
+    assert by_id["commodity_crosswalk"]["editable"] is True
+    assert by_id["historical_currency_factors"]["editable"] is False
+    assert all(s.get("label") and s.get("description") for s in body)
+
+
+def test_seed_route_threads_pagination_sort_filters_to_seam(monkeypatch):
+    """GET /api/seed parses pagination + ORDER BY + the JSON filters into seam.seed_page
+    (filters as a hashable tuple of (col, op, val)) — the same grid contract as /api/table."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_page(seed_id, *, limit, offset, order_by, order_dir, filters):
+        captured.update(
+            seed_id=seed_id,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+            order_dir=order_dir,
+            filters=filters,
+        )
+        return {"columns": [], "df": None, "total": 0, "table": seed_id, "editable": False}
+
+    monkeypatch.setattr(seam, "seed_page", fake_page)
+    monkeypatch.setattr(
+        serializers, "serialize_seed_page", lambda p: {"ok": True, "table": p["table"]}
+    )
+    resp = client.get(
+        "/api/seed?id=commodity_crosswalk&limit=25&offset=50"
+        '&order_by=source&order_dir=desc&filters=[{"col":"source","op":"eq","val":"comex"}]'
+    )
+    assert resp.status_code == 200
+    assert captured["seed_id"] == "commodity_crosswalk"
+    assert captured["limit"] == 25 and captured["offset"] == 50
+    assert captured["order_by"] == "source" and captured["order_dir"] == "desc"
+    assert captured["filters"] == (("source", "eq", "comex"),)
+
+
+def test_seed_route_400_on_unknown_id_end_to_end(monkeypatch):
+    """SECURITY — an id outside the seed catalog is a clean 400 through the REAL
+    route→seam→gateway stack: seam.seed_page raises ValueError BEFORE any BigQuery call
+    (a real Gold table name that is NOT a seed must still be refused)."""
+    client = _client(monkeypatch)
+    resp = client.get("/api/seed?id=gold_pevs_production")
+    assert resp.status_code == 400
+    resp2 = client.get("/api/seed?id=")  # empty id
+    assert resp2.status_code == 400
