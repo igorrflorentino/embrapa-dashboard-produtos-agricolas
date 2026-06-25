@@ -1196,3 +1196,112 @@ def test_seed_route_400_on_unknown_id_end_to_end(monkeypatch):
     assert resp.status_code == 400
     resp2 = client.get("/api/seed?id=")  # empty id
     assert resp2.status_code == 400
+
+
+# ── Curadoria (catalog): admin endpoints ──────────────────────────────────────
+
+
+def test_catalog_entries_route_returns_worklist(monkeypatch):
+    """GET /api/catalog/entries returns the current catalog (read is open behind IAP)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "catalog_worklist",
+        lambda banco=None: {
+            "entries": [
+                {"codigo_commodity": "4403", "banco": "un_comtrade", "agrupamento": "Madeira"}
+            ],
+            "total": 1,
+            "by_agrupamento": [{"agrupamento": "Madeira", "n": 1, "bancos": ["un_comtrade"]}],
+        },
+    )
+    resp = client.get("/api/catalog/entries")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["total"] == 1 and body["entries"][0]["codigo_commodity"] == "4403"
+
+
+def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
+    """POST /api/catalog/entry threads the body to the seam writer (open allowlist)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
+    captured = {}
+    monkeypatch.setattr(
+        seam, "record_catalog_entry", lambda body: captured.update(body) or {"ok": True}
+    )
+    resp = client.post(
+        "/api/catalog/entry",
+        json={
+            "codigo_commodity": "4403",
+            "banco": "un_comtrade",
+            "agrupamento": "Madeira",
+            "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
+            "change_id": "k1",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["codigo_commodity"] == "4403" and captured["banco"] == "un_comtrade"
+    assert captured["change_id"] == "k1"
+
+
+def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    resp = client.post("/api/catalog/entry", json={"banco": "un_comtrade"})  # no codigo_commodity
+    assert resp.status_code == 400
+
+
+def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
+    """The PER-CATALOG allowlist (research_inputs.catalog_editors, resource-scoped): an
+    author absent from it is refused 403 — distinct from the attribute-engineering curators."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(
+        seam, "catalog_editor_emails", lambda resource=None: {"someone.else@embrapa.br"}
+    )
+    resp = client.post(
+        "/api/catalog/entry", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+    )
+    assert resp.status_code == 403
+
+
+def test_catalog_entry_upsert_overlapping_prefix_is_400(monkeypatch):
+    """A ValueError from the writer (overlapping prefix / bad key / over-length) → 400."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+
+    def raise_overlap(body):
+        raise ValueError("code_prefix '440' overlaps the existing prefix '4403'")
+
+    monkeypatch.setattr(seam, "record_catalog_entry", raise_overlap)
+    resp = client.post(
+        "/api/catalog/entry",
+        json={"codigo_commodity": "4403", "banco": "un_comtrade", "code_prefix": "440"},
+    )
+    assert resp.status_code == 400
+
+
+def test_catalog_entry_remove_threads_to_seam(monkeypatch):
+    """POST /api/catalog/entry/remove appends a tombstone via the seam writer."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    captured = {}
+    monkeypatch.setattr(
+        seam, "remove_catalog_entry", lambda body: captured.update(body) or {"active": False}
+    )
+    resp = client.post(
+        "/api/catalog/entry/remove", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+    )
+    assert resp.status_code == 200
+    assert captured["codigo_commodity"] == "4403" and resp.get_json()["active"] is False

@@ -794,3 +794,10 @@ from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, inten
     price_spread,
     trade_mirror,
 )
+from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-exported)
+    COMMODITY_CATALOG_RESOURCE,
+    catalog_editor_emails,
+    catalog_worklist,
+    record_catalog_entry,
+    remove_catalog_entry,
+)

@@ -2518,6 +2518,139 @@ def test_serialize_seed_page_reuses_grid_and_adds_editable():
     assert empty["editable"] is False and empty["rows"] == []
 
 
+# ── Curadoria (catalog): the editable commodity catalog writer ────────────────
+
+
+def _catalog_row_obj(codigo, prefix):
+    """A row stand-in for the prefix-disjointness read (has .codigo_commodity/.code_prefix)."""
+    import collections
+
+    return collections.namedtuple("R", ["codigo_commodity", "code_prefix"])(codigo, prefix)
+
+
+def test_slug_matches_seed_commodity_ids():
+    from embrapa_commodities.serving import curation
+
+    assert curation._slug("Castanha-do-pará") == "castanha_do_para"
+    assert curation._slug("Açaí") == "acai"
+    assert curation._slug("Soja") == "soja"
+    assert curation._slug("") == ""
+
+
+def test_assert_prefix_disjoint_rejects_overlap_but_allows_same_key():
+    from embrapa_commodities.serving import curation
+
+    # A new prefix that is a prefix of (or prefixed by) an existing one in the banco fans
+    # out the cross-source join → reject.
+    with pytest.raises(ValueError):
+        curation._assert_prefix_disjoint("4403", "440", [("9999", "4403")])
+    # Updating the SAME entry (same codigo) is never a conflict with itself.
+    curation._assert_prefix_disjoint("4403", "4403", [("4403", "44")])
+    # Genuinely disjoint prefixes are fine.
+    curation._assert_prefix_disjoint("4407", "4407", [("4403", "4403")])
+
+
+def test_record_commodity_catalog_inserts_active_row_with_author(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = []  # empty disjoint-read + insert ok
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    rec = curation.record_commodity_catalog(
+        "4403",
+        "un_comtrade",
+        headers,
+        agrupamento="Madeira",
+        ciclo_de_vida="Fazer Ingestão e deixar disponível",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert rec["edited_by"] == "alice@embrapa.br"
+    assert rec["codigo_commodity"] == "4403" and rec["banco"] == "un_comtrade"
+    assert rec["active"] is True
+    assert rec["code_prefix"] == "4403"  # defaults to codigo_commodity
+    assert rec["commodity_id"] == "madeira"  # slug of the agrupamento
+    sql_text = client.query.call_args.args[0].lower()  # the LAST query is the INSERT
+    assert "insert into" in sql_text and "current_timestamp()" in sql_text
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["codigo_commodity"] == "4403" and params["active"] is True
+
+
+def test_record_commodity_catalog_rejects_blank_key():
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):  # blank codigo_commodity breaks the key → reject
+        curation.record_commodity_catalog(
+            "", "un_comtrade", headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_record_commodity_catalog_rejects_overlapping_prefix(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    # the disjoint-read returns an existing ('9999','4403') in the banco
+    client.query.return_value.result.return_value = [_catalog_row_obj("9999", "4403")]
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    with pytest.raises(ValueError):  # new prefix '440' overlaps existing '4403'
+        curation.record_commodity_catalog(
+            "4403",
+            "un_comtrade",
+            headers,
+            code_prefix="440",
+            settings=_settings(),
+            client=client,
+        )
+
+
+def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = []
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    rec = curation.remove_commodity_catalog(
+        "4403", "un_comtrade", headers, settings=_settings(), client=client, invalidate_cache=False
+    )
+    assert rec["active"] is False
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["active"] is False  # the tombstone row is active=false
+
+
+def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = curation.ensure_commodity_catalog_log_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".commodity_catalog_log")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} >= {
+        "codigo_commodity",
+        "banco",
+        "code_prefix",
+        "active",
+        "edited_by",
+        "change_id",
+    }
+    assert table_arg.clustering_fields == ["banco", "codigo_commodity"]
+
+
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():
     # A DATE/TIMESTAMP column binds as STRING and must compare against CAST(col AS STRING),
     # else BigQuery raises a type mismatch (TIMESTAMP = STRING param) → an opaque 500. A

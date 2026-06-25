@@ -411,6 +411,19 @@ class Settings(BaseSettings):
     # merges it into /api/source-meta with the short curation TTL, so a flip like
     # beta→estavel reflects within cache_classification_timeout. Auto-created.
     bq_banco_metadata_table: str = Field(default="banco_metadata")
+    # ─── Curadoria (catalog — what enters/exits the dashboard) ────────────────
+    # Append-only log of the researcher-managed COMMODITY CATALOG: which commodities
+    # are in the dashboard, their agrupamento (cross-source concept), industrialização,
+    # ciclo de vida (in/out) and the code_prefix used for the cross-source bridge. The
+    # current catalog = latest row per (codigo_commodity, banco); a row with
+    # active=false is a tombstone (removed → its Gold data becomes an orphan). Backs
+    # dim_commodity_catalog (→ gold_commodity_crosswalk). Auto-created on first write.
+    bq_commodity_catalog_log_table: str = Field(default="commodity_catalog_log")
+    # Per-CATALOG authorization allowlist (research_inputs.<this>) — distinct from the
+    # attribute-engineering `curators` table: each cadastro (resource) has its OWN list
+    # of editors, keyed by (resource, email). Empty/absent → no allowlist (any
+    # IAP-authenticated caller may edit that catalog). Console-managed, auto-created.
+    bq_catalog_editors_table: str = Field(default="catalog_editors")
     # Per-query byte ceiling on the /api serving path (gateway.run_query): caps a
     # pathological/cold scan so BigQuery FAILS the job visibly instead of silently
     # billing a runaway read. ~100 GiB default (~US$0.50/query at on-demand pricing)

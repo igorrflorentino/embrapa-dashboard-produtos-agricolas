@@ -839,3 +839,15 @@ def serialize_seed_page(page: dict | None) -> dict:
     out = serialize_table_page(page)
     out["editable"] = bool(page.get("editable")) if page else False
     return out
+
+
+def serialize_catalog_worklist(worklist: dict | None) -> dict:
+    """seam.catalog_worklist() → the admin-editor payload (already JSON-native:
+    entries + the per-Agrupamento grouping). Normalizes ``None`` to an empty catalog."""
+    if not worklist:
+        return {"entries": [], "total": 0, "by_agrupamento": []}
+    return {
+        "entries": worklist.get("entries", []),
+        "total": int(worklist.get("total", 0)),
+        "by_agrupamento": worklist.get("by_agrupamento", []),
+    }

@@ -702,6 +702,50 @@ def fetch_banco_metadata(banco_id: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_commodity_catalog(banco: str | None = None):
+    """The CURRENT active commodity catalog (latest row per (codigo_commodity, banco),
+    active=true) from the append-only Curadoria log. Optionally scoped to one banco.
+    Raises NotFound when the log table doesn't exist yet (no catalog configured) — the
+    seam treats that as an empty catalog. Short TTL + bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+    )
+    where = "where banco = @banco" if banco else ""
+    sql = f"""
+        select codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
+               ciclo_de_vida, code_prefix, commodity_id
+        from (
+          select *, row_number() over (
+            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table}` {where}
+        )
+        where _rn = 1 and active
+    """
+    params = [bigquery.ScalarQueryParameter("banco", "STRING", banco)] if banco else []
+    return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_catalog_editors(resource: str):
+    """Distinct editor emails authorized for one catalog RESOURCE (research_inputs.
+    <catalog_editors>). Short TTL so a Console add/remove takes effect within the
+    window. Raises NotFound when the table doesn't exist — the seam treats that as
+    'no allowlist configured' (open by default). Bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_catalog_editors_table
+    )
+    sql = (
+        f"select distinct lower(trim(email)) as email from `{table}` "
+        "where email is not null and resource = @resource"
+    )
+    params = [bigquery.ScalarQueryParameter("resource", "STRING", resource)]
+    return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.
     Raises if the log table doesn't exist yet (no pair classified) — the seam
