@@ -108,8 +108,8 @@ dbt-build-prod-with-backup: dbt-build-prod backup-gold    ## Recommended prod pa
 serving-sync:    ## Install the dashboard data-access extra (flask + flask-caching)
 	uv sync --extra serving
 
-ensure-curation:    ## Create the append-only curation log tables (research_inputs.*)
-	$(PY) python -c "from embrapa_commodities.serving.curation import ensure_code_industrialization_log_table as c, ensure_flow_market_log_table as f, ensure_curators_table as a; print('code log ready:', c()); print('flow-market log ready:', f()); print('curators table ready:', a())"
+ensure-curation:    ## Create the append-only attribute-engineering log tables (research_inputs.*)
+	$(PY) python -c "from embrapa_commodities.serving.attribute_engineering import ensure_code_industrialization_log_table as c, ensure_flow_market_log_table as f; from embrapa_commodities.serving.research_inputs import ensure_curators_table as a; print('code log ready:', c()); print('flow-market log ready:', f()); print('curators table ready:', a())"
 
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
 	$(DBT) build --vars 'enable_curation: true'

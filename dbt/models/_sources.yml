@@ -123,7 +123,7 @@ sources:
       pipeline or dbt. The dashboard's "Aplicar" appends an immutable row per
       manual edit; dim_code_industrialization_scd2 derives the Type-2 history
       from it. The table is auto-created by
-      `serving.curation.ensure_code_industrialization_log_table()` (house
+      `serving.attribute_engineering.ensure_code_industrialization_log_table()` (house
       auto-create pattern), so it may be absent on a fresh project —
       dim_code_industrialization_scd2 is gated behind
       `--vars 'enable_curation: true'`.

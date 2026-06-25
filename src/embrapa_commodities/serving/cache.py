@@ -37,7 +37,7 @@ flask-caching/Werkzeug behaviour, not our bug):
     cache miss → a correct re-query. (Relevant for a future Redis migration.)
   * Invalidation via ``delete_memoized`` bumps a version sentinel instead of
     deleting entries, so orphaned values persist until their TTL (documented at
-    the call site in ``serving.curation``). Bounded, eventual (<= TTL) — fine here.
+    the call site in ``serving.attribute_engineering``). Bounded, eventual (<= TTL) — fine here.
 """
 
 from __future__ import annotations

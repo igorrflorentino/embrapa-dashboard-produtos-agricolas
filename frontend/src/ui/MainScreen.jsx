@@ -48,7 +48,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             <div className="overline">Engenharia de atributos</div>
             <h1 className="page-title">Funcionalidade em desenvolvimento</h1>
             <p className="page-sub">
-              A <strong>Curadoria</strong> (engenharia de atributos — classificação do nível de
+              A <strong>Engenharia de atributos</strong> (classificação do nível de
               industrialização e da finalidade econômica) foi adiada para a <strong>Versão
               Futura</strong> do projeto e está temporariamente indisponível. Ela retornará quando
               for concluída e validada com os pesquisadores.

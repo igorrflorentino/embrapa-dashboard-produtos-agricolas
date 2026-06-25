@@ -106,10 +106,10 @@ embrapa-dashboard-commodities/
 │   ├── webapi/                       # ⭐ Flask REST API + SPA host (one origin/IAP)
 │   │   ├── app.py                    # App factory; serves the built SPA + /api; /healthz
 │   │   ├── routes.py                 # /api blueprint (snapshot, cross/*, curation writers)
-│   │   ├── seam.py                   # Composes seam_base/seam_cross/seam_curation per view
+│   │   ├── seam.py                   # Composes seam_base/seam_cross/seam_attribute_engineering per view
 │   │   ├── seam_base.py              # Per-view gateway readers (base snapshot)
 │   │   ├── seam_cross.py             # Cross-source seam readers (cross/*)
-│   │   ├── seam_curation.py          # Curation seam readers (classification state)
+│   │   ├── seam_attribute_engineering.py  # Engenharia de Atributos seam readers (classification state)
 │   │   ├── serializers.py            # Shapes seam output to the SPA's contracts.js
 │   │   ├── auth.py                   # Curation author via serving/iap.py
 │   │   ├── format.py                 # pt-BR formatting + monetary column naming
@@ -487,7 +487,7 @@ uv run python scripts/setup_dev_env.py      # generate .env + ~/.dbt/profiles.ym
 ## Dynamic Curation — append-only log + SCD Type 2
 
 The Curadoria panel curates at **two grains**, each backed by its own append-only
-log in `research_inputs` (written by `serving.curation`, never by dbt). The flow
+log in `research_inputs` (written by `serving.attribute_engineering`, never by dbt). The flow
 **never overwrites Gold**:
 
 - **Per-CODE industrialization** (`record_code_industrialization` →

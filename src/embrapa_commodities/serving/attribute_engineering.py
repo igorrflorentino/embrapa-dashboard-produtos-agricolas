@@ -1,12 +1,15 @@
-"""FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
-(leadership decision, 2026-06): partially built + not yet validated. The UI entry
-points are hidden and the app runs fully decoupled; this module is reached only via
-the (UI-hidden) ``/api/curation/*`` routes and stays inert unless dbt is built with
-``enable_curation: true``. Kept as the scaffold for the real future implementation.
+"""FROZEN FEATURE (Engenharia de Atributos) — postponed to the "Versão Futura"
+roadmap phase (leadership decision, 2026-06): partially built + not yet validated.
+The UI entry points are hidden and the app runs fully decoupled; this module is
+reached only via the (UI-hidden) ``/api/curation/*`` routes and stays inert unless
+dbt is built with ``enable_curation: true``. Kept as the scaffold for the real
+future implementation — do not delete.
 
-Append-only curation writers — the backend of the dashboard's "Save" button.
-
-The dashboard curates at two grains, each backed by an append-only log here:
+Engenharia de Atributos = the construction of NEW DERIVED COLUMNS on the data from
+researcher input. This is what the codebase historically (mis)labelled "Curadoria";
+the name "Curadoria" is now reserved for the catalog (what enters/exits the
+dashboard — ``serving/curation.py``). The append-only writers here build two
+derived attributes:
   * per-CODE industrialization (``record_code_industrialization`` →
     ``research_inputs.code_industrialization_log``), the editor's primary grain; and
   * (customs procedure × flow) market-nature (``record_flow_market`` →
@@ -20,35 +23,36 @@ Two side effects matter:
   2. After the insert, the relevant live-classification cache is invalidated so
      the next read reflects the new value immediately (the marts are untouched, so
      their caches are left alone).
+
+The cross-cutting primitives (BigQuery client, idempotency, length caps) live in
+``serving/research_inputs.py`` — the shared layer common to this feature and the
+catalog Curadoria.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Mapping
 
 from google.cloud import bigquery
 
 from embrapa_commodities.config import Settings, get_settings
 from embrapa_commodities.gcp.bigquery import ensure_dataset
-from embrapa_commodities.gcp.clients import resolve_bq_client
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
 from embrapa_commodities.serving.iap import author_email_from_headers
+from embrapa_commodities.serving.research_inputs import (
+    MAX_NOTE_LEN,
+    MAX_STAGE_LEN,
+    _bq_client,
+    _change_id_seen,
+    _resolve_change_id,
+)
 
 logger = logging.getLogger(__name__)
 
-# Free-text length caps. industrialization_level / note are intentionally NOT
-# allowlisted: the research curation flow lets a researcher coin arbitrary level
-# labels and notes (open vocabulary by design — an allowlist would break that UX).
-# These caps are a cheap guard against an absurdly large value (a runaway paste /
-# malformed client) bloating the immutable audit row, not a content restriction.
-MAX_STAGE_LEN = 200
-MAX_NOTE_LEN = 2000
-
-# The per-CODE industrialization log — the active curation grain. Explicit schema —
+# The per-CODE industrialization log — the active grain. Explicit schema —
 # autodetect is never used (it drifts silently across runs).
 CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
     bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
@@ -72,102 +76,7 @@ FLOW_MARKET_LOG_SCHEMA = [
 ]
 
 
-# The curator ALLOWLIST — who may POST a curation edit (authorization, distinct
-# from IAP authentication). Console-managed: add/remove a curator by INSERT/DELETE
-# here, no redeploy. Empty/absent table → no allowlist (any IAP-authenticated
-# caller may curate).
-CURATORS_SCHEMA = [
-    bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("added_by", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("added_at", "TIMESTAMP", mode="NULLABLE"),
-]
-
-# Sparse per-banco metadata overrides (one row per banco the operator has touched).
-# Every override column is NULLABLE — a NULL means "keep the registry default".
-BANCO_METADATA_SCHEMA = [
-    bigquery.SchemaField("banco_id", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("maturity", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("maturity_note", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("maturity_date", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_years", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_atualizacao", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_granularidade", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("updated_by", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="NULLABLE"),
-]
-
-
-def _bq_client(settings: Settings) -> bigquery.Client:
-    return resolve_bq_client(settings)
-
-
-def ensure_curators_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the curator allowlist table if missing; return its FQN. Idempotent.
-
-    Tiny (one row per curator), so no clustering. Manage rows in the BigQuery
-    Console (or via SQL) to control who may curate — no redeploy needed.
-    """
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curators_table)
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    bq.create_table(bigquery.Table(table_fqn, schema=CURATORS_SCHEMA), exists_ok=True)
-    logger.info("Curators allowlist table ready at %s", table_fqn)
-    return table_fqn
-
-
-def ensure_banco_metadata_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the operator-editable banco-metadata override table if missing.
-
-    Idempotent; returns its FQN. Tiny (one row per overridden banco), so no
-    clustering. Manage rows in the BigQuery Console (or via SQL) to flip a banco's
-    maturity / note / coverage with no redeploy — e.g.::
-
-        MERGE `<project>.research_inputs.banco_metadata` t
-        USING (SELECT 'un_comtrade' banco_id, 'estavel' maturity) s
-        ON t.banco_id = s.banco_id
-        WHEN MATCHED THEN UPDATE SET maturity = s.maturity, updated_at = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT (banco_id, maturity, updated_at)
-            VALUES (s.banco_id, s.maturity, CURRENT_TIMESTAMP());
-    """
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_banco_metadata_table)
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    bq.create_table(bigquery.Table(table_fqn, schema=BANCO_METADATA_SCHEMA), exists_ok=True)
-    logger.info("Banco metadata override table ready at %s", table_fqn)
-    return table_fqn
-
-
-def _resolve_change_id(change_id: str | None) -> tuple[str, bool]:
-    """Return ``(change_id, client_supplied)``. A non-empty client value is the
-    IDEMPOTENCY KEY (a retried/double-clicked save reuses it); when absent we mint
-    a fresh uuid (which can never pre-exist, so it needs no dedupe check)."""
-    cleaned = (change_id or "").strip()
-    return (cleaned, True) if cleaned else (uuid.uuid4().hex, False)
-
-
-def _change_id_seen(bq: bigquery.Client, table_fqn: str, change_id: str) -> bool:
-    """True when a row with this client-supplied ``change_id`` already exists in
-    the log — the dedupe guard that makes a retried write a no-op. The lookup is a
-    single-key scan on a clustered table (cheap). NOTE: this is a best-effort
-    SELECT-then-INSERT, not a transaction — two near-simultaneous retries on
-    DIFFERENT instances could still both insert. That's acceptable: both rows are
-    byte-identical and the SCD2 view collapses them by latest edit, so the worst
-    case is one redundant audit row, never a wrong current value."""
-    sql = f"select 1 from `{table_fqn}` where change_id = @change_id limit 1"
-    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
-    return any(True for _ in job.result())
-
-
-# ── Per-CODE industrialization log (the active curation grain) ────────────────
+# ── Per-CODE industrialization log (the active grain) ─────────────────────────
 def ensure_code_industrialization_log_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,

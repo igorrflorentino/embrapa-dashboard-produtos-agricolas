@@ -700,11 +700,31 @@ def table_page(
     }
 
 
-# ── Cross-source analytics + curadoria — extracted to seam_cross / seam_curation ──
+# ── Cross-source analytics + atributos — extracted to seam_cross / seam_attribute_engineering ──
 # Re-exported so the public seam surface stays unchanged after the split (routes +
 # tests reference seam.market_share, seam._xyear, seam.curation_worklist, …). The
 # shared commodity toolkit lives in seam_base; both modules depend only on it, so
 # the import graph is an acyclic base ← {cross, curation} ← seam.
+from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at module end)
+    _FLOW_LABELS,
+    CUR_LEVELS,
+    ENRICH_MARKETS,
+    _code_to_commodity,
+    _current_code_levels,
+    _flow_market_map,
+    _market_nature_accumulate,
+    _value_added_accumulate,
+    _value_added_codes_by_level,
+    _value_added_series_point,
+    _worklist_rows_for_source,
+    curation_worklist,
+    curator_emails,
+    flow_market_worklist,
+    market_nature,
+    record_code_level,
+    record_flow_market,
+    value_added,
+)
 from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, intentional)
     CROSS_DISPLAY_UNIT,
     _cross_points,
@@ -727,24 +747,4 @@ from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, inten
     market_share,
     price_spread,
     trade_mirror,
-)
-from .seam_curation import (  # noqa: E402, F401  (re-exported at module end, intentional)
-    _FLOW_LABELS,
-    CUR_LEVELS,
-    ENRICH_MARKETS,
-    _code_to_commodity,
-    _current_code_levels,
-    _flow_market_map,
-    _market_nature_accumulate,
-    _value_added_accumulate,
-    _value_added_codes_by_level,
-    _value_added_series_point,
-    _worklist_rows_for_source,
-    curation_worklist,
-    curator_emails,
-    flow_market_worklist,
-    market_nature,
-    record_code_level,
-    record_flow_market,
-    value_added,
 )

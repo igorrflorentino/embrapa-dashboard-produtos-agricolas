@@ -891,7 +891,7 @@ def _settings() -> Settings:
 
 def test_record_code_industrialization_inserts_parameterized_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     settings = _settings()
@@ -927,7 +927,7 @@ def test_record_code_industrialization_inserts_parameterized_row_with_author(mon
 
 def test_record_code_industrialization_rejects_empty_inputs():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError):
@@ -938,7 +938,7 @@ def test_record_code_industrialization_rejects_empty_inputs():
 
 def test_ensure_code_industrialization_log_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -973,7 +973,7 @@ def test_record_code_industrialization_generates_change_id_when_absent(monkeypat
     """No client change_id → a fresh uuid is minted, the dedupe SELECT is SKIPPED
     (a brand-new uuid can't pre-exist), and exactly one query (the INSERT) runs."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=True)  # would dedupe IF it probed — it must not
@@ -999,7 +999,7 @@ def test_record_code_industrialization_dedupes_on_repeated_change_id(monkeypatch
     """A client change_id that ALREADY exists in the log → no-op: the writer
     returns deduped=True and never issues the INSERT (only the SELECT probe)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=True)
@@ -1027,7 +1027,7 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
     """A client change_id NOT yet in the log → the probe misses and the INSERT
     proceeds, carrying the SAME change_id (so a retry would then dedupe)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=False)
@@ -1055,7 +1055,7 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
 def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
     """The flow-market writer honours the same idempotency contract."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
     client = _seen_client(exists=True)
@@ -1081,7 +1081,7 @@ def test_ensure_curators_table_creates_with_explicit_schema(monkeypatch):
     """The Console-managed curator allowlist table is auto-created with the
     explicit (email, added_by, added_at) schema — never autodetected."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import research_inputs as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -1990,7 +1990,8 @@ def test_save_invalidates_code_industrialization_cache(monkeypatch):
     visible locally (other instances converge within the short TTL).
     """
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation, gateway
+    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_commodities.serving import gateway
 
     app, cache = _bind_simplecache()
 
@@ -2031,7 +2032,7 @@ def test_save_invalidates_code_industrialization_cache(monkeypatch):
 def test_invalidate_code_industrialization_cache_is_safe_when_unbound(monkeypatch):
     """With no Flask app bound, invalidation is a no-op (covers the except branch)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
     from embrapa_commodities.serving.cache import Cache, cache
 
     # Reset to a pristine, unbound cache so delete_memoized raises internally and
@@ -2049,7 +2050,7 @@ def test_invalidate_code_industrialization_cache_is_safe_when_unbound(monkeypatc
 
 def test_record_code_industrialization_rejects_overlong_level():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="industrialization_level exceeds"):
@@ -2065,7 +2066,7 @@ def test_record_code_industrialization_rejects_overlong_level():
 
 def test_record_code_industrialization_rejects_overlong_note():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="note exceeds"):
@@ -2083,7 +2084,7 @@ def test_record_code_industrialization_rejects_overlong_note():
 def test_record_code_industrialization_accepts_free_text_level(monkeypatch):
     """A novel, non-allowlisted level label is accepted (open vocabulary by design)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     client = mock.Mock()
@@ -2198,7 +2199,7 @@ def test_current_flow_market_latest_wins_and_drops_cleared():
 
 def test_record_flow_market_inserts_parameterized_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     # Isolate the INSERT — the first-write auto-create is covered by its own test.
     monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
@@ -2232,7 +2233,7 @@ def test_record_flow_market_inserts_parameterized_row_with_author(monkeypatch):
 
 def test_record_flow_market_rejects_empty_pair():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError):
@@ -2243,7 +2244,7 @@ def test_record_flow_market_rejects_empty_pair():
 
 def test_record_flow_market_allows_empty_market_to_clear(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
     client = mock.Mock()
@@ -2258,7 +2259,7 @@ def test_record_flow_market_allows_empty_market_to_clear(monkeypatch):
 
 def test_ensure_flow_market_log_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()

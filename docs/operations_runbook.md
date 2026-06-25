@@ -39,7 +39,7 @@ Notes:
 - Emails are matched case-insensitively (lower + trim).
 - The table auto-creates on the **first curation write attempt**: the curation
   POST authorization path (`routes._authorize_curator`) calls
-  `serving.curation.ensure_curators_table` (idempotent), so it exists for the
+  `serving.research_inputs.ensure_curators_table` (idempotent), so it exists for the
   Console INSERT above the first time anyone tries to save an edit. The runtime SA
   needs write access to the dataset to create it — the prod web SA
   `sa-web-dashboard-prod` already has WRITER on `research_inputs`. (If you prefer

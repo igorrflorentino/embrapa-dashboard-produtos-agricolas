@@ -1,17 +1,19 @@
-"""FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
-(leadership decision, 2026-06): partially built + not yet validated. UI entry points
-hidden; the app runs fully decoupled. The readers below already degrade gracefully
-when the gated SCD2 view / log tables are absent. Kept as the scaffold for the real
-future implementation — do not delete.
+"""FROZEN FEATURE (Engenharia de Atributos) — postponed to the "Versão Futura"
+roadmap phase (leadership decision, 2026-06): partially built + not yet validated.
+UI entry points hidden; the app runs fully decoupled. The readers below already
+degrade gracefully when the gated SCD2 view / log tables are absent. Kept as the
+scaffold for the real future implementation — do not delete.
 
-Curadoria + enrichment readers for the seam layer.
+Engenharia de Atributos readers for the seam layer (historically mislabelled
+"Curadoria"; that name is now reserved for the catalog — what enters/exits the
+dashboard).
 
-The per-code industrialization curation (bruta/processada), the value-added
-analysis that splits COMEX exports by that curated level, and the market-nature
-analysis that splits COMTRADE value by the curated (customs procedure × flow) →
-market mapping. The READ side degrades gracefully when the gated SCD2 view /
-curation log tables are not built yet: every code/cell surfaces as unclassified
-instead of erroring. Writes go through the verified BFF writer (IAP author capture).
+The per-code industrialization (bruta/processada), the value-added analysis that
+splits COMEX exports by that derived level, and the market-nature analysis that
+splits COMTRADE value by the derived (customs procedure × flow) → market mapping.
+The READ side degrades gracefully when the gated SCD2 view / log tables are not
+built yet: every code/cell surfaces as unclassified instead of erroring. Writes go
+through the verified BFF writer (IAP author capture).
 
 Imports only ``seam_base`` (the shared commodity toolkit) + the gateway, never
 ``seam`` itself, so the import graph stays acyclic. ``seam`` re-exports the public
@@ -132,10 +134,12 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
     BFF writer."""
     from flask import has_request_context, request
 
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_code_industrialization(source, code, level, headers, change_id=change_id)
+    return attribute_engineering.record_code_industrialization(
+        source, code, level, headers, change_id=change_id
+    )
 
 
 def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
@@ -270,8 +274,8 @@ def _flow_market_map() -> dict:
 
 def flow_market_worklist() -> dict:
     """The (customs procedure × flow) matrix from COMTRADE ⟕ the current market
-    mapping — backs the Curadoria regime×flow editor. Cells carry the real value
-    so the researcher classifies what actually matters."""
+    mapping — backs the regime×flow editor. Cells carry the real value so the
+    researcher classifies what actually matters."""
     df = gateway.fetch_comtrade_cpc_value(())
     mapping = _flow_market_map()
     customs: set = set()
@@ -305,10 +309,10 @@ def record_flow_market(
     BFF writer."""
     from flask import has_request_context, request
 
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_flow_market(
+    return attribute_engineering.record_flow_market(
         customs_code, flow_code, market, headers, change_id=change_id
     )
 

@@ -20,12 +20,12 @@ from werkzeug.exceptions import BadRequest, HTTPException
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving.cache import cache
-from embrapa_commodities.serving.curation import (
+from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
+from embrapa_commodities.serving.iap import InvalidIapAssertionError
+from embrapa_commodities.serving.research_inputs import (
     ensure_banco_metadata_table,
     ensure_curators_table,
 )
-from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
-from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
 from .auth import current_author

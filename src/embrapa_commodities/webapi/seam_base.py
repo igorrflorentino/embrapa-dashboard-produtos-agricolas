@@ -1,11 +1,11 @@
 """Shared primitives for the seam layer.
 
 Low-level helpers used by BOTH the cross-source analytics (``seam_cross``) and the
-curation/enrichment readers (``seam_curation``): the live-source set and the
-commodity crosswalk toolkit (catalog, per-source code lookup, per-metric yearly
-points). Kept in their own module so the two analytic modules depend only on this
-base — never on each other or on ``seam`` — which keeps the import graph a clean
-DAG (base ← {cross, curation} ← seam) with no cycles. ``seam`` re-exports these so
+attribute-engineering readers (``seam_attribute_engineering``): the live-source set
+and the commodity crosswalk toolkit (catalog, per-source code lookup, per-metric
+yearly points). Kept in their own module so the two analytic modules depend only on
+this base — never on each other or on ``seam`` — which keeps the import graph a clean
+DAG (base ← {cross, attributes} ← seam) with no cycles. ``seam`` re-exports these so
 ``seam.commodity_catalog`` / ``seam._xyear`` etc. stay available to callers + tests.
 
 The crosswalk/catalog reads are memoized with the SAME flask-caching TTL the
