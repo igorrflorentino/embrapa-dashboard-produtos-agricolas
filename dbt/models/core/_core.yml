@@ -116,6 +116,37 @@ models:
       - name: imediata_name
         description: "Região geográfica imediata name (pt-BR)."
 
+  - name: dim_commodity_catalog
+    description: |
+      The CURRENT commodity catalog (Curadoria) — latest-wins, active rows from the
+      append-only research_inputs.commodity_catalog_log. The editable successor to the
+      commodity_crosswalk seed; gold_commodity_crosswalk + serving_{pam,ppm}_annual read
+      it. Exposes the seed's columns (commodity_id, commodity_name, source, code_prefix)
+      so the cutover was a ref swap, proven row-identical on real data (191 = 191, 0
+      diffs). VIEW, so a fresh admin edit is live immediately. NOT gated — the live SOT.
+    tests:
+      # The composite key (codigo_commodity, source) is unique in the CURRENT catalog
+      # (latest-wins per (codigo_commodity, banco)). The cross-source FAN-OUT guard (no
+      # overlapping prefixes within a banco) is enforced at write time AND by the
+      # unique_combination on gold_commodity_crosswalk's (source, code).
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - codigo_commodity
+              - source
+    columns:
+      - name: codigo_commodity
+        description: "The code (or prefix) the researcher registered — half the catalog key."
+        tests: [not_null]
+      - name: source
+        description: "Source token / banco (pevs, comex, comtrade, pam, ppm)."
+        tests: [not_null]
+      - name: code_prefix
+        description: "Prefix expanded against Gold codes for the cross-source bridge."
+        tests: [not_null]
+      - name: commodity_name
+        description: "The agrupamento (cross-source commodity concept), pt-BR."
+
   - name: dim_code_industrialization_scd2
     description: |
       Type-2 SCD derived from research_inputs.code_industrialization_log — the

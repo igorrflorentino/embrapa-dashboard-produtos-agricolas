@@ -90,7 +90,7 @@ pam_xwalk as (
         x.commodity_name,
         c.product_code as code
     from pam_codes c
-    join {{ ref('commodity_crosswalk') }} x
+    join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'pam'
         and c.product_code like x.code_prefix || '%'
 

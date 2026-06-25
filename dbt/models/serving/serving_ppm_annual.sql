@@ -84,7 +84,7 @@ ppm_xwalk as (
         x.commodity_name,
         c.product_code as code
     from ppm_codes c
-    join {{ ref('commodity_crosswalk') }} x
+    join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'ppm'
         and c.product_code like x.code_prefix || '%'
 
