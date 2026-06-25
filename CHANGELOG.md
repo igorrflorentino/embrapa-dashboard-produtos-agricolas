@@ -45,6 +45,16 @@ Remediation of the 2026-06-24 post-v1.6.0 deep audit (report:
   to the facts (e.g. comtrade 2,294,874 rows), and the COMTRADE World-partner double-count guard
   holds (0 rows).
 
+### Changed
+- **`deploy.sh` preserves prod-only env across routine deploys.** A new git-ignored
+  `deploy/webapi/.env.prod` (template: `deploy/webapi/.env.prod.example`) is layered on top of
+  the repo-root `.env` (same allowlist; prod values win), so `IAP_AUDIENCE` and
+  `FEEDBACK_GITHUB_REPO` — which don't belong in a dev/worktree `.env` — are applied on every
+  `make webapi-deploy` instead of being silently dropped. This removes the image-only-deploy
+  workaround and keeps the in-app IAP JWT verification + the feedback cooldown armed. With
+  Curadoria frozen, the feedback channel (`submitted_by`) is now the live consumer of
+  `IAP_AUDIENCE`.
+
 ## [1.6.0] — 2026-06-24
 
 Headline release of the 2026-06-24 work: the **in-app feedback channel** ("Reportar problema" →

@@ -123,6 +123,26 @@ grep -E "$WEBAPI_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
       printf "%s: '%s'\n" "$key" "$(printf '%s' "$val" | tr -d '\r')"
     done > "$ENV_YAML"
+
+# 3a) Prod-only overrides (IAP_AUDIENCE, FEEDBACK_GITHUB_REPO, …): values that MUST
+#     reach the prod service but deliberately do NOT live in a dev/worktree .env.
+#     Without this, a routine deploy — which REPLACES the service env via
+#     --env-vars-file — silently DROPS IAP_AUDIENCE (disarming the in-app IAP JWT
+#     check in serving/iap.py AND the feedback cooldown that depends on it) and forces
+#     an out-of-band / image-only deploy to restore it. A git-ignored prod file is
+#     layered ON TOP of .env (same allowlist; prod values WIN). Override the path with
+#     WEBAPI_PROD_ENV_FILE. Copy deploy/webapi/.env.prod.example → .env.prod to fill it.
+PROD_ENV_FILE="${WEBAPI_PROD_ENV_FILE:-$REPO_ROOT/deploy/webapi/.env.prod}"
+if [ -f "$PROD_ENV_FILE" ]; then
+  echo "Applying prod env overrides from $PROD_ENV_FILE"
+  { grep -E "$WEBAPI_ALLOWLIST" "$PROD_ENV_FILE" || true; } \
+    | while IFS='=' read -r key val; do
+        # Prod wins: drop any .env-derived line for this key, then append the prod value.
+        { grep -v "^${key}:" "$ENV_YAML" || true; } > "${ENV_YAML}.new"
+        mv "${ENV_YAML}.new" "$ENV_YAML"
+        printf "%s: '%s'\n" "$key" "$(printf '%s' "$val" | tr -d '\r')" >> "$ENV_YAML"
+      done
+fi
 printf "BQ_GOLD_DATASET: '%s'\n" "${WEBAPI_GOLD_DATASET:-gold}" >> "$ENV_YAML"
 printf "BQ_SERVING_DATASET: '%s'\n" "${WEBAPI_SERVING_DATASET:-serving}" >> "$ENV_YAML"
 grep -q '^GCP_PROJECT_ID:' "$ENV_YAML" || { echo "ERROR: GCP_PROJECT_ID missing in $ENV_FILE"; exit 1; }
@@ -137,7 +157,8 @@ grep -q '^GCP_PROJECT_ID:' "$ENV_YAML" || { echo "ERROR: GCP_PROJECT_ID missing 
 if ! grep -q '^IAP_AUDIENCE:' "$ENV_YAML"; then
   echo "NOTE: IAP_AUDIENCE not set — the in-app IAP JWT double-check (serving/iap.py)" >&2
   echo "      stays off. Cloud Run direct IAP still enforces auth + stamps the trusted" >&2
-  echo "      user header, so this is acceptable; set IAP_AUDIENCE for defense-in-depth." >&2
+  echo "      user header, so this is acceptable. To keep the extra layer armed across" >&2
+  echo "      routine deploys, set it in deploy/webapi/.env.prod (copy .env.prod.example)." >&2
 fi
 
 # 3b) Feedback GitHub loop (v1.6.0): mount the token secret so a routine redeploy does NOT
