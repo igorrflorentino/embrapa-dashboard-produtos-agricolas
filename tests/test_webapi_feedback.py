@@ -89,6 +89,7 @@ def test_forward_to_github_is_noop_without_config():
 def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving.cache import init_cache
     from embrapa_commodities.webapi import app as app_mod
     from embrapa_commodities.webapi import auth, routes
 
@@ -100,6 +101,12 @@ def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
         monkeypatch.setattr(routes, "record_feedback", record)
     app = app_mod.create_app()
     app.config.update(TESTING=True)
+    # create_app() boots a no-op NullCache when no .env / GCP_PROJECT_ID is present
+    # (e.g. CI), which would make the cache-backed SEC-2 cooldown a silent no-op and
+    # fail test_feedback_route_cooldown_returns_429. Rebind a real in-memory cache
+    # from the test settings (cfg.cache_type defaults to SimpleCache) so the cooldown
+    # is exercised deterministically, independent of the ambient environment.
+    init_cache(app, settings=cfg)
     return app.test_client()
 
 
