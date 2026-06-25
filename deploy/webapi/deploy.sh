@@ -117,7 +117,7 @@ fi
 #    CURATION_ALLOWED_EMAILS (the curation write lockdown) and BQ_MAX_BYTES_BILLED
 #    (the serving-path cost ceiling) ARE forwarded — both are read by the deployed
 #    webapi, and omitting them silently left prod on the open/default behaviour.
-WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO|CURATION_ALLOWED_EMAILS|BQ_MAX_BYTES_BILLED)='
+WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO|CURATION_ALLOWED_EMAILS|BQ_MAX_BYTES_BILLED|FEEDBACK_GITHUB_REPO)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
 grep -E "$WEBAPI_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do
@@ -140,12 +140,27 @@ if ! grep -q '^IAP_AUDIENCE:' "$ENV_YAML"; then
   echo "      user header, so this is acceptable; set IAP_AUDIENCE for defense-in-depth." >&2
 fi
 
+# 3b) Feedback GitHub loop (v1.6.0): mount the token secret so a routine redeploy does NOT
+#     silently disable the loop (INFRA-1). FEEDBACK_GITHUB_REPO rides in via the allowlist
+#     above; the token is a Secret Manager secret (never a plaintext env var), mounted only
+#     when it exists — otherwise feedback degrades to BigQuery-only. Override the secret name
+#     with FEEDBACK_GITHUB_TOKEN_SECRET.
+FB_TOKEN_SECRET="${FEEDBACK_GITHUB_TOKEN_SECRET:-feedback-github-token}"
+SECRET_FLAGS=()
+if gcloud secrets describe "$FB_TOKEN_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  SECRET_FLAGS=(--set-secrets "FEEDBACK_GITHUB_TOKEN=${FB_TOKEN_SECRET}:latest")
+  echo "Feedback GitHub loop: mounting secret '${FB_TOKEN_SECRET}:latest'."
+else
+  echo "NOTE: secret '${FB_TOKEN_SECRET}' not found — feedback runs BigQuery-only (no GitHub loop)." >&2
+fi
+
 # 4) Deploy / update the Cloud Run Service (create-or-update), PRIVATE.
 echo "Deploying Cloud Run Service…"
 gcloud run deploy "$SERVICE_NAME" --project "$PROJECT" --region "$REGION" \
   --image "$IMAGE" \
   --service-account "$WEBAPI_SA" \
   --env-vars-file "$ENV_YAML" \
+  ${SECRET_FLAGS[@]+"${SECRET_FLAGS[@]}"} \
   --no-allow-unauthenticated \
   ${INGRESS:+--ingress="$INGRESS"} \
   --memory "$MEMORY" \

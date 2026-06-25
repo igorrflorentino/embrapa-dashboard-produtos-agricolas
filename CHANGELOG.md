@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+Remediation of the 2026-06-24 post-v1.6.0 deep audit (report:
+`docs/audits/deep_audit_2026-06-24_v1.6.0.md`; grade A−, 0 critical). All confirmed findings
+(1 high, 4 medium, 3 low) fixed; 915 pytest / 267 vitest green.
+
+### Fixed
+- **`deploy.sh` no longer disables the feedback GitHub loop on redeploy (audit INFRA-1).**
+  `FEEDBACK_GITHUB_REPO` is now in the env allowlist and the `FEEDBACK_GITHUB_TOKEN` secret is
+  mounted via `--set-secrets` when it exists, so a routine `make webapi-deploy` keeps the loop
+  active (it was silently dropping both before).
+- **Feedback is written to BigQuery BEFORE the GitHub forward (audit FB-1).** The durable row
+  lands first (`issue_url` NULL) and is stamped after a successful forward, so a GitHub failure
+  can never orphan an issue without a log row; the docstring is corrected.
+- **Curadoria freeze completed (audit FREEZE-1).** Stale `?ip=curation` / `enrich_*` deep links
+  now render a neutral "Versão Futura" notice instead of the frozen editor, and the curation
+  glossary section is hidden — the app is fully decoupled from curation, even via direct URL.
+- **No dev-vs-prod JSX-runtime divergence (audit DEV-1).** The classic JSX runtime is now used
+  in dev, build AND Vitest (`vitest.setup.js` supplies the global `React`), so all three
+  exercise the same compilation path instead of dev-only-classic vs build/test-automatic.
+- **Feedback message is fenced in the GitHub issue (audit SEC-1)** — no Markdown / @-mention
+  injection — and a **per-author cooldown** debounces double-clicks/abuse (audit SEC-2,
+  `FEEDBACK_COOLDOWN_SECONDS`, default 5s, returns 429).
+
+### Added (tests)
+- Coverage for the GitHub-forward success path, the FB-1 write-then-stamp ordering, the SEC-1
+  fence, and the SEC-2 cooldown (audit TEST-1).
+
+### Docs
+- Operations runbook + `.env.example`: the feedback `FEEDBACK_GITHUB_*` Secret Manager wiring +
+  the fine-grained `issues:write` token guidance (audit DOC-1).
+- Completed the 2026-06-24 deep audit (`docs/audits/deep_audit_2026-06-24_v1.6.0_complete.md`):
+  confirms every fix above holds, corrects a stale `CLAUDE.md` line that called the **frozen**
+  Curadoria "activatable" (audit DOC-2), and records the **live prod grain + conservation
+  re-check** (audit DATA-1) — all 7 Gold tables grain-unique, `gold_source_metadata` ties exactly
+  to the facts (e.g. comtrade 2,294,874 rows), and the COMTRADE World-partner double-count guard
+  holds (0 rows).
+
 ## [1.6.0] — 2026-06-24
 
 Headline release of the 2026-06-24 work: the **in-app feedback channel** ("Reportar problema" →

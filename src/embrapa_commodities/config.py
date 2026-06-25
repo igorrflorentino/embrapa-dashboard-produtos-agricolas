@@ -357,6 +357,9 @@ class Settings(BaseSettings):
     # NEVER committed. Leave both unset to keep feedback BigQuery-only.
     feedback_github_repo: str | None = Field(default=None)
     feedback_github_token: str | None = Field(default=None)
+    # Per-author cooldown (seconds) on POST /api/feedback — debounces double-click duplicates
+    # and basic abuse (audit SEC-2). 0 disables the throttle.
+    feedback_cooldown_seconds: int = Field(default=5)
 
     # ─── Cache (flask-caching) ────────────────────────────────────────────────
     # SimpleCache (per-instance) scales to N Cloud Run instances for free: marts

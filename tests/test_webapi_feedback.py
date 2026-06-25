@@ -89,6 +89,7 @@ def test_forward_to_github_is_noop_without_config():
 def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving.cache import init_cache
     from embrapa_commodities.webapi import app as app_mod
     from embrapa_commodities.webapi import auth, routes
 
@@ -100,6 +101,12 @@ def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
         monkeypatch.setattr(routes, "record_feedback", record)
     app = app_mod.create_app()
     app.config.update(TESTING=True)
+    # create_app() boots a no-op NullCache when no .env / GCP_PROJECT_ID is present
+    # (e.g. CI), which would make the cache-backed SEC-2 cooldown a silent no-op and
+    # fail test_feedback_route_cooldown_returns_429. Rebind a real in-memory cache
+    # from the test settings (cfg.cache_type defaults to SimpleCache) so the cooldown
+    # is exercised deterministically, independent of the ambient environment.
+    init_cache(app, settings=cfg)
     return app.test_client()
 
 
@@ -133,3 +140,117 @@ def test_feedback_route_without_identity_is_401(monkeypatch):
     client = _client(monkeypatch, dev_author=None)
     resp = client.post("/api/feedback", json={"message": "mensagem válida"})
     assert resp.status_code == 401
+
+
+def test_feedback_route_cooldown_returns_429(monkeypatch):
+    """SEC-2: a rapid second submit from the same author is throttled (429)."""
+    client = _client(monkeypatch, record=lambda **kw: {"feedback_id": "a", "category": "bug"})
+    first = client.post("/api/feedback", json={"message": "primeiro"})
+    second = client.post("/api/feedback", json={"message": "segundo"})
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+# ── GitHub forward: success path + sanitisation (audit TEST-1 + SEC-1 + FB-1) ────
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def test_forward_to_github_creates_issue_and_returns_url(monkeypatch):
+    """The success path: a configured token POSTs an issue and the html_url is returned."""
+    import requests
+
+    captured = {}
+
+    def _fake_post(url, **kw):
+        captured["url"] = url
+        captured["json"] = kw.get("json")
+        captured["headers"] = kw.get("headers")
+        return _FakeResp({"html_url": "https://github.com/o/r/issues/7"})
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    url = fb._forward_to_github(
+        _cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+        category="bug",
+        message="o gráfico quebrou",
+        submitted_by="u@embrapa.br",
+        url="https://app/?v=value",
+        view_id="value",
+        banco="ibge_pevs",
+    )
+    assert url == "https://github.com/o/r/issues/7"
+    assert captured["url"].endswith("/repos/o/r/issues")
+    assert captured["json"]["labels"] == ["feedback", "bug"]
+    assert captured["headers"]["Authorization"] == "Bearer t"
+
+
+def test_forward_to_github_swallows_errors(monkeypatch):
+    """A GitHub failure is logged and swallowed → None (never raised)."""
+    import requests
+
+    def _boom(*a, **k):
+        raise requests.RequestException("502")
+
+    monkeypatch.setattr(requests, "post", _boom)
+    assert (
+        fb._forward_to_github(
+            _cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+            category="bug",
+            message="x",
+            submitted_by="u@e.br",
+            url=None,
+            view_id=None,
+            banco=None,
+        )
+        is None
+    )
+
+
+def test_forward_to_github_fences_user_message(monkeypatch):
+    """SEC-1: the user message is fenced, and triple-backtick breakout runs are neutralised."""
+    import requests
+
+    seen = {}
+
+    def _fake_post(url, **kw):
+        seen["body"] = kw["json"]["body"]
+        return _FakeResp({"html_url": "https://x/1"})
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    fb._forward_to_github(
+        _cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+        category="bug",
+        message="oi ```rm -rf``` @maintainer",
+        submitted_by="u@e.br",
+        url=None,
+        view_id=None,
+        banco=None,
+    )
+    assert "```text" in seen["body"]  # the message is inside a code fence
+    assert "```rm -rf```" not in seen["body"]  # the breakout fence was neutralised
+
+
+def test_record_feedback_writes_then_stamps_issue_url(monkeypatch):
+    """FB-1: with GitHub configured, the row is INSERTed first then UPDATEd with the
+    issue_url — two DML calls (durable write before the forward)."""
+    monkeypatch.setattr(fb, "ensure_feedback_log_table", lambda cfg, bq: "t.r.feedback_log")
+    monkeypatch.setattr(fb, "_forward_to_github", lambda *a, **k: "https://x/9")
+    client = MagicMock()
+    row = record_feedback(
+        category="bug",
+        message="msg",
+        headers={"X-Goog-Authenticated-User-Email": "u@embrapa.br"},
+        settings=_cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+        client=client,
+    )
+    assert row["issue_url"] == "https://x/9"
+    assert client.query.call_count == 2  # INSERT, then UPDATE issue_url
