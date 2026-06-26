@@ -49,21 +49,36 @@ PROBLEMATIC_QUANTITY, OUTLIER_VALUE, PROBLEMATIC_VALUE`. COMEX/COMTRADE weight r
 **Precedence (donut stays a partition):** MISSING_*/INCOMPLETE > PROBLEMATIC_VALUE > PROBLEMATIC_QUANTITY
 > OUTLIER_VALUE > OUTLIER_QUANTITY > OK.
 
-**Detector** = per-source robust one-sided **log-Tukey fence** + sample gate + magnitude floor +
-recurrence guard on PROBLEMATIC:
-- group: IBGE `(product_code, family)`; COMEX value `(flow, ncm_code)`, weight `(flow)`; COMTRADE
-  `(flow, cmd_code)`. Value fence on **deflated** `val_real_ipca_brl` (IBGE) / source **USD** (trade) —
-  never nominal.
-- over `LN(x)` for x>0: `p50,p75` via `APPROX_QUANTILES(...,1000)`; `excess=(LN(x)-p50)/(p75-p50)`.
-- OUTLIER iff `n>=MIN_OBS and (p75-p50)>0 and excess>=k_outlier`.
-- PROBLEMATIC iff outlier AND `excess>=k_problematic` AND `x>=magnitude_floor(family)` AND
-  `COUNT(DISTINCT year) at that magnitude < recur_min` (the recurrence guard kills the multi-year-timber /
-  bulk-cargo false positives).
+**Detector (REVISED — VALIDATED on live BigQuery, 2026-06-26).** The magnitude-only fence the first
+workflow proposed CANNOT split outlier from problemático (both are "high") — proven false-positives on
+legit Amazon timber. The working method is an **implied-price (unit-value) consistency test**: a typo
+breaks `value ÷ quantity` (scale-invariant), a legit giant does not. Confirmed on real data:
+- COMEX: within a product the VALUE tail is 26.5× the median but the PRICE tail is 10.5× (P99); the
+  extreme price tail is unambiguous typos (charcoal $1,440/**1 kg**; rice $13,800/**1 kg**; soybean meal
+  $3 for 2,500 t) — all `weight=1` placeholders / dropped digits, NONE legit giants.
+- The **deflation requirement is load-bearing**: IBGE price MUST use `val_real_ipca_brl` — nominal
+  `val_yearfx_brl` manufactured a fake 20% near-zero-price tail (66,826 rows, ALL pre-1995 hyperinflation).
+  With deflation, PEVS >100× rate = **0.003%**.
 
-**dbt var defaults:** `enable_quality_outliers=false`, `quality_outlier_k=4.0`,
-`quality_problematic_k=6.0`, `quality_min_obs=30`, `quality_recur_min_years=3`; magnitude floors massa
-1000 t / volume 1000 m³ / contagem 10000 head / USD-or-value 100000. Validated rates ON: PROBLEMATIC
-≤~0.07% (COMEX), 0% on IBGE; OUTLIER ≤~0.19%.
+Rule, per group (IBGE `(product_code, family, unit_native)`; trade `(flow, code)`), sample gate `n>=MIN_OBS`:
+- `price = real_value / quantity` — IBGE `val_real_ipca_brl/qty_native`; trade `val_yearfx_usd/net_weight_kg`
+  (USD, post-1989, no BR-inflation issue). Compute `ln_med = median(LN(price))` per group (APPROX_QUANTILES).
+- `price_dev = LN(price) - ln_med`.
+- **PROBLEMATIC** iff `ABS(price_dev) >= LN(k_price)` — the implied price is economically absurd → a value
+  or quantity typo. Attribute: `price_dev > 0` (value-too-high or qty-too-low) → if the value is the high
+  outlier `PROBLEMATIC_VALUE` else `PROBLEMATIC_QUANTITY`; `price_dev < 0` → the opposite. (Both QUANTITY
+  ids also cover trade `net_weight_kg`.) Needs a small magnitude floor to skip trivia.
+- **OUTLIER_{QUANTITY,VALUE}** iff the measure is in the product's high tail (one-sided log fence,
+  `(LN(measure)-p50)/(p75-p50) >= k_outlier`, `n>=MIN_OBS`, `p75>p50`) AND the row is NOT problemático
+  (price consistent) → "bem acima do esperado mas válido."
+- Precedence (donut partition): MISSING_*/INCOMPLETE > PROBLEMATIC_VALUE > PROBLEMATIC_QUANTITY >
+  OUTLIER_VALUE > OUTLIER_QUANTITY > OK.
+
+**dbt var defaults:** `enable_quality_outliers=false`, **`quality_price_k=100`** (price >100× or <1/100× the
+product median = typo; validated rates: COMEX 0.19%, PEVS 0.003% at 100×), `quality_outlier_k=4.0`
+(magnitude fence for the OUTLIER tier), `quality_min_obs=100`, magnitude floor (skip trivia) massa 100 t /
+volume 100 m³ / contagem 1000 head / value 10000 (real BRL or USD). PPM `measure_kind='stock'` (herd) has
+NO value → quantity OUTLIER only, never a price/value flag.
 
 **Files:** `dbt_project.yml` (vars); `macros/data_quality_flag.sql` (extend signature, 2-arg back-compat,
 precedence); `macros/quality_outlier_ctes.sql` (new — bounds CTE + `quality_level_expr` compile-gated by
