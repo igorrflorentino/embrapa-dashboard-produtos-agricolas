@@ -203,12 +203,17 @@ window.UF_DATA = [
 // synthetic taxonomy — Gold never emits them, and listing them here silently
 // dropped the real INCOMPLETE/MISSING_WEIGHT rows out of the quality charts and
 // the quality filter. Keep this in sync with serializers._FLAG_LABEL_PT.
+// Labels follow the "Contrato de Dados" spreadsheet's pt-BR "Qualidade dos dados"
+// wording: the healthy row is "Normais" (not the English "OK"); the missing-value
+// rung is split quantidade vs financeiro. (The Sheet's richer inferidos/outliers/
+// problemáticos tiers are NOT emitted by the pipeline — see data_quality_flag.sql;
+// tracked as a deferred enhancement, not implemented here.)
 window.QUALITY_FLAGS = [
-  { id: 'OK',                 label: 'OK',                  color: 'var(--ok)'   },
-  { id: 'MISSING_VALUE',      label: 'Valor ausente',       color: 'var(--warn)' },
-  { id: 'MISSING_QUANTITY',   label: 'Quantidade ausente',  color: 'var(--info)' },
-  { id: 'MISSING_WEIGHT',     label: 'Peso ausente',        color: 'var(--viz-4)' },
-  { id: 'INCOMPLETE',         label: 'Incompleto',          color: 'var(--viz-7)' },
+  { id: 'OK',                 label: 'Normais',                  color: 'var(--ok)'   },
+  { id: 'MISSING_VALUE',      label: 'Valor financeiro ausente', color: 'var(--warn)' },
+  { id: 'MISSING_QUANTITY',   label: 'Quantidade ausente',       color: 'var(--info)' },
+  { id: 'MISSING_WEIGHT',     label: 'Peso ausente',             color: 'var(--viz-4)' },
+  { id: 'INCOMPLETE',         label: 'Incompleto',               color: 'var(--viz-7)' },
 ];
 
 // ────────────────────────────────────────────────────────────────────

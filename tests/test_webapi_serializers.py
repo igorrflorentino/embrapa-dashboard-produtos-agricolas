@@ -118,8 +118,9 @@ def test_serialize_snapshot_shapes_and_scales():
     # are asserted in test_uf_data_emits_per_family_quantities).
     assert uf["q_mass"] == 0.0 and uf["q_vol"] == 0.0
     # _quality emits a pt-BR label so the donut stays Portuguese even for flags the
-    # frontend taxonomy lacks (INCOMPLETE/MISSING_WEIGHT).
-    assert out["quality"][0] == {"id": "OK", "label": "OK", "count": 42, "share": 0.8}
+    # frontend taxonomy lacks (INCOMPLETE/MISSING_WEIGHT). The healthy row is labeled
+    # "Normais" per the Contrato de Dados spreadsheet (not the English "OK" token).
+    assert out["quality"][0] == {"id": "OK", "label": "Normais", "count": 42, "share": 0.8}
     assert out["preview"] is False and out["_synthetic"] is False
 
 

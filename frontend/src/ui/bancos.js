@@ -7,11 +7,12 @@
 //   • maturity — DATASET LIFECYCLE / maturity (how built-out the banco is).
 //     A build-time property reported by the backend; the frontend only
 //     displays it. One of window.MATURITY, in lifecycle order:
-//       planejado · desenvolvimento · beta · estavel · manutencao ·
-//       descontinuado
-//     `hasData: true` stages (beta/estavel/manutencao/descontinuado) render
-//     the real perspectives (with a caveat banner where caveat:true); the
-//     future stages (planejado/desenvolvimento) render the placeholder.
+//       planejado · desenvolvimento · ingestao · beta · estavel ·
+//       manutencao · descontinuado
+//     `hasData: true` stages (desenvolvimento/beta/estavel/manutencao/
+//     descontinuado) render the real perspectives (with a caveat banner where
+//     caveat:true); the no-data stages (planejado/ingestao) render the
+//     placeholder.
 //     NOTE: "source down right now" is NOT a maturity stage — that is a
 //     RUNTIME HEALTH state (shown in the UI as "Saudável" · "Em atenção" ·
 //     "Falha"), derived live in ViewHealth from pipeline runs / freshness /
@@ -47,15 +48,17 @@ window.MATURITY = {
   planejado:       { id: 'planejado',       label: 'Planejado',          color: 'var(--pres-gray-400)', hasData: false, future: true, order: 1,
                      desc: 'No roadmap, mas sem implementação iniciada nem prazo definido.' },
   desenvolvimento: { id: 'desenvolvimento', label: 'Em desenvolvimento',  color: 'var(--status-mat-dev)', hasData: true,  order: 2,
-                     desc: 'Em produção e já consultável, mas ainda em construção — a cobertura e os cálculos podem mudar.' },
-  beta:            { id: 'beta',            label: 'Beta',               color: 'var(--info)',          hasData: true,  caveat: true, order: 3,
-                     desc: 'Disponível para uso, mas com cobertura ainda parcial e sujeita a mudanças.' },
-  estavel:         { id: 'estavel',         label: 'Estável',            color: 'var(--ok)',            hasData: true,  order: 4,
-                     desc: 'Banco em produção — 100% pronto para consumo e análise.' },
-  manutencao:      { id: 'manutencao',      label: 'Em manutenção',      color: 'var(--warn)',          hasData: true,  caveat: true, order: 5,
+                     desc: 'Em produção e já consultável, mas ainda em construção, cálculos podem mudar.' },
+  ingestao:        { id: 'ingestao',        label: 'Ingestão',           color: 'var(--status-mat-ingest)', hasData: false, order: 3,
+                     desc: 'Pipeline construído, mas os dados ainda estão sendo baixados das fontes oficiais — a cobertura pode mudar.' },
+  beta:            { id: 'beta',            label: 'Beta',               color: 'var(--info)',          hasData: true,  caveat: true, order: 4,
+                     desc: 'Disponível para testes e validações, resultados podem mudar.' },
+  estavel:         { id: 'estavel',         label: 'Estável',            color: 'var(--ok)',            hasData: true,  order: 5,
+                     desc: 'Banco em produção, 100% pronto para consumo e análise.' },
+  manutencao:      { id: 'manutencao',      label: 'Em manutenção',      color: 'var(--warn)',          hasData: true,  caveat: true, order: 6,
                      desc: 'Em produção, porém em correção de cálculo/tabela ou atualização programada.' },
-  descontinuado:   { id: 'descontinuado',   label: 'Descontinuado',      color: 'var(--status-mat-sunset)', hasData: true,  caveat: true, sunset: true, order: 6,
-                     desc: 'Banco obsoleto — não recebe mais manutenção e será removido em breve.' },
+  descontinuado:   { id: 'descontinuado',   label: 'Descontinuado',      color: 'var(--status-mat-sunset)', hasData: true,  caveat: true, sunset: true, order: 7,
+                     desc: 'Banco obsoleto, não recebe mais manutenção e será removido em breve.' },
 };
 // Per-banco maturity is NOT defined in this file. Its single source of truth is
 // BigQuery (research_inputs.banco_metadata), served via /api/source-meta and
@@ -72,13 +75,13 @@ window.maturityMeta = (b) =>
     : window.MATURITY_LOADING;
 
 // Short availability label for banco pickers/tags, derived from maturity.
-// 'Disponível' once the banco has data (this now includes `desenvolvimento`,
-// which is in production and consultable); a no-data stage without an ETA
-// (planejado) reads "Sem previsão". The "Em breve" branch is reserved for any
-// future no-data-but-committed stage.
+// 'Disponível' once the banco has data (this includes `desenvolvimento`, which
+// is in production and consultable); `ingestao` (pipeline built, data still
+// being downloaded — committed but no usable data yet) reads "Em breve"; a
+// no-data stage without an ETA (planejado) reads "Sem previsão".
 window.bancoAvailability = (b) => {
   if (window.maturityMeta(b).hasData) return 'Disponível';
-  return (b && b.maturity === 'desenvolvimento') ? 'Em breve' : 'Sem previsão';
+  return (b && b.maturity === 'ingestao') ? 'Em breve' : 'Sem previsão';
 };
 
 window.BANCOS = [

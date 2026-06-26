@@ -11,9 +11,9 @@ frontend so the next reader is not misled, but the frontend is authoritative for
 anything the UI renders.
 
 Status model (three axes, kept distinct):
-  * ``maturity`` — dataset lifecycle (planejado · desenvolvimento · beta ·
-    estavel · manutencao · descontinuado). Build-time; ``has_data`` decides
-    whether a banco renders real perspectives or the "Em breve" placeholder.
+  * ``maturity`` — dataset lifecycle (planejado · desenvolvimento · ingestao ·
+    beta · estavel · manutencao · descontinuado). Build-time; ``has_data``
+    decides whether a banco renders real perspectives or the "Em breve" placeholder.
   * ``visible`` — backend-controlled visibility (hides a banco everywhere).
   * usage (active/inactive) — derived at render time, never stored.
 
@@ -52,9 +52,17 @@ MATURITY: dict[str, dict] = {
         "color": "var(--status-mat-dev)",
         "has_data": True,
         "order": 2,
+        "desc": "Em produção e já consultável, mas ainda em construção, cálculos podem mudar.",
+    },
+    "ingestao": {
+        "id": "ingestao",
+        "label": "Ingestão",
+        "color": "var(--status-mat-ingest)",
+        "has_data": False,
+        "order": 3,
         "desc": (
-            "Em produção e já consultável, mas ainda em construção — "
-            "a cobertura e os cálculos podem mudar."
+            "Pipeline construído, mas os dados ainda estão sendo baixados das "
+            "fontes oficiais — a cobertura pode mudar."
         ),
     },
     "beta": {
@@ -63,16 +71,16 @@ MATURITY: dict[str, dict] = {
         "color": "var(--info)",
         "has_data": True,
         "caveat": True,
-        "order": 3,
-        "desc": "Disponível para uso, mas com cobertura ainda parcial e sujeita a mudanças.",
+        "order": 4,
+        "desc": "Disponível para testes e validações, resultados podem mudar.",
     },
     "estavel": {
         "id": "estavel",
         "label": "Estável",
         "color": "var(--ok)",
         "has_data": True,
-        "order": 4,
-        "desc": "Banco em produção — 100% pronto para consumo e análise.",
+        "order": 5,
+        "desc": "Banco em produção, 100% pronto para consumo e análise.",
     },
     "manutencao": {
         "id": "manutencao",
@@ -80,7 +88,7 @@ MATURITY: dict[str, dict] = {
         "color": "var(--warn)",
         "has_data": True,
         "caveat": True,
-        "order": 5,
+        "order": 6,
         "desc": "Em produção, porém em correção de cálculo/tabela ou atualização programada.",
     },
     "descontinuado": {
@@ -90,8 +98,8 @@ MATURITY: dict[str, dict] = {
         "has_data": True,
         "caveat": True,
         "sunset": True,
-        "order": 6,
-        "desc": "Banco obsoleto — não recebe mais manutenção e será removido em breve.",
+        "order": 7,
+        "desc": "Banco obsoleto, não recebe mais manutenção e será removido em breve.",
     },
 }
 

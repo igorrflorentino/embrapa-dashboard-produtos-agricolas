@@ -194,6 +194,7 @@
    * their own. estavel/manutencao/beta reuse --ok/--warn/--info; these two
    * extend the scale. Kept as tokens so bancos.js and the CSS agree. */
   --status-mat-dev:    #5B7088; /* slate — "Em desenvolvimento" */
+  --status-mat-ingest: #2C8C9E; /* cyan-teal — "Ingestão" (data downloading) */
   --status-mat-sunset: #8C4A4A; /* muted maroon — "Descontinuado" */
 
   /* Medallion architecture stages (data lake tiers). */
