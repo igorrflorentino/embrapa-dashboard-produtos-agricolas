@@ -2780,6 +2780,66 @@ def test_orphan_worklist_marks_descontinuado_with_warning(monkeypatch):
     assert o["flagged_at"] is None and o["warning"]  # default warning before the marker runs
 
 
+def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch):
+    """The purge plan REFUSES an element that is not marked Descontinuado, and for one
+    that is, builds the scoped Gold DELETE(s) + the backup status — without deleting."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    # not marked → refuse
+    monkeypatch.setattr(catalog_lifecycle, "_current_status", lambda cfg: {})
+    with pytest.raises(ValueError):
+        catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
+
+    # marked descontinuado → plan with the scoped Gold DELETE + backup status
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_current_status",
+        lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_backup_status", lambda cfg: (True, "snapshot ok"))
+    plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
+    assert plan["backup_ok"] is True
+    assert any("gold_comex_flows" in s and "20079926%" in s for s in plan["statements"])
+    assert all(s.strip().startswith("DELETE FROM") for s in plan["statements"])
+
+
+def test_purge_plan_rejects_injection_in_code():
+    """A non-alphanumeric code (SQL-injection attempt) is rejected — the plan is printed
+    verbatim for a human to run, so the code must be a simple token."""
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    with pytest.raises(ValueError):
+        catalog_lifecycle.purge_plan("comex", "1' ; DROP TABLE x; --", settings=_settings())
+
+
+def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
+    """mark_purged records a terminal 'purged' audit event (who/when); idempotent."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+    inserted = []
+    monkeypatch.setattr(
+        catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
+    res = catalog_lifecycle.mark_purged(
+        "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
+    )
+    assert res["status"] == "purged" and res["deduped"] is False
+    assert inserted[0]["status"] == "purged" and inserted[0]["edited_by"] == "op"
+
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: True)
+    res2 = catalog_lifecycle.mark_purged(
+        "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
+    )
+    assert res2["deduped"] is True
+
+
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():
     # A DATE/TIMESTAMP column binds as STRING and must compare against CAST(col AS STRING),
     # else BigQuery raises a type mismatch (TIMESTAMP = STRING param) → an opaque 500. A

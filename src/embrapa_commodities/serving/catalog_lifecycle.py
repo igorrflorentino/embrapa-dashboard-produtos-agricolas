@@ -20,6 +20,7 @@ audit row is honest about being machine-generated.
 from __future__ import annotations
 
 import logging
+import re
 
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
@@ -177,3 +178,116 @@ def invalidate_lifecycle_cache() -> None:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down
             logger.warning("Could not invalidate lifecycle cache: %s", exc)
+
+
+# ── Human-gated purge (the LAST destructive step — never automatic) ───────────
+# The Gold fact table(s) whose rows an orphan's purge would delete (matched by the
+# code prefix). Gold is rebuilt from Bronze by dbt, so a true purge also needs the
+# Bronze rows gone + the ingestion scope updated — the plan spells that out.
+_PURGE_TARGETS = {
+    "pevs": [("bq_gold_dataset", "gold_pevs_production", "product_code")],
+    "pam": [("bq_gold_dataset", "gold_pam_production", "product_code")],
+    "ppm": [("bq_gold_dataset", "gold_ppm_production", "product_code")],
+    "comex": [("bq_gold_dataset", "gold_comex_flows", "ncm_code")],
+    "comtrade": [("bq_gold_dataset", "gold_comtrade_flows", "cmd_code")],
+}
+
+
+def _backup_status(settings: Settings) -> tuple[bool, str]:
+    """Is there a COMPLETE Gold snapshot newer than BACKUP_STALENESS_DAYS? Reuses the
+    doctor's backup-freshness logic — the purge MUST NOT proceed without a fresh
+    rollback point (the project's backup-first posture)."""
+    from datetime import UTC, datetime
+
+    from google.cloud import storage
+
+    from embrapa_commodities import doctor
+    from embrapa_commodities.config import get_credentials
+
+    try:
+        client = storage.Client(
+            project=settings.gcp_project_id, credentials=get_credentials(settings)
+        )
+        runs = doctor._list_backup_runs(client, settings)
+        if not runs:
+            return False, "nenhum snapshot do Gold — rode `make dbt-build-prod-with-backup` antes."
+        latest, _ = doctor._latest_complete_run(client, settings, runs)
+        if latest is None:
+            return (
+                False,
+                "nenhum snapshot COMPLETO do Gold (todos parciais) — rode um backup antes.",
+            )
+        age_days = (datetime.now(UTC) - latest).total_seconds() / 86400
+        if age_days > settings.backup_staleness_days:
+            return (
+                False,
+                f"snapshot mais recente tem {age_days:.0f}d "
+                f"(> {settings.backup_staleness_days}d) — rode um backup fresco antes.",
+            )
+        return True, f"snapshot completo do Gold em {latest.strftime('%Y-%m-%d %H:%M UTC')}"
+    except Exception as exc:  # pragma: no cover - GCS unreachable / perms
+        return False, f"não foi possível verificar o backup: {exc}"
+
+
+def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
+    """Build the human-runnable PURGE PLAN for a Descontinuado orphan: the scoped DELETE
+    for each Gold table whose rows match the prefix, the backup status, and the
+    re-ingestion caveat. Does NOT delete anything — the operator runs the printed
+    statements (the project hands destructive deletes to a human). Raises ValueError if
+    the element is not currently Descontinuado, or the banco/code is malformed."""
+    cfg = settings or get_settings()
+    banco = (banco or "").strip()
+    code = (code or "").strip()
+    if not banco or not code or not re.fullmatch(r"[A-Za-z0-9_.\-]+", code):
+        raise ValueError("banco and a simple alphanumeric code are required.")
+    if _current_status(cfg).get(("commodity", banco, code)) != "descontinuado":
+        raise ValueError(
+            f"{banco}:{code} is not marked Descontinuado — refuse to plan a purge "
+            "(only orphans that were detected + marked may be purged)."
+        )
+    statements = [
+        f"DELETE FROM `{sqlbuild.table_ref(cfg, dataset_attr, table)}` WHERE {col} LIKE '{code}%';"
+        for dataset_attr, table, col in _PURGE_TARGETS.get(banco, [])
+    ]
+    backup_ok, backup_msg = _backup_status(cfg)
+    return {
+        "banco": banco,
+        "code": code,
+        "statements": statements,
+        "backup_ok": backup_ok,
+        "backup_msg": backup_msg,
+    }
+
+
+def mark_purged(
+    banco: str,
+    code: str,
+    *,
+    edited_by: str,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> dict:
+    """Append a terminal ``purged`` lifecycle event AFTER the operator ran the DELETEs
+    (who/when, for the audit trail). Idempotent. Does NOT itself delete data."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = _lifecycle_log_ref(cfg)
+    ensure_catalog_lifecycle_log_table(cfg, bq)
+    change_id = f"purged:commodity:{banco}:{code}"
+    if _change_id_seen(bq, table_fqn, change_id):
+        return {"banco": banco, "code": code, "status": "purged", "deduped": True}
+    _insert_lifecycle_event(
+        bq,
+        table_fqn,
+        element_kind="commodity",
+        banco=banco,
+        code=str(code),
+        status="purged",
+        reason="Purga manual executada pelo operador.",
+        purge_note=None,
+        edited_by=edited_by,
+        change_id=change_id,
+    )
+    invalidate_lifecycle_cache()
+    logger.info("Lifecycle: %s:%s -> purged by %s", banco, code, edited_by)
+    return {"banco": banco, "code": code, "status": "purged", "deduped": False}
