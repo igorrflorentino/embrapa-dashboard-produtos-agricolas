@@ -80,10 +80,13 @@ function ViewCadastroCommodities() {
     try {
       await fn();
       setStatus({ kind: 'ok', msg: okMsg });
-      load();
     } catch (e) {
       setStatus({ kind: 'err', msg: String(e.message || e) });
     } finally {
+      // Always re-sync the grid to the PERSISTED state — a multi-write op (the per-
+      // Agrupamento loop) that fails midway has already committed some rows; reloading
+      // only on success would leave the grid showing the old values for all of them.
+      load();
       setBusy(false);
     }
   };
@@ -101,8 +104,16 @@ function ViewCadastroCommodities() {
   const setCicloForAgrupamento = (agrupamento, ciclo) => {
     const members = data.entries.filter((e) => (e.agrupamento || '—') === agrupamento);
     run(async () => {
-      for (const m of members) {
-        await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo });
+      let done = 0;
+      try {
+        for (const m of members) {
+          await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo });
+          done += 1;
+        }
+      } catch (e) {
+        // Report how many members were applied before the failure — the grid reloads
+        // (run's finally) to the partially-applied state, so the message must match it.
+        throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
       }
     }, `Ciclo de vida de "${agrupamento}" atualizado (${members.length}).`);
   };
@@ -110,6 +121,13 @@ function ViewCadastroCommodities() {
   const submitAdd = () => {
     if (!draft.codigo_commodity || !draft.banco) {
       setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
+      return;
+    }
+    // Agrupamento names the commodity and seeds its identifier — required downstream
+    // (the server also rejects a blank one). Validate here so the researcher gets an
+    // instant, specific message instead of a round-trip 400.
+    if (!draft.agrupamento || !draft.agrupamento.trim()) {
+      setStatus({ kind: 'err', msg: 'Agrupamento é obrigatório (nomeia a commodity e gera o identificador).' });
       return;
     }
     saveEntry({ ...draft });

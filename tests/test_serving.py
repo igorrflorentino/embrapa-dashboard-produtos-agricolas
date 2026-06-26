@@ -1181,6 +1181,27 @@ def test_init_cache_binds_classification_ttl_to_curator_allowlist():
     assert gateway.fetch_curators.cache_timeout == settings.cache_classification_timeout
 
 
+def test_init_cache_binds_classification_ttl_to_catalog_editors():
+    """The catalog-editor allowlist read honors CACHE_CLASSIFICATION_TIMEOUT too (L-5).
+
+    fetch_catalog_editors gates POST /api/catalog/* and is Console-edited, so the TTL is
+    the sole convergence control — lowering it to revoke a removed editor must take effect,
+    not stay pinned at the decoration-time DEFAULT_CLASSIFICATION_TTL.
+    """
+    pytest.importorskip("flask_caching")
+    from flask import Flask
+
+    from embrapa_commodities.serving import gateway
+    from embrapa_commodities.serving.cache import init_cache
+
+    settings = _isolated_settings(cache_classification_timeout=9)
+    app = Flask(__name__)
+    init_cache(app, settings)
+
+    assert gateway.fetch_catalog_editors.cache_timeout == 9
+    assert gateway.fetch_catalog_editors.cache_timeout == settings.cache_classification_timeout
+
+
 # ── gateway: mart readers exercise SQL + params + allowlist ───────────────────
 
 
@@ -2053,7 +2074,7 @@ def test_record_code_industrialization_rejects_overlong_level():
     from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError, match="industrialization_level exceeds"):
+    with pytest.raises(ValueError, match="industrialization_level excede"):
         curation.record_code_industrialization(
             "mdic_comex",
             "08013200",
@@ -2069,7 +2090,7 @@ def test_record_code_industrialization_rejects_overlong_note():
     from embrapa_commodities.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError, match="note exceeds"):
+    with pytest.raises(ValueError, match="note excede"):
         curation.record_code_industrialization(
             "mdic_comex",
             "08013200",
@@ -2607,6 +2628,7 @@ def test_record_commodity_catalog_rejects_overlapping_prefix(monkeypatch):
             "4403",
             "un_comtrade",
             headers,
+            agrupamento="Madeira",  # required now (else the H-1 guard short-circuits first)
             code_prefix="440",
             settings=_settings(),
             client=client,
@@ -2618,16 +2640,99 @@ def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    # The entry is currently active with a COARSE prefix (codigo 'madeira' != prefix '4403').
+    # The tombstone must carry the REAL prefix, not the codigo — orphan detection keys off it.
+    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [("madeira", "4403")])
     client = mock.Mock()
     client.query.return_value.result.return_value = []
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     rec = curation.remove_commodity_catalog(
-        "4403", "un_comtrade", headers, settings=_settings(), client=client, invalidate_cache=False
+        "madeira",
+        "un_comtrade",
+        headers,
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
     )
     assert rec["active"] is False
+    assert rec["code_prefix"] == "4403"  # M-2: the real active prefix, not the codigo
     params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
     assert params["active"] is False  # the tombstone row is active=false
+    assert params["code_prefix"] == "4403"
+
+
+def test_remove_commodity_catalog_rejects_uncataloged_key(monkeypatch):
+    """Removing a key with no ACTIVE entry must raise (L-1) — a phantom tombstone would
+    fabricate a false orphan, never silently appear."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [])  # nothing active
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):
+        curation.remove_commodity_catalog(
+            "9999",
+            "un_comtrade",
+            headers,
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
+def test_record_commodity_catalog_rejects_blank_agrupamento(monkeypatch):
+    """A blank agrupamento → NULL commodity_id/commodity_name → the nightly prod dbt build
+    not_null tests fail (H-1). Reject at the write gate (a fixable 400), not at build time."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):  # whitespace agrupamento → blank after strip
+        curation.record_commodity_catalog(
+            "4403",
+            "un_comtrade",
+            headers,
+            agrupamento="   ",
+            settings=_settings(),
+            client=mock.Mock(),
+        )
+    with pytest.raises(ValueError):  # missing entirely
+        curation.record_commodity_catalog(
+            "4403", "un_comtrade", headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_record_commodity_catalog_rejects_blank_or_wildcard_prefix(monkeypatch):
+    """A whitespace code_prefix collapses to '' → LIKE '%' (every code absorbed); a LIKE
+    wildcard ('%'/'_') over-matches. Both rejected at the write gate (M-1)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):  # whitespace → '' after strip
+        curation.record_commodity_catalog(
+            "4403",
+            "un_comtrade",
+            headers,
+            agrupamento="Madeira",
+            code_prefix="   ",
+            settings=_settings(),
+            client=mock.Mock(),
+        )
+    with pytest.raises(ValueError):  # '_' is a LIKE single-char wildcard
+        curation.record_commodity_catalog(
+            "4403",
+            "un_comtrade",
+            headers,
+            agrupamento="Madeira",
+            code_prefix="44_3",
+            settings=_settings(),
+            client=mock.Mock(),
+        )
 
 
 def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeypatch):
@@ -2758,6 +2863,75 @@ def test_auto_mark_orphans_is_idempotent_when_already_marked(monkeypatch):
     assert res == {"detected": 1, "newly_marked": 0, "already_marked": 1}
 
 
+def test_auto_mark_orphans_remarks_a_fresh_reorphan(monkeypatch):
+    """An entry re-added then re-removed AFTER a prior purge is re-detected AND re-marked
+    (M-3): the new removal's removed_at is newer than the stale 'purged' flagged_at, so the
+    generation-aware marker writes a FRESH 'descontinuado' (re-opening the purge gate).
+    The inverse — a lifecycle event newer than the removal — is NOT re-marked."""
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_commodities.serving import catalog_lifecycle, gateway
+
+    removed_at = pd.Timestamp("2026-06-26T12:00:00Z")
+
+    def _orphan_with_removed_at():
+        return pd.DataFrame(
+            [
+                {
+                    "codigo_commodity": "20079926",
+                    "banco": "comex",
+                    "code_prefix": "20079926",
+                    "agrupamento": "Cupuaçu",
+                    "removed_at": removed_at,
+                }
+            ]
+        )
+
+    def _status(status, flagged_at):
+        return lambda: pd.DataFrame(
+            [
+                {
+                    "element_kind": "commodity",
+                    "banco": "comex",
+                    "code": "20079926",
+                    "status": status,
+                    "reason": None,
+                    "scheduled_purge_note": None,
+                    "flagged_at": flagged_at,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _orphan_with_removed_at)
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
+    monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+    inserted = []
+    monkeypatch.setattr(
+        catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
+    )
+
+    # Prior 'purged' event OLDER than the new removal → re-mark.
+    monkeypatch.setattr(
+        gateway, "fetch_lifecycle_status", _status("purged", pd.Timestamp("2026-01-01T00:00:00Z"))
+    )
+    res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
+    assert res["newly_marked"] == 1 and inserted[0]["status"] == "descontinuado"
+
+    # Lifecycle event NEWER than the removal (already covers it) → no re-mark.
+    inserted.clear()
+    monkeypatch.setattr(
+        gateway,
+        "fetch_lifecycle_status",
+        _status("descontinuado", pd.Timestamp("2026-06-26T18:00:00Z")),
+    )
+    res2 = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
+    assert res2["newly_marked"] == 0 and not inserted
+
+
 def test_orphan_worklist_marks_descontinuado_with_warning(monkeypatch):
     """seam.orphan_worklist marks each detected orphan 'descontinuado' with the default
     deletion warning when nothing was recorded yet (flagged_at None)."""
@@ -2778,6 +2952,39 @@ def test_orphan_worklist_marks_descontinuado_with_warning(monkeypatch):
     o = out["orphans"][0]
     assert o["status"] == "descontinuado" and o["codigo_commodity"] == "20079926"
     assert o["flagged_at"] is None and o["warning"]  # default warning before the marker runs
+
+
+def test_orphan_worklist_reports_recorded_status(monkeypatch):
+    """orphan_worklist surfaces the RECORDED lifecycle status — 'purged' for a re-orphaned,
+    already-purged code — not a hardcoded 'descontinuado' (L-4); and falls back to the
+    standing warning when a purged event carries no purge note."""
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_commodities.serving import gateway
+    from embrapa_commodities.webapi import seam_curation
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
+
+    def _status_purged():
+        return pd.DataFrame(
+            [
+                {
+                    "element_kind": "commodity",
+                    "banco": "comex",
+                    "code": "20079926",
+                    "status": "purged",
+                    "reason": None,
+                    "scheduled_purge_note": None,
+                    "flagged_at": pd.Timestamp("2026-06-26T12:00:00Z"),
+                }
+            ]
+        )
+
+    monkeypatch.setattr(gateway, "fetch_lifecycle_status", _status_purged)
+    o = seam_curation.orphan_worklist()["orphans"][0]
+    assert o["status"] == "purged"
+    assert o["warning"]  # purged events carry no note → standing warning
 
 
 def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch):

@@ -108,11 +108,11 @@ def _validate_code_edit(source: str, code: str, level: str, note: str | None) ->
     scheme); the cap is only a sanity bound on the immutable audit row.
     """
     if not source or not code or not level:
-        raise ValueError("source, code and industrialization_level are required.")
+        raise ValueError("source, code e industrialization_level são obrigatórios.")
     if len(level) > MAX_STAGE_LEN:
-        raise ValueError(f"industrialization_level exceeds {MAX_STAGE_LEN} chars.")
+        raise ValueError(f"industrialization_level excede {MAX_STAGE_LEN} caracteres.")
     if note is not None and len(note) > MAX_NOTE_LEN:
-        raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
+        raise ValueError(f"note excede {MAX_NOTE_LEN} caracteres.")
 
 
 def record_code_industrialization(
@@ -306,9 +306,9 @@ def _validate_flow_market_edit(
     flow_code = (flow_code or "").strip()
     market = (market or "").strip()
     if not customs_code or not flow_code:
-        raise ValueError("customs_code and flow_code are required.")
+        raise ValueError("customs_code e flow_code são obrigatórios.")
     if len(market) > MAX_STAGE_LEN:
-        raise ValueError(f"market exceeds {MAX_STAGE_LEN} chars.")
+        raise ValueError(f"market excede {MAX_STAGE_LEN} caracteres.")
     return customs_code, flow_code, market
 
 

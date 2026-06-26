@@ -769,7 +769,7 @@ def fetch_orphan_commodities():
         settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
     )
     tombstoned_sql = f"""
-        select codigo_commodity, banco, code_prefix, agrupamento from (
+        select codigo_commodity, banco, code_prefix, agrupamento, edited_at as removed_at from (
           select *, row_number() over (
             partition by codigo_commodity, banco order by edited_at desc, change_id desc
           ) as _rn
@@ -796,7 +796,7 @@ def fetch_orphan_commodities():
     sql = f"""
         with tombstoned as ({tombstoned_sql}),
         gold_codes as ({gold_union})
-        select distinct t.codigo_commodity, t.banco, t.code_prefix, t.agrupamento
+        select distinct t.codigo_commodity, t.banco, t.code_prefix, t.agrupamento, t.removed_at
         from tombstoned t
         where exists (
           select 1 from gold_codes g where g.src = t.banco and g.code like t.code_prefix || '%'

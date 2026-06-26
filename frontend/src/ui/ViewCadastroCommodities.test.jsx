@@ -92,6 +92,46 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     confirmSpy.mockRestore();
   });
 
+  it('requires Agrupamento when adding (mirrors the server H-1 guard; no POST fired)', async () => {
+    const { container, getByText } = render(<ViewCadastroCommodities />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    fireEvent.click(getByText('+ Adicionar commodity'));
+    const textInputs = container.querySelectorAll('.cc-form input[type="text"]');
+    fireEvent.change(textInputs[0], { target: { value: '0801' } }); // codigo only, no agrupamento
+    fireEvent.click(getByText('Salvar commodity'));
+    await waitFor(() => expect(container.textContent).toContain('Agrupamento é obrigatório'));
+    expect(postBody).toBeNull(); // never attempted the write
+  });
+
+  it('reloads the grid and reports partial progress when a bulk ciclo update fails midway', async () => {
+    let posts = 0;
+    let entriesGets = 0;
+    global.fetch = vi.fn((url, opts) => {
+      if (opts && opts.method === 'POST') {
+        posts += 1;
+        if (posts >= 2) {
+          return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'boom' }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      }
+      if (String(url).includes('/api/catalog/orphans')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ orphans: [], total: 0 }) });
+      }
+      entriesGets += 1;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(ENTRIES), text: () => Promise.resolve('') });
+    });
+    const { container } = render(<ViewCadastroCommodities />);
+    await waitFor(() => expect(container.querySelector('.cc-group-head select')).toBeTruthy());
+    const getsAfterLoad = entriesGets;
+    // the per-Agrupamento ciclo <select> (2 members → 1 POST ok, 1 fails)
+    fireEvent.change(container.querySelector('.cc-group-head select'),
+      { target: { value: 'Fazer Ingestão mas deixar indisponível' } });
+    // the error names how many applied before the failure (1/2) ...
+    await waitFor(() => expect(container.textContent).toMatch(/1\/2/));
+    // ... and the grid re-synced to the persisted state despite the failure (load ran in finally)
+    expect(entriesGets).toBeGreaterThan(getsAfterLoad);
+  });
+
   it('surfaces orphans as Descontinuados with the human-only deletion warning', async () => {
     mockFetch(ENTRIES, {
       orphans: [{

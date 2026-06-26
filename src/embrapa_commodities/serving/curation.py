@@ -133,11 +133,12 @@ def _slug(name: str | None) -> str:
 
 def _validate_catalog_edit(codigo_commodity: str, banco: str, ciclo_de_vida: str | None) -> None:
     """The composite key (codigo_commodity, banco) is required — a blank either breaks
-    the key, so we REJECT (fail loud) instead of silently dropping the row."""
+    the key, so we REJECT (fail loud) instead of silently dropping the row. Messages are
+    pt-BR: a researcher reads them (the route surfaces ``str(exc)`` on a 400)."""
     if not codigo_commodity or not banco:
-        raise ValueError("codigo_commodity and banco are required (the catalog key).")
+        raise ValueError("codigo_commodity e banco são obrigatórios (a chave do catálogo).")
     if ciclo_de_vida is not None and len(ciclo_de_vida) > MAX_STAGE_LEN:
-        raise ValueError(f"ciclo_de_vida exceeds {MAX_STAGE_LEN} chars.")
+        raise ValueError(f"ciclo_de_vida excede {MAX_STAGE_LEN} caracteres.")
 
 
 def _current_prefixes(bq: bigquery.Client, table_fqn: str, banco: str) -> list[tuple[str, str]]:
@@ -171,9 +172,9 @@ def _assert_prefix_disjoint(
             continue  # same entry being updated — not a conflict
         if code_prefix.startswith(other_prefix) or other_prefix.startswith(code_prefix):
             raise ValueError(
-                f"code_prefix {code_prefix!r} overlaps the existing prefix "
-                f"{other_prefix!r} (commodity {other_codigo!r}) in banco — overlapping "
-                "prefixes double-count downstream. Use disjoint prefixes."
+                f"O prefixo {code_prefix!r} se sobrepõe ao prefixo {other_prefix!r} "
+                f"(commodity {other_codigo!r}) já cadastrado neste banco — prefixos "
+                "sobrepostos duplicam as somas. Use prefixos disjuntos."
             )
 
 
@@ -203,11 +204,26 @@ def record_commodity_catalog(
     banco = (banco or "").strip()
     ciclo_de_vida = ciclo_de_vida.strip() if ciclo_de_vida else ciclo_de_vida
     _validate_catalog_edit(codigo_commodity, banco, ciclo_de_vida)
+    # code_prefix backs the cross-source ``LIKE prefix||'%'`` bridge. A blank one
+    # (e.g. whitespace, which is truthy so the ``or codigo_commodity`` fallback is
+    # skipped before .strip()) collapses to ``''`` → ``LIKE '%'`` → one commodity
+    # absorbs EVERY code in the banco (silent fan-out). A LIKE wildcard ('%' or '_')
+    # in the prefix breaks the match the same way. Reject both at the write gate.
     code_prefix = (code_prefix or codigo_commodity).strip()
+    if not code_prefix:
+        raise ValueError("code_prefix não pode ser vazio.")
+    if "%" in code_prefix or "_" in code_prefix:
+        raise ValueError("code_prefix não pode conter curingas LIKE ('%' ou '_').")
     agrupamento = agrupamento.strip() if agrupamento else agrupamento
     commodity_id = (commodity_id or _slug(agrupamento)).strip() or None
+    # agrupamento names the commodity (commodity_name) AND seeds commodity_id; both
+    # are NOT NULL downstream (dim_commodity_catalog → gold_commodity_crosswalk). A
+    # blank one yields NULLs that fail the nightly prod ``dbt build`` not_null tests —
+    # so fail loud HERE (a 400 the researcher can fix), never at build time.
+    if not commodity_id or not agrupamento:
+        raise ValueError("agrupamento é obrigatório (nomeia a commodity e gera o commodity_id).")
     if descricao_commodity is not None and len(descricao_commodity) > MAX_NOTE_LEN:
-        raise ValueError(f"descricao_commodity exceeds {MAX_NOTE_LEN} chars.")
+        raise ValueError(f"descricao_commodity excede {MAX_NOTE_LEN} caracteres.")
 
     edited_by = author_email_from_headers(
         headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
@@ -311,6 +327,16 @@ def remove_commodity_catalog(
             change_id,
             deduped=True,
         )
+    # A tombstone must reference a currently-ACTIVE entry (removing a never-cataloged
+    # key would write a phantom tombstone → a false orphan), and must carry that entry's
+    # REAL code_prefix — orphan detection keys off the tombstone's prefix, so writing the
+    # codigo here would blind detection for any coarse-prefix entry (codigo != prefix).
+    active = _current_prefixes(bq, table_fqn, banco)
+    code_prefix = next((pfx for cod, pfx in active if cod == codigo_commodity), None)
+    if code_prefix is None:
+        raise ValueError(
+            f"{codigo_commodity!r} não está cadastrada (ativa) em {banco!r} — nada a remover."
+        )
     _insert_catalog_row(
         bq,
         table_fqn,
@@ -320,7 +346,7 @@ def remove_commodity_catalog(
         None,
         None,
         None,
-        codigo_commodity,
+        code_prefix,
         None,
         False,
         edited_by,
@@ -336,7 +362,7 @@ def remove_commodity_catalog(
         None,
         None,
         None,
-        codigo_commodity,
+        code_prefix,
         None,
         False,
         edited_by,

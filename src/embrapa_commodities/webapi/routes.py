@@ -64,13 +64,15 @@ def _conversion_or_400():
 
 @api.errorhandler(ValueError)
 def _api_value_error(exc):
-    """Client-input validation errors → HTTP 400 (not 500). The serving writers
-    raise ValueError for caller-supplied input that fails validation (e.g. an
-    over-length classification level / market that the curation writer caps). That
-    is a client fault, so it must not page operators as a server 500 nor be lost in
-    the generic handler. The message is pt-BR (the end user reads it)."""
-    logger.info("Invalid curation input on %s: %s", request.path, exc)
-    return jsonify(error="Dados inválidos: verifique o tamanho e o preenchimento dos campos."), 400
+    """Client-input validation errors → HTTP 400 (not 500). The serving writers raise
+    ValueError with a caller-facing reason (pt-BR for the catalog writers: a bad key, an
+    over-length field, an OVERLAPPING PREFIX). Surface that reason verbatim so the user
+    can self-correct — a generic "check the fields" hides WHY (e.g. which prefixes clash)
+    and makes the disjoint-prefix rule unusable. ValueError here is always our own
+    validation; an arbitrary internal fault is an Exception → the 500 handler, never this
+    path — so the message is safe to return."""
+    logger.info("Invalid input on %s: %s", request.path, exc)
+    return jsonify(error=str(exc) or "Dados inválidos."), 400
 
 
 @api.errorhandler(Exception)

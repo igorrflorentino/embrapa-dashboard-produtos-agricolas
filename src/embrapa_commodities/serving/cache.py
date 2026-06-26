@@ -130,7 +130,10 @@ def _bind_classification_ttl(timeout: int) -> None:
     revoke a removed curator faster would otherwise see no effect (the allowlist would
     stay pinned at the decoration-time default). fetch_banco_metadata is the same
     class — its docstring promises a Console maturity flip reflects within the
-    classification window — so it must be rebound too. Rebind all four.
+    classification window — so it must be rebound too. fetch_catalog_editors is the
+    SAME pattern for the catalog: it gates POST /api/catalog/* and is Console-edited,
+    so the TTL is the sole convergence control for revoking a removed editor — rebind
+    it too. Rebind all five.
     """
     from embrapa_commodities.serving import gateway
 
@@ -138,3 +141,4 @@ def _bind_classification_ttl(timeout: int) -> None:
     gateway.fetch_current_flow_market.cache_timeout = timeout
     gateway.fetch_curators.cache_timeout = timeout
     gateway.fetch_banco_metadata.cache_timeout = timeout
+    gateway.fetch_catalog_editors.cache_timeout = timeout

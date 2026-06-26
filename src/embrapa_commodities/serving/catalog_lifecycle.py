@@ -114,6 +114,24 @@ def _current_status(settings: Settings) -> dict:
     }
 
 
+def _current_lifecycle(settings: Settings) -> dict:
+    """{(element_kind, banco, code): (status, flagged_at)} from the lifecycle log
+    (latest-wins); {} when absent. Carries ``flagged_at`` so the auto-marker can tell a
+    FRESH removal (an entry re-added then re-removed AFTER a prior descontinuado/purge)
+    from one already covered — status alone can't, because the log is immutable and the
+    old terminal status would suppress the new generation forever."""
+    try:
+        df = gateway.fetch_lifecycle_status()
+    except NotFound:
+        return {}
+    if df is None or df.empty:
+        return {}
+    return {
+        (r.element_kind, r.banco, None if r.code is None else str(r.code)): (r.status, r.flagged_at)
+        for r in df.itertuples()
+    }
+
+
 def auto_mark_orphans(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
@@ -129,7 +147,7 @@ def auto_mark_orphans(
     if orphans is None or orphans.empty:
         return {"detected": 0, "newly_marked": 0, "already_marked": 0}
 
-    already = _current_status(cfg)
+    already = _current_lifecycle(cfg)
     bq = client or _bq_client(cfg)
     table_fqn = _lifecycle_log_ref(cfg)
     ensure_catalog_lifecycle_log_table(cfg, bq)
@@ -138,9 +156,24 @@ def auto_mark_orphans(
     for o in orphans.itertuples():
         code = str(o.codigo_commodity)
         banco = o.banco
-        if already.get(("commodity", banco, code)) in ("descontinuado", "purged"):
-            continue
-        change_id = f"descontinuado:commodity:{banco}:{code}"
+        removed_at = getattr(o, "removed_at", None)
+        prev = already.get(("commodity", banco, code))
+        if prev is not None:
+            prev_status, prev_at = prev
+            # Skip only when the latest lifecycle event already covers THIS removal —
+            # i.e. it was recorded at/after the tombstone. A NEWER removal (re-added →
+            # re-removed after a prior descontinuado/purge) has removed_at > prev_at, so
+            # it re-marks: a fresh flagged_at + re-opening the purge gate (which requires
+            # the CURRENT status to be 'descontinuado', not the stale 'purged').
+            if removed_at is not None and prev_at is not None:
+                if prev_at >= removed_at:
+                    continue
+            elif prev_status in ("descontinuado", "purged"):
+                continue  # no timestamps to compare → fall back to status (idempotent)
+        # change_id is generation-aware (carries the removal time) so a genuine re-removal
+        # is not collapsed by the idempotency check, while a re-run within one generation is.
+        gen = removed_at.isoformat() if removed_at is not None else "0"
+        change_id = f"descontinuado:commodity:{banco}:{code}:{gen}"
         if _change_id_seen(bq, table_fqn, change_id):
             continue
         reason = (
@@ -238,7 +271,11 @@ def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
     cfg = settings or get_settings()
     banco = (banco or "").strip()
     code = (code or "").strip()
-    if not banco or not code or not re.fullmatch(r"[A-Za-z0-9_.\-]+", code):
+    # The code is interpolated into a printed ``LIKE '<code>%'`` plan, so it must contain
+    # NEITHER LIKE wildcard: '%' (already excluded) NOR '_' (a single-char wildcard that
+    # would silently over-match, e.g. '12_4' hitting '1204'/'1214'). Allow only a literal
+    # token — letters, digits, dot, hyphen.
+    if not banco or not code or not re.fullmatch(r"[A-Za-z0-9.\-]+", code):
         raise ValueError("banco and a simple alphanumeric code are required.")
     if _current_status(cfg).get(("commodity", banco, code)) != "descontinuado":
         raise ValueError(

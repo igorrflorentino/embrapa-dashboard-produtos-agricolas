@@ -143,9 +143,16 @@ def orphan_worklist() -> dict:
                 "banco": o.banco,
                 "agrupamento": o.agrupamento,
                 "code_prefix": str(o.code_prefix),
-                "status": "descontinuado",
+                # Honor the recorded status: a re-orphaned, already-purged code reads
+                # 'purged', not a hardcoded 'descontinuado'. None until the marker runs.
+                "status": (st.status if st is not None else "descontinuado"),
                 "flagged_at": str(st.flagged_at) if st is not None else None,
-                "warning": (st.scheduled_purge_note if st is not None else PURGE_WARNING),
+                # 'purged' events carry no purge note → fall back to the standing warning.
+                "warning": (
+                    st.scheduled_purge_note
+                    if (st is not None and st.scheduled_purge_note)
+                    else PURGE_WARNING
+                ),
             }
         )
     return {"orphans": rows, "total": len(rows)}

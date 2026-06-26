@@ -939,13 +939,14 @@ def test_curation_post_forwards_change_id_to_seam(monkeypatch):
 
 def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     """A ValueError from the serving writer (e.g. an over-length level the curation
-    writer caps) is a client fault → HTTP 400 with a pt-BR message, not a 500."""
+    writer caps) is a client fault → HTTP 400, and the writer's pt-BR REASON is
+    surfaced verbatim so the user can self-correct (not a generic 'check the fields')."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
     def raise_overlong(*a, **k):
-        raise ValueError("industrialization_level exceeds 200 chars.")
+        raise ValueError("industrialization_level excede 200 caracteres.")
 
     monkeypatch.setattr(seam, "record_code_level", raise_overlong)
     resp = client.post(
@@ -955,20 +956,19 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     assert resp.status_code == 400
     body = resp.get_json()
     assert "error" in body
-    # End-user message must be pt-BR (not the internal English ValueError text).
-    assert "Dados inválidos" in body["error"]
-    assert "exceeds" not in body["error"]
+    # The writer's pt-BR reason reaches the UI (the route surfaces str(exc); writers raise pt-BR).
+    assert "excede" in body["error"]
 
 
 def test_flow_market_post_overlong_market_is_400_not_500(monkeypatch):
     """The second writer's over-length validation also maps to 400 (the route only
-    presence-checks; length is enforced in the serving writer)."""
+    presence-checks; length is enforced in the serving writer) with the reason surfaced."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
     def raise_overlong(*a, **k):
-        raise ValueError("market exceeds 200 chars.")
+        raise ValueError("market excede 200 caracteres.")
 
     monkeypatch.setattr(seam, "record_flow_market", raise_overlong)
     resp = client.post(
@@ -976,7 +976,7 @@ def test_flow_market_post_overlong_market_is_400_not_500(monkeypatch):
         json={"customs_code": "4", "flow_code": "1", "market": "m" * 300},
     )
     assert resp.status_code == 400
-    assert "Dados inválidos" in resp.get_json()["error"]
+    assert "excede" in resp.get_json()["error"]
 
 
 def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):
@@ -1281,7 +1281,7 @@ def test_catalog_entry_upsert_overlapping_prefix_is_400(monkeypatch):
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
 
     def raise_overlap(body):
-        raise ValueError("code_prefix '440' overlaps the existing prefix '4403'")
+        raise ValueError("O prefixo '440' se sobrepõe ao prefixo '4403' — use prefixos disjuntos.")
 
     monkeypatch.setattr(seam, "record_catalog_entry", raise_overlap)
     resp = client.post(
@@ -1289,6 +1289,8 @@ def test_catalog_entry_upsert_overlapping_prefix_is_400(monkeypatch):
         json={"codigo_commodity": "4403", "banco": "un_comtrade", "code_prefix": "440"},
     )
     assert resp.status_code == 400
+    # The overlap REASON must reach the UI so the researcher can pick disjoint prefixes.
+    assert "sobrepõe" in resp.get_json()["error"]
 
 
 def test_catalog_entry_remove_threads_to_seam(monkeypatch):
