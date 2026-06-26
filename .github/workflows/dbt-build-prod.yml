@@ -245,6 +245,22 @@ jobs:
           fi
           uv run dbt "${ARGS[@]}"
 
+      # Curadoria lifecycle: auto-mark orphan commodities (removed from the catalog but
+      # with Gold data still lingering) as Descontinuado, on the build boundary — orphan
+      # status only changes when Gold or the catalog change, both of which happen here, so
+      # no separate scheduler is needed. NON-DESTRUCTIVE (the purge is a human-gated CLI).
+      # Best-effort: needs the `webapi` extra (the cache for the memoized reads) and must
+      # NOT fail the build (the marts are already rebuilt) — continue-on-error.
+      - name: Mark orphan commodities (Curadoria lifecycle)
+        if: success()
+        continue-on-error: true
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION || 'us-central1' }}
+          BQ_GOLD_DATASET: ${{ vars.BQ_GOLD_DATASET || 'gold' }}
+          BQ_RESEARCH_INPUTS_DATASET: ${{ vars.BQ_RESEARCH_INPUTS_DATASET || 'research_inputs' }}
+        run: uv run --extra webapi embrapa mark-orphans
+
       # Alerting (intentionally GitHub-native, like dbt-source-freshness.yml): this
       # build is the ONLY stage that carries Bronze → the Silver/Gold/serving marts
       # the dashboard reads, so a silent failure here leaves the marts STALE while

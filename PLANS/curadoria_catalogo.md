@@ -1,8 +1,20 @@
 # PLANS — Curadoria (catalog) + Engenharia de Atributos split, editable catalog, orphan lifecycle, seed consultation
 
-> Status: **in implementation** (2026-06). Owner: Igor. Supersedes the rejected Google-Sheets
+> Status: **COMPLETE** (2026-06) — P0–P5 all implemented, tested, and live-verified on prod
+> BigQuery (941 pytest / 273 vitest). Owner: Igor. Supersedes the rejected Google-Sheets
 > "Contrato de Dados" source-of-truth proposal — the editing surface is an **in-dashboard admin UI
 > writing to BigQuery `research_inputs`**, NOT a Sheet.
+>
+> **Manual operator follow-ups** (the agent deliberately did NOT do these — they touch prod
+> destructively or are deploy-time): (1) drop the now-unreferenced `silver.commodity_crosswalk`
+> table (the retired seed — kept inert; `DROP TABLE` is an operator call); (2) deploy the webapi
+> so the new "Cadastro de commodities" / "Referências" views go live; (3) populate
+> `research_inputs.catalog_editors` (resource `commodity_catalog`) with the authorized researcher
+> emails (empty = open to any IAP user); (4) set the `DBT_BUILD` repo vars so the workflow's new
+> `mark-orphans` step runs. The deferred BQ-table renames (#5) were evaluated and **declined** —
+> the table names (`code_industrialization_log`, `flow_market_log`, `curators`, `banco_metadata`,
+> `commodity_catalog_log`, `catalog_editors`, `catalog_lifecycle_log`) are already accurate, and
+> cross-dataset renames of append-only audit tables are pure churn/risk.
 
 ## Guiding decisions (from the project lead)
 

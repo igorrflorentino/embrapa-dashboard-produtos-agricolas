@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+### Added — Curadoria: researcher-editable commodity catalog
+
+Replaces the rejected Google-Sheets "contrato de dados" proposal with an **in-dashboard**
+admin surface writing to BigQuery `research_inputs`. Researchers now control what enters and
+exits the dashboard without a deploy, with the destructive path kept human-gated. Spec:
+`PLANS/curadoria_catalogo.md`. 941 pytest / 273 vitest green; the Gold cutover was proven
+row-identical on real data and the whole feature was live-verified end-to-end on prod BigQuery.
+
+- **3-way nomenclature split.** The frozen feature historically called "Curadoria" is really
+  *feature engineering* → renamed `serving/attribute_engineering.py`; the shared
+  append-log / IAP-author / idempotency infra is `serving/research_inputs.py`; the name
+  **Curadoria** now means the catalog (what enters/exits).
+- **Referências** — a read-only viewer for the calibration seeds (currency-reform factors, unit
+  conversions, code/country dimensions, …) with a per-row "reportar valor incorreto" →
+  feedback loop. No edit rights; engineers fix the version-controlled CSVs.
+- **Editable commodity catalog.** `research_inputs.commodity_catalog_log` →
+  `core/dim_commodity_catalog` → `gold_commodity_crosswalk`; the `commodity_crosswalk` **seed is
+  RETIRED**. Append-only writer (IAP author + `change_id` idempotency), a per-catalog editor
+  allowlist (`research_inputs.catalog_editors`), an on-write prefix-disjointness guard, and the
+  **"Cadastro de commodities"** admin UI (add / remove / edit; the in/out *Ciclo de Vida* per
+  Agrupamento).
+- **Orphan → Descontinuado lifecycle.** A commodity removed from the catalog whose Gold data
+  still lingers is auto-detected (on the dbt-build boundary) and marked Descontinuado with a
+  deletion warning — **never auto-deleted** (the orphan definition is the *removal transition*,
+  grounded on real data to avoid false-flagging legitimately-uncataloged products).
+- **Human-gated purge.** `embrapa purge-orphan` is a backup-gated *planner* that prints the
+  scoped `DELETE`s for an operator to run (the agent never runs them); `embrapa mark-orphans`
+  drives the auto-mark on the build cadence.
+
 Remediation of the 2026-06-24 post-v1.6.0 deep audit (report:
 `docs/audits/deep_audit_2026-06-24_v1.6.0.md`; grade A−, 0 critical). All confirmed findings
 (1 high, 4 medium, 3 low) fixed; 915 pytest / 267 vitest green.

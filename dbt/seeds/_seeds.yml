@@ -306,42 +306,11 @@ seeds:
       - name: current_code
         tests: [not_null]
 
-  # ─── Cross-source product bridge ───────────────────────────────────────────
-  - name: commodity_crosswalk
-    description: |
-      Hand-maintained domain knowledge linking the SAME commodity across sources,
-      at the commodity-CONCEPT level: a few code PREFIXES per commodity, not
-      code-by-code. source ∈ {pevs (extractive code), pam (SIDRA c782 crop code),
-      comex (NCM), comtrade (HS6)}; code_prefix matches a Gold product code by
-      prefix. The pevs/comex/comtrade rows are resolved to exact codes by
-      gold_commodity_crosswalk; the pam rows are resolved inline in
-      serving_pam_annual (that mart re-implements the prefix expansion against the
-      PAM codes, since gold_commodity_crosswalk's source_codes CTE never scans PAM).
-      Add a commodity / prefix when the product scope grows; codes matching no
-      prefix degrade gracefully to "unlinked".
-    config:
-      column_types:
-        commodity_id: string
-        commodity_name: string
-        source: string
-        code_prefix: string
-    columns:
-      - name: commodity_id
-        tests: [not_null]
-      - name: source
-        tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                # 'ppm' is pre-accepted so the documented PPM commodity-linkage step
-                # (seeding a source='ppm' row, joined live in serving_ppm_annual) does
-                # not hard-fail `dbt build` the moment it is followed; inert while the
-                # seed ships zero ppm rows (DBT-1).
-                values: ["pevs", "pam", "ppm", "comex", "comtrade"]
-      - name: code_prefix
-        tests: [not_null]
-      - name: commodity_name
-        tests: [not_null]
+  # ─── Cross-source product bridge — RETIRED ─────────────────────────────────
+  # The commodity_crosswalk seed was replaced by the editable Curadoria catalog
+  # (research_inputs.commodity_catalog_log → core/dim_commodity_catalog). The three
+  # consumers (gold_commodity_crosswalk + serving_{pam,ppm}_annual) read the dim now;
+  # the cutover was proven row-identical on real data. See PLANS/curadoria_catalogo.md.
 
   # ─── IBGE municipal territorial mesh (sub-UF geography) ─────────────────────
   - name: ibge_municipio_mesh
