@@ -58,6 +58,7 @@ with ppm as (
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
     from {{ ref('gold_ppm_production') }}
+    where {{ hidden_code_predicate('ppm', 'product_code') }}
     group by reference_year, state_acronym, product_code, family
 
 ),

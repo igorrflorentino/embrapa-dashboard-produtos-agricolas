@@ -30,9 +30,21 @@ _LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "ibge_ppm", "mdic_comex", "un_comtrade
 
 @cache.memoize()
 def _crosswalk_df() -> pd.DataFrame:
+    # F7 visibility gate: exclude commodities a researcher marked "indisponível" so the
+    # cross-source picker AGREES with the (gated) per-banco pickers. Same single source of
+    # truth as the dbt marts + gateway readers — dim_commodity_visibility — never re-derived
+    # in Python. gold_commodity_crosswalk.source is already the short token (pevs/comex/
+    # comtrade), matching the view. A no-op today (nothing hidden); the admin/orphan readers
+    # are intentionally NOT gated (they must still see hidden-but-active rows).
     s = get_settings()
     fqn = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
-    return gateway.run_query(f"select commodity_id, commodity_name, source, code from `{fqn}`", [])
+    vis = sqlbuild.table_ref(s, "bq_gold_dataset", "dim_commodity_visibility")
+    sql = (
+        f"select x.commodity_id, x.commodity_name, x.source, x.code from `{fqn}` x "
+        f"where not exists (select 1 from `{vis}` v "
+        f"where v.source = x.source and x.code like v.code_prefix || '%')"
+    )
+    return gateway.run_query(sql, [])
 
 
 @cache.memoize()

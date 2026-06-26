@@ -13,14 +13,19 @@
 with flags as (
 
     select 'ibge_pevs'  as source, data_quality_flag from {{ ref('gold_pevs_production') }}
+        where {{ hidden_code_predicate('pevs', 'product_code') }}
     union all
     select 'ibge_pam'   as source, data_quality_flag from {{ ref('gold_pam_production') }}
+        where {{ hidden_code_predicate('pam', 'product_code') }}
     union all
     select 'ibge_ppm'   as source, data_quality_flag from {{ ref('gold_ppm_production') }}
+        where {{ hidden_code_predicate('ppm', 'product_code') }}
     union all
     select 'mdic_comex' as source, data_quality_flag from {{ ref('gold_comex_flows') }}
+        where {{ hidden_code_predicate('comex', 'ncm_code') }}
     union all
     select 'un_comtrade' as source, data_quality_flag from {{ ref('gold_comtrade_flows') }}
+        where {{ hidden_code_predicate('comtrade', 'cmd_code') }}
 
 )
 
