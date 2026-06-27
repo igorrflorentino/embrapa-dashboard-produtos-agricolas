@@ -91,6 +91,26 @@ singular `assert_quality_flag_in_enum.sql`; `serializers.py` `_FLAG_KEY`/`_FLAG_
 `data.js` QUALITY_FLAGS += 4; `ViewQuality.jsx` QTS_KEY += 4; `contracts.js` qualityTs keys; `glossary.js`
 prose. pt-BR labels: "Quantidade/Valor atípica(o) (válida/o)" + "… problemática(o) (provável erro)".
 
+## Per-source validation on live prod (2026-06-26) — price_k does NOT generalize
+
+Problemático rate (|ln(price)−ln(product median)| beyond the threshold), measured on prod Gold:
+
+| source | >100× | >1000× | >10000× | clean threshold |
+|---|---|---|---|---|
+| PEVS | **0.003%** | — | — | **100×** (ready) |
+| COMEX | **0.19%** | — | — | **100×** (ready; typos eyeballed, e.g. weight=1) |
+| COMTRADE | 0.95% | 0.12% | 0.015% | ~1000–10000× |
+| PAM | 1.96% | 0.91% | **0.005%** | ~10000× |
+| PPM | 1.65% | 1.02% | **0.003%** | ~10000× |
+
+**Finding:** a single global `quality_price_k` is wrong. PEVS/COMEX isolate typos cleanly at 100×, but
+PAM/PPM have LEGITIMATE implied-price variation up to ~3 orders of magnitude (agricultural value-per-unit
+spans regions/years/sub-crops within one product_code) — only the >10000× tail is typos. COMTRADE sits
+between. → Detection MUST be enabled per source with a per-source threshold; the current single global
+flag/threshold would mislabel ~2% of PAM/PPM as "provável erro". **PEVS + COMEX are validated-ready at
+price_k=100; PAM/PPM/COMTRADE need either per-source thresholds (≈10000× / 1000×) or finer grouping
+(sub-product) — open follow-up.** This is exactly why the feature ships OFF.
+
 ## Operator runbook (prod, after merge)
 
 1. `make dbt-build-prod-with-backup` (rewrites `data_quality_flag` on every gold fact — backup-first).
