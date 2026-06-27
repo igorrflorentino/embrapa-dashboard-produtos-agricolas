@@ -115,7 +115,11 @@ select
     -- The year range disambiguates the reused "Mil Cruzeiros" label. Every other
     -- variable (area ha, quantity t, yield kg/ha) passes through unscaled.
     case
-        when p.variable_code = '{{ var_value }}' then p.raw_numeric_value * fx.brl_factor
+        when p.variable_code = '{{ var_value }}'
+            -- ×1000 reform-boundary SOURCE correction (ibge_1985_cruzado_correction): IBGE's 1985
+            -- "Mil Cruzeiros" value is magnitude-Cruzados; realigns it with 1984/1986. No-op else.
+            then p.raw_numeric_value * fx.brl_factor
+                 * {{ ibge_1985_cruzado_correction('p.reference_year', 'p.unit_of_measure') }}
         else p.raw_numeric_value
     end as numeric_value,
 

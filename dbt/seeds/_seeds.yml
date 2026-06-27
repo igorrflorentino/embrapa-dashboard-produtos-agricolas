@@ -28,19 +28,17 @@ seeds:
       omitted — the IBGE unit string for those eras is unknown and PEVS
       doesn't reach back that far.
 
-      ⚠️ 1985 PAM/PPM caveat (investigated 2026-06-27 on live prod, NOT yet fixed).
-      The DEFLATED value (val_real_ipca_brl) of 1985 PAM + PPM rows is ~1000× too small
-      (median price collapses to ~1/1000 of BOTH the 1984 and 1986 neighbours) while the
-      QUANTITY is normal — so the defect is upstream of the IPCA/IGP chain. The "end-of-year
-      currency" rule above puts 1985 in Mil Cruzeiros (Cr$, 3.6e-10), but the data behaves as
-      if 1985 were already in Mil Cruzados (Cz$, 3.6e-7): multiplying 1985 by 1000 lands it
-      exactly on the 1984/1986 trend. Likely cause: IBGE restated the 1985 PAM/PPM municipal
-      surveys in the post-reform unit (the Cz$ reform was 1986-02-28, but PAM/PPM publish with
-      a lag). CANDIDATE FIX — do NOT apply blind: a 1985-only Cz$ factor for PAM/PPM, but first
-      confirm IBGE's actual 1985 unit (PEVS has no 1984/1985 massa-with-value rows to corroborate,
-      and over-correcting would make 1985 1000× too LARGE). It needs a --full-refresh rebuild and
-      touches every 1985 IBGE value. Until confirmed, Q1 correctly flags these 1985 rows as
-      problemático.
+      ✅ 1985 PAM/PPM reform-boundary correction (CONFIRMED + APPLIED 2026-06-27). The 1985 PAM +
+      PPM monetary value is LABELLED "Mil Cruzeiros" (verified in silver: same label as 1984) but its
+      MAGNITUDE is ~1000× too small — the deflated value + implied price collapse ~1000× at 1985 ONLY,
+      in BOTH sources, while QUANTITY is normal, and ×1000 lands 1985 EXACTLY on the 1984+1986 trend.
+      So THIS SEED is correct (it matches the "Mil Cruzeiros" label, 3.6e-10); the defect is an IBGE
+      SOURCE mis-denomination — the 1985 surveys appear restated in Cruzados (the Cz$ reform was
+      1986-02-28, but PAM/PPM publish with a lag). The fix is therefore NOT in this shared seed (that
+      would wrongly hit PEVS too) but a scoped ×1000 source correction in silver_ibge_pam +
+      silver_ibge_ppm ONLY (macros/ibge_1985_cruzado_correction.sql), regression-guarded by
+      tests/assert_pam_ppm_1985_value_not_cliffed.sql. PEVS is intentionally untouched (it has no 1985
+      monetary rows with this artifact). Self-disables if IBGE ever relabels/restates the 1985 value.
     config:
       column_types:
         unit_of_measure: string
