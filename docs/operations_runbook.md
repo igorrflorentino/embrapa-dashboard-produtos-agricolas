@@ -49,10 +49,51 @@ Notes:
   a retried/double-clicked save reusing the same key is a no-op, not a duplicate
   audit row.
 
+## Managing catalog editors (the "Cadastro de commodities" admin view)
+
+The **live Curadoria catalog** edits (the "Cadastro de commodities" admin view → the catalog
+write routes) are gated by a **per-catalog** allowlist, separate from the curation curators
+above: the Console-managed table `<dataset>.catalog_editors` (`<dataset>` =
+`BQ_RESEARCH_INPUTS_DATASET`, default `research_inputs`; table = `BQ_CATALOG_EDITORS_TABLE`,
+default `catalog_editors`), keyed by `(resource, email)` where `resource` is the catalog id
+(`commodity_catalog`). If **no** rows exist for a resource, any IAP-authenticated caller may
+edit that catalog (open mode); add a row to lock it down.
+
+```sql
+-- add an editor for the commodity catalog
+INSERT INTO `<project>.research_inputs.catalog_editors` (resource, email, added_by, added_at)
+VALUES ('commodity_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
+
+-- remove
+DELETE FROM `<project>.research_inputs.catalog_editors`
+WHERE resource = 'commodity_catalog' AND email = 'old@embrapa.br';
+
+-- list current
+SELECT email FROM `<project>.research_inputs.catalog_editors`
+WHERE resource = 'commodity_catalog' ORDER BY email;
+```
+
+Like the curators table: changes take effect within the ~30s classification cache TTL, emails are
+matched case-insensitively, and the table **auto-creates on the first catalog write attempt**
+(`routes._ensure_catalog_editors_table` → `serving.curation.ensure_catalog_editors_table`,
+idempotent; the prod web SA `sa-web-dashboard-prod` already has WRITER on `research_inputs`).
+
+## Q1 quality outlier/problemático detection (enable / revert)
+
+`data_quality_flag` carries the 4 implied-price tiers (`OUTLIER_*` / `PROBLEMATIC_*`) only when the
+dbt var `enable_quality_outliers` is `true` — it is **on in prod**. The setting lives in
+`dbt/dbt_project.yml`, so the scheduled `dbt-build-prod` picks it up automatically; flipping it
+requires a **Gold rebuild** (it rewrites `data_quality_flag` row-by-row). After a build, sanity-check
+the per-source problemático rates (of all rows: PEVS ≈0.0009% / COMEX ≈0.0057% / PAM ≈0.020% / PPM
+≈0.0003% / COMTRADE ≈0.15%). To **revert**: set `enable_quality_outliers: false` + rebuild → the gold
+models compile byte-identical to the legacy 4-value flag (the flag is recomputed from Silver every
+build — fully reversible, no data loss). Full method + spec:
+[`PLANS/quality_outliers_and_visibility_gate.md`](../PLANS/quality_outliers_and_visibility_gate.md).
+
 ## Changing a banco's maturity / note / coverage without a redeploy
 
 The dashboard's per-banco lifecycle metadata — **maturity stage** (`planejado` ·
-`desenvolvimento` · `beta` · `estavel` · `manutencao` · `descontinuado`), the
+`desenvolvimento` · `ingestao` · `beta` · `estavel` · `manutencao` · `descontinuado`), the
 caveat **note**, the planned **date**, and the **coverage** labels — has its
 defaults baked in `registries.py` (backend) and `bancos.js` (the SPA). Those are
 the source of truth, but editing them needs a rebuild + Cloud Run redeploy.
@@ -96,7 +137,8 @@ Override columns: `maturity`, `maturity_note`, `maturity_date`, `cobertura_years
 - The table auto-creates on the **first `/api/source-meta` read**
   (`routes._ensure_banco_metadata_table`, idempotent). The prod web SA
   `sa-web-dashboard-prod` already has WRITER on `research_inputs`.
-- `maturity` must be one of the six stage ids above (an unknown id falls back to
+- `maturity` must be one of the seven stage ids above (`ingestao` = pipeline built but data
+  still loading, order 3, no data yet; an unknown id falls back to
   `planejado` rendering in the SPA). Keep the registry the long-term source of
   truth: fold a lasting change back into `registries.py` + `bancos.js` at the next
   release so the default and the override agree.

@@ -271,16 +271,19 @@ it is a one-line BFF map, never a Gold change):
 > `SUM(qty_base)` across families (GROUP BY `family`).
 
 ### 7.2 `data_quality_flag` — exact id set
-The flags the macro emits (the frontend color map must cover **these**, not the
-brief's illustrative `ESTIMATED`/`OUTLIER`):
+The flags the macro emits (the frontend color map must cover **these**). The last four
+(the implied-price tiers) are emitted only when the dbt var `enable_quality_outliers` is
+`true` (on in prod):
 
 | id | meaning | tables |
 |---|---|---|
-| `OK` | has quantity + value | all |
+| `OK` | has quantity + value, plausible implied price | all |
 | `MISSING_VALUE` | quantity but no monetary value | all |
 | `MISSING_QUANTITY` | value but no quantity (common in COMTRADE ch.44) | PEVS, COMTRADE |
 | `MISSING_WEIGHT` | value but no net weight | COMEX |
 | `INCOMPLETE` | neither | all |
+| `OUTLIER_VALUE` / `OUTLIER_QUANTITY` | high-magnitude but price-consistent — a valid large value | all (gated) |
+| `PROBLEMATIC_VALUE` / `PROBLEMATIC_QUANTITY` | implied price >100× or <1/100× the product median ⇒ likely typo | all (gated) |
 
 ### 7.3 `region` — Gold is full names
 Gold `region` ∈ {Norte, Nordeste, Centro-Oeste, Sudeste, Sul}. The brief's `ufData`

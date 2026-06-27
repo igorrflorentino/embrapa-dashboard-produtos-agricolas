@@ -49,7 +49,7 @@ function stubGlobals(filtered) {
 let ViewOverview;
 
 beforeEach(async () => {
-  await import('./data.js'); // sets window.QUALITY_FLAGS to the REAL 5 Gold flags
+  await import('./data.js'); // sets window.QUALITY_FLAGS to the REAL 9 Gold flags
   await import('./ViewOverview.jsx'); // registers window.ViewOverview
   ViewOverview = window.ViewOverview;
 });

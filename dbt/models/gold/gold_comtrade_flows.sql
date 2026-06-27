@@ -206,6 +206,12 @@ select
     -- val_nominal_brl while the source value is fully present; flagging that as
     -- MISSING_VALUE would be misleading. This mirrors gold_comex_flows (which
     -- tests val_fob_usd) and gold_pevs_production (val_raw, already BRL).
+    -- NOTE: completeness coalesces qty_native+net_weight_kg ("has a quantity"), but Q1 SCORING
+    -- uses net_weight_kg ONLY. qty_native mixes units across an HS code (kg / litres / items), so
+    -- value/qty_native is not a comparable implied price, while value/net_weight_kg (USD/kg) is. A
+    -- weight-null but qty-present row is therefore "complete" yet unscored (falls to OK) rather
+    -- than risk a mixed-unit false PROBLEMATIC — a deliberate conservative gap (~830 weight-null
+    -- typos stay OK; revisit only with a per-unit-normalised quantity).
     {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'primary_value_usd',
          quality_qty_level('primary_value_usd', 'net_weight_kg'),
          quality_val_level('primary_value_usd', 'net_weight_kg')) }} as data_quality_flag,
