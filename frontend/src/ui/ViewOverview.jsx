@@ -158,7 +158,7 @@ function ViewOverview({ families, summary, database, conventions }) {
             mark the scope here rather than present an acervo % as if it were
             scoped to the active selection ("no invisible filtering"). */}
         <window.KpiCardSpark
-          label="Linhas íntegras (flag = OK)"
+          label="Linhas íntegras (Normais)"
           value={window.fmtPct(okShare)}
           sub={okCount
             ? (okCount / 1e6).toFixed(1).replace('.', ',') + ' mi linhas · acervo do banco'

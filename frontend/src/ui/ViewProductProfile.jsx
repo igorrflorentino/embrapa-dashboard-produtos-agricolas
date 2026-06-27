@@ -339,7 +339,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
               ? <><dt>Efetivo ({last.y})</dt><dd>{window.formatCountQty(last.q, conv)}</dd></>
               : <><dt>Valor ({last.y})</dt><dd>{window.formatValue(last.v * 1e6, conv)}</dd></>}
             <dt>{isStock ? 'Participação no efetivo' : 'Participação na cesta'}</dt><dd>{window.fmtPct(lastShare / 100)}</dd>
-            {qaRow && <><dt>Linhas íntegras (OK)</dt><dd>{window.fmtPct(qaRow.OK)}</dd></>}
+            {qaRow && <><dt>Linhas íntegras (Normais)</dt><dd>{window.fmtPct(qaRow.OK)}</dd></>}
             {qaRow && !isStock && <><dt>Valor ausente</dt><dd>{window.fmtPct(qaRow.MISSING_VALUE)}</dd></>}
             {qaRow && isStock && qaRow.MISSING_QUANTITY != null && <><dt>Quantidade ausente</dt><dd>{window.fmtPct(qaRow.MISSING_QUANTITY)}</dd></>}
           </dl>

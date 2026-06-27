@@ -265,6 +265,10 @@ def fetch_production_by_municipio_yearly(
         product_codes=tuple(product_codes),
         city_codes=tuple(city_codes),
         value_column=value_column,
+        # F7 gate: exclude commodities marked indisponível (no-op while none are).
+        visibility_predicate=sqlbuild.visibility_clause(
+            settings, _SHORT_SOURCE[source], _GOLD_PRODUCT[source][0]
+        ),
     )
     return run_query(sql, params)
 
@@ -627,6 +631,16 @@ _GOLD_TABLE = {
     "un_comtrade": "gold_comtrade_flows",
 }
 
+# Banco id (long) → the short source token the catalog / dim_commodity_visibility use.
+# Threads the F7 visibility gate into the direct-Gold readers (which bypass the marts).
+_SHORT_SOURCE = {
+    "ibge_pevs": "pevs",
+    "ibge_pam": "pam",
+    "ibge_ppm": "ppm",
+    "mdic_comex": "comex",
+    "un_comtrade": "comtrade",
+}
+
 
 @cache.memoize()
 def fetch_quality_timeseries(source: str):
@@ -640,7 +654,8 @@ def fetch_quality_timeseries(source: str):
         return None
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
-    sql, params = sqlbuild.quality_timeseries(table)
+    vis = sqlbuild.visibility_clause(settings, _SHORT_SOURCE[source], _GOLD_PRODUCT[source][0])
+    sql, params = sqlbuild.quality_timeseries(table, visibility_predicate=vis)
     return run_query(sql, params)
 
 
@@ -853,7 +868,10 @@ def fetch_quality_by_product(source: str):
         return None
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
-    sql, params = sqlbuild.quality_by_product(table, code_column=cols[0], name_column=cols[1])
+    vis = sqlbuild.visibility_clause(settings, _SHORT_SOURCE[source], cols[0])
+    sql, params = sqlbuild.quality_by_product(
+        table, code_column=cols[0], name_column=cols[1], visibility_predicate=vis
+    )
     return run_query(sql, params)
 
 

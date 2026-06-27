@@ -316,6 +316,23 @@ def production_by_uf_yearly(
     return sql, params
 
 
+def visibility_clause(settings, source_short: str, code_column: str) -> str:
+    """The F7 Ciclo-de-Vida visibility gate, as a NOT EXISTS predicate — for the
+    gateway's DIRECT-Gold readers (município drill-down, quality timeseries/by-product),
+    which bypass the gated serving marts. Excludes any Gold row whose code matches a
+    commodity a researcher marked "indisponível" (``dim_commodity_visibility``) — the SAME
+    single source of truth as the dbt ``hidden_code_predicate`` macro, never re-derived.
+    ``source_short`` is the short banco token (pevs/pam/ppm/comex/comtrade); ``code_column``
+    is this Gold table's product/NCM/HS code. A no-op while the view is empty (nothing
+    hidden). Identifiers come from fixed gateway maps (never user input) → injection-safe.
+    """
+    vis = table_ref(settings, "bq_gold_dataset", "dim_commodity_visibility")
+    return (
+        f"not exists (select 1 from `{vis}` v "
+        f"where v.source = '{source_short}' and {code_column} like v.code_prefix || '%')"
+    )
+
+
 def production_by_municipio_yearly(
     table: str,
     *,
@@ -324,6 +341,7 @@ def production_by_municipio_yearly(
     product_codes: Sequence[str] = (),
     city_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    visibility_predicate: str = "",
 ) -> tuple[str, list]:
     """Production by (município, year) straight from ``gold_<source>_production``,
     which is ALREADY município-grained — backs the sub-UF + live-município geography
@@ -345,6 +363,8 @@ def production_by_municipio_yearly(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, "product_code", "product_codes", product_codes)
     _in_array(conditions, params, "city_code", "city_codes", city_codes)
+    if visibility_predicate:
+        conditions.append(visibility_predicate)
     sql = f"""
         select
             city_code,
@@ -843,18 +863,20 @@ def trade_flows(
     return sql, params
 
 
-def quality_timeseries(table: str) -> tuple[str, list]:
+def quality_timeseries(table: str, *, visibility_predicate: str = "") -> tuple[str, list]:
     """data_quality_flag counts per year, straight from a Gold table (backs the
     quality-over-time charts). A small year×flag aggregate — cheap columnar scan,
     memoized by flask-caching. The serving layer has no year-grained quality mart,
     so this reads Gold directly (the same source ``serving_quality_by_source``
     aggregates); promote to a mart if it ever gets hot."""
+    where = f"where {visibility_predicate}" if visibility_predicate else ""
     sql = f"""
         select
             reference_year,
             data_quality_flag,
             count(*) as n
         from `{table}`
+        {where}
         group by reference_year, data_quality_flag
         order by reference_year
     """
@@ -981,13 +1003,16 @@ def current_flow_market(table: str) -> tuple[str, list]:
     return sql, []
 
 
-def quality_by_product(table: str, *, code_column: str, name_column: str) -> tuple[str, list]:
+def quality_by_product(
+    table: str, *, code_column: str, name_column: str, visibility_predicate: str = ""
+) -> tuple[str, list]:
     """data_quality_flag counts per product, from a Gold table (backs the
     per-product quality FlagBars). Same cheap-aggregate rationale as
     :func:`quality_timeseries`. ``code_column``/``name_column`` are validated
     identifiers (one pair per source)."""
     code_column = _validate_column(code_column, ALLOWED_PRODUCT_COLUMNS, "product column")
     name_column = _validate_column(name_column, ALLOWED_PRODUCT_COLUMNS, "product column")
+    where = f"where {visibility_predicate}" if visibility_predicate else ""
     sql = f"""
         select
             {code_column}            as code,
@@ -995,6 +1020,7 @@ def quality_by_product(table: str, *, code_column: str, name_column: str) -> tup
             data_quality_flag,
             count(*)                 as n
         from `{table}`
+        {where}
         group by {code_column}, data_quality_flag
     """
     return sql, []

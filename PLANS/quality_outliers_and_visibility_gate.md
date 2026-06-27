@@ -1,10 +1,15 @@
 # PLANS — Q1 Outlier/Problemático quality flags + F7 Ciclo-de-Vida visibility gate
 
-> Status: **F7 + Q1 IMPLEMENTED.** Q1 detection ships OFF by default (`enable_quality_outliers`,
-> compiled byte-identical when off) — the operator enables it per source on a prod build after
-> validating the flagged rates (runbook below). All layers wired + tested: dbt compile (ON) +
-> sqlfluff (OFF) clean, 948 pytest / 275 vitest green.
-> Designed data-grounded (adversarial workflow validated on live BigQuery, 2026-06-26).
+> Status: **F7 + Q1 IMPLEMENTED + Q1 ENABLED (2026-06-27).** The MAGNITUDE FLOOR
+> (`quality_value_floor`, default 100000 deflated BRL/USD) made a single global threshold work for
+> ALL 5 sources — it removes the tiny-municipality rounding noise that over-flagged PAM/PPM at ~2%,
+> leaving only genuine typos (validated rates: PEVS 0.003% / COMEX 0.19% / PAM 0.03% / PPM 0.002% /
+> COMTRADE 0.43%, the last all `weight=1` placeholders, spot-checked). So `enable_quality_outliers`
+> is now **true** (revert to legacy 4-value by setting it false — still compiles byte-identical). The
+> F7 direct-Gold readers (município / quality timeseries+by-product) now thread the visibility gate
+> too (`serving/sql.visibility_clause`). All layers wired + tested: dbt compile + sqlfluff (ON) clean,
+> 950 pytest / 275 vitest green.
+> Designed data-grounded (adversarial workflow validated on live BigQuery, 2026-06-26/27).
 > Origin: the "Contrato de Dados" sheet verification (`docs/audits/curadoria_pr_audit_2026-06-26.md`
 > is the catalog audit; this doc is the spreadsheet-vs-code integration follow-up).
 

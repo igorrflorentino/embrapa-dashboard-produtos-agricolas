@@ -99,7 +99,7 @@ function ViewQuality({ summary, database }) {
       <div className="card">
         <window.SectionHeader
           overline="Evolução temporal · qualidade dos dados"
-          title={`% de linhas íntegras (flag = OK) · ${filtered.yearStart}–${filtered.yearEnd}`}
+          title={`% de linhas íntegras (Normais) · ${filtered.yearStart}–${filtered.yearEnd}`}
           action={
             <span className="caption">
               {okCount ? okCount.toLocaleString('pt-BR') : '—'} de {total.toLocaleString('pt-BR')} linhas íntegras no acervo
