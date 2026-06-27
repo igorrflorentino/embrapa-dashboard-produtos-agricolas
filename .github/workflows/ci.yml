@@ -13,6 +13,7 @@
 #   • "Lint, test, dbt parse"            (this workflow, `ci` job)
 #   • "Frontend tests (Vitest)"          (this workflow, `frontend` job)
 #   • "SQLFluff (dbt templater, BigQuery)" (this workflow, `sqlfluff` job)
+#   • "dbt unit tests (BigQuery)"        (this workflow, `dbt-unit-tests` job)
 
 name: CI
 
@@ -238,3 +239,79 @@ jobs:
       - name: SQLFluff lint (dbt models)
         working-directory: dbt
         run: uv run sqlfluff lint models
+
+  # dbt UNIT tests against BigQuery. The credential-free `ci` job runs `dbt parse`,
+  # which does NOT compile or run unit tests — so a unit test that fails to mock a
+  # model input it references (or any unit-test regression) slips silently through to
+  # the post-merge `dbt-build-prod` and reds the prod build (exactly what happened with
+  # test_ppm_family_mil_scale_and_value_conversion vs product_unit_factors). This gate
+  # runs the unit tests on every PR. Unit tests execute each model's SQL against inline
+  # `given` fixtures (they read NO real tables and write nothing), but dbt still needs a
+  # warehouse connection, so it uses the SAME keyless WIF as sqlfluff/dbt-build-prod.
+  # Fork PRs are skipped (they can't mint the OIDC token) — same posture as sqlfluff.
+  dbt-unit-tests:
+    name: dbt unit tests (BigQuery)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # WIF needs this so GitHub mints the OIDC token for the auth step.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Auth to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DBT_BUILD_SERVICE_ACCOUNT }}
+
+      - name: Set up Python 3.12.11
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12.11"
+
+      - name: Install uv (with cache keyed on uv.lock)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies (reproducible via uv.lock)
+        run: uv sync --frozen
+
+      # Inline oauth profile (target prod) — same as the sqlfluff job: WIF has already
+      # authenticated us AS the SA, so method: oauth uses the ADC credential. Unit tests
+      # only need a working connection to execute the fixture-backed SQL.
+      - name: Generate dbt profile (oauth via ADC from WIF, target prod)
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION || 'us-central1' }}
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<EOF
+          embrapa_commodities:
+            target: prod
+            outputs:
+              prod:
+                type: bigquery
+                method: oauth
+                project: ${GCP_PROJECT_ID}
+                dataset: prod
+                location: ${BQ_LOCATION}
+                threads: 4
+                job_execution_timeout_seconds: 300
+                job_retries: 1
+                priority: interactive
+          EOF
+
+      - name: dbt deps (install dbt_utils)
+        working-directory: dbt
+        run: uv run dbt deps
+
+      # `--select test_type:unit` runs ONLY the unit tests (fast). A missing-mock unit
+      # test fails to COMPILE here (on the PR) instead of silently on the prod build.
+      - name: dbt unit tests
+        working-directory: dbt
+        run: uv run dbt test --select test_type:unit --target prod
