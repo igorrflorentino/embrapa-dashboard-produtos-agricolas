@@ -7,6 +7,7 @@ never touch a live warehouse.
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest import mock
 
 import pytest
@@ -3120,6 +3121,7 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
     )
     monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
+    monkeypatch.setattr(catalog_lifecycle, "_current_lifecycle", lambda *a, **k: {})
     res = catalog_lifecycle.mark_purged(
         "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
     )
@@ -3131,6 +3133,54 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
     )
     assert res2["deduped"] is True
+
+
+def test_mark_purged_records_a_fresh_event_per_descontinuado_generation(monkeypatch):
+    """A code re-added, re-removed (a NEW descontinuado generation) and re-purged records its OWN
+    terminal 'purged' event — not collapsed onto the first purge's audit row (the per-generation
+    idempotency fix). An already-purged element with no fresh removal is a no-op."""
+    pytest.importorskip("flask_caching")
+    from datetime import datetime
+
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+    seen = set()
+    inserted = []
+
+    def _ins(bq, t, **kw):
+        inserted.append(kw)
+        seen.add(kw["change_id"])
+
+    monkeypatch.setattr(catalog_lifecycle, "_insert_lifecycle_event", _ins)
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda bq, t, cid: cid in seen)
+    gen1 = datetime(2026, 1, 1, tzinfo=UTC)
+    gen2 = datetime(2026, 6, 1, tzinfo=UTC)
+
+    def _purge():
+        return catalog_lifecycle.mark_purged(
+            "comex", "0801", edited_by="op", settings=_settings(), client=mock.Mock()
+        )
+
+    def _state(status, at):
+        monkeypatch.setattr(
+            catalog_lifecycle,
+            "_current_lifecycle",
+            lambda *a, **k: {("commodity", "comex", "0801"): (status, at)},
+        )
+
+    _state("descontinuado", gen1)  # generation 1 → records the purge
+    assert _purge()["deduped"] is False
+    _state("purged", gen1)  # already purged, no re-removal → no-op
+    assert _purge()["deduped"] is True
+    _state("descontinuado", gen2)  # re-removed → NEW generation → a fresh event
+    assert _purge()["deduped"] is False
+
+    assert len(inserted) == 2  # one terminal event per generation, not collapsed
+    assert inserted[0]["change_id"] != inserted[1]["change_id"]
 
 
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():

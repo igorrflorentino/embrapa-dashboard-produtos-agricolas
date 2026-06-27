@@ -305,12 +305,26 @@ def mark_purged(
     client: bigquery.Client | None = None,
 ) -> dict:
     """Append a terminal ``purged`` lifecycle event AFTER the operator ran the DELETEs
-    (who/when, for the audit trail). Idempotent. Does NOT itself delete data."""
+    (who/when, for the audit trail). Idempotent PER GENERATION. Does NOT itself delete data.
+
+    The change_id carries the current descontinuado GENERATION (its ``flagged_at``), mirroring
+    auto_mark_orphans: a retry within one generation dedups, but a code that was re-added,
+    re-removed (a NEW descontinuado generation) and re-purged records its OWN terminal event
+    instead of being silently collapsed onto the first purge's audit row. An element whose
+    CURRENT status is already ``purged`` (no fresh removal) is a no-op. A missing/unreadable log
+    falls back to the legacy un-versioned id (``gen=0``), so this never fails closed."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
     table_fqn = _lifecycle_log_ref(cfg)
     ensure_catalog_lifecycle_log_table(cfg, bq)
-    change_id = f"purged:commodity:{banco}:{code}"
+    status, flagged_at = _current_lifecycle(cfg).get(("commodity", banco, str(code)), (None, None))
+    if status == "purged":
+        # Already purged for the current generation — nothing fresh to record.
+        return {"banco": banco, "code": code, "status": "purged", "deduped": True}
+    # Generation = the descontinuado event's flagged_at (stable for the whole purge window), so a
+    # later re-removal (a new descontinuado, new flagged_at) is NOT collapsed onto this change_id.
+    gen = flagged_at.isoformat() if (status == "descontinuado" and flagged_at is not None) else "0"
+    change_id = f"purged:commodity:{banco}:{code}:{gen}"
     if _change_id_seen(bq, table_fqn, change_id):
         return {"banco": banco, "code": code, "status": "purged", "deduped": True}
     _insert_lifecycle_event(

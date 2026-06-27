@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-27
+
 ### Added — Curadoria: researcher-editable commodity catalog
 
 Replaces the rejected Google-Sheets "contrato de dados" proposal with an **in-dashboard**
