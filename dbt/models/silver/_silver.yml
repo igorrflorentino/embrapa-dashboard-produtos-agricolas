@@ -395,6 +395,14 @@ unit_tests:
           - {unit_raw: "mil litros",  family: "volume",   base_unit: "m³", to_base: 1}
           - {unit_raw: "mil dúzias",  family: "contagem", base_unit: "un", to_base: 12000}
           - {unit_raw: "quilogramas", family: "massa",    base_unit: "t",  to_base: 0.001}
+      - input: ref('product_unit_factors')
+        # silver_ibge_ppm LEFT JOINs this (DBT-4 uniformity with PEVS/PAM), so the unit_test
+        # MUST mock it or `dbt build` fails to compile ("depends on a node ... not found") — the
+        # gap that broke the scheduled/push prod build. No PPM product override is exercised here
+        # (the seed ships only source='_reference' sentinels), so a non-matching row keeps the
+        # join inert and qty_base falls back to unit_family_conversions, matching `expect`.
+        rows:
+          - {source: "_reference", product_code: "0000", unit_raw: "x", family: "massa", base_unit: "t", to_base: 1}
     expect:
       rows:
         - {product_code: "2670", variable_code: "105", measure_kind: "stock", family: "contagem", qty_base: 120,   is_monetary_value: false, numeric_value: 120}
