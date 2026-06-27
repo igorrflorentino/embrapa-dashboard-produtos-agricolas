@@ -82,6 +82,7 @@ function AppShell({
   const [citeOpen, setCiteOpen] = React.useState(false);
   const [shared,   setShared]   = React.useState(false);
   const [navOpen,  setNavOpen]  = React.useState(false);
+  const [sideNavOpen, setSideNavOpen] = React.useState(false); // mobile (≤768px) sidebar drawer
   const [reportOpen, setReportOpen] = React.useState(false);
   // Optional prefill (view/category/message) for a CONTEXTUAL feedback open (e.g. the
   // Referências "report a value" action); null = the generic "Reportar problema" button.
@@ -94,6 +95,14 @@ function AppShell({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [citeOpen]);
+
+  // a11y: Escape closes the mobile sidebar drawer (mirrors its backdrop + nav-item tap).
+  React.useEffect(() => {
+    if (!sideNavOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setSideNavOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [sideNavOpen]);
 
   const groups = window.VIEW_GROUPS || [];
   const activeView = window.viewById ? window.viewById(view) : null;
@@ -282,6 +291,13 @@ function AppShell({
   return (
     <div className="shell">
       <header className="topbar">
+        <button className="topbar-hamburger" type="button" aria-label="Abrir/fechar menu lateral"
+          aria-expanded={sideNavOpen} onClick={() => setSideNavOpen((o) => !o)}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <button className="brand brand-btn" onClick={() => { if (setInfoPage) setInfoPage('about'); }} title="Voltar para Sobre o dashboard">
           <img src="assets/logo-embrapa-white-cropped.png" alt="Embrapa" className="brand-logo"/>
         </button>
@@ -425,8 +441,11 @@ function AppShell({
         </div>
       </header>
 
-      <div className="body">
-        <aside className="sidebar">
+      <div className={'body' + (sideNavOpen ? ' nav-open' : '')}>
+        {sideNavOpen && (
+          <div className="sidebar-backdrop" onClick={() => setSideNavOpen(false)} aria-hidden="true" />
+        )}
+        <aside className="sidebar" onClick={(e) => { if (e.target.closest('.side-item')) setSideNavOpen(false); }}>
           <div className="side-section">{isMulti ? 'Fontes no cruzamento' : 'Banco de dados'}</div>
           {isMulti ? (
             <>

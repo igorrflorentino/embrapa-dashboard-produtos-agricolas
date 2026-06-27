@@ -3175,3 +3175,64 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .dt-null { color: var(--fg-4); }
 .dt-pager { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
 
+/* ============================================================================
+   MOBILE / PHONE RESPONSIVE PASS (≤768px) — added 2026-06-27.
+   Additive: a single breakpoint that turns the fixed sidebar into an off-canvas
+   DRAWER (toggled by the topbar hamburger in AppShell.jsx), drops the 760px
+   horizontal-scroll floor, and gives the content full width with phone padding.
+   Desktop (>768px) is pixel-identical — none of these rules apply there.
+   ============================================================================ */
+.topbar-hamburger { display: none; }  /* desktop: sidebar is always-on, no toggle */
+.topbar-hamburger svg { pointer-events: none; }  /* taps always land on the button, never the icon */
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  /* 1 — Drop the desktop min-width floor → no more horizontal scroll on phones. */
+  .shell { min-width: 0; }
+
+  /* 2 — Topbar condenses; the hamburger (left) toggles the sidebar drawer. */
+  .topbar { padding: 0 10px; gap: 8px; }
+  .topbar-hamburger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 42px; flex-shrink: 0; min-height: 44px; margin-left: -4px; padding: 0;
+    background: transparent; border: none; color: #fff; cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .topbar-hamburger:hover { background: rgba(255,255,255,0.12); }
+  .topbar-hamburger:focus-visible { outline: 2px solid rgba(255,255,255,0.6); outline-offset: 1px; }
+  .brand-logo { height: 30px; }
+  .topbar .sep { display: none; }
+
+  /* 3 — The body becomes one column; the sidebar slides OVER the content as a drawer. */
+  .body { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed; top: var(--topbar-h); left: 0;
+    width: min(84vw, 300px);
+    height: calc(100vh - var(--topbar-h));
+    height: calc(100dvh - var(--topbar-h));
+    min-height: 0; overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 220ms ease;
+    z-index: 45;
+    box-shadow: 2px 0 18px rgba(0,0,0,0.22);
+  }
+  .body.nav-open .sidebar { transform: translateX(0); }
+  .sidebar-resizer { display: none; }  /* no drag-resize on touch */
+  .sidebar-backdrop {
+    display: block; position: fixed; inset: var(--topbar-h) 0 0 0;
+    background: rgba(0,0,0,0.42); z-index: 44; border: none; cursor: default;
+  }
+
+  /* 4 — Content uses the full width with phone-sized padding. */
+  .content { padding: 16px 14px 36px; gap: 18px; }
+
+  /* 5 — Collapse the heavy multi-column content grids to one column. */
+  .grid-2, .highlights-grid, .mc-groups, .qa-flag-row, .page-hero { grid-template-columns: minmax(0, 1fr); }
+  .hero-meta { min-width: 0; }
+
+  /* 6 — Touch targets ≥ ~44px for the primary controls (WCAG). */
+  .side-item { min-height: 44px; }
+  .util-action { min-height: 44px; min-width: 42px; }
+  .btn-primary, .btn-secondary { min-height: 42px; }
+}
+
