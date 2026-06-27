@@ -3,9 +3,11 @@
 > Status: **F7 + Q1 IMPLEMENTED + Q1 ENABLED (2026-06-27).** The MAGNITUDE FLOOR
 > (`quality_value_floor`, default 100000 deflated BRL/USD) made a single global threshold work for
 > ALL 5 sources — it removes the tiny-municipality rounding noise that over-flagged PAM/PPM at ~2%,
-> leaving only genuine typos (validated rates: PEVS 0.003% / COMEX 0.19% / PAM 0.03% / PPM 0.002% /
-> COMTRADE 0.43%, the last all `weight=1` placeholders, spot-checked). So `enable_quality_outliers`
-> is now **true** (revert to legacy 4-value by setting it false — still compiles byte-identical). The
+> leaving only genuine typos. Materialized problemático rates (of **all rows**, from
+> `serving.serving_quality_by_source`): PEVS 0.0009% / COMEX 0.0057% / PAM 0.020% / PPM 0.0003% /
+> COMTRADE 0.15% (the last all `weight=1` placeholders, spot-checked). So `enable_quality_outliers`
+> is now **true** for all 5 sources (revert to legacy 4-value by setting it false — still compiles
+> byte-identical). The
 > F7 direct-Gold readers (município / quality timeseries+by-product) now thread the visibility gate
 > too (`serving/sql.visibility_clause`). All layers wired + tested: dbt compile + sqlfluff (ON) clean,
 > 950 pytest / 275 vitest green.
@@ -13,20 +15,23 @@
 > Origin: the "Contrato de Dados" sheet verification (`docs/audits/curadoria_pr_audit_2026-06-26.md`
 > is the catalog audit; this doc is the spreadsheet-vs-code integration follow-up).
 
-## The decisive data finding (why Q1 detection ships OFF)
+## The decisive data finding (magnitude alone fails; the implied-price test + magnitude floor wins)
 
-Every **global** statistical fence tested on live Gold false-accuses legitimate records:
+Every **magnitude-only** statistical fence tested on live Gold false-accuses legitimate records:
 - PEVS quantity max log-z = **4.51** (z>6 unreachable); robust log-Tukey k>4 flags **722** rows,
   all legitimate recurring Amazon timber (Paragominas/Carauari 1989–1996).
 - COMEX value z>6 = **2 rows**, both ~US$281k banana→Uruguay (trivial, not typos), while
   billion-dollar rows clear. Within-series ratio over-flags (4.8% at ≥10×); ≥1000× spikes are real
   regime shifts.
 
-**Conclusion:** there is no global threshold separating "typo" from "legitimate giant" on this data.
-→ The taxonomy + detection wiring ships fully (tested, fail-closed), but the detector is gated behind
-`var('enable_quality_outliers', false)`. When OFF (default = today) the gold models compile
-**byte-identical** to the current 4-value flag. Enabled **per source** only after an operator validates
-the flagged rates on a live build. This is "build outlier detection" without shipping false accusations.
+**Conclusion:** no magnitude threshold separates "typo" from "legitimate giant" on this data — a real
+big number and a placeholder both read as "high." The working signal is the **implied price**
+(`value ÷ quantity`, scale-invariant): a typo breaks it, a legit giant does not (detector below).
+Paired with the **magnitude floor** (`quality_value_floor`), which drops the tiny-municipality rounding
+noise that had over-flagged PAM/PPM, a **single global** `quality_price_k` now isolates typos cleanly
+across all 5 sources. The detector is still gated behind `var('enable_quality_outliers', true)`: when
+set OFF the gold models compile **byte-identical** to the legacy 4-value flag (the revert path); in prod
+it is **true for all 5 sources**, validated on a live build (rates above).
 
 ## FEATURE A — F7 visibility gate (DONE)
 
@@ -45,11 +50,12 @@ serving marts (pevs/pam/ppm/comex+seasonality/comtrade annual) + `serving_qualit
 production_by_municipio_yearly, Dados raw on `gold_*` facts); `seam_base._crosswalk_df()` anti-joins it.
 Admin readers (`fetch_commodity_catalog`, orphan, lifecycle, crosswalk) are EXEMPT by design.
 
-Tests: dbt singular `assert_no_hidden_code_in_marts.sql` (0 rows) + a `dim_commodity_visibility`
-unit_test (disponível/indisponível/tombstone fixture, latest-wins); pytest gate tests + admin-exemption
-regression + `visibility_clause` string test; no vitest (rows-only change).
+Tests: a `dim_commodity_visibility` unit_test (disponível/indisponível/tombstone fixture, latest-wins);
+pytest gate tests + admin-exemption regression + `visibility_clause` / direct-reader string tests. The
+conservation test `assert_serving_conserved_gold.sql` gates BOTH the serving AND the Gold side with
+`hidden_code_predicate`, so hiding a commodity can never false-fail it; no vitest (rows-only change).
 
-## FEATURE B — Q1 outlier/problemático (wiring lands; detection OFF by default)
+## FEATURE B — Q1 outlier/problemático (detection ENABLED in prod via the magnitude floor)
 
 **9-value enum:** `OK, MISSING_VALUE, MISSING_QUANTITY, MISSING_WEIGHT, INCOMPLETE, OUTLIER_QUANTITY,
 PROBLEMATIC_QUANTITY, OUTLIER_VALUE, PROBLEMATIC_VALUE`. COMEX/COMTRADE weight reuses the QUANTITY ids.
@@ -82,11 +88,11 @@ Rule, per group (IBGE `(product_code, family, unit_native)`; trade `(flow, code)
 - Precedence (donut partition): MISSING_*/INCOMPLETE > PROBLEMATIC_VALUE > PROBLEMATIC_QUANTITY >
   OUTLIER_VALUE > OUTLIER_QUANTITY > OK.
 
-**dbt var defaults:** `enable_quality_outliers=false`, **`quality_price_k=100`** (price >100× or <1/100× the
-product median = typo; validated rates: COMEX 0.19%, PEVS 0.003% at 100×), `quality_outlier_k=4.0`
-(magnitude fence for the OUTLIER tier), `quality_min_obs=100`, magnitude floor (skip trivia) massa 100 t /
-volume 100 m³ / contagem 1000 head / value 10000 (real BRL or USD). PPM `measure_kind='stock'` (herd) has
-NO value → quantity OUTLIER only, never a price/value flag.
+**dbt vars (prod):** `enable_quality_outliers=true` (false ⇒ legacy 4-value flag, compiled byte-identical),
+**`quality_price_k=100`** (implied price >100× or <1/100× the product median = typo), `quality_outlier_k=4.0`
+(magnitude fence for the OUTLIER tier), `quality_min_obs=100`, **`quality_value_floor=100000`** (the magnitude
+floor — skip rows below this deflated BRL / USD value so tiny-municipality rounding noise can't over-flag).
+PPM `measure_kind='stock'` (herd) has NO value → quantity OUTLIER only, never a price/value flag.
 
 **Files:** `dbt_project.yml` (vars); `macros/data_quality_flag.sql` (extend signature, 2-arg back-compat,
 precedence); `macros/quality_outlier_ctes.sql` (new — bounds CTE + `quality_level_expr` compile-gated by
@@ -96,35 +102,38 @@ singular `assert_quality_flag_in_enum.sql`; `serializers.py` `_FLAG_KEY`/`_FLAG_
 `data.js` QUALITY_FLAGS += 4; `ViewQuality.jsx` QTS_KEY += 4; `contracts.js` qualityTs keys; `glossary.js`
 prose. pt-BR labels: "Quantidade/Valor atípica(o) (válida/o)" + "… problemática(o) (provável erro)".
 
-## Per-source validation on live prod (2026-06-26) — price_k does NOT generalize
+## Per-source validation on live prod — the magnitude floor makes price_k generalize
 
-Problemático rate (|ln(price)−ln(product median)| beyond the threshold), measured on prod Gold:
+The first pass measured the raw |ln(price)−ln(product median)| rate WITHOUT a magnitude floor and found a
+single `quality_price_k` over-flagged PAM/PPM at ~2% — agricultural value-per-unit spans regions / years /
+sub-crops within one `product_code`, so tiny-municipality rounding produced erratic implied prices. The fix
+was NOT per-source thresholds but the **magnitude floor** (`quality_value_floor`, default 100000 deflated
+BRL / USD): dropping sub-floor rows removes that rounding noise, after which a **single global**
+`quality_price_k=100` isolates genuine typos across all 5 sources. Validated on the live rebuild —
+problemático rate **of all rows** (from `serving.serving_quality_by_source`):
 
-| source | >100× | >1000× | >10000× | clean threshold |
-|---|---|---|---|---|
-| PEVS | **0.003%** | — | — | **100×** (ready) |
-| COMEX | **0.19%** | — | — | **100×** (ready; typos eyeballed, e.g. weight=1) |
-| COMTRADE | 0.95% | 0.12% | 0.015% | ~1000–10000× |
-| PAM | 1.96% | 0.91% | **0.005%** | ~10000× |
-| PPM | 1.65% | 1.02% | **0.003%** | ~10000× |
+| source | rows | problemático | outlier (valid tail) |
+|---|---|---|---|
+| PEVS | 331,544 | **0.0009%** | 0.42% |
+| COMEX | 352,157 | **0.0057%** | 0.61% |
+| PAM | 1,124,058 | **0.020%** | 0.29% |
+| PPM | 2,405,516 | **0.0003%** | 0.46% |
+| COMTRADE | 2,294,874 | **0.15%** | 0.24% |
 
-**Finding:** a single global `quality_price_k` is wrong. PEVS/COMEX isolate typos cleanly at 100×, but
-PAM/PPM have LEGITIMATE implied-price variation up to ~3 orders of magnitude (agricultural value-per-unit
-spans regions/years/sub-crops within one product_code) — only the >10000× tail is typos. COMTRADE sits
-between. → Detection MUST be enabled per source with a per-source threshold; the current single global
-flag/threshold would mislabel ~2% of PAM/PPM as "provável erro". **PEVS + COMEX are validated-ready at
-price_k=100; PAM/PPM/COMTRADE need either per-source thresholds (≈10000× / 1000×) or finer grouping
-(sub-product) — open follow-up.** This is exactly why the feature ships OFF.
+Spot-checked: the flagged rows are genuine typos (overwhelmingly trade `weight=1` placeholders, e.g.
+US$80M for 1 kg of plywood). `enable_quality_outliers` is therefore **true for all 5 sources** in prod.
+*(The earlier "per-source threshold needed / ships OFF" conclusion is SUPERSEDED — it predated the floor.)*
 
-## Operator runbook (prod, after merge)
+## Operator runbook (prod)
 
 1. `make dbt-build-prod-with-backup` (rewrites `data_quality_flag` on every gold fact — backup-first).
 2. F7 check: `SELECT * FROM gold.dim_commodity_visibility` → expect **0 rows today** (no-op confirmed).
-3. Q1 inert check (flag still OFF): `SELECT source, data_quality_flag, COUNT(*) FROM
-   serving_quality_by_source GROUP BY 1,2` → only the original 4-value set appears.
-4. Q1 per-source enable (one source at a time): rebuild with `--vars 'enable_quality_outliers: true'`,
-   inspect `SELECT data_quality_flag, COUNT(*)`, spot-check flagged rows are NOT the largest legit
-   producer. Only then promote. **Do not auto-enable globally.**
+3. Q1 check: `SELECT source, data_quality_flag, COUNT(*) FROM serving_quality_by_source GROUP BY 1,2` → the
+   `OUTLIER_*` / `PROBLEMATIC_*` tiers appear; sanity-check the per-source rates against the table above.
+4. Revert (if ever needed): set `enable_quality_outliers: false` in `dbt_project.yml` + rebuild → the gold
+   models compile byte-identical to the legacy 4-value flag. Fully reversible — `data_quality_flag` is
+   recomputed from Silver on every build (no data loss). The scheduled `dbt-build-prod` picks up the
+   `dbt_project.yml` setting automatically.
 
 ## Sandbox vs operator
 

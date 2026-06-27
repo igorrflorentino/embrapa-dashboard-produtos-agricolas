@@ -7,6 +7,7 @@ never touch a live warehouse.
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest import mock
 
 import pytest
@@ -1222,7 +1223,7 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1275,7 +1276,7 @@ def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = params
         return "df"
@@ -1304,7 +1305,7 @@ def test_fetch_banco_metadata_binds_banco_id_as_param(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1328,7 +1329,7 @@ def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1355,7 +1356,7 @@ def test_fetch_production_by_uf_latest_year_flag_threads_to_builder(monkeypatch)
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1378,7 +1379,7 @@ def test_fetch_comex_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1401,7 +1402,7 @@ def test_fetch_comex_months_per_year_queries_seasonality_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1424,7 +1425,7 @@ def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1449,7 +1450,7 @@ def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1475,7 +1476,7 @@ def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1505,7 +1506,7 @@ def test_fetch_comtrade_flows_pins_reporter_to_brazil(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1535,7 +1536,7 @@ def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1562,7 +1563,7 @@ def test_fetch_comtrade_overview_pins_reporter_to_brazil(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1589,7 +1590,7 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1666,7 +1667,7 @@ def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_ta
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1715,7 +1716,7 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
     from embrapa_commodities.serving import gateway
 
     recorded = {}
-    monkeypatch.setattr(gateway, "run_query", lambda q, p: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
     with app.app_context():
@@ -1736,13 +1737,45 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
         assert "v.source = 'ppm'" in recorded["query"]
 
 
+def test_inspect_visibility_predicate_gates_gold_facts_only(monkeypatch):
+    """The Dados raw-row inspector gates ONLY the Gold facts — the serving marts are already
+    gated at build time. _inspect_visibility_predicate returns the F7 NOT EXISTS for a Gold table
+    and '' for a serving mart / unknown source."""
+    from embrapa_commodities.serving import gateway
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    pred = gateway._inspect_visibility_predicate("ibge_pevs", "gold_pevs_production")
+    assert "dim_commodity_visibility" in pred
+    assert "v.source = 'pevs'" in pred
+    assert "product_code like v.code_prefix" in pred
+    cpred = gateway._inspect_visibility_predicate("mdic_comex", "gold_comex_flows")
+    assert "v.source = 'comex'" in cpred and "ncm_code like v.code_prefix" in cpred
+    # serving marts already gated at build → no extra predicate; unknown → none either
+    assert gateway._inspect_visibility_predicate("ibge_pevs", "serving_pevs_annual") == ""
+    assert gateway._inspect_visibility_predicate("nope", "whatever") == ""
+
+
+def test_raw_table_builders_inject_visibility_predicate():
+    """The Dados Gold-fact SQL builders AND-in the F7 predicate only when given (back-compat)."""
+    from embrapa_commodities.serving import sql
+
+    cols = {"product_code": "STRING", "reference_year": "INT64"}
+    pred = "not exists (select 1 from x)"
+    rows_sql, _ = sql.raw_table_rows("t", columns_types=cols, limit=5, visibility_predicate=pred)
+    assert pred in rows_sql
+    cnt_sql, _ = sql.raw_table_count("t", columns_types=cols, visibility_predicate=pred)
+    assert pred in cnt_sql
+    rows0, _ = sql.raw_table_rows("t", columns_types=cols, limit=5)
+    assert "not exists" not in rows0.lower()
+
+
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1766,7 +1799,7 @@ def test_fetch_products_dispatches_to_source_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1792,7 +1825,7 @@ def test_fetch_products_requests_measure_kind_for_livestock(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1814,7 +1847,7 @@ def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1839,7 +1872,7 @@ def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1876,7 +1909,7 @@ def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1901,7 +1934,7 @@ def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -3088,6 +3121,7 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
     )
     monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
+    monkeypatch.setattr(catalog_lifecycle, "_current_lifecycle", lambda *a, **k: {})
     res = catalog_lifecycle.mark_purged(
         "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
     )
@@ -3099,6 +3133,54 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
     )
     assert res2["deduped"] is True
+
+
+def test_mark_purged_records_a_fresh_event_per_descontinuado_generation(monkeypatch):
+    """A code re-added, re-removed (a NEW descontinuado generation) and re-purged records its OWN
+    terminal 'purged' event — not collapsed onto the first purge's audit row (the per-generation
+    idempotency fix). An already-purged element with no fresh removal is a no-op."""
+    pytest.importorskip("flask_caching")
+    from datetime import datetime
+
+    from embrapa_commodities.serving import catalog_lifecycle
+
+    monkeypatch.setattr(
+        catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
+    )
+    monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+    seen = set()
+    inserted = []
+
+    def _ins(bq, t, **kw):
+        inserted.append(kw)
+        seen.add(kw["change_id"])
+
+    monkeypatch.setattr(catalog_lifecycle, "_insert_lifecycle_event", _ins)
+    monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda bq, t, cid: cid in seen)
+    gen1 = datetime(2026, 1, 1, tzinfo=UTC)
+    gen2 = datetime(2026, 6, 1, tzinfo=UTC)
+
+    def _purge():
+        return catalog_lifecycle.mark_purged(
+            "comex", "0801", edited_by="op", settings=_settings(), client=mock.Mock()
+        )
+
+    def _state(status, at):
+        monkeypatch.setattr(
+            catalog_lifecycle,
+            "_current_lifecycle",
+            lambda *a, **k: {("commodity", "comex", "0801"): (status, at)},
+        )
+
+    _state("descontinuado", gen1)  # generation 1 → records the purge
+    assert _purge()["deduped"] is False
+    _state("purged", gen1)  # already purged, no re-removal → no-op
+    assert _purge()["deduped"] is True
+    _state("descontinuado", gen2)  # re-removed → NEW generation → a fresh event
+    assert _purge()["deduped"] is False
+
+    assert len(inserted) == 2  # one terminal event per generation, not collapsed
+    assert inserted[0]["change_id"] != inserted[1]["change_id"]
 
 
 def test_raw_table_rows_casts_string_typed_columns_for_comparison():

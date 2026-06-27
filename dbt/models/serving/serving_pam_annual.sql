@@ -78,12 +78,12 @@ pam_codes as (
 
 -- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
 -- source='pam' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE
--- facts, and its accepted_values tests reject 'pam' — so the seed's prefix
--- expansion is replicated here, directly against the PAM codes in this mart.
--- Seeding (source='pam') rows in commodity_crosswalk is then enough to light
--- up commodity_id/commodity_name (the seed's accepted_values test on `source`
--- must learn 'pam' alongside the first such row). With no pam rows seeded yet,
--- both columns come out NULL (the dashboard handles NULL commodity).
+-- facts, and its accepted_values tests reject 'pam' — so the prefix expansion is
+-- replicated here, directly against the PAM codes in this mart. Cataloguing a 'pam'
+-- commodity in the editable Curadoria catalog (research_inputs.commodity_catalog_log →
+-- dim_commodity_catalog; the retired commodity_crosswalk seed's successor) is then enough
+-- to light up commodity_id/commodity_name. With no pam commodity catalogued yet, both
+-- columns come out NULL (the dashboard handles NULL commodity).
 pam_xwalk as (
 
     select distinct

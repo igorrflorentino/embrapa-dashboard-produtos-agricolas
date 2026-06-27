@@ -472,20 +472,24 @@ function AppShell({
             })
           )}
 
-          {/* ─── FROZEN FEATURE: "Engenharia de atributos" (Curadoria editor) ─────────
-              Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06):
-              partially built + NOT yet validated, so the curation editor is HIDDEN from the
-              sidebar and the app runs fully decoupled from it. Kept verbatim as the scaffold
-              for the real future implementation — DO NOT delete. To revive: un-comment this
-              section + the "Análises curadas" group in views.js, and build dbt with
-              `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
-              ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
+          {/* LIVE: Curadoria — the researcher-editable commodity catalog (what enters/exits
+              the dashboard). Backend-gated by the research_inputs.catalog_editors allowlist; the
+              orphan→Descontinuado lifecycle + human-gated purge live server-side. This is the only
+              UI entry point for the live catalog editor, so keep it OUT of the FROZEN block below. */}
           <div className="side-section">Curadoria</div>
           <div className={'side-item ' + (infoPage === 'cadastro_commodities' ? 'active' : '')}
                {...clickable(() => onInfo('cadastro_commodities'))}>
             <window.Icon name="inventory_2"/>Cadastro de commodities
           </div>
 
+          {/* ─── FROZEN FEATURE: "Engenharia de atributos" ─────────────────────────────
+              Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06):
+              partially built + NOT yet validated, so the attribute-engineering editor is HIDDEN
+              from the sidebar and the app runs fully decoupled from it. Kept verbatim as the
+              scaffold for the real future implementation — DO NOT delete. To revive: un-comment
+              this section + the "Análises curadas" group in views.js, and build dbt with
+              `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
+              ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>

@@ -193,7 +193,6 @@ embrapa-dashboard-commodities/
 │   │   ├── comtrade_country.csv      # M49 → ISO3/name dimension (partnerAreas.json)
 │   │   ├── comtrade_unit.csv         # qtyUnitCode → label + family dimension
 │   │   ├── comtrade_hs.csv           # HS dimension (0801 + ch. 44; HS.json)
-│   │   ├── commodity_crosswalk.csv   # Cross-source bridge (commodity ↔ pevs/ncm/hs6)
 │   │   ├── product_unit_factors.csv  # Statistical-unit → base factor (mass/volume) by NCM
 │   │   ├── unit_family_conversions.csv  # Unit families and conversions (mass/volume)
 │   │   ├── comex_ncm_succession.csv  # Retired→current NCM map (code-history, silver_comex)
@@ -342,7 +341,7 @@ as a per-run stamped object (append-only trail).
 - IBGE PPM table: `gold_ppm_production` — annual livestock (SIDRA tables 3939 herd + 74 animal production), same `production` form and monetary conventions as PEVS. **Multi-table** source: `silver_ibge_ppm` unions the two SIDRA tables, tagging each row `measure_kind` (`stock` = herd headcount in Cabeças, no value; `flow` = animal production with value). No área/rendimento (livestock) → no *Produtividade* view. Multiple unit families coexist (Cabeças/contagem, Mil litros/volume, Mil dúzias/contagem, Quilogramas/massa) — `family` stays in the serving grain so quantities are never summed across families.
 - MDIC COMEX table: `gold_comex_flows` — one row per `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym, transport_route_code)` (the transport route `via` is part of the grain; `via_name` via the `comex_via` seed). The 4 currency conventions are applied over `VL_FOB` (US$): `val_yearfx_*` at the registration month's FX, and `val_real_*` converting US$→BRL at the month's FX, deflating by the BCB chain and reconverting at the current FX (**monthly** deflation, not annual, because the grain is monthly).
 - UN Comtrade table: `gold_comtrade_flows` — **global** bilateral trade, one row per `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Same 4 conventions over `primaryValue` (US$), but **annual** deflation (year-average FX, year-end inflation index — like PEVS) because the grain is annual. Bilateral geography: `reporter` + `partner` (both M49 → name/ISO3). No double-counting (World dropped in Silver), so `SUM` over partners is the true bilateral total.
-- **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the `commodity_crosswalk` seed (prefix-based links) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
+- **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the editable Curadoria catalog (`research_inputs.commodity_catalog_log` → `core/dim_commodity_catalog`; the prefix-based links that used to live in the now-retired `commodity_crosswalk` seed) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
 - **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `maturity`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
 - **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM, PPM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Four currency conventions (applicable to any monetary Gold table):
@@ -484,9 +483,16 @@ uv run python scripts/setup_dev_env.py      # generate .env + ~/.dbt/profiles.ym
 
 ---
 
-## Dynamic Curation — append-only log + SCD Type 2
+## Engenharia de Atributos (FROZEN) — append-only log + SCD Type 2
 
-The Curadoria panel curates at **two grains**, each backed by its own append-only
+> **FROZEN / Versão Futura.** This per-code feature (historically called "Curadoria") was renamed
+> **Engenharia de Atributos**, deferred, and HIDDEN from the UI; it is gated by
+> `--vars 'enable_curation: true'` (default false) and is NOT activatable today. The name *Curadoria*
+> now means the LIVE editable commodity catalog — see [`PLANS/curadoria_catalogo.md`](PLANS/curadoria_catalogo.md)
+> and the F7 visibility gate + Q1 quality flags in [`PLANS/quality_outliers_and_visibility_gate.md`](PLANS/quality_outliers_and_visibility_gate.md).
+> Kept here as the design-of-record for the future implementation.
+
+Engenharia de Atributos curates at **two grains**, each backed by its own append-only
 log in `research_inputs` (written by `serving.attribute_engineering`, never by dbt). The flow
 **never overwrites Gold**:
 
