@@ -1736,6 +1736,38 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
         assert "v.source = 'ppm'" in recorded["query"]
 
 
+def test_inspect_visibility_predicate_gates_gold_facts_only(monkeypatch):
+    """The Dados raw-row inspector gates ONLY the Gold facts — the serving marts are already
+    gated at build time. _inspect_visibility_predicate returns the F7 NOT EXISTS for a Gold table
+    and '' for a serving mart / unknown source."""
+    from embrapa_commodities.serving import gateway
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    pred = gateway._inspect_visibility_predicate("ibge_pevs", "gold_pevs_production")
+    assert "dim_commodity_visibility" in pred
+    assert "v.source = 'pevs'" in pred
+    assert "product_code like v.code_prefix" in pred
+    cpred = gateway._inspect_visibility_predicate("mdic_comex", "gold_comex_flows")
+    assert "v.source = 'comex'" in cpred and "ncm_code like v.code_prefix" in cpred
+    # serving marts already gated at build → no extra predicate; unknown → none either
+    assert gateway._inspect_visibility_predicate("ibge_pevs", "serving_pevs_annual") == ""
+    assert gateway._inspect_visibility_predicate("nope", "whatever") == ""
+
+
+def test_raw_table_builders_inject_visibility_predicate():
+    """The Dados Gold-fact SQL builders AND-in the F7 predicate only when given (back-compat)."""
+    from embrapa_commodities.serving import sql
+
+    cols = {"product_code": "STRING", "reference_year": "INT64"}
+    pred = "not exists (select 1 from x)"
+    rows_sql, _ = sql.raw_table_rows("t", columns_types=cols, limit=5, visibility_predicate=pred)
+    assert pred in rows_sql
+    cnt_sql, _ = sql.raw_table_count("t", columns_types=cols, visibility_predicate=pred)
+    assert pred in cnt_sql
+    rows0, _ = sql.raw_table_rows("t", columns_types=cols, limit=5)
+    assert "not exists" not in rows0.lower()
+
+
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway

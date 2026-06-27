@@ -1315,17 +1315,23 @@ def raw_table_rows(
     order_by: str | None = None,
     order_dir: str = "asc",
     filters: Sequence[dict] = (),
+    visibility_predicate: str = "",
 ) -> tuple[str, list]:
     """``SELECT *`` over one allowlisted table, optionally ordered + filtered, paginated.
 
-    Used ONLY when an ORDER BY or a filter is requested — a plain browse goes through the
-    FREE ``tabledata.list`` path (gateway.fetch_table_rows). ``columns_types`` is the
-    table's live schema ``{name: bq_type}``; order-by + filter columns are validated
-    against it (the schema IS the allowlist) and filter values stay bound."""
+    Used when an ORDER BY / filter is requested OR (for a Gold fact) when the F7 visibility
+    gate must apply — a plain ungated browse goes through the FREE ``tabledata.list`` path
+    (gateway.fetch_table_rows). ``columns_types`` is the table's live schema ``{name: bq_type}``;
+    order-by + filter columns are validated against it (the schema IS the allowlist) and filter
+    values stay bound. ``visibility_predicate`` is the F7 gate (a NOT EXISTS over
+    dim_commodity_visibility built by visibility_clause from fixed maps — injection-safe); when
+    given it is ANDed in so a commodity marked indisponível never appears in the raw browse."""
     conditions: list[str] = []
     params: list = []
     for i, f in enumerate(filters):
         _raw_filter_predicate(conditions, params, f, columns_types, i)
+    if visibility_predicate:
+        conditions.append(visibility_predicate)
     order_clause = ""
     if order_by:
         col = _validate_column(order_by, frozenset(columns_types), "order_by column")
@@ -1343,13 +1349,21 @@ def raw_table_rows(
 
 
 def raw_table_count(
-    table: str, *, columns_types: dict, filters: Sequence[dict] = ()
+    table: str,
+    *,
+    columns_types: dict,
+    filters: Sequence[dict] = (),
+    visibility_predicate: str = "",
 ) -> tuple[str, list]:
-    """``COUNT(*)`` under the same filters (the pagination total). Unfiltered counts use
-    the table's cached ``num_rows`` (free) instead — see gateway.fetch_table_count."""
+    """``COUNT(*)`` under the same filters (the pagination total). Unfiltered + ungated counts
+    use the table's cached ``num_rows`` (free) instead — see gateway.fetch_table_count. A Gold
+    fact passes ``visibility_predicate`` (the F7 gate) so the denominator matches the gated page
+    (a hidden commodity is excluded from both)."""
     conditions: list[str] = []
     params: list = []
     for i, f in enumerate(filters):
         _raw_filter_predicate(conditions, params, f, columns_types, i)
+    if visibility_predicate:
+        conditions.append(visibility_predicate)
     sql = f"select count(*) as n from `{table}` {_where(conditions)}"
     return sql, params

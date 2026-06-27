@@ -1167,6 +1167,23 @@ def _resolve_inspect_table(banco_id: str, table_id: str) -> str:
     )
 
 
+def _inspect_visibility_predicate(banco_id: str, table_id: str) -> str:
+    """The F7 visibility gate for the Dados raw-row inspector. When the inspected table is the
+    banco's GOLD fact, return the NOT EXISTS predicate (serving/sql.visibility_clause) so a
+    commodity marked indisponível is excluded from raw browse / sort / filter / CSV export too —
+    matching every other researcher-facing Gold read. The serving marts are already gated at
+    build time (hidden_code_predicate), so they get no extra predicate; returns '' for them and
+    for any source without a known short token / code column. Identifiers come from fixed maps
+    (never user input) → injection-safe. No-op while dim_commodity_visibility is empty."""
+    if _GOLD_TABLE.get(banco_id) != table_id:
+        return ""
+    short = _SHORT_SOURCE.get(banco_id)
+    cols = _GOLD_PRODUCT.get(banco_id)
+    if not short or not cols:
+        return ""
+    return sqlbuild.visibility_clause(get_settings(), short, cols[0])
+
+
 @cache.memoize()
 def fetch_table_schema(banco_id: str, table_id: str) -> dict:
     """Column names + types + row count for an allowlisted table (FREE — table metadata,
@@ -1193,9 +1210,12 @@ def fetch_table_rows(
     runs a cost-guarded query. ``filters`` is a tuple of ``(col, op, val)`` tuples (hashable
     for the memoize key)."""
     ref = _resolve_inspect_table(banco_id, table_id)
+    vis = _inspect_visibility_predicate(banco_id, table_id)
     lim = max(1, min(int(limit), sqlbuild.RAW_TABLE_MAX_LIMIT))
     off = max(0, int(offset))
-    if not order_by and not filters:
+    # A gated Gold fact (vis != '') CANNOT use the free tabledata.list shortcut — that path
+    # can't carry the F7 predicate — so it always goes through the (cost-guarded) query path.
+    if not order_by and not filters and not vis:
         return (
             _client()
             .list_rows(ref, max_results=lim, start_index=off)
@@ -1213,6 +1233,7 @@ def fetch_table_rows(
         order_by=order_by,
         order_dir=order_dir,
         filters=flt,
+        visibility_predicate=vis,
     )
     return run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
 
@@ -1221,14 +1242,19 @@ def fetch_table_rows(
 def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
     """Total matching rows (the pagination denominator). Unfiltered → the table's cached
     ``num_rows`` (free); filtered → a cost-guarded ``COUNT(*)``."""
-    if not filters:
+    vis = _inspect_visibility_predicate(banco_id, table_id)
+    # Unfiltered + ungated → the table's cached num_rows (free). A gated Gold fact must run a
+    # real COUNT(*) so the denominator matches the gated page (hidden rows excluded from both).
+    if not filters and not vis:
         return fetch_table_schema(banco_id, table_id)["num_rows"]
     ref = _resolve_inspect_table(banco_id, table_id)
     columns_types = {
         c["name"]: c["type"] for c in fetch_table_schema(banco_id, table_id)["columns"]
     }
     flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
-    sql, params = sqlbuild.raw_table_count(ref, columns_types=columns_types, filters=flt)
+    sql, params = sqlbuild.raw_table_count(
+        ref, columns_types=columns_types, filters=flt, visibility_predicate=vis
+    )
     df = run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
     return int(df["n"].iloc[0]) if not df.empty else 0
 

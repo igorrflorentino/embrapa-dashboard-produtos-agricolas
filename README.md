@@ -144,12 +144,17 @@ The `discover` commands are **auxiliary and not part of the production pipeline*
 
 ## `data_quality_flag`
 
-| Value | Meaning |
-|---|---|
-| `OK` | row has quantity (in any unit) **and** value |
-| `MISSING_VALUE` | quantity reported but monetary value missing |
-| `MISSING_QUANTITY` | monetary value reported but quantity missing |
-| `INCOMPLETE` | both missing |
+A 9-value taxonomy. The first five are always emitted; the last four (the implied-price tiers) are produced only when the dbt var `enable_quality_outliers` is `true` (on in prod). The custom dashboard renders the pt-BR labels shown.
+
+| Value | UI label (pt-BR) | Meaning |
+|---|---|---|
+| `OK` | Normais | quantity (in any unit) **and** value, with a plausible implied price |
+| `MISSING_VALUE` | Valor financeiro ausente | quantity reported but monetary value missing |
+| `MISSING_QUANTITY` | Quantidade ausente | monetary value reported but quantity missing |
+| `MISSING_WEIGHT` | Peso ausente | COMEX/COMTRADE only — value reported but net weight missing |
+| `INCOMPLETE` | Incompleto | both missing |
+| `OUTLIER_VALUE` / `OUTLIER_QUANTITY` | Valor / Quantidade atípica (válida) | high-magnitude but price-consistent — a genuinely large value, **not** an error |
+| `PROBLEMATIC_VALUE` / `PROBLEMATIC_QUANTITY` | Valor / Quantidade problemática (provável erro) | implied price (value ÷ quantity) >100× or <1/100× the product median ⇒ likely typo |
 
 IBGE placeholders (`-`, `...`, `..`, `*`, `X`) are converted to `NULL` in Silver by the `safe_numeric` macro.
 
@@ -183,7 +188,7 @@ One row per `(reference_year, state_acronym, city_name, product_code)`. Columns:
 
 - Connect **directly** to the `${BQ_GOLD_DATASET}.gold_pevs_production` table (not to views or a "custom query").
 - Enable **BI Engine** with 1–2 GB covering the Gold dataset — it cuts latency and the cost of repeated queries.
-- Suggested default filter for exploratory analyses: `data_quality_flag = 'OK'`.
+- Suggested default filter for exploratory analyses: `data_quality_flag = 'OK'` (shown as *Normais* in the custom dashboard) — or exclude the `PROBLEMATIC_*` tiers to drop likely typos while keeping the valid `OUTLIER_*` giants.
 
 ## Structure
 

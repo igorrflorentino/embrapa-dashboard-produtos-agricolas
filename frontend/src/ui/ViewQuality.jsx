@@ -15,6 +15,8 @@ const QTS_KEY = {
   OK: 'ok',
   MISSING_VALUE: 'missing_value', MISSING_QUANTITY: 'missing_quantity',
   MISSING_WEIGHT: 'missing_weight', INCOMPLETE: 'incomplete',
+  OUTLIER_VALUE: 'outlier_value', OUTLIER_QUANTITY: 'outlier_quantity',
+  PROBLEMATIC_VALUE: 'problematic_value', PROBLEMATIC_QUANTITY: 'problematic_quantity',
 };
 
 function ViewQuality({ summary, database }) {

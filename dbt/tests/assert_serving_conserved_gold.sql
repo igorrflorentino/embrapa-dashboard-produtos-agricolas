@@ -27,21 +27,30 @@
 -- reference_month + a 1:1 dim_date LEFT JOIN, which dim_date.date_month's unique test
 -- keeps fan-out-free), so reconcile it too — making the conservation guarantee explicit
 -- rather than delegated solely to the dim_date + grain-uniqueness tests (DBT-6).
+-- F7 visibility-gate SYMMETRY (added 2026-06-27). Each serving mart applies
+-- hidden_code_predicate, so a commodity marked "indisponível" (dim_commodity_visibility)
+-- drops from the mart. The Gold side of this reconciliation MUST apply the SAME gate, or the
+-- test would FALSE-FAIL the daily prod build the instant a researcher hides anything (serving
+-- drops those rows while un-gated Gold keeps them, inflating drift past 1e-6). Both sides now
+-- exclude identically, so conservation stays exact under hiding. The (source_token, code_column)
+-- per pair mirror each mart's own hidden_code_predicate call; while dim_commodity_visibility is
+-- empty the predicate is a no-op and the totals are unchanged.
 {% set pairs = [
-    ('pevs',              'serving_pevs_annual',       'gold_pevs_production'),
-    ('pam',               'serving_pam_annual',        'gold_pam_production'),
-    ('ppm',               'serving_ppm_annual',        'gold_ppm_production'),
-    ('comex',             'serving_comex_annual',      'gold_comex_flows'),
-    ('comex_seasonality', 'serving_comex_seasonality', 'gold_comex_flows'),
-    ('comtrade',          'serving_comtrade_annual',   'gold_comtrade_flows')
+    ('pevs',              'serving_pevs_annual',       'gold_pevs_production',  'pevs',     'product_code'),
+    ('pam',               'serving_pam_annual',        'gold_pam_production',   'pam',      'product_code'),
+    ('ppm',               'serving_ppm_annual',        'gold_ppm_production',   'ppm',      'product_code'),
+    ('comex',             'serving_comex_annual',      'gold_comex_flows',      'comex',    'ncm_code'),
+    ('comex_seasonality', 'serving_comex_seasonality', 'gold_comex_flows',      'comex',    'ncm_code'),
+    ('comtrade',          'serving_comtrade_annual',   'gold_comtrade_flows',   'comtrade', 'cmd_code')
 ] %}
 
 with checks as (
-    {% for source, mart, gold in pairs %}
+    {% for source, mart, gold, vis_token, code_col in pairs %}
     select
         '{{ source }}'                                              as source,
         (select sum(val_yearfx_usd) from {{ ref(mart) }})          as serving_total,
-        (select sum(val_yearfx_usd) from {{ ref(gold) }})          as gold_total
+        (select sum(val_yearfx_usd) from {{ ref(gold) }}
+         where {{ hidden_code_predicate(vis_token, code_col) }})   as gold_total
     {% if not loop.last %}union all{% endif %}
     {% endfor %}
 )

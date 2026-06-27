@@ -109,7 +109,7 @@ function ViewHealth() {
           level: 'warn',
           banco: 'ibge_pevs',
           title: `Integridade abaixo do padrão recente · ${latest.y}`,
-          desc: `${window.fmtPct(latestIssue)} das linhas em ${latest.y} não estão íntegras (flag ≠ OK); média dos últimos ${recent.length} anos: ${window.fmtPct(recentMean)}.`,
+          desc: `${window.fmtPct(latestIssue)} das linhas em ${latest.y} não estão íntegras (fora de "Normais"); média dos últimos ${recent.length} anos: ${window.fmtPct(recentMean)}.`,
           since: pevMeta.refresh || null,
         });
       }

@@ -38,6 +38,59 @@ row-identical on real data and the whole feature was live-verified end-to-end on
   scoped `DELETE`s for an operator to run (the agent never runs them); `embrapa mark-orphans`
   drives the auto-mark on the build cadence.
 
+### Added — Q1 quality outlier/problemático detection
+
+`data_quality_flag` is now a **9-value taxonomy** (was 4–5), surfacing implied-price anomalies on
+top of the missing/incomplete flags. Spec: `PLANS/quality_outliers_and_visibility_gate.md`.
+Activated in prod via a Gold rebuild (it rewrites `data_quality_flag` row-by-row).
+
+- **The 9 values** (id → pt-BR label): `OK` → *Normais*; `MISSING_VALUE` → *Valor financeiro
+  ausente*; `MISSING_QUANTITY` → *Quantidade ausente*; `MISSING_WEIGHT` → *Peso ausente*
+  (COMEX/COMTRADE only); `INCOMPLETE` → *Incompleto*; `OUTLIER_QUANTITY` → *Quantidade atípica
+  (válida)*; `PROBLEMATIC_QUANTITY` → *Quantidade problemática (provável erro)*; `OUTLIER_VALUE` →
+  *Valor atípico (válido)*; `PROBLEMATIC_VALUE` → *Valor problemático (provável erro)*.
+- **Outlier vs problemático.** An **outlier** is a high-magnitude but price-consistent row (a real
+  big number). A **problemático** row has an implied unit price (value ÷ quantity) more than
+  `quality_price_k` (=100×) above or below the product's median — i.e. a likely typo (e.g. the
+  COMTRADE `weight = 1` placeholders).
+- **Magnitude floor.** `quality_value_floor` (=100 000) skips rows below this deflated-BRL / USD
+  value, stripping tiny-municipality rounding noise so a single global threshold works across all 5
+  sources. IBGE is scored on the **deflated** `val_real_ipca_brl` (nominal would manufacture a fake
+  pre-1995 hyperinflation tail); trade on nominal USD value / `net_weight_kg`. PPM stock (herd) rows
+  have no value, so they are scored qty-only.
+- **dbt vars** (`dbt/dbt_project.yml`): `enable_quality_outliers` (now **TRUE** in prod; `false`
+  falls back to the legacy 4-value flag, compiled byte-identical), `quality_price_k` = 100,
+  `quality_outlier_k` = 4.0, `quality_min_obs` = 100, `quality_value_floor` = 100 000.
+- **Materialized rates** (share of **all rows**, from `serving.serving_quality_by_source`) —
+  *problemático*: PEVS 0.0009 %, COMEX 0.0057 %, PAM 0.020 %, PPM 0.0003 %, COMTRADE 0.15 %;
+  *outlier* (the valid-but-large tail): PEVS 0.42 %, PAM 0.29 %, PPM 0.46 %, COMEX 0.61 %,
+  COMTRADE 0.24 %.
+
+### Added — F7 Ciclo de Vida visibility gate
+
+A commodity a researcher marks **"Fazer Ingestão mas deixar indisponível"** (ingest, but keep
+unavailable) is now hidden from every researcher-facing Gold read, while still visible to the admin
+editor and the crosswalk. **No-op today** (0 hidden rows). Spec:
+`PLANS/quality_outliers_and_visibility_gate.md`.
+
+- New dbt model `core/dim_commodity_visibility` (a view of `(source, code_prefix)` for the hidden
+  commodities), the `hidden_code_predicate` macro, and `serving/sql.visibility_clause` (the Python
+  builder used by the gateway's direct-Gold readers).
+- The gate is applied at every researcher-facing Gold read: the 6 serving marts,
+  `serving_quality_by_source`, the cross-source picker (`seam_base`), and the gateway direct readers
+  (município cube, quality timeseries, quality-by-product).
+- Kept **separate** from `dim_commodity_catalog` so the admin editor and `gold_commodity_crosswalk`
+  still see the hidden rows.
+
+### Fixed — Contrato de Dados integration
+
+- **7th maturity stage "Ingestão".** Bank maturity gained an `ingestao` level (label *Ingestão*,
+  order 3, `has_data = false` — "pipeline built, data still loading") in both `frontend/.../bancos.js`
+  (`window.MATURITY`) and `webapi/registries.py` (`MATURITY`), kept at parity.
+- **Quality healthy label renamed `OK` → `Normais`**, including the **"(flag = OK)" → "(Normais)"**
+  KPI relabel.
+- **"Tabelas de referência" sidebar entry** regained its `table_chart` icon.
+
 Remediation of the 2026-06-24 post-v1.6.0 deep audit (report:
 `docs/audits/deep_audit_2026-06-24_v1.6.0.md`; grade A−, 0 critical). All confirmed findings
 (1 high, 4 medium, 3 low) fixed; 915 pytest / 267 vitest green.
