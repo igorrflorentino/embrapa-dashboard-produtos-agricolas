@@ -1222,7 +1222,7 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1275,7 +1275,7 @@ def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = params
         return "df"
@@ -1304,7 +1304,7 @@ def test_fetch_banco_metadata_binds_banco_id_as_param(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1328,7 +1328,7 @@ def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1355,7 +1355,7 @@ def test_fetch_production_by_uf_latest_year_flag_threads_to_builder(monkeypatch)
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1378,7 +1378,7 @@ def test_fetch_comex_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1401,7 +1401,7 @@ def test_fetch_comex_months_per_year_queries_seasonality_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1424,7 +1424,7 @@ def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1449,7 +1449,7 @@ def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1475,7 +1475,7 @@ def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1505,7 +1505,7 @@ def test_fetch_comtrade_flows_pins_reporter_to_brazil(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1535,7 +1535,7 @@ def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1562,7 +1562,7 @@ def test_fetch_comtrade_overview_pins_reporter_to_brazil(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1589,7 +1589,7 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1666,7 +1666,7 @@ def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_ta
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1715,7 +1715,7 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
     from embrapa_commodities.serving import gateway
 
     recorded = {}
-    monkeypatch.setattr(gateway, "run_query", lambda q, p: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     app, cache = _bind_simplecache()
     with app.app_context():
@@ -1774,7 +1774,7 @@ def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1798,7 +1798,7 @@ def test_fetch_products_dispatches_to_source_mart(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1824,7 +1824,7 @@ def test_fetch_products_requests_measure_kind_for_livestock(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         return "df"
 
@@ -1846,7 +1846,7 @@ def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1871,7 +1871,7 @@ def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1908,7 +1908,7 @@ def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"
@@ -1933,7 +1933,7 @@ def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
 
     recorded = {}
 
-    def recorder(query, params):
+    def recorder(query, params, **kwargs):
         recorded["query"] = query
         recorded["params"] = {p.name: p for p in params}
         return "df"

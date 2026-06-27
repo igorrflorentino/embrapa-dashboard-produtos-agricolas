@@ -131,6 +131,16 @@ def _slug(name: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
 
 
+# The Ciclo de Vida (F7) vocabulary — MUST stay in lockstep with the UI dropdown
+# (frontend/src/ui/ViewCadastroCommodities.jsx `_CC_CICLO`) and the dbt visibility gate
+# (dbt/models/core/dim_commodity_visibility.sql, which hides exactly CICLO_DE_VIDA_OCULTO).
+# Validating it server-side turns a reword-in-one-place into a LOUD 400 instead of a SILENT
+# fail-open of the visibility gate (the three layers couple on this exact pt-BR literal).
+CICLO_DE_VIDA_VISIVEL = "Fazer Ingestão e deixar disponível"
+CICLO_DE_VIDA_OCULTO = "Fazer Ingestão mas deixar indisponível"
+_CICLO_DE_VIDA_VALUES = frozenset({CICLO_DE_VIDA_VISIVEL, CICLO_DE_VIDA_OCULTO})
+
+
 def _validate_catalog_edit(codigo_commodity: str, banco: str, ciclo_de_vida: str | None) -> None:
     """The composite key (codigo_commodity, banco) is required — a blank either breaks
     the key, so we REJECT (fail loud) instead of silently dropping the row. Messages are
@@ -139,6 +149,11 @@ def _validate_catalog_edit(codigo_commodity: str, banco: str, ciclo_de_vida: str
         raise ValueError("codigo_commodity e banco são obrigatórios (a chave do catálogo).")
     if ciclo_de_vida is not None and len(ciclo_de_vida) > MAX_STAGE_LEN:
         raise ValueError(f"ciclo_de_vida excede {MAX_STAGE_LEN} caracteres.")
+    if ciclo_de_vida and ciclo_de_vida not in _CICLO_DE_VIDA_VALUES:
+        raise ValueError(
+            f"ciclo_de_vida {ciclo_de_vida!r} inválido — use exatamente um de "
+            f"{sorted(_CICLO_DE_VIDA_VALUES)} (mantém o gate de visibilidade em sincronia)."
+        )
 
 
 def _current_prefixes(bq: bigquery.Client, table_fqn: str, banco: str) -> list[tuple[str, str]]:
@@ -222,6 +237,8 @@ def record_commodity_catalog(
     # so fail loud HERE (a 400 the researcher can fix), never at build time.
     if not commodity_id or not agrupamento:
         raise ValueError("agrupamento é obrigatório (nomeia a commodity e gera o commodity_id).")
+    if len(agrupamento) > MAX_NOTE_LEN:
+        raise ValueError(f"agrupamento excede {MAX_NOTE_LEN} caracteres.")
     if descricao_commodity is not None and len(descricao_commodity) > MAX_NOTE_LEN:
         raise ValueError(f"descricao_commodity excede {MAX_NOTE_LEN} caracteres.")
 

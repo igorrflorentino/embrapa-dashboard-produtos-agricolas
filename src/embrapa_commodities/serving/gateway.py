@@ -656,7 +656,7 @@ def fetch_quality_timeseries(source: str):
     table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
     vis = sqlbuild.visibility_clause(settings, _SHORT_SOURCE[source], _GOLD_PRODUCT[source][0])
     sql, params = sqlbuild.quality_timeseries(table, visibility_predicate=vis)
-    return run_query(sql, params)
+    return run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
 
 
 # Source → its Gold product (code, name) columns.
@@ -872,7 +872,7 @@ def fetch_quality_by_product(source: str):
     sql, params = sqlbuild.quality_by_product(
         table, code_column=cols[0], name_column=cols[1], visibility_predicate=vis
     )
-    return run_query(sql, params)
+    return run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
 
 
 @cache.memoize()

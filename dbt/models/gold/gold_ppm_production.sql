@@ -134,8 +134,9 @@ select
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
-    -- Stock rows (efetivo) have NO value by design → OK on quantity alone; flow
-    -- rows use the standard qty+value rule. Same 4-value taxonomy either way.
+    -- Stock rows (efetivo) have NO value by design → OK on quantity alone; flow rows use the
+    -- standard qty+value rule via data_quality_flag (the full taxonomy when enable_quality_outliers
+    -- is on, legacy 4-value when off). Stock rows only ever emit OK / MISSING_QUANTITY.
     case
         when measure_kind = 'stock'
             then case when qty_native is not null then 'OK' else 'MISSING_QUANTITY' end

@@ -74,6 +74,7 @@ const GLOSSARY = {
       { term: 'Via',          cat: 'Coluna', short: 'Modalidade de transporte utilizada: marítima, aérea, rodoviária, ferroviária, fluvial, dutos.' },
       { term: 'Peso líquido', cat: 'Coluna', short: 'Peso da mercadoria sem embalagem, em quilogramas. Utilizado em cálculos de preço médio.' },
       { term: 'gold_comex_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano-mês, UF, NCM, país, via e fluxo.' },
+      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, peso ausente (sem peso líquido), incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, preço coerente) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana do produto, ex.: peso = 1 kg).' },
     ],
   },
 
@@ -89,6 +90,7 @@ const GLOSSARY = {
       { term: 'BEC',      cat: 'Classificação', tag: 'ONU', short: 'Broad Economic Categories — agrupamento por uso final (bens de consumo, capital, intermediários).' },
       { term: 'Mirror data', cat: 'Método',     short: 'Comparação entre o que um país declara exportar e o que o parceiro declara importar (e vice-versa). Útil para detectar sub-declaração.' },
       { term: 'gold_comtrade_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, país reporter, país parceiro, HS6 e fluxo.' },
+      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, quantidade ausente, incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana, ex.: peso = 1 kg em chapas de madeira de alto valor).' },
     ],
   },
 
