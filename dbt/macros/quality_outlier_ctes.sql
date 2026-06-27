@@ -48,11 +48,16 @@ safe_divide(safe.ln({{ value_expr }}) - _q_ln_med_val, nullif(_q_p75_val - _q_ln
 safe_divide(safe.ln({{ qty_expr }}) - _q_ln_med_qty, nullif(_q_p75_qty - _q_ln_med_qty, 0))
 {%- endmacro -%}
 
-{#- Guard shared by both level macros: need both measures positive, a price center, and a
-    sample big enough to trust the per-product distribution. -#}
+{#- Guard shared by both level macros: need both measures positive, a price center, a sample big
+    enough to trust the per-product distribution, AND a MATERIAL value. The magnitude floor is
+    load-bearing — without it, tiny-municipality rounding (small value/qty → erratic implied price)
+    over-flags: validated on prod, PAM dropped 1.96% → 0.03% at the floor, PPM 1.65% → 0.002%, while
+    the real typos (weight=1 placeholders, dropped digits) stay flagged. Below the floor a row is
+    low-stakes, so it is never flagged. -#}
 {%- macro _q_guard(value_expr, qty_expr) -%}
 {{ value_expr }} is null or {{ value_expr }} <= 0 or {{ qty_expr }} is null or {{ qty_expr }} <= 0
        or _q_ln_med_price is null or _q_n < {{ var('quality_min_obs', 100) }}
+       or {{ value_expr }} < {{ var('quality_value_floor', 100000) }}
 {%- endmacro -%}
 
 {%- macro quality_val_level(value_expr, qty_expr) -%}

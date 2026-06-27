@@ -386,7 +386,7 @@ function ViewHealth() {
       <div className="card">
         <window.SectionHeader
           overline="Qualidade dos dados · histórico"
-          title="% de linhas íntegras (flag = OK) · IBGE PEVS"
+          title="% de linhas íntegras (Normais) · IBGE PEVS"
           action={<span className="caption">Para diagnóstico completo, veja Qualidade dos dados</span>}
         />
         {qualityTs.length ? (

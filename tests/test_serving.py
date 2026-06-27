@@ -1682,6 +1682,60 @@ def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_ta
     assert expect_table in recorded["query"]
 
 
+def test_visibility_clause_and_builder_injection():
+    """The F7 visibility predicate (sql.visibility_clause) builds the NOT EXISTS over
+    dim_commodity_visibility, and the direct-Gold builders inject it only when passed."""
+    from embrapa_commodities.serving import sql
+
+    clause = sql.visibility_clause(_isolated_settings(), "pevs", "product_code")
+    assert "not exists" in clause.lower() and "dim_commodity_visibility" in clause
+    assert "v.source = 'pevs'" in clause
+    assert "product_code like v.code_prefix || '%'" in clause
+    # default empty → no gate injected (back-compat)
+    ts0, _ = sql.quality_timeseries("t")
+    assert "not exists" not in ts0.lower()
+    # passed → injected into the WHERE
+    ts1, _ = sql.quality_timeseries("t", visibility_predicate=clause)
+    assert clause in ts1
+    bp1, _ = sql.quality_by_product(
+        "t",
+        code_column="product_code",
+        name_column="product_description",
+        visibility_predicate=clause,
+    )
+    assert clause in bp1
+
+
+def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
+    """The gateway's direct-Gold readers (quality timeseries/by-product, município cube)
+    thread the F7 visibility gate — a deep-link to a hidden commodity is excluded even
+    though these bypass the (already-gated) serving marts. Uses each source's short token
+    + its own code column."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+    monkeypatch.setattr(gateway, "run_query", lambda q, p: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_quality_timeseries("mdic_comex")
+        assert "dim_commodity_visibility" in recorded["query"]
+        assert "v.source = 'comex'" in recorded["query"]
+        assert "ncm_code like v.code_prefix" in recorded["query"]
+
+        cache.clear()
+        gateway.fetch_quality_by_product("ibge_pevs")
+        assert "dim_commodity_visibility" in recorded["query"]
+        assert "v.source = 'pevs'" in recorded["query"]
+
+        cache.clear()
+        gateway.fetch_production_by_municipio_yearly(source="ibge_ppm", city_codes=("1100015",))
+        assert "dim_commodity_visibility" in recorded["query"]
+        assert "v.source = 'ppm'" in recorded["query"]
+
+
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import gateway
