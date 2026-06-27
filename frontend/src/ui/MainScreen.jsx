@@ -48,7 +48,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             <div className="overline">Engenharia de atributos</div>
             <h1 className="page-title">Funcionalidade em desenvolvimento</h1>
             <p className="page-sub">
-              A <strong>Curadoria</strong> (engenharia de atributos — classificação do nível de
+              A <strong>Engenharia de atributos</strong> (classificação do nível de
               industrialização e da finalidade econômica) foi adiada para a <strong>Versão
               Futura</strong> do projeto e está temporariamente indisponível. Ela retornará quando
               for concluída e validada com os pesquisadores.
@@ -60,23 +60,36 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   }
 
   if (infoPage) {
+    const _INFO_TITLES = {
+      about: 'Sobre o dashboard',
+      referencias: 'Tabelas de referência',
+      cadastro_commodities: 'Cadastro de commodities',
+      health: 'Saúde do sistema',
+    };
+    const _INFO_SUBS = {
+      about: 'O que é o dashboard, quais bancos compõem a base, como os dados são processados e como interpretar cada perspectiva.',
+      referencias: 'Consulte os valores de referência que o pipeline usa (conversões, fatores de moeda, dimensões de código). Confira se estão corretos e, se notar um erro, avise a equipe pela própria linha.',
+      cadastro_commodities: 'Defina quais commodities entram e saem do dashboard: agrupamento, industrialização e ciclo de vida (exibir ou ocultar). Edições exigem autorização e ficam registradas com seu e-mail.',
+      health: 'Status das execuções de pipeline, frescor dos dados e qualidade das tabelas Gold.',
+    };
+    const _infoTitle = _INFO_TITLES[infoPage] || _INFO_TITLES.health;
+    const _infoSub = _INFO_SUBS[infoPage] || _INFO_SUBS.health;
+    const _infoOverline = infoPage === 'cadastro_commodities' ? 'Curadoria' : 'Informações';
     return (
       <div className="screen">
         <div className="page-hero">
           <div>
-            <div className="overline">Informações</div>
-            <h1 className="page-title">
-              {infoPage === 'about' ? 'Sobre o dashboard' : 'Saúde do sistema'}
-            </h1>
-            <p className="page-sub">
-              {infoPage === 'about'
-                ? 'O que é o dashboard, quais bancos compõem a base, como os dados são processados e como interpretar cada perspectiva.'
-                : 'Status das execuções de pipeline, frescor dos dados e qualidade das tabelas Gold.'}
-            </p>
+            <div className="overline">{_infoOverline}</div>
+            <h1 className="page-title">{_infoTitle}</h1>
+            <p className="page-sub">{_infoSub}</p>
           </div>
         </div>
         {infoPage === 'about' ? (
           <window.ViewAbout />
+        ) : infoPage === 'referencias' ? (
+          <window.ViewReferencias />
+        ) : infoPage === 'cadastro_commodities' ? (
+          <window.ViewCadastroCommodities />
         ) : infoPage === 'health' ? (
           <window.ViewHealth />
         ) : (

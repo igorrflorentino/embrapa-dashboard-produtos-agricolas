@@ -913,5 +913,87 @@ def dbt_passthrough(
     raise typer.Exit(result.returncode)
 
 
+# ─── Curadoria lifecycle (orphans → Descontinuado → human-gated purge) ──────────
+def _with_webapp_context(fn):
+    """Run a serving-layer op inside the webapi app context — the flask-caching cache
+    must be bound for the memoized reads. Requires the ``webapi`` extra (flask)."""
+    try:
+        from embrapa_commodities.webapi.app import app as webapp
+    except ModuleNotFoundError as exc:  # pragma: no cover - extra not installed
+        console.print(
+            "[red]✗[/red] requires the webapi extra — run with "
+            "[cyan]uv run --extra webapi embrapa …[/cyan]"
+        )
+        raise typer.Exit(1) from exc
+    with webapp.app_context():
+        return fn()
+
+
+@app.command("mark-orphans")
+def mark_orphans_cmd() -> None:
+    """Detect orphan commodities (removed from the catalog, Gold data lingering) and
+    auto-mark them Descontinuado — idempotent, NON-destructive. Run on the ops cadence
+    (e.g. after the daily dbt build). Requires the `webapi` extra."""
+    from embrapa_commodities.serving.catalog_lifecycle import auto_mark_orphans
+
+    res = _with_webapp_context(auto_mark_orphans)
+    console.print(
+        f"[green]✓[/green] orphans: detected={res['detected']} "
+        f"newly_marked={res['newly_marked']} already_marked={res['already_marked']}"
+    )
+
+
+@app.command("purge-orphan")
+def purge_orphan_cmd(
+    banco: str = typer.Option(..., help="Source token / banco (pevs, comex, comtrade, pam, ppm)"),
+    code: str = typer.Option(..., help="The codigo_commodity (= code prefix) to purge"),
+    mark_purged: bool = typer.Option(
+        False, "--mark-purged", help="Record a 'purged' event AFTER you ran the DELETEs."
+    ),
+    author: str = typer.Option("operator", help="Who is purging (for the audit row)."),
+) -> None:
+    """HUMAN-GATED purge of a Descontinuado orphan's Gold data. By default only PRINTS the
+    backup-gated plan (the scoped DELETEs to run yourself — the project hands destructive
+    deletes to a human; the agent never runs `bq rm`). After running them, re-run with
+    --mark-purged to record the terminal audit event. Requires the `webapi` extra."""
+    from embrapa_commodities.serving.catalog_lifecycle import (
+        mark_purged as _mark_purged,
+    )
+    from embrapa_commodities.serving.catalog_lifecycle import (
+        purge_plan,
+    )
+
+    if mark_purged:
+        res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=author))
+        verb = "já registrado" if res.get("deduped") else "registrado"
+        console.print(f"[green]✓[/green] purga {verb}: {banco}:{code} → purged (por {author})")
+        return
+
+    try:
+        plan = _with_webapp_context(lambda: purge_plan(banco, code))
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[bold]Plano de purga[/bold] — {banco}:{code}")
+    if plan["backup_ok"]:
+        console.print(f"  [green]backup OK[/green] — {plan['backup_msg']}")
+    else:
+        console.print(f"  [red]backup AUSENTE/ANTIGO[/red] — {plan['backup_msg']}")
+        console.print("  [red]Faça um backup do Gold ANTES de executar os DELETEs abaixo.[/red]")
+    console.print("\n  Execute manualmente (após confirmar o backup):")
+    for stmt in plan["statements"]:
+        console.print(f"    [cyan]{stmt}[/cyan]")
+    console.print(
+        "\n  [yellow]Atenção:[/yellow] o Gold é reconstruído do Bronze pelo dbt. Para a purga "
+        "ser definitiva, remova também as linhas do Bronze e tire o produto do escopo de "
+        "ingestão (config.py), senão ele volta no próximo build."
+    )
+    console.print(
+        f"\n  Depois de executar, registre: "
+        f"[cyan]embrapa purge-orphan --banco {banco} --code {code} --mark-purged[/cyan]"
+    )
+
+
 if __name__ == "__main__":
     app()

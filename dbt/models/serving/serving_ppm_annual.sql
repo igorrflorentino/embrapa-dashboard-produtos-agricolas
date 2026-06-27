@@ -58,6 +58,7 @@ with ppm as (
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
     from {{ ref('gold_ppm_production') }}
+    where {{ hidden_code_predicate('ppm', 'product_code') }}
     group by reference_year, state_acronym, product_code, family
 
 ),
@@ -84,7 +85,7 @@ ppm_xwalk as (
         x.commodity_name,
         c.product_code as code
     from ppm_codes c
-    join {{ ref('commodity_crosswalk') }} x
+    join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'ppm'
         and c.product_code like x.code_prefix || '%'
 

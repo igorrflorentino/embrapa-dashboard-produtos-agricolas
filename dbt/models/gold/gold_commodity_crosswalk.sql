@@ -33,8 +33,11 @@
 
 with xwalk as (
 
+    -- The editable Curadoria catalog (dim_commodity_catalog), the SOT that replaced
+    -- the commodity_crosswalk seed. Same columns (commodity_id/commodity_name/source/
+    -- code_prefix) — the cutover was proven row-identical on real data (191=191, 0 diffs).
     select commodity_id, commodity_name, source, code_prefix
-    from {{ ref('commodity_crosswalk') }}
+    from {{ ref('dim_commodity_catalog') }}
 
 ),
 

@@ -80,6 +80,7 @@ with comex as (
         count(*)                    as source_rows,
         max(last_refresh)           as last_refresh
     from {{ ref('gold_comex_flows') }}
+    where {{ hidden_code_predicate('comex', 'ncm_code') }}
     group by reference_year, flow, ncm_code, state_acronym, country_code, family
 
 )

@@ -702,6 +702,132 @@ def fetch_banco_metadata(banco_id: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_commodity_catalog(banco: str | None = None):
+    """The CURRENT active commodity catalog (latest row per (codigo_commodity, banco),
+    active=true) from the append-only Curadoria log. Optionally scoped to one banco.
+    Raises NotFound when the log table doesn't exist yet (no catalog configured) — the
+    seam treats that as an empty catalog. Short TTL + bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+    )
+    where = "where banco = @banco" if banco else ""
+    sql = f"""
+        select codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
+               ciclo_de_vida, code_prefix, commodity_id
+        from (
+          select *, row_number() over (
+            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table}` {where}
+        )
+        where _rn = 1 and active
+    """
+    params = [bigquery.ScalarQueryParameter("banco", "STRING", banco)] if banco else []
+    return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_catalog_editors(resource: str):
+    """Distinct editor emails authorized for one catalog RESOURCE (research_inputs.
+    <catalog_editors>). Short TTL so a Console add/remove takes effect within the
+    window. Raises NotFound when the table doesn't exist — the seam treats that as
+    'no allowlist configured' (open by default). Bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_catalog_editors_table
+    )
+    sql = (
+        f"select distinct lower(trim(email)) as email from `{table}` "
+        "where email is not null and resource = @resource"
+    )
+    params = [bigquery.ScalarQueryParameter("resource", "STRING", resource)]
+    return run_query(sql, params)
+
+
+# Gold fact tables per source, for the orphan diff (DISTINCT code is column-pruned → cheap).
+_GOLD_CODE_SOURCES = {
+    "pevs": ("gold_pevs_production", "product_code"),
+    "comex": ("gold_comex_flows", "ncm_code"),
+    "comtrade": ("gold_comtrade_flows", "cmd_code"),
+    "pam": ("gold_pam_production", "product_code"),
+    "ppm": ("gold_ppm_production", "product_code"),
+}
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_orphan_commodities():
+    """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
+    the catalog, was REMOVED (current state active=false), and whose Gold data STILL
+    lingers (a code matching its prefix exists in the banco's Gold table). This is NOT
+    "every uncataloged Gold code" (the catalog is a cross-source bridge, not a full
+    registry — that diff would false-flag ~111 legitimate products); only a removal
+    leaves data behind. Raises NotFound when the catalog log is absent (→ no orphans).
+    Bounded by maximum_bytes_billed."""
+    settings = get_settings()
+    log = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+    )
+    tombstoned_sql = f"""
+        select codigo_commodity, banco, code_prefix, agrupamento, edited_at as removed_at from (
+          select *, row_number() over (
+            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{log}`
+        ) where _rn = 1 and not active
+    """
+    # Step 1 (cheap — scans only the small catalog log): the tombstoned entries. The
+    # COMMON case (nothing removed) returns here WITHOUT scanning any Gold table, so the
+    # editor's orphan read is fast unless a removal actually happened.
+    tomb = run_query(tombstoned_sql, [])
+    if tomb is None or tomb.empty:
+        return tomb
+    # Step 2: keep only those whose prefix still matches Gold codes in the banco (data
+    # lingers) — scanning ONLY the Gold tables for the bancos that have a removal.
+    bancos = {b for b in tomb["banco"].tolist() if b in _GOLD_CODE_SOURCES}
+    if not bancos:
+        return tomb.iloc[0:0]
+    gold_union = " union all ".join(
+        f"select '{src}' as src, {col} as code from "
+        f"`{sqlbuild.table_ref(settings, 'bq_gold_dataset', tbl)}`"
+        for src, (tbl, col) in _GOLD_CODE_SOURCES.items()
+        if src in bancos
+    )
+    sql = f"""
+        with tombstoned as ({tombstoned_sql}),
+        gold_codes as ({gold_union})
+        select distinct t.codigo_commodity, t.banco, t.code_prefix, t.agrupamento, t.removed_at
+        from tombstoned t
+        where exists (
+          select 1 from gold_codes g where g.src = t.banco and g.code like t.code_prefix || '%'
+        )
+    """
+    return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_lifecycle_status():
+    """Current lifecycle status per (element_kind, banco, code) from the lifecycle log
+    (latest-wins): the flagged_at + reason + purge note for each Descontinuado/purged
+    element. Raises NotFound when the log is absent (nothing marked yet)."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_catalog_lifecycle_log_table
+    )
+    sql = f"""
+        select element_kind, banco, code, status, reason, scheduled_purge_note,
+               edited_at as flagged_at
+        from (
+          select *, row_number() over (
+            partition by element_kind, banco, code order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table}`
+        ) where _rn = 1
+    """
+    return run_query(sql, [])
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_current_flow_market():
     """Current (customs_code, flow_code) → market from the flow-market log.
     Raises if the log table doesn't exist yet (no pair classified) — the seam
@@ -1083,6 +1209,196 @@ def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
     columns_types = {
         c["name"]: c["type"] for c in fetch_table_schema(banco_id, table_id)["columns"]
     }
+    flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
+    sql, params = sqlbuild.raw_table_count(ref, columns_types=columns_types, filters=flt)
+    df = run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
+    return int(df["n"].iloc[0]) if not df.empty else 0
+
+
+# ── Seed reference consultation (the "Referências" perspective) ────────────────
+# Read-only catalog of the dbt SEEDS a researcher may CONSULT (never edit here) to
+# confirm the reference values the pipeline relies on, and report a wrong value via
+# the feedback channel. Seeds materialize into the SILVER dataset (dbt_project.yml
+# seeds +schema = BQ_SILVER_DATASET). Each entry is (seed_id, label, editable,
+# description); seed_id is BOTH the BigQuery table name and the stable id /api/seed
+# resolves — the endpoint REFUSES any id not in this map (the security boundary, like
+# _INSPECT_TABLES). `editable` records whether the value is researcher-editable
+# *elsewhere* (the commodity catalog) vs engineer-only CALIBRATION: a wrong currency
+# factor silently rescales every historical value by 10^6–10^9, so those stay read-only.
+# Labels/descriptions are pt-BR (the end user reads them — project language rule).
+_SEED_CATALOG: list[tuple[str, str, bool, str]] = [
+    # NOTE: commodity_crosswalk is NOT here — it became the editable Curadoria catalog
+    # (research_inputs.commodity_catalog_log → dim_commodity_catalog), edited via the
+    # "Cadastro de commodities" admin view, not consulted as a read-only seed. The seeds
+    # below are all read-only CALIBRATION / source-faithful dimensions (engineer-owned).
+    (
+        "historical_currency_factors",
+        "Fatores de reforma monetária",
+        False,
+        "Multiplicadores que convertem valores históricos (Cruzeiro, Cruzado, …) para o "
+        "Real atual. Calibração de alta precisão: um valor errado distorce em milhões de "
+        "vezes todos os números anteriores a 1994.",
+    ),
+    (
+        "unit_family_conversions",
+        "Conversões de unidade",
+        False,
+        "Converte cada unidade de origem (t, m³, saca, …) para a unidade-base da sua "
+        "família. Fonte única da normalização de quantidade.",
+    ),
+    (
+        "product_unit_factors",
+        "Fatores de unidade por produto",
+        False,
+        "Override de conversão para unidades cujo fator depende do produto "
+        "(saca, arroba, bushel, barril).",
+    ),
+    (
+        "comex_ncm",
+        "NCM (COMEX)",
+        False,
+        "Descrições dos códigos NCM no escopo COMEX (dimensão do MDIC).",
+    ),
+    (
+        "comex_ncm_succession",
+        "Sucessão de NCM (COMEX)",
+        False,
+        "Mapa de NCM antigo → atual, para um histórico transparente quando um código é renumerado.",
+    ),
+    (
+        "comex_country",
+        "Países (COMEX)",
+        False,
+        "Dimensão de país do MDIC (CO_PAIS → ISO-3 + nome).",
+    ),
+    (
+        "comex_unit",
+        "Unidades estatísticas (COMEX)",
+        False,
+        "Dimensão de unidade estatística do MDIC (CO_UNID → rótulo).",
+    ),
+    (
+        "comex_via",
+        "Vias de transporte (COMEX)",
+        False,
+        "Dimensão de via de transporte do MDIC (CO_VIA → rótulo).",
+    ),
+    (
+        "comtrade_hs",
+        "HS (COMTRADE)",
+        False,
+        "Descrições dos códigos HS no escopo COMTRADE (dimensão de mercadoria da ONU).",
+    ),
+    (
+        "comtrade_hs_succession",
+        "Sucessão de HS (COMTRADE)",
+        False,
+        "Mapa de HS antigo → atual, para um histórico transparente entre revisões do "
+        "Sistema Harmonizado.",
+    ),
+    (
+        "comtrade_country",
+        "Áreas/países (COMTRADE)",
+        False,
+        "Dimensão de área M49 da ONU → ISO-3 + nome (reporter e parceiro).",
+    ),
+    (
+        "comtrade_unit",
+        "Unidades de quantidade (COMTRADE)",
+        False,
+        "Dimensão de unidade de quantidade do COMTRADE → família física.",
+    ),
+    (
+        "ibge_municipio_mesh",
+        "Malha municipal (IBGE)",
+        False,
+        "Cada município → suas regiões (UF, grande região, meso/micro e "
+        "intermediária/imediata). ~5570 linhas, regenerada por script.",
+    ),
+]
+_SEED_BY_ID: dict[str, tuple[str, str, bool, str]] = {s[0]: s for s in _SEED_CATALOG}
+
+
+def seed_tables() -> list[dict]:
+    """The read-only seed reference tables a researcher may consult ('Referências').
+
+    Banco-agnostic (the seeds are shared reference data). Returns
+    ``[{id, label, editable, description}]`` straight from the static catalog — no
+    BigQuery round-trip (row counts arrive when a seed is opened, via its schema)."""
+    return [
+        {"id": sid, "label": label, "editable": editable, "description": desc}
+        for sid, label, editable, desc in _SEED_CATALOG
+    ]
+
+
+def _resolve_seed_table(seed_id: str) -> str:
+    """Resolve a consultable seed id to its fully-qualified ``project.silver.<seed>``.
+
+    The SECURITY boundary of the seed endpoint: an id outside _SEED_CATALOG raises
+    ValueError (→ 400), so no caller can read an arbitrary BigQuery table."""
+    if seed_id not in _SEED_BY_ID:
+        raise ValueError(
+            f"seed {seed_id!r} is not a consultable reference table; "
+            f"choose one of {list(_SEED_BY_ID)}"
+        )
+    return sqlbuild.table_ref(get_settings(), "bq_silver_dataset", seed_id)
+
+
+@cache.memoize()
+def fetch_seed_schema(seed_id: str) -> dict:
+    """Column names + types + row count for a consultable seed (FREE — table metadata,
+    no query). Drives the grid headers AND the order-by/filter column allowlist."""
+    ref = _resolve_seed_table(seed_id)
+    table = _client().get_table(ref)
+    columns = [{"name": f.name, "type": f.field_type} for f in table.schema]
+    return {"columns": columns, "num_rows": int(table.num_rows or 0)}
+
+
+@cache.memoize()
+def fetch_seed_rows(
+    seed_id: str,
+    *,
+    limit: int,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: tuple = (),
+):
+    """A page of rows for a consultable seed. Mirrors :func:`fetch_table_rows` (same
+    HYBRID free-``tabledata.list`` browse vs cost-guarded ORDER/filter query, same
+    column-allowlist-from-schema and value-binding), but seed-scoped to the Silver
+    reference tables. Read-only — there is no write counterpart for seeds."""
+    ref = _resolve_seed_table(seed_id)
+    lim = max(1, min(int(limit), sqlbuild.RAW_TABLE_MAX_LIMIT))
+    off = max(0, int(offset))
+    if not order_by and not filters:
+        return (
+            _client()
+            .list_rows(ref, max_results=lim, start_index=off)
+            .to_dataframe(create_bqstorage_client=False)
+        )
+    columns_types = {c["name"]: c["type"] for c in fetch_seed_schema(seed_id)["columns"]}
+    flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
+    sql, params = sqlbuild.raw_table_rows(
+        ref,
+        columns_types=columns_types,
+        limit=lim,
+        offset=off,
+        order_by=order_by,
+        order_dir=order_dir,
+        filters=flt,
+    )
+    return run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)
+
+
+@cache.memoize()
+def fetch_seed_count(seed_id: str, filters: tuple = ()) -> int:
+    """Total matching rows for a consultable seed (the pagination denominator).
+    Unfiltered → the cached ``num_rows`` (free); filtered → a cost-guarded ``COUNT(*)``."""
+    if not filters:
+        return fetch_seed_schema(seed_id)["num_rows"]
+    ref = _resolve_seed_table(seed_id)
+    columns_types = {c["name"]: c["type"] for c in fetch_seed_schema(seed_id)["columns"]}
     flt = [{"col": c, "op": o, "val": v} for (c, o, v) in filters]
     sql, params = sqlbuild.raw_table_count(ref, columns_types=columns_types, filters=flt)
     df = run_query(sql, params, max_bytes=RAW_TABLE_MAX_BYTES)

@@ -83,6 +83,9 @@ function AppShell({
   const [shared,   setShared]   = React.useState(false);
   const [navOpen,  setNavOpen]  = React.useState(false);
   const [reportOpen, setReportOpen] = React.useState(false);
+  // Optional prefill (view/category/message) for a CONTEXTUAL feedback open (e.g. the
+  // Referências "report a value" action); null = the generic "Reportar problema" button.
+  const [reportPrefill, setReportPrefill] = React.useState(null);
 
   // a11y: Escape closes the citation modal (mirrors its backdrop click + Fechar).
   React.useEffect(() => {
@@ -251,7 +254,14 @@ function AppShell({
   const inTextCite = `(Embrapa, ${editoraYear})`;
 
   const onCite = () => setCiteOpen(true);
-  const onReport = () => setReportOpen(true);
+  const onReport = () => { setReportPrefill(null); setReportOpen(true); };
+  // Expose a global so any view can open the feedback dialog PREFILLED (the Referências
+  // "report a value" loop). The prefill merges into the modal's context, where message/
+  // category/view override the auto-captured ones.
+  React.useEffect(() => {
+    window.openFeedback = (prefill) => { setReportPrefill(prefill || null); setReportOpen(true); };
+    return () => { if (window.openFeedback) { delete window.openFeedback; } };
+  }, []);
   const onShare = async () => {
     // Reuse the SAME permalink builder the citation uses (buildPermalink, above) —
     // one codec path, so the Share URL and the cite's "Disponível em:" can't drift.
@@ -470,6 +480,12 @@ function AppShell({
               section + the "Análises curadas" group in views.js, and build dbt with
               `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
               ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
+          <div className="side-section">Curadoria</div>
+          <div className={'side-item ' + (infoPage === 'cadastro_commodities' ? 'active' : '')}
+               {...clickable(() => onInfo('cadastro_commodities'))}>
+            <window.Icon name="inventory_2"/>Cadastro de commodities
+          </div>
+
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>
@@ -489,6 +505,10 @@ function AppShell({
           <div className={'side-item ' + (infoPage === 'glossary' ? 'active' : '')}
                {...clickable(() => onInfo('glossary'))}>
             <window.Icon name="menu_book"/>Glossário global
+          </div>
+          <div className={'side-item ' + (infoPage === 'referencias' ? 'active' : '')}
+               {...clickable(() => onInfo('referencias'))}>
+            <window.Icon name="table_chart"/>Tabelas de referência
           </div>
           <div className={'side-item ' + (infoPage === 'health' ? 'active' : '')}
                {...clickable(() => onInfo('health'))}>
@@ -555,7 +575,7 @@ function AppShell({
       <window.FeedbackModal
         open={reportOpen}
         onClose={() => setReportOpen(false)}
-        context={{ url: buildPermalink(), view, banco: database }}
+        context={{ url: buildPermalink(), view, banco: database, ...(reportPrefill || {}) }}
       />
 
       <footer className="footer">

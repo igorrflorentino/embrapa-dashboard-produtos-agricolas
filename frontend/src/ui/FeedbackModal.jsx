@@ -19,11 +19,19 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
   const [status, setStatus] = React.useState('idle'); // idle | sending | done | error
   const [errMsg, setErrMsg] = React.useState('');
 
-  // Reset to a clean form each time the dialog opens.
+  // Keep the latest context in a ref so the open-effect can seed from it WITHOUT adding
+  // `context` (a fresh object literal each render) to the deps — which would reset the
+  // textarea on every parent re-render, wiping what the user is typing.
+  const ctxRef = React.useRef(context);
+  ctxRef.current = context;
+
+  // Reset the form each time the dialog opens, SEEDING from any prefill (category/message)
+  // — the Referências "report a value" loop opens the dialog pre-filled.
   React.useEffect(() => {
     if (open) {
-      setCategory('bug');
-      setMessage('');
+      const c = ctxRef.current || {};
+      setCategory(c.category || 'bug');
+      setMessage(c.message || '');
       setStatus('idle');
       setErrMsg('');
     }

@@ -1,431 +1,453 @@
-"""FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
-(leadership decision, 2026-06): partially built + not yet validated. The UI entry
-points are hidden and the app runs fully decoupled; this module is reached only via
-the (UI-hidden) ``/api/curation/*`` routes and stays inert unless dbt is built with
-``enable_curation: true``. Kept as the scaffold for the real future implementation.
+"""Curadoria (catalog) — what ENTERS and EXITS the dashboard.
 
-Append-only curation writers — the backend of the dashboard's "Save" button.
+This is the feature the project lead reserved the name "Curadoria" for: the
+researcher-managed catalog of which commodities are in the dashboard, their
+agrupamento (cross-source concept), industrialização, ciclo de vida (in/out) and
+the ``code_prefix`` used for the cross-source bridge. It is the editable successor
+to the version-controlled ``commodity_crosswalk`` seed (the seed and this catalog
+are redundant — confirmed on real data; the catalog becomes the single source of
+truth and ``gold_commodity_crosswalk`` reads it).
 
-The dashboard curates at two grains, each backed by an append-only log here:
-  * per-CODE industrialization (``record_code_industrialization`` →
-    ``research_inputs.code_industrialization_log``), the editor's primary grain; and
-  * (customs procedure × flow) market-nature (``record_flow_market`` →
-    ``research_inputs.flow_market_log``).
-The Gold tables are never touched; the Type-2 history (valid_from / valid_to /
-is_current) is derived downstream by the SCD2 dbt views.
+NOT to be confused with ``serving/attribute_engineering.py`` (the FROZEN feature
+that builds derived columns — per-code industrialization + market-nature). Both
+reuse the shared primitives in ``serving/research_inputs.py``.
 
-Two side effects matter:
-  1. The author is taken from the IAP-verified header (``edited_by``), never from
-     the dashboard's service account — every edit is attributable to a person.
-  2. After the insert, the relevant live-classification cache is invalidated so
-     the next read reflects the new value immediately (the marts are untouched, so
-     their caches are left alone).
+Design (honouring the lead's decisions):
+  * **Append-only** log (``research_inputs.commodity_catalog_log``): every edit is
+    an immutable, IAP-attributed row; the CURRENT catalog is the latest row per
+    ``(codigo_commodity, banco)``. **No row is ever destroyed** — a removal appends
+    an ``active=false`` tombstone (the entry leaves the catalog → its Gold data
+    becomes an orphan, handled non-destructively by the lifecycle, never auto-deleted).
+  * **Composite key** ``(codigo_commodity, banco)``: both required — a blank either
+    breaks the key, so the writer REJECTS it (fail loud) rather than ignoring it.
+  * **``code_prefix`` is KEPT** (the lead's decision): coarse prefixes auto-absorb
+    future sub-codes. Because overlapping prefixes within a banco silently DOUBLE
+    every downstream sum (today caught only by the dbt ``unique_combination`` test),
+    the writer validates **prefix-disjointness on write** — the one non-obvious gate
+    that makes this seed safe to hand to researchers.
+  * **Per-catalog allowlist** (``research_inputs.catalog_editors`` keyed by resource):
+    each cadastro has its OWN authorized editors, distinct from the
+    attribute-engineering ``curators`` table.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
+import re
+import unicodedata
 from collections.abc import Mapping
 
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from embrapa_commodities.config import Settings, get_settings
 from embrapa_commodities.gcp.bigquery import ensure_dataset
-from embrapa_commodities.gcp.clients import resolve_bq_client
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
 from embrapa_commodities.serving.iap import author_email_from_headers
+from embrapa_commodities.serving.research_inputs import (
+    MAX_NOTE_LEN,
+    MAX_STAGE_LEN,
+    _bq_client,
+    _change_id_seen,
+    _resolve_change_id,
+)
 
 logger = logging.getLogger(__name__)
 
-# Free-text length caps. industrialization_level / note are intentionally NOT
-# allowlisted: the research curation flow lets a researcher coin arbitrary level
-# labels and notes (open vocabulary by design — an allowlist would break that UX).
-# These caps are a cheap guard against an absurdly large value (a runaway paste /
-# malformed client) bloating the immutable audit row, not a content restriction.
-MAX_STAGE_LEN = 200
-MAX_NOTE_LEN = 2000
+# The resource id of the commodity catalog in the per-catalog allowlist.
+COMMODITY_CATALOG_RESOURCE = "commodity_catalog"
 
-# The per-CODE industrialization log — the active curation grain. Explicit schema —
-# autodetect is never used (it drifts silently across runs).
-CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
-    bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("code", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("industrialization_level", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("note", "STRING", mode="NULLABLE"),
+# Append-only commodity-catalog log. Explicit schema (autodetect drifts silently).
+COMMODITY_CATALOG_LOG_SCHEMA = [
+    bigquery.SchemaField("codigo_commodity", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("banco", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("agrupamento", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("descricao_commodity", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("industrializacao", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("ciclo_de_vida", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("code_prefix", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("commodity_id", "STRING", mode="NULLABLE"),
+    # active=false is a tombstone: the entry has left the catalog (→ Gold orphan).
+    bigquery.SchemaField("active", "BOOL", mode="REQUIRED"),
     bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
     bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
 ]
 
-# The (customs procedure × flow) → economic-purpose market log. A `market` of ''
-# clears the pair (latest-wins on read). Backs the market-nature analysis.
-FLOW_MARKET_LOG_SCHEMA = [
-    bigquery.SchemaField("customs_code", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("flow_code", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("market", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
-    bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
-]
-
-
-# The curator ALLOWLIST — who may POST a curation edit (authorization, distinct
-# from IAP authentication). Console-managed: add/remove a curator by INSERT/DELETE
-# here, no redeploy. Empty/absent table → no allowlist (any IAP-authenticated
-# caller may curate).
-CURATORS_SCHEMA = [
+# Per-CATALOG editor allowlist (one row per (resource, email)).
+CATALOG_EDITORS_SCHEMA = [
+    bigquery.SchemaField("resource", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("added_by", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("added_at", "TIMESTAMP", mode="NULLABLE"),
 ]
 
-# Sparse per-banco metadata overrides (one row per banco the operator has touched).
-# Every override column is NULLABLE — a NULL means "keep the registry default".
-BANCO_METADATA_SCHEMA = [
-    bigquery.SchemaField("banco_id", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("maturity", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("maturity_note", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("maturity_date", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_years", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_atualizacao", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("cobertura_granularidade", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("updated_by", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="NULLABLE"),
-]
+
+def _catalog_log_ref(cfg: Settings) -> str:
+    return sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_commodity_catalog_log_table)
 
 
-def _bq_client(settings: Settings) -> bigquery.Client:
-    return resolve_bq_client(settings)
-
-
-def ensure_curators_table(
+def ensure_commodity_catalog_log_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> str:
-    """Create the curator allowlist table if missing; return its FQN. Idempotent.
-
-    Tiny (one row per curator), so no clustering. Manage rows in the BigQuery
-    Console (or via SQL) to control who may curate — no redeploy needed.
-    """
+    """Create the append-only commodity-catalog log if missing (clustered by the
+    key). Idempotent — called on first write."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curators_table)
+    table_fqn = _catalog_log_ref(cfg)
     ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    bq.create_table(bigquery.Table(table_fqn, schema=CURATORS_SCHEMA), exists_ok=True)
-    logger.info("Curators allowlist table ready at %s", table_fqn)
-    return table_fqn
-
-
-def ensure_banco_metadata_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the operator-editable banco-metadata override table if missing.
-
-    Idempotent; returns its FQN. Tiny (one row per overridden banco), so no
-    clustering. Manage rows in the BigQuery Console (or via SQL) to flip a banco's
-    maturity / note / coverage with no redeploy — e.g.::
-
-        MERGE `<project>.research_inputs.banco_metadata` t
-        USING (SELECT 'un_comtrade' banco_id, 'estavel' maturity) s
-        ON t.banco_id = s.banco_id
-        WHEN MATCHED THEN UPDATE SET maturity = s.maturity, updated_at = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT (banco_id, maturity, updated_at)
-            VALUES (s.banco_id, s.maturity, CURRENT_TIMESTAMP());
-    """
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_banco_metadata_table)
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    bq.create_table(bigquery.Table(table_fqn, schema=BANCO_METADATA_SCHEMA), exists_ok=True)
-    logger.info("Banco metadata override table ready at %s", table_fqn)
-    return table_fqn
-
-
-def _resolve_change_id(change_id: str | None) -> tuple[str, bool]:
-    """Return ``(change_id, client_supplied)``. A non-empty client value is the
-    IDEMPOTENCY KEY (a retried/double-clicked save reuses it); when absent we mint
-    a fresh uuid (which can never pre-exist, so it needs no dedupe check)."""
-    cleaned = (change_id or "").strip()
-    return (cleaned, True) if cleaned else (uuid.uuid4().hex, False)
-
-
-def _change_id_seen(bq: bigquery.Client, table_fqn: str, change_id: str) -> bool:
-    """True when a row with this client-supplied ``change_id`` already exists in
-    the log — the dedupe guard that makes a retried write a no-op. The lookup is a
-    single-key scan on a clustered table (cheap). NOTE: this is a best-effort
-    SELECT-then-INSERT, not a transaction — two near-simultaneous retries on
-    DIFFERENT instances could still both insert. That's acceptable: both rows are
-    byte-identical and the SCD2 view collapses them by latest edit, so the worst
-    case is one redundant audit row, never a wrong current value."""
-    sql = f"select 1 from `{table_fqn}` where change_id = @change_id limit 1"
-    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
-    return any(True for _ in job.result())
-
-
-# ── Per-CODE industrialization log (the active curation grain) ────────────────
-def ensure_code_industrialization_log_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the per-code industrialization log dataset + table if missing.
-
-    Follows the house auto-create pattern (like the Bronze ensure_* helpers) so a
-    fresh project needs no manual DDL, clustered by (source, code) so the SCD2
-    window scans one code's edits cheaply. Idempotent.
-    """
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(
-        cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
-    )
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    table = bigquery.Table(table_fqn, schema=CODE_INDUSTRIALIZATION_LOG_SCHEMA)
-    table.clustering_fields = ["source", "code"]
+    table = bigquery.Table(table_fqn, schema=COMMODITY_CATALOG_LOG_SCHEMA)
+    table.clustering_fields = ["banco", "codigo_commodity"]
     bq.create_table(table, exists_ok=True)
-    logger.info("Code-industrialization log ready at %s", table_fqn)
+    logger.info("Commodity-catalog log ready at %s", table_fqn)
     return table_fqn
 
 
-def _validate_code_edit(source: str, code: str, level: str, note: str | None) -> None:
-    """Validate a per-code edit: required keys present and free text within caps.
-
-    ``industrialization_level`` is open-vocabulary (the UI offers
-    bruta/processada/misturado, but an allowlist would break a future finer
-    scheme); the cap is only a sanity bound on the immutable audit row.
-    """
-    if not source or not code or not level:
-        raise ValueError("source, code and industrialization_level are required.")
-    if len(level) > MAX_STAGE_LEN:
-        raise ValueError(f"industrialization_level exceeds {MAX_STAGE_LEN} chars.")
-    if note is not None and len(note) > MAX_NOTE_LEN:
-        raise ValueError(f"note exceeds {MAX_NOTE_LEN} chars.")
-
-
-def record_code_industrialization(
-    source: str,
-    code: str,
-    industrialization_level: str,
-    headers: Mapping[str, str],
-    *,
-    note: str | None = None,
-    change_id: str | None = None,
+def ensure_catalog_editors_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
-    invalidate_cache: bool = True,
-) -> dict:
-    """Append one per-code industrialization edit and invalidate its cache.
+) -> str:
+    """Create the per-catalog editor allowlist table if missing. Idempotent.
 
-    ``headers`` is the inbound request's headers (``flask.request.headers`` in a
-    webapi route); the author email is read from the IAP-verified header (never the
-    service account). Parameterized DML gives read-after-write consistency for the
-    SCD2 view; ``change_id`` is an optional client-supplied idempotency key — a
-    retried/double-clicked save reusing it is a no-op. Keyed by (source, code) →
-    industrialization_level. Returns the row as written. Raises on empty inputs,
-    an over-length level/note, or a missing author with no dev fallback.
-    """
+    Console-managed: ``INSERT (resource, email) VALUES ('commodity_catalog', 'a@x')``
+    to authorize an editor — no redeploy. Empty/absent → any IAP-authenticated caller
+    may edit (the same open-by-default posture as the curators allowlist)."""
     cfg = settings or get_settings()
-    source = (source or "").strip()
-    code = (code or "").strip()
-    industrialization_level = (industrialization_level or "").strip()
-    note = note.strip() if note else note
-    _validate_code_edit(source, code, industrialization_level, note)
-
-    edited_by = author_email_from_headers(
-        headers,
-        dev_fallback=cfg.curation_dev_author,
-        audience=cfg.iap_audience,
-    )
-    change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(
-        cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
-    )
-    # Self-heal the log table on a fresh project (mirrors record_flow_market).
-    ensure_code_industrialization_log_table(cfg, bq)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_catalog_editors_table)
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    bq.create_table(bigquery.Table(table_fqn, schema=CATALOG_EDITORS_SCHEMA), exists_ok=True)
+    logger.info("Catalog-editors allowlist table ready at %s", table_fqn)
+    return table_fqn
 
-    if supplied and _change_id_seen(bq, table_fqn, change_id):
-        logger.info(
-            "Curation(code): duplicate change_id %s ignored (%s:%s)", change_id, source, code
-        )
-        return {
-            "source": source,
-            "code": code,
-            "industrialization_level": industrialization_level,
-            "note": note,
-            "edited_by": edited_by,
-            "change_id": change_id,
-            "deduped": True,
-        }
 
+def _slug(name: str | None) -> str:
+    """ASCII slug of an agrupamento → commodity_id (matches the seed's slugs:
+    'Castanha-do-pará' → 'castanha_do_para', 'Açaí' → 'acai')."""
+    s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+
+
+def _validate_catalog_edit(codigo_commodity: str, banco: str, ciclo_de_vida: str | None) -> None:
+    """The composite key (codigo_commodity, banco) is required — a blank either breaks
+    the key, so we REJECT (fail loud) instead of silently dropping the row. Messages are
+    pt-BR: a researcher reads them (the route surfaces ``str(exc)`` on a 400)."""
+    if not codigo_commodity or not banco:
+        raise ValueError("codigo_commodity e banco são obrigatórios (a chave do catálogo).")
+    if ciclo_de_vida is not None and len(ciclo_de_vida) > MAX_STAGE_LEN:
+        raise ValueError(f"ciclo_de_vida excede {MAX_STAGE_LEN} caracteres.")
+
+
+def _current_prefixes(bq: bigquery.Client, table_fqn: str, banco: str) -> list[tuple[str, str]]:
+    """Current active ``(codigo_commodity, code_prefix)`` for a banco (latest-wins).
+    ``[]`` when the log table doesn't exist yet (the first write has no conflicts)."""
     sql = f"""
-        insert into `{table_fqn}`
-            (source, code, industrialization_level, note, edited_by, edited_at, change_id)
-        values
-            (@source, @code, @level, @note, @edited_by, current_timestamp(), @change_id)
+        select codigo_commodity, code_prefix from (
+          select codigo_commodity, code_prefix, active, row_number() over (
+            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table_fqn}` where banco = @banco
+        ) where _rn = 1 and active
     """
-    params = [
-        bigquery.ScalarQueryParameter("source", "STRING", source),
-        bigquery.ScalarQueryParameter("code", "STRING", code),
-        bigquery.ScalarQueryParameter("level", "STRING", industrialization_level),
-        bigquery.ScalarQueryParameter("note", "STRING", note),
-        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
-        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
-    ]
-    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-    logger.info(
-        "Curation(code): %s:%s -> %s by %s", source, code, industrialization_level, edited_by
-    )
-
-    if invalidate_cache:
-        invalidate_code_industrialization_cache()
-
-    return {
-        "source": source,
-        "code": code,
-        "industrialization_level": industrialization_level,
-        "note": note,
-        "edited_by": edited_by,
-        "change_id": change_id,
-        "deduped": False,
-    }
-
-
-def invalidate_code_industrialization_cache() -> None:
-    """Drop the cached per-code classification read so the next query is fresh.
-
-    Best-effort: a no-op if the cache is not bound to an app (e.g. a CLI-driven
-    write outside the webapi server). With the per-instance ``SimpleCache`` this
-    clears only the current process — making the edit instant on the writing
-    instance; other instances converge within the short classification TTL
-    (``CACHE_CLASSIFICATION_TIMEOUT``). That bound is what lets multi-instance
-    Cloud Run run on ``SimpleCache`` without ``RedisCache`` (see ``serving.cache``).
-    """
+    params = [bigquery.ScalarQueryParameter("banco", "STRING", banco)]
     try:
-        # flask-caching's delete_memoized bumps a per-function VERSION sentinel
-        # rather than deleting each cached entry: the next read computes a fresh
-        # key and misses, so subsequent reads see new data immediately. The old
-        # entries are orphaned (unreferenced) and simply expire at their TTL.
-        cache.delete_memoized(gateway.fetch_current_code_industrialization)
-    except Exception as exc:  # pragma: no cover - cache unbound / backend down
-        logger.warning("Could not invalidate code-industrialization cache: %s", exc)
+        job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+        return [(r.codigo_commodity, r.code_prefix) for r in job.result()]
+    except NotFound:
+        return []
 
 
-# ── Flow-market log (customs procedure × flow → economic-purpose market) ──────
-def ensure_flow_market_log_table(
-    settings: Settings | None = None,
-    client: bigquery.Client | None = None,
-) -> str:
-    """Create the flow-market log dataset + table if missing (clustered by the
-    pair). Idempotent — called on first write."""
-    cfg = settings or get_settings()
-    bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
-    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    table = bigquery.Table(table_fqn, schema=FLOW_MARKET_LOG_SCHEMA)
-    table.clustering_fields = ["customs_code", "flow_code"]
-    bq.create_table(table, exists_ok=True)
-    logger.info("Flow-market log ready at %s", table_fqn)
-    return table_fqn
+def _assert_prefix_disjoint(
+    codigo_commodity: str, code_prefix: str, existing: list[tuple[str, str]]
+) -> None:
+    """Reject a code_prefix that overlaps another active prefix in the SAME banco
+    (one is a prefix of the other) — overlapping prefixes fan out the cross-source
+    LEFT JOIN and SILENTLY DOUBLE every downstream sum. Updating the same key is fine.
+    """
+    for other_codigo, other_prefix in existing:
+        if other_codigo == codigo_commodity:
+            continue  # same entry being updated — not a conflict
+        if code_prefix.startswith(other_prefix) or other_prefix.startswith(code_prefix):
+            raise ValueError(
+                f"O prefixo {code_prefix!r} se sobrepõe ao prefixo {other_prefix!r} "
+                f"(commodity {other_codigo!r}) já cadastrado neste banco — prefixos "
+                "sobrepostos duplicam as somas. Use prefixos disjuntos."
+            )
 
 
-def record_flow_market(
-    customs_code: str,
-    flow_code: str,
-    market: str,
+def record_commodity_catalog(
+    codigo_commodity: str,
+    banco: str,
     headers: Mapping[str, str],
     *,
+    agrupamento: str | None = None,
+    descricao_commodity: str | None = None,
+    industrializacao: str | None = None,
+    ciclo_de_vida: str | None = None,
+    code_prefix: str | None = None,
+    commodity_id: str | None = None,
     change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
     invalidate_cache: bool = True,
 ) -> dict:
-    """Append one (customs_code, flow_code) → market edit (market='' clears it).
-    Auto-creates the log on first write. IAP author capture + read-after-write +
-    optional ``change_id`` idempotency key, mirroring
-    :func:`record_code_industrialization`."""
+    """Append one commodity-catalog edit (upsert by latest-wins). IAP author capture +
+    read-after-write + optional ``change_id`` idempotency, mirroring the
+    attribute-engineering writers. ``code_prefix`` defaults to ``codigo_commodity`` and
+    ``commodity_id`` to the agrupamento slug. Validates the key + prefix-disjointness;
+    raises ValueError on a bad key / over-length / overlapping prefix."""
     cfg = settings or get_settings()
-    customs_code, flow_code, market = _validate_flow_market_edit(customs_code, flow_code, market)
+    codigo_commodity = (codigo_commodity or "").strip()
+    banco = (banco or "").strip()
+    ciclo_de_vida = ciclo_de_vida.strip() if ciclo_de_vida else ciclo_de_vida
+    _validate_catalog_edit(codigo_commodity, banco, ciclo_de_vida)
+    # code_prefix backs the cross-source ``LIKE prefix||'%'`` bridge. A blank one
+    # (e.g. whitespace, which is truthy so the ``or codigo_commodity`` fallback is
+    # skipped before .strip()) collapses to ``''`` → ``LIKE '%'`` → one commodity
+    # absorbs EVERY code in the banco (silent fan-out). A LIKE wildcard ('%' or '_')
+    # in the prefix breaks the match the same way. Reject both at the write gate.
+    code_prefix = (code_prefix or codigo_commodity).strip()
+    if not code_prefix:
+        raise ValueError("code_prefix não pode ser vazio.")
+    if "%" in code_prefix or "_" in code_prefix:
+        raise ValueError("code_prefix não pode conter curingas LIKE ('%' ou '_').")
+    agrupamento = agrupamento.strip() if agrupamento else agrupamento
+    commodity_id = (commodity_id or _slug(agrupamento)).strip() or None
+    # agrupamento names the commodity (commodity_name) AND seeds commodity_id; both
+    # are NOT NULL downstream (dim_commodity_catalog → gold_commodity_crosswalk). A
+    # blank one yields NULLs that fail the nightly prod ``dbt build`` not_null tests —
+    # so fail loud HERE (a 400 the researcher can fix), never at build time.
+    if not commodity_id or not agrupamento:
+        raise ValueError("agrupamento é obrigatório (nomeia a commodity e gera o commodity_id).")
+    if descricao_commodity is not None and len(descricao_commodity) > MAX_NOTE_LEN:
+        raise ValueError(f"descricao_commodity excede {MAX_NOTE_LEN} caracteres.")
 
     edited_by = author_email_from_headers(
         headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
     )
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
-    ensure_flow_market_log_table(cfg, bq)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+    table_fqn = _catalog_log_ref(cfg)
+    ensure_commodity_catalog_log_table(cfg, bq)
+
+    # Prefix-disjointness guard (read current state AFTER ensure, so the table exists).
+    _assert_prefix_disjoint(codigo_commodity, code_prefix, _current_prefixes(bq, table_fqn, banco))
 
     if supplied and _change_id_seen(bq, table_fqn, change_id):
         logger.info(
-            "Curation(flow): duplicate change_id %s ignored (%s×%s)",
-            change_id,
-            customs_code,
-            flow_code,
+            "Catalog: duplicate change_id %s ignored (%s:%s)", change_id, banco, codigo_commodity
         )
-        return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=True)
+        return _catalog_row(
+            codigo_commodity,
+            banco,
+            agrupamento,
+            descricao_commodity,
+            industrializacao,
+            ciclo_de_vida,
+            code_prefix,
+            commodity_id,
+            True,
+            edited_by,
+            change_id,
+            deduped=True,
+        )
+    _insert_catalog_row(
+        bq,
+        table_fqn,
+        codigo_commodity,
+        banco,
+        agrupamento,
+        descricao_commodity,
+        industrializacao,
+        ciclo_de_vida,
+        code_prefix,
+        commodity_id,
+        True,
+        edited_by,
+        change_id,
+    )
+    logger.info("Catalog: %s:%s -> active by %s", banco, codigo_commodity, edited_by)
+    if invalidate_cache:
+        invalidate_commodity_catalog_cache()
+    return _catalog_row(
+        codigo_commodity,
+        banco,
+        agrupamento,
+        descricao_commodity,
+        industrializacao,
+        ciclo_de_vida,
+        code_prefix,
+        commodity_id,
+        True,
+        edited_by,
+        change_id,
+        deduped=False,
+    )
+
+
+def remove_commodity_catalog(
+    codigo_commodity: str,
+    banco: str,
+    headers: Mapping[str, str],
+    *,
+    change_id: str | None = None,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+    invalidate_cache: bool = True,
+) -> dict:
+    """Append an ``active=false`` TOMBSTONE — the entry leaves the catalog (its Gold
+    data becomes an orphan, handled non-destructively by the lifecycle; NEVER auto-
+    deleted). The historical rows stay; only the current state flips to removed."""
+    cfg = settings or get_settings()
+    codigo_commodity = (codigo_commodity or "").strip()
+    banco = (banco or "").strip()
+    _validate_catalog_edit(codigo_commodity, banco, None)
+    edited_by = author_email_from_headers(
+        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+    )
+    change_id, supplied = _resolve_change_id(change_id)
+    bq = client or _bq_client(cfg)
+    table_fqn = _catalog_log_ref(cfg)
+    ensure_commodity_catalog_log_table(cfg, bq)
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        return _catalog_row(
+            codigo_commodity,
+            banco,
+            None,
+            None,
+            None,
+            None,
+            codigo_commodity,
+            None,
+            False,
+            edited_by,
+            change_id,
+            deduped=True,
+        )
+    # A tombstone must reference a currently-ACTIVE entry (removing a never-cataloged
+    # key would write a phantom tombstone → a false orphan), and must carry that entry's
+    # REAL code_prefix — orphan detection keys off the tombstone's prefix, so writing the
+    # codigo here would blind detection for any coarse-prefix entry (codigo != prefix).
+    active = _current_prefixes(bq, table_fqn, banco)
+    code_prefix = next((pfx for cod, pfx in active if cod == codigo_commodity), None)
+    if code_prefix is None:
+        raise ValueError(
+            f"{codigo_commodity!r} não está cadastrada (ativa) em {banco!r} — nada a remover."
+        )
+    _insert_catalog_row(
+        bq,
+        table_fqn,
+        codigo_commodity,
+        banco,
+        None,
+        None,
+        None,
+        None,
+        code_prefix,
+        None,
+        False,
+        edited_by,
+        change_id,
+    )
+    logger.info("Catalog: %s:%s -> removed (tombstone) by %s", banco, codigo_commodity, edited_by)
+    if invalidate_cache:
+        invalidate_commodity_catalog_cache()
+    return _catalog_row(
+        codigo_commodity,
+        banco,
+        None,
+        None,
+        None,
+        None,
+        code_prefix,
+        None,
+        False,
+        edited_by,
+        change_id,
+        deduped=False,
+    )
+
+
+def _insert_catalog_row(
+    bq,
+    table_fqn,
+    codigo_commodity,
+    banco,
+    agrupamento,
+    descricao_commodity,
+    industrializacao,
+    ciclo_de_vida,
+    code_prefix,
+    commodity_id,
+    active,
+    edited_by,
+    change_id,
+) -> None:
+    """Append one catalog row with a server-side timestamp (parameterized DML)."""
     sql = f"""
         insert into `{table_fqn}`
-            (customs_code, flow_code, market, edited_by, edited_at, change_id)
+            (codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
+             ciclo_de_vida, code_prefix, commodity_id, active, edited_by, edited_at, change_id)
         values
-            (@customs_code, @flow_code, @market, @edited_by, current_timestamp(), @change_id)
+            (@codigo_commodity, @banco, @agrupamento, @descricao_commodity, @industrializacao,
+             @ciclo_de_vida, @code_prefix, @commodity_id, @active, @edited_by,
+             current_timestamp(), @change_id)
     """
+    p = bigquery.ScalarQueryParameter
     params = [
-        bigquery.ScalarQueryParameter("customs_code", "STRING", customs_code),
-        bigquery.ScalarQueryParameter("flow_code", "STRING", flow_code),
-        bigquery.ScalarQueryParameter("market", "STRING", market),
-        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
-        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
+        p("codigo_commodity", "STRING", codigo_commodity),
+        p("banco", "STRING", banco),
+        p("agrupamento", "STRING", agrupamento),
+        p("descricao_commodity", "STRING", descricao_commodity),
+        p("industrializacao", "STRING", industrializacao),
+        p("ciclo_de_vida", "STRING", ciclo_de_vida),
+        p("code_prefix", "STRING", code_prefix),
+        p("commodity_id", "STRING", commodity_id),
+        p("active", "BOOL", active),
+        p("edited_by", "STRING", edited_by),
+        p("change_id", "STRING", change_id),
     ]
     bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-    logger.info("Curation(flow): %s×%s -> %s by %s", customs_code, flow_code, market, edited_by)
-
-    if invalidate_cache:
-        invalidate_flow_market_cache()
-
-    return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=False)
 
 
-def _validate_flow_market_edit(
-    customs_code: str, flow_code: str, market: str
-) -> tuple[str, str, str]:
-    """Strip + validate a flow-market edit, returning the normalized triple."""
-    customs_code = (customs_code or "").strip()
-    flow_code = (flow_code or "").strip()
-    market = (market or "").strip()
-    if not customs_code or not flow_code:
-        raise ValueError("customs_code and flow_code are required.")
-    if len(market) > MAX_STAGE_LEN:
-        raise ValueError(f"market exceeds {MAX_STAGE_LEN} chars.")
-    return customs_code, flow_code, market
-
-
-def _flow_market_row(
-    customs_code: str,
-    flow_code: str,
-    market: str,
-    edited_by: str,
-    change_id: str,
+def _catalog_row(
+    codigo_commodity,
+    banco,
+    agrupamento,
+    descricao_commodity,
+    industrializacao,
+    ciclo_de_vida,
+    code_prefix,
+    commodity_id,
+    active,
+    edited_by,
+    change_id,
     *,
-    deduped: bool,
+    deduped,
 ) -> dict:
-    """The written/echoed flow-market row dict (shared by the write + dedup paths)."""
+    """The written/echoed catalog row dict (shared by the write + dedup paths)."""
     return {
-        "customs_code": customs_code,
-        "flow_code": flow_code,
-        "market": market,
+        "codigo_commodity": codigo_commodity,
+        "banco": banco,
+        "agrupamento": agrupamento,
+        "descricao_commodity": descricao_commodity,
+        "industrializacao": industrializacao,
+        "ciclo_de_vida": ciclo_de_vida,
+        "code_prefix": code_prefix,
+        "commodity_id": commodity_id,
+        "active": active,
         "edited_by": edited_by,
         "change_id": change_id,
         "deduped": deduped,
     }
 
 
-def invalidate_flow_market_cache() -> None:
-    """Drop the cached current flow-market mapping (best-effort)."""
+def invalidate_commodity_catalog_cache() -> None:
+    """Drop the cached current-catalog read so the next query is fresh (best-effort)."""
     try:
-        cache.delete_memoized(gateway.fetch_current_flow_market)
+        cache.delete_memoized(gateway.fetch_commodity_catalog)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
-        logger.warning("Could not invalidate flow-market cache: %s", exc)
+        logger.warning("Could not invalidate commodity-catalog cache: %s", exc)

@@ -64,6 +64,7 @@ with pam as (
         count(*)                        as source_rows,
         max(last_refresh)               as last_refresh
     from {{ ref('gold_pam_production') }}
+    where {{ hidden_code_predicate('pam', 'product_code') }}
     group by reference_year, state_acronym, product_code, family
 
 ),
@@ -90,7 +91,7 @@ pam_xwalk as (
         x.commodity_name,
         c.product_code as code
     from pam_codes c
-    join {{ ref('commodity_crosswalk') }} x
+    join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'pam'
         and c.product_code like x.code_prefix || '%'
 

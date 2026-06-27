@@ -939,13 +939,14 @@ def test_curation_post_forwards_change_id_to_seam(monkeypatch):
 
 def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     """A ValueError from the serving writer (e.g. an over-length level the curation
-    writer caps) is a client fault → HTTP 400 with a pt-BR message, not a 500."""
+    writer caps) is a client fault → HTTP 400, and the writer's pt-BR REASON is
+    surfaced verbatim so the user can self-correct (not a generic 'check the fields')."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
     def raise_overlong(*a, **k):
-        raise ValueError("industrialization_level exceeds 200 chars.")
+        raise ValueError("industrialization_level excede 200 caracteres.")
 
     monkeypatch.setattr(seam, "record_code_level", raise_overlong)
     resp = client.post(
@@ -955,20 +956,19 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     assert resp.status_code == 400
     body = resp.get_json()
     assert "error" in body
-    # End-user message must be pt-BR (not the internal English ValueError text).
-    assert "Dados inválidos" in body["error"]
-    assert "exceeds" not in body["error"]
+    # The writer's pt-BR reason reaches the UI (the route surfaces str(exc); writers raise pt-BR).
+    assert "excede" in body["error"]
 
 
 def test_flow_market_post_overlong_market_is_400_not_500(monkeypatch):
     """The second writer's over-length validation also maps to 400 (the route only
-    presence-checks; length is enforced in the serving writer)."""
+    presence-checks; length is enforced in the serving writer) with the reason surfaced."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
     def raise_overlong(*a, **k):
-        raise ValueError("market exceeds 200 chars.")
+        raise ValueError("market excede 200 caracteres.")
 
     monkeypatch.setattr(seam, "record_flow_market", raise_overlong)
     resp = client.post(
@@ -976,7 +976,7 @@ def test_flow_market_post_overlong_market_is_400_not_500(monkeypatch):
         json={"customs_code": "4", "flow_code": "1", "market": "m" * 300},
     )
     assert resp.status_code == 400
-    assert "Dados inválidos" in resp.get_json()["error"]
+    assert "excede" in resp.get_json()["error"]
 
 
 def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):
@@ -1134,3 +1134,207 @@ def test_table_route_rejects_out_of_allowlist_table_end_to_end(monkeypatch):
     # a Bronze table is not inspectable for any banco (no Silver/Bronze exposure).
     resp2 = client.get("/api/table?banco=ibge_ppm&table=bronze_ibge")
     assert resp2.status_code == 400
+
+
+# ── seed reference consultation (the "Referências" perspective) ────────────────
+
+
+def test_seeds_route_lists_reference_seeds(monkeypatch):
+    """GET /api/seeds lists the consultable reference seeds through the REAL seam→gateway
+    (a static catalog, no BigQuery). Each entry carries the editable flag + a pt-BR label
+    + description so the UI can render a read-only badge with its reason."""
+    client = _client(monkeypatch)
+    resp = client.get("/api/seeds")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    by_id = {s["id"]: s for s in body}
+    # commodity_crosswalk is now the editable catalog (edited via Cadastro), not a seed.
+    assert "commodity_crosswalk" not in by_id
+    assert by_id["historical_currency_factors"]["editable"] is False
+    assert all(s.get("label") and s.get("description") and s["editable"] is False for s in body)
+
+
+def test_seed_route_threads_pagination_sort_filters_to_seam(monkeypatch):
+    """GET /api/seed parses pagination + ORDER BY + the JSON filters into seam.seed_page
+    (filters as a hashable tuple of (col, op, val)) — the same grid contract as /api/table."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_page(seed_id, *, limit, offset, order_by, order_dir, filters):
+        captured.update(
+            seed_id=seed_id,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+            order_dir=order_dir,
+            filters=filters,
+        )
+        return {"columns": [], "df": None, "total": 0, "table": seed_id, "editable": False}
+
+    monkeypatch.setattr(seam, "seed_page", fake_page)
+    monkeypatch.setattr(
+        serializers, "serialize_seed_page", lambda p: {"ok": True, "table": p["table"]}
+    )
+    resp = client.get(
+        "/api/seed?id=commodity_crosswalk&limit=25&offset=50"
+        '&order_by=source&order_dir=desc&filters=[{"col":"source","op":"eq","val":"comex"}]'
+    )
+    assert resp.status_code == 200
+    assert captured["seed_id"] == "commodity_crosswalk"
+    assert captured["limit"] == 25 and captured["offset"] == 50
+    assert captured["order_by"] == "source" and captured["order_dir"] == "desc"
+    assert captured["filters"] == (("source", "eq", "comex"),)
+
+
+def test_seed_route_400_on_unknown_id_end_to_end(monkeypatch):
+    """SECURITY — an id outside the seed catalog is a clean 400 through the REAL
+    route→seam→gateway stack: seam.seed_page raises ValueError BEFORE any BigQuery call
+    (a real Gold table name that is NOT a seed must still be refused)."""
+    client = _client(monkeypatch)
+    resp = client.get("/api/seed?id=gold_pevs_production")
+    assert resp.status_code == 400
+    resp2 = client.get("/api/seed?id=")  # empty id
+    assert resp2.status_code == 400
+
+
+# ── Curadoria (catalog): admin endpoints ──────────────────────────────────────
+
+
+def test_catalog_entries_route_returns_worklist(monkeypatch):
+    """GET /api/catalog/entries returns the current catalog (read is open behind IAP)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "catalog_worklist",
+        lambda banco=None: {
+            "entries": [
+                {"codigo_commodity": "4403", "banco": "un_comtrade", "agrupamento": "Madeira"}
+            ],
+            "total": 1,
+            "by_agrupamento": [{"agrupamento": "Madeira", "n": 1, "bancos": ["un_comtrade"]}],
+        },
+    )
+    resp = client.get("/api/catalog/entries")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["total"] == 1 and body["entries"][0]["codigo_commodity"] == "4403"
+
+
+def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
+    """POST /api/catalog/entry threads the body to the seam writer (open allowlist)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
+    captured = {}
+    monkeypatch.setattr(
+        seam, "record_catalog_entry", lambda body: captured.update(body) or {"ok": True}
+    )
+    resp = client.post(
+        "/api/catalog/entry",
+        json={
+            "codigo_commodity": "4403",
+            "banco": "un_comtrade",
+            "agrupamento": "Madeira",
+            "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
+            "change_id": "k1",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["codigo_commodity"] == "4403" and captured["banco"] == "un_comtrade"
+    assert captured["change_id"] == "k1"
+
+
+def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    resp = client.post("/api/catalog/entry", json={"banco": "un_comtrade"})  # no codigo_commodity
+    assert resp.status_code == 400
+
+
+def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
+    """The PER-CATALOG allowlist (research_inputs.catalog_editors, resource-scoped): an
+    author absent from it is refused 403 — distinct from the attribute-engineering curators."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(
+        seam, "catalog_editor_emails", lambda resource=None: {"someone.else@embrapa.br"}
+    )
+    resp = client.post(
+        "/api/catalog/entry", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+    )
+    assert resp.status_code == 403
+
+
+def test_catalog_entry_upsert_overlapping_prefix_is_400(monkeypatch):
+    """A ValueError from the writer (overlapping prefix / bad key / over-length) → 400."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+
+    def raise_overlap(body):
+        raise ValueError("O prefixo '440' se sobrepõe ao prefixo '4403' — use prefixos disjuntos.")
+
+    monkeypatch.setattr(seam, "record_catalog_entry", raise_overlap)
+    resp = client.post(
+        "/api/catalog/entry",
+        json={"codigo_commodity": "4403", "banco": "un_comtrade", "code_prefix": "440"},
+    )
+    assert resp.status_code == 400
+    # The overlap REASON must reach the UI so the researcher can pick disjoint prefixes.
+    assert "sobrepõe" in resp.get_json()["error"]
+
+
+def test_catalog_entry_remove_threads_to_seam(monkeypatch):
+    """POST /api/catalog/entry/remove appends a tombstone via the seam writer."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    captured = {}
+    monkeypatch.setattr(
+        seam, "remove_catalog_entry", lambda body: captured.update(body) or {"active": False}
+    )
+    resp = client.post(
+        "/api/catalog/entry/remove", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+    )
+    assert resp.status_code == 200
+    assert captured["codigo_commodity"] == "4403" and resp.get_json()["active"] is False
+
+
+def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
+    """GET /api/catalog/orphans returns the orphan worklist (read-only detection); the
+    physical purge is a separate human-gated step, never triggered by this read."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "orphan_worklist",
+        lambda: {
+            "orphans": [
+                {
+                    "codigo_commodity": "20079926",
+                    "banco": "comex",
+                    "agrupamento": "Cupuaçu",
+                    "code_prefix": "20079926",
+                    "status": "descontinuado",
+                    "flagged_at": None,
+                    "warning": "será removida por um operador",
+                }
+            ],
+            "total": 1,
+        },
+    )
+    resp = client.get("/api/catalog/orphans")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["total"] == 1 and body["orphans"][0]["status"] == "descontinuado"

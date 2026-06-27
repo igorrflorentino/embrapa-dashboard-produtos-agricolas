@@ -80,6 +80,7 @@ with comtrade as (
         count(*)                    as source_rows,
         max(last_refresh)           as last_refresh
     from {{ ref('gold_comtrade_flows') }}
+    where {{ hidden_code_predicate('comtrade', 'cmd_code') }}
     group by reference_year, flow, cmd_code, reporter_code, partner_code, family
 
 )

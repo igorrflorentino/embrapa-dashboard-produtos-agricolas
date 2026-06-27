@@ -700,11 +700,77 @@ def table_page(
     }
 
 
-# ── Cross-source analytics + curadoria — extracted to seam_cross / seam_curation ──
+# ── Seed reference consultation (the "Referências" perspective) ────────────────
+
+
+def seed_tables() -> list[dict]:
+    """The read-only seed reference tables a researcher may consult ('Referências').
+    Banco-agnostic — the seeds are shared reference data, not per-banco."""
+    return gateway.seed_tables()
+
+
+def seed_page(
+    seed_id: str,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    filters: tuple = (),
+) -> dict:
+    """One page of rows for a consultable seed + schema, total, label, description and
+    editable flag (serialize_seed_page shapes it). An unknown seed id raises ValueError
+    → HTTP 400 — we FAIL LOUD rather than returning a silent empty page, so a broken id
+    is visible instead of looking like an empty reference table."""
+    meta = next((s for s in gateway.seed_tables() if s["id"] == seed_id), None)
+    if meta is None:
+        raise ValueError(f"seed {seed_id!r} is not a consultable reference table")
+    schema = gateway.fetch_seed_schema(seed_id)
+    df = gateway.fetch_seed_rows(
+        seed_id,
+        limit=limit,
+        offset=offset,
+        order_by=order_by,
+        order_dir=order_dir,
+        filters=filters,
+    )
+    total = gateway.fetch_seed_count(seed_id, filters)
+    return {
+        "columns": schema["columns"],
+        "df": df,
+        "total": total,
+        "table": seed_id,
+        "label": meta["label"],
+        "grain": meta["description"],
+        "editable": meta["editable"],
+    }
+
+
+# ── Cross-source analytics + atributos — extracted to seam_cross / seam_attribute_engineering ──
 # Re-exported so the public seam surface stays unchanged after the split (routes +
 # tests reference seam.market_share, seam._xyear, seam.curation_worklist, …). The
 # shared commodity toolkit lives in seam_base; both modules depend only on it, so
 # the import graph is an acyclic base ← {cross, curation} ← seam.
+from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at module end)
+    _FLOW_LABELS,
+    CUR_LEVELS,
+    ENRICH_MARKETS,
+    _code_to_commodity,
+    _current_code_levels,
+    _flow_market_map,
+    _market_nature_accumulate,
+    _value_added_accumulate,
+    _value_added_codes_by_level,
+    _value_added_series_point,
+    _worklist_rows_for_source,
+    curation_worklist,
+    curator_emails,
+    flow_market_worklist,
+    market_nature,
+    record_code_level,
+    record_flow_market,
+    value_added,
+)
 from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, intentional)
     CROSS_DISPLAY_UNIT,
     _cross_points,
@@ -728,23 +794,11 @@ from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, inten
     price_spread,
     trade_mirror,
 )
-from .seam_curation import (  # noqa: E402, F401  (re-exported at module end, intentional)
-    _FLOW_LABELS,
-    CUR_LEVELS,
-    ENRICH_MARKETS,
-    _code_to_commodity,
-    _current_code_levels,
-    _flow_market_map,
-    _market_nature_accumulate,
-    _value_added_accumulate,
-    _value_added_codes_by_level,
-    _value_added_series_point,
-    _worklist_rows_for_source,
-    curation_worklist,
-    curator_emails,
-    flow_market_worklist,
-    market_nature,
-    record_code_level,
-    record_flow_market,
-    value_added,
+from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-exported)
+    COMMODITY_CATALOG_RESOURCE,
+    catalog_editor_emails,
+    catalog_worklist,
+    orphan_worklist,
+    record_catalog_entry,
+    remove_catalog_entry,
 )

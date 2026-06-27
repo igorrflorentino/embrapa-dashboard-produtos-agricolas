@@ -46,18 +46,31 @@ _FLAG_KEY = {
     "MISSING_QUANTITY": "missing_quantity",
     "MISSING_WEIGHT": "missing_weight",
     "INCOMPLETE": "incomplete",
+    # Q1 outlier/problemático tiers (emitted only when enable_quality_outliers is on).
+    "OUTLIER_QUANTITY": "outlier_quantity",
+    "PROBLEMATIC_QUANTITY": "problematic_quantity",
+    "OUTLIER_VALUE": "outlier_value",
+    "PROBLEMATIC_VALUE": "problematic_value",
 }
 
 # data_quality_flag id → pt-BR display label (the end user reads the donut/legend).
 # The frontend's QUALITY_FLAGS registry lacks INCOMPLETE/MISSING_WEIGHT, so without
 # a server-supplied label decorate.js falls back to the raw English id — a pt-BR
 # rule violation. Emitting the label here keeps the chart Portuguese end-to-end.
+# Labels follow the "Contrato de Dados" spreadsheet's "Qualidade dos dados" wording:
+# the healthy row is "Normais" (not the English "OK"); the missing-value rung names
+# the financeiro vs quantidade split. Keep in sync with frontend data.js QUALITY_FLAGS.
 _FLAG_LABEL_PT = {
-    "OK": "OK",
-    "MISSING_VALUE": "Valor ausente",
+    "OK": "Normais",
+    "MISSING_VALUE": "Valor financeiro ausente",
     "MISSING_QUANTITY": "Quantidade ausente",
     "MISSING_WEIGHT": "Peso ausente",
     "INCOMPLETE": "Incompleto",
+    # Q1 outlier (atípico = válido) vs problemático (provável erro de digitação/inserção).
+    "OUTLIER_QUANTITY": "Quantidade atípica (válida)",
+    "PROBLEMATIC_QUANTITY": "Quantidade problemática (provável erro)",
+    "OUTLIER_VALUE": "Valor atípico (válido)",
+    "PROBLEMATIC_VALUE": "Valor problemático (provável erro)",
 }
 
 
@@ -828,3 +841,34 @@ def serialize_table_page(page: dict | None) -> dict:
         "label": page.get("label"),
         "grain": page.get("grain"),
     }
+
+
+def serialize_seed_page(page: dict | None) -> dict:
+    """seam.seed_page() → the table-page grid shape + an ``editable`` flag.
+
+    Reuses :func:`serialize_table_page` (identical grid contract — columns/rows/total/
+    table/label/grain, with ``grain`` carrying the seed's pt-BR description) and adds
+    ``editable`` so the UI shows a read-only badge + the "report a value" affordance."""
+    out = serialize_table_page(page)
+    out["editable"] = bool(page.get("editable")) if page else False
+    return out
+
+
+def serialize_catalog_worklist(worklist: dict | None) -> dict:
+    """seam.catalog_worklist() → the admin-editor payload (already JSON-native:
+    entries + the per-Agrupamento grouping). Normalizes ``None`` to an empty catalog."""
+    if not worklist:
+        return {"entries": [], "total": 0, "by_agrupamento": []}
+    return {
+        "entries": worklist.get("entries", []),
+        "total": int(worklist.get("total", 0)),
+        "by_agrupamento": worklist.get("by_agrupamento", []),
+    }
+
+
+def serialize_orphan_worklist(worklist: dict | None) -> dict:
+    """seam.orphan_worklist() → the Descontinuados payload (already JSON-native): orphan
+    commodities + their flagged date + deletion warning. Normalizes None to empty."""
+    if not worklist:
+        return {"orphans": [], "total": 0}
+    return {"orphans": worklist.get("orphans", []), "total": int(worklist.get("total", 0))}

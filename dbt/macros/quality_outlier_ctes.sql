@@ -1,0 +1,82 @@
+{#-
+    Q1 outlier / problemático detection — IMPLIED-PRICE CONSISTENCY (validated on live
+    BigQuery 2026-06-26; see PLANS/quality_outliers_and_visibility_gate.md).
+
+    A data-entry typo breaks the implied price (value ÷ quantity) — which is scale-invariant,
+    so it NEVER confuses a legitimate giant (São Paulo cana, a billion-dollar soy shipment)
+    with an error. A pure magnitude fence can't make that distinction; this does:
+      • PROBLEMÁTICO  — the implied price is >price_k× or <1/price_k× the product's median
+                        price  ⇒  a value or quantity typo. Attributed to whichever measure
+                        is the more anomalous (|excess|). Validated rate: COMEX 0.19%, PEVS 0.003%.
+      • OUTLIER       — the measure is in the product's high tail AND the price is consistent
+                        ⇒  "bem acima do esperado mas válido" (a real big number).
+
+    The value MUST be DEFLATED for IBGE (val_real_ipca_brl) — nominal manufactures a fake 20%
+    near-zero-price tail (pre-1995 hyperinflation). Trade uses nominal USD (no BR-inflation).
+
+    Wiring per gold model (gated by var enable_quality_outliers, default false → these emit
+    `cast(null as string)` and the data_quality_flag off-branch yields the legacy taxonomy):
+      , scored as (
+          select e.*,
+      {{ quality_scored_bounds('<deflated_value>', '<quantity>') }}
+          from <prior_cte> e
+          window _qw as (partition by <product/code grouping>)
+      )
+    then `from {% if var('enable_quality_outliers', false) %}scored{% else %}<prior_cte>{% endif %}`
+    and pass quality_qty_level(...) / quality_val_level(...) to data_quality_flag.
+    Group grain: IBGE (product_code, family); trade (flow, code). Sample gate quality_min_obs.
+-#}
+
+{%- macro quality_scored_bounds(value_expr, qty_expr) -%}
+        percentile_cont(safe.ln(safe_divide({{ value_expr }}, {{ qty_expr }})), 0.5) over _qw as _q_ln_med_price,
+        percentile_cont(safe.ln({{ value_expr }}), 0.5)  over _qw as _q_ln_med_val,
+        percentile_cont(safe.ln({{ value_expr }}), 0.75) over _qw as _q_p75_val,
+        percentile_cont(safe.ln({{ qty_expr }}), 0.5)    over _qw as _q_ln_med_qty,
+        percentile_cont(safe.ln({{ qty_expr }}), 0.75)   over _qw as _q_p75_qty,
+        count(safe_divide({{ value_expr }}, {{ qty_expr }})) over _qw as _q_n
+{%- endmacro -%}
+
+{%- macro _q_price_dev(value_expr, qty_expr) -%}
+abs(safe.ln(safe_divide({{ value_expr }}, {{ qty_expr }})) - _q_ln_med_price)
+{%- endmacro -%}
+
+{%- macro _q_val_excess(value_expr) -%}
+safe_divide(safe.ln({{ value_expr }}) - _q_ln_med_val, nullif(_q_p75_val - _q_ln_med_val, 0))
+{%- endmacro -%}
+
+{%- macro _q_qty_excess(qty_expr) -%}
+safe_divide(safe.ln({{ qty_expr }}) - _q_ln_med_qty, nullif(_q_p75_qty - _q_ln_med_qty, 0))
+{%- endmacro -%}
+
+{#- Guard shared by both level macros: need both measures positive, a price center, and a
+    sample big enough to trust the per-product distribution. -#}
+{%- macro _q_guard(value_expr, qty_expr) -%}
+{{ value_expr }} is null or {{ value_expr }} <= 0 or {{ qty_expr }} is null or {{ qty_expr }} <= 0
+       or _q_ln_med_price is null or _q_n < {{ var('quality_min_obs', 100) }}
+{%- endmacro -%}
+
+{%- macro quality_val_level(value_expr, qty_expr) -%}
+{%- if not var('enable_quality_outliers', false) -%}cast(null as string)
+{%- else -%}
+case
+  when {{ _q_guard(value_expr, qty_expr) }} then null
+  when {{ _q_price_dev(value_expr, qty_expr) }} >= ln({{ var('quality_price_k', 100) }})
+       and abs({{ _q_val_excess(value_expr) }}) >= abs({{ _q_qty_excess(qty_expr) }}) then 'problematic'
+  when {{ _q_val_excess(value_expr) }} >= {{ var('quality_outlier_k', 4.0) }} then 'outlier'
+  else null
+end
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro quality_qty_level(value_expr, qty_expr) -%}
+{%- if not var('enable_quality_outliers', false) -%}cast(null as string)
+{%- else -%}
+case
+  when {{ _q_guard(value_expr, qty_expr) }} then null
+  when {{ _q_price_dev(value_expr, qty_expr) }} >= ln({{ var('quality_price_k', 100) }})
+       and abs({{ _q_qty_excess(qty_expr) }}) > abs({{ _q_val_excess(value_expr) }}) then 'problematic'
+  when {{ _q_qty_excess(qty_expr) }} >= {{ var('quality_outlier_k', 4.0) }} then 'outlier'
+  else null
+end
+{%- endif -%}
+{%- endmacro -%}

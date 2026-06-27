@@ -175,7 +175,20 @@ select
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
-    {{ data_quality_flag('qty_native', 'val_raw') }}        as data_quality_flag,
+    -- Outlier/problemático detection (off by default) reads the DEFLATED value
+    -- (val_real_ipca_brl) for a stable implied price; the missing-check keeps val_raw.
+    {{ data_quality_flag('qty_native', 'val_raw',
+         quality_qty_level('val_real_ipca_brl', 'qty_native'),
+         quality_val_level('val_real_ipca_brl', 'qty_native')) }} as data_quality_flag,
     last_refresh
 
-from enriched
+from {% if var('enable_quality_outliers', false) -%}
+(
+    select e.*,
+{{ quality_scored_bounds('val_real_ipca_brl', 'qty_native') }}
+    from enriched e
+    window _qw as (partition by product_code, family)
+) enriched
+{%- else -%}
+enriched
+{%- endif %}

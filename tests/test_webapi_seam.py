@@ -31,9 +31,9 @@ def _cross():
 
 def _curation():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_curation
+    from embrapa_commodities.webapi import seam_attribute_engineering
 
-    return seam_curation
+    return seam_attribute_engineering
 
 
 def _base():
@@ -1914,7 +1914,7 @@ def test_commodity_catalog_with_family_tags_each_commodity(monkeypatch):
 
 def test_record_code_level_forwards_headers_to_writer(monkeypatch):
     seam = _seam()
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     captured = {}
 
@@ -1932,7 +1932,7 @@ def test_record_code_level_forwards_headers_to_writer(monkeypatch):
 
 def test_record_flow_market_forwards_headers_to_writer(monkeypatch):
     seam = _seam()
-    from embrapa_commodities.serving import curation
+    from embrapa_commodities.serving import attribute_engineering as curation
 
     captured = {}
 

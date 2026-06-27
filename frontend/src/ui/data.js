@@ -203,12 +203,24 @@ window.UF_DATA = [
 // synthetic taxonomy — Gold never emits them, and listing them here silently
 // dropped the real INCOMPLETE/MISSING_WEIGHT rows out of the quality charts and
 // the quality filter. Keep this in sync with serializers._FLAG_LABEL_PT.
+// Labels follow the "Contrato de Dados" spreadsheet's pt-BR "Qualidade dos dados"
+// wording: the healthy row is "Normais" (not the English "OK"); the missing-value
+// rung is split quantidade vs financeiro. The outlier/problemático tiers are emitted
+// by Gold only when the dbt var enable_quality_outliers is on (implied-price detection,
+// data_quality_flag.sql + quality_outlier_ctes.sql) — off by default, so they're
+// accepted-but-absent until an operator validates per source. The Sheet's "inferidos"
+// tier maps to the deliberately-rejected auto-fill and is intentionally NOT implemented.
+// Keep in sync with serializers._FLAG_LABEL_PT.
 window.QUALITY_FLAGS = [
-  { id: 'OK',                 label: 'OK',                  color: 'var(--ok)'   },
-  { id: 'MISSING_VALUE',      label: 'Valor ausente',       color: 'var(--warn)' },
-  { id: 'MISSING_QUANTITY',   label: 'Quantidade ausente',  color: 'var(--info)' },
-  { id: 'MISSING_WEIGHT',     label: 'Peso ausente',        color: 'var(--viz-4)' },
-  { id: 'INCOMPLETE',         label: 'Incompleto',          color: 'var(--viz-7)' },
+  { id: 'OK',                   label: 'Normais',                                color: 'var(--ok)'    },
+  { id: 'MISSING_VALUE',        label: 'Valor financeiro ausente',               color: 'var(--warn)'  },
+  { id: 'MISSING_QUANTITY',     label: 'Quantidade ausente',                     color: 'var(--info)'  },
+  { id: 'MISSING_WEIGHT',       label: 'Peso ausente',                           color: 'var(--viz-4)' },
+  { id: 'INCOMPLETE',           label: 'Incompleto',                             color: 'var(--viz-7)' },
+  { id: 'OUTLIER_QUANTITY',     label: 'Quantidade atípica (válida)',            color: 'var(--viz-3)' },
+  { id: 'PROBLEMATIC_QUANTITY', label: 'Quantidade problemática (provável erro)', color: 'var(--viz-9)' },
+  { id: 'OUTLIER_VALUE',        label: 'Valor atípico (válido)',                 color: 'var(--viz-5)' },
+  { id: 'PROBLEMATIC_VALUE',    label: 'Valor problemático (provável erro)',     color: 'var(--err)'   },
 ];
 
 // ────────────────────────────────────────────────────────────────────

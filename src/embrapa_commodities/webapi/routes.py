@@ -20,12 +20,13 @@ from werkzeug.exceptions import BadRequest, HTTPException
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving.cache import cache
-from embrapa_commodities.serving.curation import (
+from embrapa_commodities.serving.curation import ensure_catalog_editors_table
+from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
+from embrapa_commodities.serving.iap import InvalidIapAssertionError
+from embrapa_commodities.serving.research_inputs import (
     ensure_banco_metadata_table,
     ensure_curators_table,
 )
-from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
-from embrapa_commodities.serving.iap import InvalidIapAssertionError
 
 from . import seam, serializers
 from .auth import current_author
@@ -63,13 +64,15 @@ def _conversion_or_400():
 
 @api.errorhandler(ValueError)
 def _api_value_error(exc):
-    """Client-input validation errors → HTTP 400 (not 500). The serving writers
-    raise ValueError for caller-supplied input that fails validation (e.g. an
-    over-length classification level / market that the curation writer caps). That
-    is a client fault, so it must not page operators as a server 500 nor be lost in
-    the generic handler. The message is pt-BR (the end user reads it)."""
-    logger.info("Invalid curation input on %s: %s", request.path, exc)
-    return jsonify(error="Dados inválidos: verifique o tamanho e o preenchimento dos campos."), 400
+    """Client-input validation errors → HTTP 400 (not 500). The serving writers raise
+    ValueError with a caller-facing reason (pt-BR for the catalog writers: a bad key, an
+    over-length field, an OVERLAPPING PREFIX). Surface that reason verbatim so the user
+    can self-correct — a generic "check the fields" hides WHY (e.g. which prefixes clash)
+    and makes the disjoint-prefix rule unusable. ValueError here is always our own
+    validation; an arbitrary internal fault is an Exception → the 500 handler, never this
+    path — so the message is safe to return."""
+    logger.info("Invalid input on %s: %s", request.path, exc)
+    return jsonify(error=str(exc) or "Dados inválidos."), 400
 
 
 @api.errorhandler(Exception)
@@ -117,6 +120,19 @@ def _ensure_banco_metadata_table() -> None:
         logger.warning("Could not ensure banco metadata override table", exc_info=True)
 
 
+def _ensure_catalog_editors_table() -> None:
+    """Self-heal the Console-managed per-catalog editor allowlist (best-effort).
+
+    The allowlist read (``seam.catalog_editor_emails``) treats a missing table as
+    "no allowlist → open mode", so a failure here never blocks a write — it just
+    means the Console INSERT path isn't pre-created yet. Swallowed by design.
+    """
+    try:
+        ensure_catalog_editors_table()
+    except Exception:  # pragma: no cover - BQ unavailable / perms; never block the write
+        logger.warning("Could not ensure catalog editors allowlist table", exc_info=True)
+
+
 def _authorize_curator():
     """Resolve the IAP author and enforce the curator allowlist (authorization).
 
@@ -147,6 +163,24 @@ def _authorize_curator():
     return author, None
 
 
+def _authorize_catalog_editor(resource: str):
+    """Resolve the IAP author and enforce the PER-CATALOG editor allowlist
+    (``research_inputs.catalog_editors`` scoped to ``resource``) — each cadastro has
+    its OWN list (the lead's decision). Same 401/403 contract as ``_authorize_curator``;
+    an empty/absent allowlist preserves "any IAP-authenticated caller may edit"."""
+    try:
+        author = current_author()
+    except InvalidIapAssertionError as exc:
+        return None, (jsonify(error=str(exc)), 403)
+    except PermissionError as exc:
+        return None, (jsonify(error=str(exc)), 401)
+    _ensure_catalog_editors_table()
+    allowed = seam.catalog_editor_emails(resource)
+    if allowed and author.lower() not in allowed:
+        return None, (jsonify(error=f"{author} is not an authorized editor of {resource}"), 403)
+    return author, None
+
+
 # ── catalog + provenance ──────────────────────────────────────────────────────
 
 
@@ -157,6 +191,61 @@ def catalog():
     ``family`` (PEVS physical-unit family) lets the frontend family-gate the cross
     pickers so the export-coefficient / price-spread views offer only mass commodities."""
     return jsonify(seam.commodity_catalog_with_family())
+
+
+# ── Curadoria (catalog — what enters/exits the dashboard) ──────────────────────
+
+
+@api.get("/catalog/entries")
+def catalog_entries():
+    """The current commodity catalog (latest-wins, active) — backs the admin editor.
+    Optionally scoped to one banco (?banco=). Empty (not an error) before the catalog
+    exists. Reading is open behind IAP; only WRITES require the editor allowlist."""
+    banco = request.args.get("banco") or None
+    return jsonify(serializers.serialize_catalog_worklist(seam.catalog_worklist(banco)))
+
+
+@api.post("/catalog/entry")
+def catalog_entry_upsert():
+    """Upsert one commodity-catalog entry (the editable successor to the
+    commodity_crosswalk seed). Author captured from the IAP header; 401/403 via the
+    per-catalog editor allowlist. A bad key / over-length / overlapping prefix → 400."""
+    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    if not (body.get("codigo_commodity") and body.get("banco")):
+        return jsonify(error="codigo_commodity and banco are required"), 400
+    logger.info(
+        "catalog upsert by %s: %s/%s", author, body.get("banco"), body.get("codigo_commodity")
+    )
+    return jsonify(seam.record_catalog_entry(body))
+
+
+@api.post("/catalog/entry/remove")
+def catalog_entry_remove():
+    """Remove one commodity-catalog entry — appends an active=false TOMBSTONE
+    (NON-destructive: the Gold data becomes an orphan, handled by the lifecycle, never
+    auto-deleted). 401/403 via the per-catalog editor allowlist."""
+    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    if not (body.get("codigo_commodity") and body.get("banco")):
+        return jsonify(error="codigo_commodity and banco are required"), 400
+    logger.info(
+        "catalog remove by %s: %s/%s", author, body.get("banco"), body.get("codigo_commodity")
+    )
+    return jsonify(seam.remove_catalog_entry(body))
+
+
+@api.get("/catalog/orphans")
+def catalog_orphans():
+    """Orphan commodities — removed from the catalog with Gold data still lingering —
+    marked Descontinuado, each with a deletion warning. Read-only detection (open behind
+    IAP); the physical purge is a SEPARATE human-gated, backup-first operator step (never
+    automatic). Empty before any removal."""
+    return jsonify(serializers.serialize_orphan_worklist(seam.orphan_worklist()))
 
 
 @api.get("/source-meta")
@@ -242,6 +331,33 @@ def table():
         filters=_parse_table_filters(request.args.get("filters")),
     )
     return jsonify(serializers.serialize_table_page(page))
+
+
+# ── seed reference consultation (the "Referências" perspective) ────────────────
+
+
+@api.get("/seeds")
+def seeds():
+    """Read-only seed reference tables a researcher may consult ('Referências') to
+    confirm the values the pipeline relies on. Banco-agnostic (shared reference data)."""
+    return jsonify(seam.seed_tables())
+
+
+@api.get("/seed")
+def seed():
+    """One page of rows for a consultable seed reference table — the SAME grid contract
+    as /api/table, but seed-scoped (the Silver reference tables) and READ-ONLY. The id +
+    every order/filter COLUMN are validated server-side against the allowlist / the live
+    schema; an unknown id → 400 (the gateway allowlist is the boundary)."""
+    page = seam.seed_page(
+        request.args.get("id", ""),
+        limit=request.args.get("limit", 100, type=int),
+        offset=request.args.get("offset", 0, type=int),
+        order_by=request.args.get("order_by") or None,
+        order_dir=request.args.get("order_dir", "asc"),
+        filters=_parse_table_filters(request.args.get("filters")),
+    )
+    return jsonify(serializers.serialize_seed_page(page))
 
 
 # ── per-banco snapshot ─────────────────────────────────────────────────────────
