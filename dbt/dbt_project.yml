@@ -89,3 +89,13 @@ vars:
   # series_code to these so a series removed from the config but still lingering
   # in append-only Bronze never leaks into Silver.
   currency_series: "{{ env_var('BCB_CURRENCY_SERIES', '1:USD,21619:EUR') }}"
+
+  # Q1 quality outlier/problemático detection (implied-price consistency). OFF by default:
+  # the gold models then emit the legacy 4-value data_quality_flag, byte-identical. Enable
+  # PER SOURCE only after validating the flagged rates on a live build (see
+  # PLANS/quality_outliers_and_visibility_gate.md → operator runbook). Thresholds validated
+  # on prod: price_k=100× the product median price → COMEX 0.19% / PEVS 0.003% problemático.
+  enable_quality_outliers: false
+  quality_price_k: 100      # implied price >price_k× or <1/price_k× the product median = typo
+  quality_outlier_k: 4.0    # magnitude log-fence for the OUTLIER (valid-but-large) tier
+  quality_min_obs: 100      # per-product sample floor — fewer rows ⇒ never flag (untrustworthy)

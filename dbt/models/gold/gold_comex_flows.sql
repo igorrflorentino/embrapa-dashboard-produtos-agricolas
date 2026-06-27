@@ -255,16 +255,33 @@ select
     insurance_usd                                           as val_insurance_usd,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
+    -- Inline (not data_quality_flag) because COMEX keeps MISSING_WEIGHT. The outlier/
+    -- problemático tiers (off by default) reuse the QUANTITY ids for the weight measure.
     case
         when val_fob_usd is null and net_weight_kg is null then 'INCOMPLETE'
         when val_fob_usd is null                           then 'MISSING_VALUE'
         when net_weight_kg is null                         then 'MISSING_WEIGHT'
+        {%- if var('enable_quality_outliers', false) %}
+        when ({{ quality_val_level('val_fob_usd', 'net_weight_kg') }}) = 'problematic' then 'PROBLEMATIC_VALUE'
+        when ({{ quality_qty_level('val_fob_usd', 'net_weight_kg') }}) = 'problematic' then 'PROBLEMATIC_QUANTITY'
+        when ({{ quality_val_level('val_fob_usd', 'net_weight_kg') }}) = 'outlier'     then 'OUTLIER_VALUE'
+        when ({{ quality_qty_level('val_fob_usd', 'net_weight_kg') }}) = 'outlier'     then 'OUTLIER_QUANTITY'
+        {%- endif %}
         else 'OK'
     end                                                     as data_quality_flag,
     source_rows,
     last_refresh
 
-from enriched
+from {% if var('enable_quality_outliers', false) -%}
+(
+    select e.*,
+{{ quality_scored_bounds('val_fob_usd', 'net_weight_kg') }}
+    from enriched e
+    window _qw as (partition by flow, ncm_code)
+) enriched
+{%- else -%}
+enriched
+{%- endif %}
 -- Reference dimensions (MDIC aux tables) → human-readable labels for Looker.
 -- (The statistical-unit label + family are resolved upstream in Silver.)
 left join {{ ref('comex_ncm') }}     n on enriched.ncm_code            = n.co_ncm

@@ -1,6 +1,9 @@
 # PLANS — Q1 Outlier/Problemático quality flags + F7 Ciclo-de-Vida visibility gate
 
-> Status: **F7 IMPLEMENTED; Q1 wiring in progress (detection ships OFF by default).**
+> Status: **F7 + Q1 IMPLEMENTED.** Q1 detection ships OFF by default (`enable_quality_outliers`,
+> compiled byte-identical when off) — the operator enables it per source on a prod build after
+> validating the flagged rates (runbook below). All layers wired + tested: dbt compile (ON) +
+> sqlfluff (OFF) clean, 948 pytest / 275 vitest green.
 > Designed data-grounded (adversarial workflow validated on live BigQuery, 2026-06-26).
 > Origin: the "Contrato de Dados" sheet verification (`docs/audits/curadoria_pr_audit_2026-06-26.md`
 > is the catalog audit; this doc is the spreadsheet-vs-code integration follow-up).

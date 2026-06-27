@@ -206,11 +206,22 @@ select
     -- val_nominal_brl while the source value is fully present; flagging that as
     -- MISSING_VALUE would be misleading. This mirrors gold_comex_flows (which
     -- tests val_fob_usd) and gold_pevs_production (val_raw, already BRL).
-    {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'primary_value_usd') }} as data_quality_flag,
+    {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'primary_value_usd',
+         quality_qty_level('primary_value_usd', 'net_weight_kg'),
+         quality_val_level('primary_value_usd', 'net_weight_kg')) }} as data_quality_flag,
     source_rows,
     last_refresh
 
-from enriched
+from {% if var('enable_quality_outliers', false) -%}
+(
+    select e.*,
+{{ quality_scored_bounds('primary_value_usd', 'net_weight_kg') }}
+    from enriched e
+    window _qw as (partition by flow, cmd_code)
+) enriched
+{%- else -%}
+enriched
+{%- endif %}
 -- Reference dimensions → human-readable labels for Looker.
 left join {{ ref('comtrade_hs') }}      h  on enriched.cmd_code      = h.cmd_code
 left join {{ ref('comtrade_country') }} rc on enriched.reporter_code = rc.m49_code

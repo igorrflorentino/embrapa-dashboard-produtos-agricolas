@@ -5,11 +5,33 @@
     qty_base, so an unconvertible unit (family='desconhecida') still counts as
     "has a quantity"; convertibility is surfaced separately for curation.
 -#}
-{% macro data_quality_flag(qty, val_brl) -%}
+{#-
+    `qty_level` / `val_level` are 'problematic' | 'outlier' | null expressions from the
+    implied-price detector (macros/quality_outlier_ctes.sql), default null. When
+    enable_quality_outliers is OFF (default) this emits the LEGACY 4-value CASE byte-for-byte
+    (the level args are ignored), so a build with the flag off is identical to before. When
+    ON, the 4 new tiers slot in by precedence: missing > problemático(valor) >
+    problemático(quantidade) > outlier(valor) > outlier(quantidade) > OK. A row can't be an
+    outlier on an absent measure, so the MISSING/INCOMPLETE checks always win.
+-#}
+{% macro data_quality_flag(qty, val_brl, qty_level="cast(null as string)", val_level="cast(null as string)") -%}
+{%- if not var('enable_quality_outliers', false) -%}
     CASE
         WHEN {{ qty }} IS NOT NULL AND {{ val_brl }} IS NOT NULL THEN 'OK'
         WHEN {{ qty }} IS NOT NULL AND {{ val_brl }} IS NULL     THEN 'MISSING_VALUE'
         WHEN {{ qty }} IS NULL     AND {{ val_brl }} IS NOT NULL THEN 'MISSING_QUANTITY'
         ELSE 'INCOMPLETE'
     END
+{%- else -%}
+    CASE
+        WHEN {{ qty }} IS NULL AND {{ val_brl }} IS NULL THEN 'INCOMPLETE'
+        WHEN {{ val_brl }} IS NULL                       THEN 'MISSING_VALUE'
+        WHEN {{ qty }} IS NULL                           THEN 'MISSING_QUANTITY'
+        WHEN ({{ val_level }}) = 'problematic'           THEN 'PROBLEMATIC_VALUE'
+        WHEN ({{ qty_level }}) = 'problematic'           THEN 'PROBLEMATIC_QUANTITY'
+        WHEN ({{ val_level }}) = 'outlier'               THEN 'OUTLIER_VALUE'
+        WHEN ({{ qty_level }}) = 'outlier'               THEN 'OUTLIER_QUANTITY'
+        ELSE 'OK'
+    END
+{%- endif -%}
 {%- endmacro %}

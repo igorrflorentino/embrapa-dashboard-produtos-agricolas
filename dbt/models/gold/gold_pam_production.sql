@@ -144,7 +144,18 @@ select
     -- — the área data it does carry is preserved in area_planted_ha/area_harvested_ha,
     -- not lost (DBT-4: intentional; the OK/MISSING_*/INCOMPLETE taxonomy has no
     -- area-only slot, and an area-only row genuinely lacks both qty and value).
-    {{ data_quality_flag('qty_native', 'val_raw') }}        as data_quality_flag,
+    {{ data_quality_flag('qty_native', 'val_raw',
+         quality_qty_level('val_real_ipca_brl', 'qty_native'),
+         quality_val_level('val_real_ipca_brl', 'qty_native')) }} as data_quality_flag,
     last_refresh
 
-from enriched
+from {% if var('enable_quality_outliers', false) -%}
+(
+    select e.*,
+{{ quality_scored_bounds('val_real_ipca_brl', 'qty_native') }}
+    from enriched e
+    window _qw as (partition by product_code, family)
+) enriched
+{%- else -%}
+enriched
+{%- endif %}

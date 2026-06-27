@@ -46,6 +46,11 @@ _FLAG_KEY = {
     "MISSING_QUANTITY": "missing_quantity",
     "MISSING_WEIGHT": "missing_weight",
     "INCOMPLETE": "incomplete",
+    # Q1 outlier/problemático tiers (emitted only when enable_quality_outliers is on).
+    "OUTLIER_QUANTITY": "outlier_quantity",
+    "PROBLEMATIC_QUANTITY": "problematic_quantity",
+    "OUTLIER_VALUE": "outlier_value",
+    "PROBLEMATIC_VALUE": "problematic_value",
 }
 
 # data_quality_flag id → pt-BR display label (the end user reads the donut/legend).
@@ -61,6 +66,11 @@ _FLAG_LABEL_PT = {
     "MISSING_QUANTITY": "Quantidade ausente",
     "MISSING_WEIGHT": "Peso ausente",
     "INCOMPLETE": "Incompleto",
+    # Q1 outlier (atípico = válido) vs problemático (provável erro de digitação/inserção).
+    "OUTLIER_QUANTITY": "Quantidade atípica (válida)",
+    "PROBLEMATIC_QUANTITY": "Quantidade problemática (provável erro)",
+    "OUTLIER_VALUE": "Valor atípico (válido)",
+    "PROBLEMATIC_VALUE": "Valor problemático (provável erro)",
 }
 
 
