@@ -324,6 +324,11 @@
 }
 .util-action svg { stroke: currentColor; }
 
+/* The mobile-only "⋯" overflow menu + the in-drawer mode toggle are hidden on desktop;
+   the ≤768px block (bottom of file) shows them and hides their desktop counterparts. */
+.util-overflow { display: none; }
+.side-mode-switch { display: none; }
+
 /* ====================================================================
    Citation modal (triggered by header "Citar painel" button)
    ==================================================================== */
@@ -3324,5 +3329,71 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
     max-height: calc(100dvh - var(--topbar-h) - 24px);
     overflow-y: auto;
   }
+}
+
+/* ---- Phone topbar declutter (≤768px). The bar can't hold ☰ + brand + the
+   single/multi toggle + the perspective selector + THREE action buttons without
+   crushing them (the perspective truncated to "Selecic…", the icons squashed off the
+   edge, the mode toggle dropped). So: the mode toggle moves to the top of the drawer,
+   the three actions collapse into one "⋯" overflow menu, and the perspective selector
+   takes the freed room. ---- */
+@media (max-width: 768px) {
+  /* Mode toggle leaves the bar (it reappears at the top of the drawer, below). */
+  .topbar .mode-switch { display: none; }
+
+  /* Tighten the row gap a touch so the perspective selector can show the full
+     "Selecionar perspectiva" placeholder without an ellipsis. */
+  .topbar { gap: 6px; }
+  /* Perspective selector takes the freed space instead of being crushed. */
+  .topnav { flex: 1 1 auto; min-width: 0; margin-left: 0; }
+  .topnav-trigger { min-width: 0; max-width: 100%; }
+  .topnav-trigger-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Three actions → one overflow button at the right edge. */
+  .util { gap: 4px; }
+  .util-action { display: none; }
+  .util-overflow { display: block; position: relative; flex-shrink: 0; }
+  .util-more {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; min-height: 44px; padding: 0;
+    background: transparent; border: none; color: #fff; cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .util-more:hover { background: rgba(255,255,255,0.12); }
+  .util-more:focus-visible { outline: 2px solid rgba(255,255,255,0.6); outline-offset: 1px; }
+  .util-more svg { pointer-events: none; }   /* taps land on the button, never the icon */
+  .util-scrim { position: fixed; inset: 0; z-index: 60; }
+  .util-menu {
+    position: fixed; top: calc(var(--topbar-h) + 4px); right: 8px; z-index: 61;
+    min-width: 224px; max-width: calc(100vw - 16px);
+    background: var(--bg-surface); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.20), 0 3px 10px rgba(0,0,0,0.10);
+    padding: 6px; display: flex; flex-direction: column;
+    animation: fm-rise var(--dur-fast) var(--ease-standard);
+  }
+  .util-menu-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 0 12px; min-height: 46px;
+    background: transparent; border: none; border-radius: var(--radius-sm);
+    color: var(--fg-1); font: 500 14px var(--font-body); text-align: left; cursor: pointer;
+  }
+  .util-menu-item:hover { background: var(--bg-surface-2); }
+  .util-menu-item svg { color: var(--embrapa-green); stroke: currentColor; flex-shrink: 0; }
+
+  /* The mode toggle, now at the top of the drawer (light surface → restyle off the
+     green-bar look). Full labels (override the ≤1080px icon-only rule). */
+  .side-mode-switch {
+    display: flex; gap: 4px; margin: 2px 0 14px; padding: 3px;
+    background: var(--bg-surface-2); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+  .side-mode-switch .mode-opt {
+    flex: 1; justify-content: center; height: auto; min-height: 40px;
+    color: var(--fg-2);
+  }
+  .side-mode-switch .mode-opt span { display: inline; }
+  .side-mode-switch .mode-opt:hover { background: var(--bg-surface); color: var(--fg-1); }
+  .side-mode-switch .mode-opt.on { background: var(--embrapa-green); color: #fff; }
 }
 

@@ -504,3 +504,60 @@ describe('AppShell — SidebarResizer', () => {
     expect(localStorage.getItem('embrapa:sidebarW')).toBe('260px');
   });
 });
+
+describe('AppShell — mobile topbar: util overflow menu (⋯)', () => {
+  it('opens the overflow menu with the three actions on the "⋯" button', () => {
+    const { container } = render(<AppShell {...baseProps()} />);
+    expect(container.querySelector('.util-menu')).toBeNull();
+    fireEvent.click(container.querySelector('.util-more'));
+    const menu = container.querySelector('.util-menu');
+    expect(menu).toBeTruthy();
+    const labels = [...menu.querySelectorAll('.util-menu-item')].map((b) => b.textContent.trim());
+    expect(labels).toEqual(['Citar painel', 'Compartilhar', 'Reportar problema']);
+    expect(container.querySelector('.util-more').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('a menu item fires its action and closes the menu (Reportar → feedback modal)', () => {
+    const { container } = render(<AppShell {...baseProps()} />);
+    fireEvent.click(container.querySelector('.util-more'));
+    const reportItem = [...container.querySelectorAll('.util-menu-item')].find((b) =>
+      b.textContent.includes('Reportar'),
+    );
+    fireEvent.click(reportItem);
+    expect(container.querySelector('.util-menu')).toBeNull(); // menu closed
+    expect(container.querySelector('.feedback-modal')).toBeTruthy(); // Reportar opened the modal
+  });
+
+  it('closes the overflow menu via the scrim and via Escape', () => {
+    const { container } = render(<AppShell {...baseProps()} />);
+    fireEvent.click(container.querySelector('.util-more'));
+    fireEvent.click(container.querySelector('.util-scrim'));
+    expect(container.querySelector('.util-menu')).toBeNull();
+    // reopen, then close with Escape (the utilOpen keydown effect)
+    fireEvent.click(container.querySelector('.util-more'));
+    expect(container.querySelector('.util-menu')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(container.querySelector('.util-menu')).toBeNull();
+  });
+});
+
+describe('AppShell — mobile topbar: mode toggle relocated to the drawer', () => {
+  it('renders the single/multi toggle inside the sidebar with both labels', () => {
+    const { container } = render(<AppShell {...baseProps()} />);
+    const sw = container.querySelector('.side-mode-switch');
+    expect(sw).toBeTruthy();
+    const labels = [...sw.querySelectorAll('.mode-opt')].map((b) => b.textContent.trim());
+    expect(labels).toContain('Banco único');
+    expect(labels).toContain('Multi-fonte');
+  });
+
+  it('the drawer mode toggle calls setMode for both options', () => {
+    const props = baseProps();
+    const { container } = render(<AppShell {...props} />);
+    const opts = container.querySelectorAll('.side-mode-switch .mode-opt');
+    fireEvent.click(opts[1]); // Multi-fonte
+    expect(props.setMode).toHaveBeenCalledWith('multi');
+    fireEvent.click(opts[0]); // Banco único
+    expect(props.setMode).toHaveBeenCalledWith('single');
+  });
+});
