@@ -3203,6 +3203,25 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .brand-logo { height: 30px; }
   .topbar .sep { display: none; }
 
+  /* 2b — The perspective dropdown ("menu superior") becomes a viewport-pinned,
+     scrollable sheet. On desktop it's an absolute, 780px-wide menu anchored under
+     the trigger; on a phone that anchoring + fixed width pushed it ~130px off the
+     RIGHT edge, and its 14 options ran ~300px BELOW the screen with no scroll — so
+     most perspectives were unreachable (the bug behind "o menu superior não
+     funciona"). position:fixed positions it against the viewport (not the narrow
+     .topnav), left/right pin the width, and max-height + overflow-y make it scroll. */
+  .topnav-menu,
+  .topnav-menu.narrow {
+    position: fixed;
+    top: calc(var(--topbar-h) + 4px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - var(--topbar-h) - 16px);
+    overflow-y: auto;
+  }
+
   /* 3 — The body becomes one column; the sidebar slides OVER the content as a drawer. */
   .body { grid-template-columns: minmax(0, 1fr); }
   .sidebar {
@@ -3283,6 +3302,27 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .util-action { min-width: 40px; padding: 0 8px; }
   .topbar { overflow: hidden; }                /* belt-and-suspenders against any tear */
   .topnav-menu-grid { grid-template-columns: 1fr; }
-  .topnav-menu { padding: 14px; left: 0; right: 0; max-width: min(94vw, 420px); }
+  .topnav-menu { padding: 14px; }   /* position/scroll handled by the ≤768px sheet rule */
+}
+
+/* ---- Constrained desktop/tablet (769–1500px): the 780px perspective dropdown is
+   absolute + anchored under a trigger that sits in the RIGHT half of the bar, so on
+   screens narrower than ~1450px it ran off the right edge and forced horizontal PAGE
+   scroll (an absolute, left-anchored menu can't know it's overflowing the viewport).
+   Pin it to the viewport (not the narrow trigger) with a right margin, cap the width,
+   and allow vertical scroll so it always lands fully on-screen. Wide screens (≥1501px)
+   keep the original under-trigger menu, which has room to fit. ---- */
+@media (min-width: 769px) and (max-width: 1500px) {
+  .topnav-menu,
+  .topnav-menu.narrow {
+    position: fixed;
+    top: calc(var(--topbar-h) + 6px);
+    right: 16px;
+    left: auto;
+    width: auto;
+    max-width: min(780px, calc(100vw - 32px));
+    max-height: calc(100dvh - var(--topbar-h) - 24px);
+    overflow-y: auto;
+  }
 }
 
