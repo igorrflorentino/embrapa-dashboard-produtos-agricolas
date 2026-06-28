@@ -50,6 +50,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+.cov_*                 # per-run COVERAGE_FILE data files
+frontend/coverage/     # vitest v8 coverage output (npm test --coverage)
 
 # Translations
 *.mo

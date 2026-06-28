@@ -49,5 +49,21 @@ export default defineConfig({
     include: ['src/**/*.test.{js,jsx}'],
     globals: false,
     restoreMocks: true,
+    // Coverage gate (checked only under `--coverage`, i.e. `npm run test:coverage`
+    // / CI — a bare `npm test` stays fast). The data/contract layer + the view
+    // render-smoke-tests reach ~86-89% of src/ui; the Plotly chart wrappers
+    // (src/charts) are render-smoke-tested only (~64%), since fully driving Plotly
+    // in jsdom is brittle. Thresholds lock in the current whole-src coverage with a
+    // small margin so a regression (a new untested view/helper) fails CI.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      thresholds: {
+        statements: 78,
+        lines: 80,
+        functions: 74,
+        branches: 60,
+      },
+    },
   },
 })
