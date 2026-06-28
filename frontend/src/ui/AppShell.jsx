@@ -84,6 +84,7 @@ function AppShell({
   const [navOpen,  setNavOpen]  = React.useState(false);
   const [sideNavOpen, setSideNavOpen] = React.useState(false); // mobile (≤768px) sidebar drawer
   const [reportOpen, setReportOpen] = React.useState(false);
+  const [utilOpen, setUtilOpen] = React.useState(false); // mobile (≤768px) "⋯" overflow menu for the util actions
   // Optional prefill (view/category/message) for a CONTEXTUAL feedback open (e.g. the
   // Referências "report a value" action); null = the generic "Reportar problema" button.
   const [reportPrefill, setReportPrefill] = React.useState(null);
@@ -103,6 +104,14 @@ function AppShell({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [sideNavOpen]);
+
+  // a11y: Escape closes the mobile util overflow menu (mirrors its scrim tap).
+  React.useEffect(() => {
+    if (!utilOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setUtilOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [utilOpen]);
 
   const groups = window.VIEW_GROUPS || [];
   const activeView = window.viewById ? window.viewById(view) : null;
@@ -288,6 +297,28 @@ function AppShell({
     try { await navigator.clipboard.writeText(inTextCite); } catch {}
   };
 
+  // The single/multi mode toggle — rendered in the topbar on desktop and inside the
+  // sidebar drawer on mobile (≤768px, where the topbar hides it for space), so the
+  // mode stays reachable. Same buttons, two homes; CSS shows the right one per width.
+  const modeButtons = (
+    <>
+      <button role="tab" aria-selected={!isMulti}
+        className={'mode-opt ' + (!isMulti ? 'on' : '')}
+        onClick={() => setMode && setMode('single')}
+        title="Analisar um banco de dados por vez">
+        <window.Icon name="database" size={15}/>
+        <span>Banco único</span>
+      </button>
+      <button role="tab" aria-selected={isMulti}
+        className={'mode-opt ' + (isMulti ? 'on' : '')}
+        onClick={() => setMode && setMode('multi')}
+        title="Cruzar séries de bancos diferentes no mesmo eixo de tempo">
+        <window.Icon name="hub" size={15}/>
+        <span>Multi-fonte</span>
+      </button>
+    </>
+  );
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -304,22 +335,7 @@ function AppShell({
         <div className="sep"></div>
         <div className="product-name">Análise histórica de commodities</div>
 
-        <div className="mode-switch" role="tablist" aria-label="Modo de análise">
-          <button role="tab" aria-selected={!isMulti}
-            className={'mode-opt ' + (!isMulti ? 'on' : '')}
-            onClick={() => setMode && setMode('single')}
-            title="Analisar um banco de dados por vez">
-            <window.Icon name="database" size={15}/>
-            <span>Banco único</span>
-          </button>
-          <button role="tab" aria-selected={isMulti}
-            className={'mode-opt ' + (isMulti ? 'on' : '')}
-            onClick={() => setMode && setMode('multi')}
-            title="Cruzar séries de bancos diferentes no mesmo eixo de tempo">
-            <window.Icon name="hub" size={15}/>
-            <span>Multi-fonte</span>
-          </button>
-        </div>
+        <div className="mode-switch" role="tablist" aria-label="Modo de análise">{modeButtons}</div>
 
         <nav className="topnav">
           <button
@@ -438,6 +454,31 @@ function AppShell({
             <window.Icon name="feedback" size={16}/>
             <span>Reportar problema</span>
           </button>
+
+          {/* Mobile (≤768px): the three actions above are hidden and collapse into this
+              single "⋯" overflow menu, so the bar isn't crammed (FINDING: phone topbar). */}
+          <div className="util-overflow">
+            <button className="util-more" type="button" aria-haspopup="true" aria-expanded={utilOpen}
+              aria-label="Mais ações" onClick={() => setUtilOpen((o) => !o)}>
+              <window.Icon name="more_vert" size={20}/>
+            </button>
+            {utilOpen && (
+              <>
+                <div className="util-scrim" onClick={() => setUtilOpen(false)}></div>
+                <div className="util-menu" role="menu">
+                  <button role="menuitem" className="util-menu-item" onClick={() => { setUtilOpen(false); onCite(); }}>
+                    <window.Icon name="format_quote" size={18}/><span>Citar painel</span>
+                  </button>
+                  <button role="menuitem" className="util-menu-item" onClick={() => { setUtilOpen(false); onShare(); }}>
+                    <window.Icon name="link" size={18}/><span>{shared ? 'URL copiada' : 'Compartilhar'}</span>
+                  </button>
+                  <button role="menuitem" className="util-menu-item" onClick={() => { setUtilOpen(false); onReport(); }}>
+                    <window.Icon name="feedback" size={18}/><span>Reportar problema</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -446,6 +487,10 @@ function AppShell({
           <div className="sidebar-backdrop" onClick={() => setSideNavOpen(false)} aria-hidden="true" />
         )}
         <aside className="sidebar" onClick={(e) => { if (e.target.closest('.side-item')) setSideNavOpen(false); }}>
+          {/* Mobile-only (≤768px): the single/multi mode toggle (the topbar hides it for
+              space). It belongs with data selection — it decides whether the list below is
+              one banco or the cross-source set. */}
+          <div className="side-mode-switch" role="tablist" aria-label="Modo de análise">{modeButtons}</div>
           <div className="side-section">{isMulti ? 'Fontes no cruzamento' : 'Banco de dados'}</div>
           {isMulti ? (
             <>
