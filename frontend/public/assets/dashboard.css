@@ -3305,3 +3305,24 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .topnav-menu { padding: 14px; }   /* position/scroll handled by the ≤768px sheet rule */
 }
 
+/* ---- Constrained desktop/tablet (769–1500px): the 780px perspective dropdown is
+   absolute + anchored under a trigger that sits in the RIGHT half of the bar, so on
+   screens narrower than ~1450px it ran off the right edge and forced horizontal PAGE
+   scroll (an absolute, left-anchored menu can't know it's overflowing the viewport).
+   Pin it to the viewport (not the narrow trigger) with a right margin, cap the width,
+   and allow vertical scroll so it always lands fully on-screen. Wide screens (≥1501px)
+   keep the original under-trigger menu, which has room to fit. ---- */
+@media (min-width: 769px) and (max-width: 1500px) {
+  .topnav-menu,
+  .topnav-menu.narrow {
+    position: fixed;
+    top: calc(var(--topbar-h) + 6px);
+    right: 16px;
+    left: auto;
+    width: auto;
+    max-width: min(780px, calc(100vw - 32px));
+    max-height: calc(100dvh - var(--topbar-h) - 24px);
+    overflow-y: auto;
+  }
+}
+
