@@ -148,7 +148,13 @@ export const baseConfig = {
   displaylogo: false,
   responsive: true,
   locale: 'pt-BR',
-  displayModeBar: 'hover',
+  // Touch devices have no hover, so a hover-only modebar (zoom / pan / reset / download)
+  // is unreachable on a phone — the whole point of the Plotly migration. Show it
+  // persistently on coarse pointers; keep the slim hover-reveal on desktop.
+  displayModeBar:
+    typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches
+      ? true
+      : 'hover',
   modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d', 'toggleSpikelines'],
 };
 
