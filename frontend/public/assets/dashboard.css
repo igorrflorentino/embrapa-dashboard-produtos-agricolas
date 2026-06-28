@@ -3234,5 +3234,55 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .side-item { min-height: 44px; }
   .util-action { min-height: 44px; min-width: 42px; }
   .btn-primary, .btn-secondary { min-height: 42px; }
+
+  /* 7 — View-specific ROW grids (not in the shared collapse list): keep rank + name +
+     numbers, drop the per-row bar that has no width budget on a phone. */
+  .conc-row, .conc-head-note { grid-template-columns: 28px minmax(0, 1fr) 52px 52px; gap: 8px; }
+  .conc-row .conc-bar, .conc-head-note > span:nth-child(3) { display: none; }
+  .conc-name { white-space: normal; }
+  .conc-hhi-row { grid-template-columns: 1fr auto; }
+  .conc-hhi-label { grid-column: 1 / -1; }
+  .muni-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px 10px; }
+  .muni-row .muni-uf, .muni-row .muni-product { grid-column: 2; font-size: 11.5px; }
+  .muni-row .muni-bar { display: none; }
+  .muni-name { white-space: normal; }
+
+  /* 8 — Segmented controls WRAP instead of overflowing the card; taller for touch. */
+  .seg { height: auto; flex-wrap: wrap; }
+  .seg-opt { min-height: 40px; padding: 0 14px; }
+  .geo-control-grp { width: 100%; }
+  .geo-controls .seg .seg-opt { flex: 1 1 auto; }
+
+  /* 9 — Two-column key/value sheets stack into readable lists. */
+  .pp-spec { grid-template-columns: 1fr; row-gap: 4px; }
+  .pp-spec dt { margin-top: 8px; }
+  .pp-spec dd { margin-bottom: 4px; }
+  .ab-banco-meta { grid-template-columns: 1fr; row-gap: 2px; }
+  .ab-banco-meta dt { margin-top: 6px; }
+
+  /* 10 — Cap the tall SVG maps so one doesn't eat half the phone viewport. */
+  .bmap { max-height: 300px; }
+  .br-choropleth { height: 280px !important; }
+
+  /* 11 — Remaining touch targets on dense in-view / in-overlay controls. */
+  .pp-chip { min-height: 40px; }
+  .fb-cat { min-height: 40px; }
+  .gloss-cat { height: 36px; }
+  .fm-close { width: 44px; height: 44px; }
+}
+
+/* ---- Narrowest phones (≤480px): condense the topbar so its flex row never overflows,
+   and make the perspective dropdown a single readable column. ---- */
+@media (max-width: 480px) {
+  .mode-switch { display: none; }              /* low-frequency single/multi toggle */
+  .topnav { margin-left: 8px; flex: 1 1 auto; min-width: 0; }   /* shrink to fit the row */
+  .topnav-trigger { padding: 0 8px; gap: 6px; min-width: 0; max-width: 100%; }
+  .topnav-trigger-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topnav-trigger-grp { display: none; }       /* drop the small "perspectiva" eyebrow */
+  .util { gap: 6px; }
+  .util-action { min-width: 40px; padding: 0 8px; }
+  .topbar { overflow: hidden; }                /* belt-and-suspenders against any tear */
+  .topnav-menu-grid { grid-template-columns: 1fr; }
+  .topnav-menu { padding: 14px; left: 0; right: 0; max-width: min(94vw, 420px); }
 }
 
