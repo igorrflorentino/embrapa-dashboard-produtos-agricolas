@@ -883,3 +883,29 @@
   .fm-row-2 .fm-divider { display: none; }
   .fm-preview-grid { grid-template-columns: 1fr; }
 }
+
+/* ====================================================================
+   PHONES (≤600px) — the first responsive tier below the 980px "tablet"
+   block. The whole filter modal (the primary interaction surface) was
+   left desktop-width before: collapse every multi-column grid to ONE
+   column, unpin the search min-width, wrap the footer buttons, and
+   tighten the generous desktop paddings so nothing overflows ~330px.
+   ==================================================================== */
+@media (max-width: 600px) {
+  .fm-grid { grid-template-columns: 1fr; gap: 2px; }
+  .fm-geo-grid, .fm-geo-grid.cols-3 { grid-template-columns: 1fr; }
+  .fm-geo-col { min-height: 0; }
+  .fm-search { min-width: 0; width: 100%; box-sizing: border-box; }
+  .fm-date-row { grid-template-columns: 1fr; gap: 10px; }
+  .fm-arrow { display: none; }
+  .fm-foot { flex-wrap: wrap; padding: 14px 16px; gap: 8px; }
+  .fm-foot-info { flex: 1 0 100%; }
+  .fm-foot .btn-primary, .fm-foot .btn-secondary, .fm-foot .btn-ghost { flex: 1; min-height: 42px; }
+  .fm-head { padding: 16px 16px 14px; }
+  .fm-row-2 { padding: 16px; }
+  .fm-section-inner { padding: 14px; }
+  .fm-section-head { padding: 10px 14px; }
+  .fm-backdrop { padding: 16px 10px; }
+  .fm-bulk button { min-height: 36px; padding: 8px 4px; }
+  .fm-quick button { height: 36px; }
+}
