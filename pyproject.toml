@@ -94,3 +94,22 @@ max-complexity = 10
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+
+# Coverage (pytest-cov reads these). The CI gates with `--cov-fail-under` (see the
+# Makefile `test` target) — kept off `addopts` so a single-file `pytest tests/x.py`
+# still runs without the whole-suite threshold tripping.
+[tool.coverage.run]
+source = ["src/embrapa_commodities"]
+
+[tool.coverage.report]
+show_missing = true
+# Conventional NON-testable lines excluded so the % reflects real, reachable logic:
+# the `python -m`/script entry guard, type-checking-only imports, abstract stubs, and
+# anything a maintainer explicitly marks `# pragma: no cover`.
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
