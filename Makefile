@@ -130,8 +130,8 @@ lint:    ## Ruff lint + format check (no writes)
 	$(PY) ruff check .
 	$(PY) ruff format --check .
 
-test:    ## Run the unit test suite (credential-free, no live BQ required)
-	$(PY) pytest
+test:    ## Run the unit test suite + coverage gate (credential-free, no live BQ required)
+	$(PY) pytest --cov=src/embrapa_commodities --cov-report=term-missing --cov-fail-under=99
 
 precommit-install:    ## Install git hooks defined in .pre-commit-config.yaml
 	$(PY) pre-commit install
