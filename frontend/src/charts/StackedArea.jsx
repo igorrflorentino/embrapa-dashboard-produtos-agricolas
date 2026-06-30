@@ -3,7 +3,7 @@
 // <window.StackedArea/> unchanged — now with zoom/pan/hover + a name legend.
 //   series: [{ code?, name, color, data: [{ y, [valueKey] }] }]
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, vizPalette, yearAxis } from './_base';
 
 function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) {
   const palette = vizPalette();
@@ -43,7 +43,7 @@ function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) 
       rangemode: 'tozero',
       ...ptBrLinearAxis(ymax),
     },
-    xaxis: { dtick: 'auto', tickformat: 'd' },
+    xaxis: yearAxis(),
   });
 
   return <Plot traces={traces} layout={layout} height={height} />;

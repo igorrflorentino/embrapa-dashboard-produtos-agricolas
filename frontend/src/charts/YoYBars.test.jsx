@@ -57,4 +57,13 @@ describe('YoYBars year-over-year math', () => {
     // null/undefined/0 as "no base", so a real negative base still computes.
     expect(pcts()).toEqual([-50]);
   });
+
+  it('uses a sign-flag-free number format so Plotly actually rounds the % (audit HOVER-2)', () => {
+    render(<YoYBars data={[{ y: 2020, v: 100 }, { y: 2021, v: 50 }]} />);
+    const tmpl = reactState.lastTraces?.[0]?.hovertemplate || '';
+    // Plotly's hovertemplate parser silently fails on the d3 `+` sign flag and dumps
+    // the RAW unrounded value; the format MUST stay sign-flag-free (`,.2f`, not `+,.2f`).
+    expect(tmpl).not.toContain(':+');
+    expect(tmpl).toContain('%{y:,.2f}');
+  });
 });

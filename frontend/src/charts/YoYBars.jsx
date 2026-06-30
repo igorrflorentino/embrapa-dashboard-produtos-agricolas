@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ y, [valueKey] }]
 
-import { Plot, baseLayout, resolveColor, cssVar } from './_base';
+import { Plot, baseLayout, resolveColor, cssVar, yearAxis } from './_base';
 
 function YoYBars({ data = [], valueKey = 'v', height = 200 }) {
   // Empty/degenerate input → empty plot, never throw.
@@ -33,7 +33,11 @@ function YoYBars({ data = [], valueKey = 'v', height = 200 }) {
       y: bars.map((d) => d.pct),
       type: 'bar',
       marker: { color: bars.map((d) => (d.pct >= 0 ? ok : err)), opacity: 0.85 },
-      hovertemplate: '<b>%{x}</b>  %{y:+,.2f}%<extra></extra>',
+      // NB: no `+` sign flag — Plotly's hovertemplate number parser silently fails
+      // on `%{y:+,.2f}` (it can't handle the d3 sign flag here) and dumps the RAW
+      // unrounded value ("36.42796761118921%"). `,.2f` rounds correctly; the bar
+      // colour (green/red) already conveys the +/- direction (audit HOVER-2).
+      hovertemplate: '<b>%{x}</b>  %{y:,.2f}%<extra></extra>',
       name: 'Variação anual',
     },
   ];
@@ -46,7 +50,7 @@ function YoYBars({ data = [], valueKey = 'v', height = 200 }) {
       zeroline: true,
       zerolinecolor: cssVar('--pres-gray-200', '#ECECEC'),
     },
-    xaxis: { dtick: 'auto', tickformat: 'd' },
+    xaxis: yearAxis(),
   });
 
   return <Plot traces={traces} layout={layout} height={height} />;

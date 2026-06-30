@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ uf|name, [valueKey] }]  ·  labeled by d.uf||d.name, value at bar tip.
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, ptBrMagnitude, resolveColor, seriesMax } from './_base';
 
 function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '', valueKey = 'value' }) {
   const c = resolveColor(color);
@@ -18,8 +18,11 @@ function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '',
       type: 'bar',
       orientation: 'h',
       marker: { color: c },
-      // Value shown at the bar tip (pt-BR thousands, like the prototype).
-      text: vals.map((v) => (v == null ? '' : v.toLocaleString('pt-BR'))),
+      // COMPACT magnitude label at the bar tip ("2,9 bi", "384 mi") — the raw pt-BR
+      // number ("2.900.918.362,00") overflowed the card and was clipped at the edge
+      // on the longest bar (audit LABEL-1). Compact matches the x-axis magnitude
+      // ticks; the hover still shows the exact value.
+      text: vals.map((v) => (v == null ? '' : ptBrMagnitude(v))),
       textposition: 'outside',
       cliponaxis: false,
       hovertemplate: '<b>%{y}</b>  %{x:,.2f}<extra></extra>',
@@ -29,7 +32,9 @@ function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '',
 
   const layout = baseLayout({
     hovermode: 'closest',
-    margin: { l: 60, r: 24, t: 14, b: 26 },
+    // Right margin holds the longest bar's outside label (the compact "2,9 bi"),
+    // so it never clips at the card edge.
+    margin: { l: 60, r: 52, t: 14, b: 26 },
     xaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },
       rangemode: 'tozero',

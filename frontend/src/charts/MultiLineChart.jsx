@@ -4,7 +4,7 @@
 // hover and a per-series legend (the point of the Plotly migration).
 //   series: [{ name, color, data: [{ y, [valueKey] }] }]
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, yearAxis } from './_base';
 
 function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200, trend = false }) {
   const palette = vizPalette();
@@ -50,7 +50,7 @@ function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200,
       title: { text: label, font: { size: 11 }, standoff: 8 },
       ...ptBrLinearAxis(ymax),
     },
-    xaxis: { dtick: 'auto', tickformat: 'd' },
+    xaxis: yearAxis(),
   });
 
   return <Plot traces={traces} layout={layout} height={height} />;

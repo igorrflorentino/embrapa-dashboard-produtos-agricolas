@@ -3,7 +3,7 @@
 // unchanged — now with zoom/pan/hover (the point of the Plotly migration).
 //   rows: [{ id, label, values: [{ y, v }] }]
 
-import { Plot, baseLayout, resolveColor } from './_base';
+import { Plot, baseLayout, resolveColor, yearAxis } from './_base';
 
 // The design-system heat ramp (--heat-1…--heat-7), resolved to concrete colors
 // and mapped onto a Plotly colorscale (normalized stops 0→1).
@@ -44,6 +44,9 @@ function Heatmap({ rows = [], valueKey = 'v', valueLabel = '', height }) {
       z,
       colorscale: heatColorscale(),
       showscale: true,
+      // Sparse/ragged rows set missing cells to null (drawn as gaps). Suppress hover on
+      // those gaps so a null cell doesn't pop a tooltip with a blank "%{z:,.2f}" value.
+      hoverongaps: false,
       colorbar: { title: { text: valueLabel, side: 'right', font: { size: 11 } }, thickness: 12 },
       hovertemplate: `<b>%{y}</b> · %{x}<br>%{z:,.2f} ${valueLabel}<extra></extra>`,
     },
@@ -52,8 +55,12 @@ function Heatmap({ rows = [], valueKey = 'v', valueLabel = '', height }) {
   const layout = baseLayout({
     margin: { l: 120, r: 16, t: 8, b: 36 },
     hovermode: 'closest',
-    // x = year categories (top-to-bottom row order preserved via reversed y).
-    xaxis: { type: 'category', tickangle: 0 },
+    // x = a LINEAR year axis (not category): the years are contiguous integers, so a
+    // numeric axis renders the heatmap cells identically (centred on each year, width
+    // 1) while letting yearAxis() THIN the labels to fit the width — a category axis
+    // pinned all ~39 years and crushed them into "198619871988…" on a wide card
+    // (audit AXIS-2). yearAxis = integer ticks, Plotly auto-density by width.
+    xaxis: yearAxis(),
     yaxis: { type: 'category', autorange: 'reversed', automargin: true },
   });
 
