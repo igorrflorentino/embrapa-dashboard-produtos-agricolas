@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-30
+
+Mobile-responsive pass, a 4-layer data-structure explorer, a per-(banco × perspectiva)
+page hero, width-adaptive charts, and a 17-dimension audit remediation. Backend 1200
+pytest / 99.91% coverage, frontend 730 vitest; all live-verified on prod BigQuery.
+
+### Added
+- **"Estrutura de dados" perspective** — browse every table across all four medallion layers
+  (Bronze → Silver → Gold → Serving), grouped by layer, with row-level inspection (server-side
+  pagination, sort, per-column filters, CSV export) (#185).
+- **Mobile-responsive layout** — off-canvas sidebar drawer (hamburger, ≤768px), a
+  pinned-to-viewport perspective sheet, and a decluttered phone topbar (mode toggle → drawer,
+  utility actions → "⋯" menu) (#180, #183, #184).
+- **Per-(banco × perspectiva) page hero** — the intro text now reflects the active banco *and*
+  perspective; selfData perspectives (Produtividade/PAM, Fluxos, Sazonalidade) on a live banco
+  now render the full hero with the maturity banner + provenance/selection box (#185).
+- **PR-level dbt unit-test gate** in CI (#179).
+
+### Changed
+- **Dynamic app version** — the dashboard reads its version from the package metadata instead of
+  a hardcoded `v0.1.0` (#185).
+- **Charts adapt to tight space** — annual axes thin their year labels to the rendered width
+  (`yearAxis()`), bar value labels use compact magnitude ("2,9 bi"), and the year × UF heatmap
+  moved to a linear axis so its labels never crush (#185).
+- **About / status indicators** — friendlier per-banco onboarding copy, a dedicated colour for
+  the "ingestão" maturity tag, harmonized hero status pills (maturity + usage), and a beta caveat
+  banner that reads the same registry description as the "Sobre" legend (#185).
+- **~99% test coverage** with CI coverage gates (backend → 100%, frontend src/ui → ~88%) (#181).
+
+### Fixed
+- **Solid chart hover tooltips** — the shared layout pins an opaque background (was transparent),
+  and the year-over-year chart drops a d3 sign flag that made Plotly dump the raw unrounded
+  percentage (#185).
+- **Card text never overflows** — a global overflow-wrap guard, and the geographic auto-scale uses
+  per-tile magnitude so small UFs aren't rounded to zero nor large ones clipped (#185).
+- **17-dimension audit remediation** — purge `code_prefix` resolution, REST `flow` validation,
+  curation orphan-cache invalidation, and assorted backend / dbt / frontend hardening (#185).
+- **dbt** — PPM unit test mocks `product_unit_factors` (un-breaks the prod build) and the 1985
+  PAM/PPM currency-reform correction (#178, #179).
+
 ## [1.7.0] - 2026-06-27
 
 ### Added — Curadoria: researcher-editable commodity catalog
