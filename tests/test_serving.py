@@ -2562,8 +2562,14 @@ def test_gateway_inspectable_tables_and_allowlist_boundary():
     ids = [t["id"] for t in ppm]
     assert "gold_ppm_production" in ids and "serving_ppm_annual" in ids
     assert all(t.get("label") and t.get("grain") for t in ppm)
+    # "Estrutura de dados" now spans ALL FOUR medallion layers, each row tagged with its layer.
+    assert {t["layer"] for t in ppm} == set(gateway._INSPECT_LAYERS)
+    assert "sidra_t3939_raw" in ids and "sidra_t74_raw" in ids  # PPM has two Bronze sources
+    assert "silver_ibge_ppm" in ids  # the banco's own Silver
+    assert "silver_bcb_inflation" in ids  # shared deflation reference, surfaced under Silver
     comex_ids = [t["id"] for t in gateway.inspectable_tables("mdic_comex")]
     assert "serving_comex_seasonality" in comex_ids  # the monthly mart is inspectable too
+    assert "comex_flows_raw" in comex_ids and "silver_comex_flows" in comex_ids  # Bronze + Silver
     assert gateway.inspectable_tables("nope") == []
     # SECURITY: a (banco, table) outside the allowlist is refused (the rejection happens
     # before any table_ref/get_settings call, so no settings stub is needed here).
@@ -3078,8 +3084,9 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
     """The purge plan REFUSES an element that is not marked Descontinuado, and for one
     that is, builds the scoped Gold DELETE(s) + the backup status — without deleting."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_commodities.serving import catalog_lifecycle, gateway
 
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
     # not marked → refuse
     monkeypatch.setattr(catalog_lifecycle, "_current_status", lambda cfg: {})
     with pytest.raises(ValueError):
@@ -3096,6 +3103,42 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
     assert plan["backup_ok"] is True
     assert any("gold_comex_flows" in s and "20079926%" in s for s in plan["statements"])
     assert all(s.strip().startswith("DELETE FROM") for s in plan["statements"])
+
+
+def test_purge_plan_uses_coarse_code_prefix_not_codigo(monkeypatch):
+    """REGRESSION: when an entry's code_prefix is COARSER than its codigo_commodity, the
+    purge DELETE must match the PREFIX (what orphan detection flagged), not the codigo —
+    else it under-purges and leaves the lingering rows behind while the audit says 'purged'."""
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_commodities.serving import catalog_lifecycle, gateway
+
+    # Coarse prefix '12' absorbing codigo '1203' (the case the catalog explicitly supports).
+    def _coarse_orphan_df():
+        return pd.DataFrame(
+            [
+                {
+                    "codigo_commodity": "1203",
+                    "banco": "comex",
+                    "code_prefix": "12",
+                    "agrupamento": "X",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _coarse_orphan_df)
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_current_status",
+        lambda cfg: {("commodity", "comex", "1203"): "descontinuado"},
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_backup_status", lambda cfg: (True, "ok"))
+    plan = catalog_lifecycle.purge_plan("comex", "1203", settings=_settings())
+    assert plan["code_prefix"] == "12"
+    # The DELETE matches the COARSE prefix, not the codigo.
+    assert any("LIKE '12%'" in s for s in plan["statements"])
+    assert not any("LIKE '1203%'" in s for s in plan["statements"])
 
 
 def test_purge_plan_rejects_injection_in_code():

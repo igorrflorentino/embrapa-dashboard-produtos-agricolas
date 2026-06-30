@@ -50,6 +50,15 @@ describe('geoHeaderText (live header line, lowercase)', () => {
       geoHeaderText({ ...ALL, nationsSize: 2, statesSize: 5, muniSliceable: false }),
     ).toBe('2 nação(ões), 5 UF');
   });
+  it('cleared municípios (0) = no narrowing → "todos os", never "0 municípios"', () => {
+    // dataFilters treats an emptied geo facet as NO constraint (shows all), so the summary
+    // must say "todos os municípios" — not "0 municípios" while every município is shown.
+    expect(geoHeaderText({ ...ALL, nationsSize: 1, statesSize: 5, munisSize: 0 })).toBe(
+      '1 nação(ões), 5 UF, todos os municípios',
+    );
+    // everything else full + munis cleared → still the whole territory
+    expect(geoHeaderText({ ...ALL, munisSize: 0 })).toBe('todo o território');
+  });
 });
 
 describe('geoChipText (apply-time chip, title case)', () => {
@@ -73,5 +82,10 @@ describe('geoChipText (apply-time chip, title case)', () => {
   it('muni full but not all-territory → nações · UFs, pluralised', () => {
     expect(geoChipText({ ...ALL, nationsSize: 2, statesSize: 5 })).toBe('2 nações · 5 UFs');
     expect(geoChipText({ ...ALL, nationsSize: 1, statesSize: 1 })).toBe('1 nação · 1 UF');
+  });
+  it('cleared municípios (0) = no narrowing → never "0 municípios" in the chip', () => {
+    expect(geoChipText({ ...ALL, nationsSize: 2, statesSize: 5, munisSize: 0 })).toBe(
+      '2 nações · 5 UFs',
+    );
   });
 });

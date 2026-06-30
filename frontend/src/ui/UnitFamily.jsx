@@ -13,9 +13,11 @@ function UnitFamilyBanner({ families }) {
       <div className="ufam-banner single">
         <span className="ufam-dot" style={{ background: 'var(--embrapa-green)' }}></span>
         <span className="ufam-label">Família de unidades</span>
-        <strong>{f.label} · {f.unit}</strong>
+        {/* The family label alone — NO specific unit, which would go stale when the user
+            switches the unit in the conventions strip (the unit is shown there + on the axes). */}
+        <strong>{f.label}</strong>
         <span className="ufam-note">
-          Todos os produtos da cesta são medidos em {f.long}; quantidades são somáveis.
+          Todos os produtos da cesta compartilham a mesma família de unidade; as quantidades são somáveis.
         </span>
       </div>
     );
@@ -25,8 +27,10 @@ function UnitFamilyBanner({ families }) {
     <div className="ufam-banner mixed">
       <span className="ufam-dot warn"></span>
       <span className="ufam-label">Cesta mista</span>
+      {/* Just the families (no unit in parentheses) — informing they differ is the whole point;
+          the parenthetical unit was static and didn't follow the unit selector. */}
       <strong>
-        {families.map(id => `${F[id].label} (${F[id].unit})`).join(' + ')}
+        {families.map(id => F[id].label).join(' + ')}
       </strong>
       <span className="ufam-note">
         Quantidades de famílias diferentes <u>não</u> são agregadas: cada métrica

@@ -106,14 +106,26 @@ export function BrazilChoropleth({ data, valueKey, label, height = 360 }) {
         if (!f) return;
         const uf = f.properties.uf;
         const hit = lookupRef.current[uf];
-        const val = hit ? hit.value.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—';
+        // Compact per-value magnitude (e.g. "2,9 bi") — matches the tile-map + legend, so
+        // toggling Mapa/Blocos shows the same readable format instead of a long raw number.
+        const fmtCompact = (v) => {
+          const mp = window.autoScaleNum && v ? window.autoScaleNum(v) : { factor: 1, suffix: '' };
+          const s = v / mp.factor;
+          const t = s.toLocaleString('pt-BR', { maximumFractionDigits: Math.abs(s) < 10 ? 1 : 0 });
+          return mp.suffix ? `${t} ${mp.suffix}` : t;
+        };
+        const val = hit ? fmtCompact(hit.value) : '—';
         const name = (hit && hit.name) || f.properties.name || uf;
         const unit = (hit && hit.label) || '';
         popup
           .setLngLat(e.lngLat)
           .setHTML(
-            `<div style="font:600 12px var(--font-body,sans-serif)">${uf} · ${name}</div>` +
-              `<div style="font:11px var(--font-body,sans-serif);color:#555">${val} ${unit}</div>`,
+            // max-width + word-wrap so a long UF name ("Rio Grande do Sul") can't
+            // stretch the popup past a narrow/mobile map edge (audit POPUP-1, defensive).
+            `<div style="max-width:180px;overflow-wrap:anywhere">` +
+              `<div style="font:600 12px var(--font-body,sans-serif)">${uf} · ${name}</div>` +
+              `<div style="font:11px var(--font-body,sans-serif);color:#555">${val} ${unit}</div>` +
+            `</div>`,
           )
           .addTo(map);
       }

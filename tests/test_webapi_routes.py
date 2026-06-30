@@ -132,6 +132,29 @@ def test_snapshot_route_threads_flow_to_seam(monkeypatch):
     assert captured["summary"] is None
 
 
+def test_invalid_flow_value_is_400(monkeypatch):
+    """A bad ``flow`` (typo/accent/case) must 400 — not bind verbatim, match zero rows
+    and return an empty-but-200 result (the silent-fallback the validation closes)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(seam, "geo_yearly", lambda *a, **k: None)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(serializers, "serialize_geo_yearly", lambda *a, **k: {"ok": True})
+
+    for path in (
+        "/api/snapshot?banco=mdic_comex&flow=Exportacao",
+        "/api/geo-yearly?banco=mdic_comex&flow=EXPORT",
+    ):
+        resp = client.get(path)
+        assert resp.status_code == 400, path
+        assert "fluxo inválido" in resp.get_json()["error"]
+
+    # 'all' is valid (sums every flow) — passes through.
+    assert client.get("/api/snapshot?banco=mdic_comex&flow=all").status_code == 200
+
+
 def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
     """An empty `codes` param ('basket cleared / all') yields no `basket` key, so
     the seam reads it as "no product filter" rather than "none selected"."""

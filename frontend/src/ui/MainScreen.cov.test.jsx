@@ -173,11 +173,29 @@ describe('MainScreen — cross-source meta-perspective', () => {
 });
 
 describe('MainScreen — banco/view gating', () => {
-  it('renders a selfData preview view even for a soon banco', () => {
+  it('renders a selfData preview view even for a soon banco (minimal hero, no provenance box)', () => {
     window.viewById = (id) => ({ id, label: 'Sazonalidade', group: { label: 'temporal' }, selfData: true });
     window.viewComponent = () => marker('preview');
     const { container } = render(<MainScreen view="seasonality" database="sefaz_nf" />);
     expect(container.querySelector('.child-preview')).toBeTruthy();
+    // A 'soon' banco gets the MINIMAL preview hero — no provenance/selection box.
+    expect(container.textContent).not.toContain('Proveniência');
+  });
+
+  it('renders the FULL hero (beta banner + provenance box) for a selfData view on a LIVE banco', () => {
+    // Produtividade/PAM is selfData but its banco is live → it must NOT fall into the
+    // minimal preview hero (that path is gated on isSoon); it flows to the full hero
+    // with the MaturityBanner + provenance/selection box, like every live perspective
+    // (audit HERO-1). ibge_pevs is the live banco in the stub registry.
+    window.viewById = (id) => ({ id, label: 'Produtividade', group: { label: 'produto' }, selfData: true, status: 'live' });
+    window.viewComponent = () => marker('productivity');
+    const { container } = render(
+      <MainScreen filters={{}} view="productivity" database="ibge_pevs" basket={['P1']} />
+    );
+    expect(container.querySelector('.child-productivity')).toBeTruthy();
+    expect(container.querySelector('.mat-banner')).toBeTruthy();   // beta caveat banner
+    expect(container.textContent).toContain('Proveniência');
+    expect(container.textContent).toContain('Seleção ativa');
   });
 
   it('renders ViewNotApplicable when the view does not apply to the banco', () => {

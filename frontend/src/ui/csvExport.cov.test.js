@@ -199,6 +199,18 @@ describe('exportActiveTableCSV — per-product series with per-family units', ()
     expect(body.some((l) => l.startsWith('2020;P9;Sem família;1000000;0;t;'))).toBe(true);
   });
 
+  it('neutralizes spreadsheet formula injection in editable product names (CWE-1236)', () => {
+    stubRegistry({
+      products: [{ code: 'PX', name: '=HYPERLINK("http://evil","x")', family: 'mass' }],
+      productTS: { PX: [{ y: 2020, v: 1.0, q: 2.0 }] },
+    });
+    window.exportActiveTableCSV({ view: 'product_profile', summary: {}, database: 'ibge_pevs' });
+    // The name is apostrophe-prefixed (so Excel/LibreOffice won't execute it) and quoted
+    // because it contains commas/quotes — never an unguarded leading '='.
+    expect(lastCsv).toContain('"\'=HYPERLINK(""http://evil"",""x"")"');
+    expect(lastCsv).not.toMatch(/;=HYPERLINK/);
+  });
+
   it('product_profile shares the same per-product case', () => {
     stubRegistry(FILTERED);
     window.exportActiveTableCSV({ view: 'product_profile', summary: {}, database: 'ibge_pevs' });

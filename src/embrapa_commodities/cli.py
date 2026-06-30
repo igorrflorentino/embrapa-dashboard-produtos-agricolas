@@ -946,7 +946,9 @@ def mark_orphans_cmd() -> None:
 @app.command("purge-orphan")
 def purge_orphan_cmd(
     banco: str = typer.Option(..., help="Source token / banco (pevs, comex, comtrade, pam, ppm)"),
-    code: str = typer.Option(..., help="The codigo_commodity (= code prefix) to purge"),
+    code: str = typer.Option(
+        ..., help="The codigo_commodity of the orphan (its real code_prefix is resolved for you)"
+    ),
     mark_purged: bool = typer.Option(
         False, "--mark-purged", help="Record a 'purged' event AFTER you ran the DELETEs."
     ),
@@ -965,8 +967,8 @@ def purge_orphan_cmd(
 
     if mark_purged:
         res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=author))
-        verb = "já registrado" if res.get("deduped") else "registrado"
-        console.print(f"[green]✓[/green] purga {verb}: {banco}:{code} → purged (por {author})")
+        verb = "already recorded" if res.get("deduped") else "recorded"
+        console.print(f"[green]✓[/green] purge {verb}: {banco}:{code} → purged (by {author})")
         return
 
     try:
@@ -975,22 +977,23 @@ def purge_orphan_cmd(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(1) from exc
 
-    console.print(f"[bold]Plano de purga[/bold] — {banco}:{code}")
+    prefix = plan.get("code_prefix", code)
+    console.print(f"[bold]Purge plan[/bold] — {banco}:{code} (prefix '{prefix}')")
     if plan["backup_ok"]:
         console.print(f"  [green]backup OK[/green] — {plan['backup_msg']}")
     else:
-        console.print(f"  [red]backup AUSENTE/ANTIGO[/red] — {plan['backup_msg']}")
-        console.print("  [red]Faça um backup do Gold ANTES de executar os DELETEs abaixo.[/red]")
-    console.print("\n  Execute manualmente (após confirmar o backup):")
+        console.print(f"  [red]backup MISSING/STALE[/red] — {plan['backup_msg']}")
+        console.print("  [red]Back up Gold BEFORE running the DELETEs below.[/red]")
+    console.print("\n  Run manually (after confirming the backup):")
     for stmt in plan["statements"]:
         console.print(f"    [cyan]{stmt}[/cyan]")
     console.print(
-        "\n  [yellow]Atenção:[/yellow] o Gold é reconstruído do Bronze pelo dbt. Para a purga "
-        "ser definitiva, remova também as linhas do Bronze e tire o produto do escopo de "
-        "ingestão (config.py), senão ele volta no próximo build."
+        "\n  [yellow]Note:[/yellow] Gold is rebuilt from Bronze by dbt. For the purge to be "
+        "permanent, also delete the Bronze rows and drop the product from the ingestion scope "
+        "(config.py), otherwise it returns on the next build."
     )
     console.print(
-        f"\n  Depois de executar, registre: "
+        f"\n  After running, record it: "
         f"[cyan]embrapa purge-orphan --banco {banco} --code {code} --mark-purged[/cyan]"
     )
 

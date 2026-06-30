@@ -130,7 +130,11 @@ class Banco:
     id: str
     short: str
     label: str
-    sub: str
+    sub: str  # short tagline (page headers)
+    # Plain-language onboarding description (the "Sobre" banco card). Parity with the frontend
+    # bancos.js `about` (the runtime source of truth for the UI) — kept aligned here so the
+    # repo's banco descriptions don't drift between code surfaces.
+    about: str
     domain: str
     scope: str
     source: str
@@ -258,6 +262,12 @@ BANCOS: list[Banco] = [
         short="IBGE PEVS",
         label="IBGE · Produção da Extração Vegetal e da Silvicultura",
         sub="Produção e exploração de commodities no território brasileiro",
+        about=(
+            "Reúne, ano a ano, a quantidade e o valor da produção do extrativismo vegetal e "
+            "da silvicultura no Brasil — castanha-do-pará, madeira, lenha, carvão vegetal, açaí "
+            "e outros. É a base para acompanhar a exploração de recursos florestais, nativos e "
+            "plantados, ao longo das décadas."
+        ),
         domain="Produção interna",
         scope="Brasil · UF · município",
         source="IBGE",
@@ -278,6 +288,11 @@ BANCOS: list[Banco] = [
         short="MDIC COMEX",
         label="MDIC · Comércio Exterior",
         sub="Exportação e importação brasileiras por estado de origem, produto e parceiro",
+        about=(
+            "Consolida as estatísticas oficiais do comércio exterior brasileiro: exportações e "
+            "importações por produto (NCM), estado de origem e país parceiro. Fundamental para "
+            "análises de balança comercial e do fluxo de mercadorias entre o Brasil e o mundo."
+        ),
         domain="Comércio exterior",
         scope="UF de origem ↔ países parceiros",
         source="MDIC · SECEX",
@@ -303,6 +318,12 @@ BANCOS: list[Banco] = [
         short="UN COMTRADE",
         label="UN Comtrade · Estatísticas de Comércio Internacional",
         sub="Fluxos de comércio entre nações reportados à Divisão de Estatística da ONU",
+        about=(
+            "É o maior repositório global de dados oficiais de comércio internacional, compilado "
+            "pelas Nações Unidas. Oferece estatísticas de importação e exportação reportadas por "
+            "diversos países, permitindo situar a participação do Brasil no mercado mundial de "
+            "cada commodity."
+        ),
         domain="Comércio internacional",
         scope="País → país (com ou sem filtro Brasil)",
         source="UN Statistics Division",
@@ -328,6 +349,12 @@ BANCOS: list[Banco] = [
         short="IBGE PAM",
         label="IBGE · Produção Agrícola Municipal",
         sub="Área, produção e rendimento das lavouras temporárias e permanentes",
+        about=(
+            "Detalha a produção agrícola municipal — área plantada e colhida, quantidade "
+            "produzida, rendimento médio e valor — das principais lavouras temporárias e "
+            "permanentes do país. Ideal para analisar o desempenho de culturas como soja, "
+            "milho, café, cana-de-açúcar e mandioca."
+        ),
         domain="Produção agrícola",
         scope="Brasil · UF · município",
         source="IBGE",
@@ -350,6 +377,11 @@ BANCOS: list[Banco] = [
         short="IBGE PPM",
         label="IBGE · Pesquisa da Pecuária Municipal",
         sub="Efetivo dos rebanhos e produção de origem animal (leite, ovos, mel, lã)",
+        about=(
+            "Reúne informações anuais sobre os efetivos da pecuária — o tamanho dos rebanhos, em "
+            "cabeças — e a produção de origem animal (leite, ovos, mel e lã) nos municípios "
+            "brasileiros. Permite avaliar tanto o estoque de animais quanto o que eles produzem."
+        ),
         domain="Produção pecuária",
         scope="Brasil · UF · município",
         source="IBGE",
@@ -373,6 +405,12 @@ BANCOS: list[Banco] = [
         short="SEFAZ NFe",
         label="SEFAZ · Fluxos de Notas Fiscais Eletrônicas",
         sub="Comércio interno brasileiro reconstruído a partir de NFe inter-estaduais",
+        about=(
+            "Reconstrói o comércio interno brasileiro a partir das Notas Fiscais Eletrônicas, "
+            "registrando operações de compra e venda entre estados e municípios. Trará uma visão "
+            "de alta granularidade da movimentação econômica e fiscal — banco ainda em "
+            "planejamento."
+        ),
         domain="Comércio interno",
         scope="UF ↔ UF · município ↔ município",
         source="Receita · SEFAZ",
@@ -421,6 +459,7 @@ class View:
     self_data: bool = False
     cross_banco: bool = False
     curated: bool = False
+    data_blocked: bool = False  # component ships but renders an honest placeholder (no source)
     sources: tuple[str, ...] = ()
     align: str = ""
     # group is attached after construction (see VIEW_BY_ID)
@@ -628,6 +667,7 @@ VIEW_GROUPS: list[ViewGroup] = [
                 "Balanço da cadeia",
                 "live",
                 cross_banco=True,
+                data_blocked=True,
                 align="balanço físico (massa)",
                 sources=("ibge_pevs", "sefaz_nf", "mdic_comex", "un_comtrade"),
                 desc="Balanço de oferta reconciliado em massa, da produção ao mercado mundial.",
@@ -638,39 +678,38 @@ VIEW_GROUPS: list[ViewGroup] = [
                 "Defasagem safra → embarque",
                 "live",
                 cross_banco=True,
+                data_blocked=True,
                 align="mês (intra-anual)",
                 sources=("ibge_pevs", "mdic_comex"),
                 desc="Quantos meses os embarques (MDIC) seguem o pico da safra (IBGE).",
             ),
         ),
     ),
-    ViewGroup(
-        "curated",
-        "Análises curadas",
-        "enriquecidas",
-        (
-            View(
-                "curated_value_added",
-                "Valor agregado",
-                "live",
-                cross_banco=True,
-                curated=True,
-                align="nível de industrialização",
-                sources=("mdic_comex", "un_comtrade"),
-                desc="Exportação separada entre bruta e processada, da classificação curada.",
-            ),
-            View(
-                "curated_market_nature",
-                "Finalidade econômica",
-                "live",
-                cross_banco=True,
-                curated=True,
-                align="finalidade (consumo/processamento)",
-                sources=("mdic_comex", "un_comtrade"),
-                desc="Valor comercializado por finalidade econômica (consumo × processamento).",
-            ),
-        ),
-    ),
+    # ─── FROZEN FEATURE: "Análises curadas" (data-curation perspectives) ──────────
+    # Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06): HIDDEN
+    # from the topnav, the app runs decoupled from them. Kept verbatim as scaffold and
+    # COMMENTED OUT to mirror the frontend views.js (DO NOT delete). To revive: un-comment
+    # here + in views.js, restore the AppShell sidebar section, and build dbt with
+    # `--vars 'enable_curation: true'`.
+    # ViewGroup(
+    #     "curated",
+    #     "Análises curadas",
+    #     "enriquecidas",
+    #     (
+    #         View(
+    #             "curated_value_added", "Valor agregado", "live", cross_banco=True,
+    #             curated=True, align="nível de industrialização",
+    #             sources=("mdic_comex", "un_comtrade"),
+    #             desc="Exportação separada entre bruta e processada, da classificação curada.",
+    #         ),
+    #         View(
+    #             "curated_market_nature", "Finalidade econômica", "live", cross_banco=True,
+    #             curated=True, align="finalidade (consumo/processamento)",
+    #             sources=("mdic_comex", "un_comtrade"),
+    #             desc="Valor comercializado por finalidade econômica (consumo × processamento).",
+    #         ),
+    #     ),
+    # ),
     ViewGroup(
         "documentation",
         "Documentação do banco",
@@ -684,6 +723,14 @@ VIEW_GROUPS: list[ViewGroup] = [
                 exportable=True,
                 desc="Diagnóstico do data_quality_flag: distribuição de flags e qualidade "
                 "por produto e UF.",
+            ),
+            View(
+                "dados",
+                "Estrutura de dados",
+                "live",
+                desc="A estrutura por trás do banco: percorra as tabelas de cada camada do "
+                "pipeline (Bronze → Silver → Gold → Serving) e investigue qualquer uma linha a "
+                "linha, com paginação, ordenação e filtros por coluna.",
             ),
             View(
                 "glossary",

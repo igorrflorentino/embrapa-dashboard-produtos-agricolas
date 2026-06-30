@@ -34,7 +34,7 @@ function ViewFlows({ summary, conventions, database }) {
         <window.KpiCardSpark label="Fluxo total" value={fmt(totalOut)} sub={`${data.links.length} rotas mapeadas`} />
         <window.KpiCardSpark label={`Maior origem · ${data.originLabel}`} value={topOrigin?.label || '—'} sub={fmt(topOrigin?.value || 0)} />
         <window.KpiCardSpark label={`Maior destino · ${data.destLabel}`} value={topDest?.label || '—'} sub={fmt(topDest?.value || 0)} />
-        <window.KpiCardSpark label="Granularidade" value={banco?.scope || '—'} sub={banco?.domain || ''} />
+        <window.KpiCardSpark label="Abrangência geográfica" value={banco?.scope || '—'} sub={banco?.domain || ''} />
       </div>
 
       <div className="card">

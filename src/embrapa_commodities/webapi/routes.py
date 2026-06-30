@@ -62,6 +62,20 @@ def _conversion_or_400():
     return {"currency": currency, "correction": correction}, None
 
 
+# Trade-direction vocabulary the gateway binds (sql._flow). 'all'/absent sums every flow.
+_ALLOWED_FLOWS = frozenset({"export", "import", "all"})
+
+
+def _flow_or_400(flow: str | None):
+    """Validate the optional trade ``flow`` query param. Returns ``(flow, None)`` for a
+    valid value (None/absent passes through), else ``(None, (response, 400))`` with a pt-BR
+    error. Mirrors ``_conversion_or_400``: without this, a typo like ``flow=Exportacao``
+    binds verbatim, matches zero rows and returns an empty-but-200 result with no signal."""
+    if flow and flow not in _ALLOWED_FLOWS:
+        return None, (jsonify(error=f"fluxo inválido: {flow!r}"), 400)
+    return flow, None
+
+
 @api.errorhandler(ValueError)
 def _api_value_error(exc):
     """Client-input validation errors → HTTP 400 (not 500). The serving writers raise
@@ -376,7 +390,9 @@ def snapshot():
     conv, err = _conversion_or_400()
     if err:
         return err
-    flow = request.args.get("flow")
+    flow, err = _flow_or_400(request.args.get("flow"))
+    if err:
+        return err
     summary = {"flow": flow} if flow else None
     return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, summary)))
 
@@ -412,7 +428,9 @@ def geo_yearly():
     if err:
         return err
     codes = request.args.get("codes")
-    flow = request.args.get("flow")
+    flow, err = _flow_or_400(request.args.get("flow"))
+    if err:
+        return err
     summary: dict = {}
     if codes:
         summary["basket"] = _csv_param(codes)  # blank-strip + cap (SEC-1)

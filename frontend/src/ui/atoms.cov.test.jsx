@@ -153,28 +153,46 @@ describe('Status indicators', () => {
     expect(off.container.querySelector('.use-dot.off')).toBeTruthy();
   });
 
-  it('UsageTag shows Ativo/Inativo text', () => {
+  it('UsageTag shows Ativo/Inativo text and shares the maturity-tag chip style', () => {
     const a = render(h(window.UsageTag, { active: true }));
     expect(a.container.textContent).toContain('Ativo');
+    // Harmonized: reuses the .mat-tag chip base so the two hero status pills
+    // (maturity + usage) read as one visual family (audit HERO-2).
+    expect(a.container.querySelector('.mat-tag.use-on')).toBeTruthy();
     cleanup();
     const i = render(h(window.UsageTag, { active: false }));
     expect(i.container.textContent).toContain('Inativo');
+    expect(i.container.querySelector('.mat-tag.use-off')).toBeTruthy();
   });
 
-  it('MaturityBanner renders for a caveat stage with the fallback copy + date', () => {
+  it('UsageTag size="sm" applies the small chip modifier (matches the hero maturity tag)', () => {
+    const sm = render(h(window.UsageTag, { active: true, size: 'sm' }));
+    expect(sm.container.querySelector('.mat-tag.use-on.sm')).toBeTruthy();
+    cleanup();
+    // Default (no size) must NOT carry the sm modifier.
+    const reg = render(h(window.UsageTag, { active: false }));
+    expect(reg.container.querySelector('.mat-tag.use-off')).toBeTruthy();
+    expect(reg.container.querySelector('.sm')).toBeNull();
+  });
+
+  it('MaturityBanner shows the registry stage desc (same copy as the Sobre legend) + date', () => {
     const { container } = render(
       h(window.MaturityBanner, { banco: { maturity: 'beta', maturityDate: '2026-06' } })
     );
     expect(container.querySelector('.mat-banner-beta')).toBeTruthy();
     expect(container.textContent).toContain('Beta');
     expect(container.textContent).toContain('2026-06');
+    // The caveat copy is MATURITY.beta.desc — IDENTICAL to the maturity legend in
+    // "Sobre o dashboard", so the beta description reads the same in both places.
+    expect(container.textContent).toContain(MATURITY.beta.desc);
   });
 
-  it('MaturityBanner prefers an explicit banco.maturityNote over the fallback', () => {
+  it('MaturityBanner prefers an explicit banco.maturityNote over the registry desc', () => {
     const { container } = render(
       h(window.MaturityBanner, { banco: { maturity: 'beta', maturityNote: 'Nota custom' } })
     );
     expect(container.textContent).toContain('Nota custom');
+    expect(container.textContent).not.toContain(MATURITY.beta.desc);
   });
 
   it('MaturityBanner renders nothing for a non-caveat stage or no banco', () => {
@@ -216,8 +234,10 @@ describe('UnitFamily', () => {
     const { container } = render(h(window.UnitFamilyBanner, { families: ['mass', 'volume'] }));
     expect(container.querySelector('.ufam-banner.mixed')).toBeTruthy();
     expect(container.textContent).toContain('Cesta mista');
-    expect(container.textContent).toContain('Massa (t)');
-    expect(container.textContent).toContain('Volume (m³)');
+    // No static unit in parentheses — just the family names.
+    expect(container.textContent).toContain('Massa + Volume');
+    expect(container.textContent).not.toContain('(t)');
+    expect(container.textContent).not.toContain('(m³)');
   });
 
   it('UnitFamilyBanner renders nothing with no families', () => {

@@ -114,6 +114,25 @@ export function seriesMax(rows, pick) {
   return m;
 }
 
+/** X-axis config for an ANNUAL (year) series: integer year labels whose COUNT
+ *  thins to fit the rendered container width instead of pinning every year.
+ *
+ *  Why this exists: the previous call sites set `dtick: 'auto'`, which is INVALID
+ *  for a linear axis — Plotly coerced it to `dtick: 1` (tickmode 'linear'), forcing
+ *  a label on EVERY one of the ~39 years regardless of width. In a half-width
+ *  (grid-2) card those 39 labels crushed into an unreadable vertical smear.
+ *
+ *  Leaving dtick/nticks UNSET restores tickmode 'auto' (the default): Plotly picks
+ *  "nice" round years (1990, 2000…) and scales the tick COUNT to the axis pixel
+ *  length — fewer ticks on a narrow card, more on a wide one — re-thinning on every
+ *  resize. `tickformat: 'd'` keeps the labels integer years. Spread `over` last so
+ *  subplot panels can add `showticklabels` / `matches` etc.:
+ *    xaxis: yearAxis()                              // single chart
+ *    xaxis: yearAxis({ showticklabels: false })     // stacked-panel row */
+export function yearAxis(over = {}) {
+  return { tickformat: 'd', ...over };
+}
+
 /** Base layout shared by all charts — transparent bg, DS fonts/colors, light
  *  grid, tight margins. Pass overrides (axis titles, legend, height handled by
  *  the wrapper div). */
@@ -134,6 +153,17 @@ export function baseLayout(over = {}) {
     font: { family, size: 12, color: ink },
     margin: { l: 56, r: 16, t: 8, b: 36 },
     hovermode: 'x unified',
+    // SOLID hover tooltip — Plotly's per-trace default hoverlabel bgcolor is
+    // inconsistent (a 10%-alpha fill leaks through for area lines, a bar gets
+    // rgba(0,0,0,0)) so the unified box read as TRANSPARENT and the chart bled
+    // through the text, hurting readability (audit HOVER-1). Pin an opaque surface
+    // + subtle border + dark ink so EVERY chart's tooltip is legible. `over` can
+    // still replace it wholesale.
+    hoverlabel: {
+      bgcolor: cssVar('--bg-surface', '#ffffff'),
+      bordercolor: cssVar('--pres-gray-300', '#CFD4CF'),
+      font: { family, size: 12, color: ink },
+    },
     showlegend: false,
     colorway: vizPalette(),
     ...over,

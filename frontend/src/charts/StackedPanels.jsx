@@ -4,7 +4,7 @@
 // now with zoom/pan/hover. Handles any number of series and any mix of units.
 //   series: [{ label, color, unit, bancoShort, data: [{ y, v }] }]
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, withAlpha } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, withAlpha, yearAxis } from './_base';
 
 function StackedPanels({ series = [], panelHeight = 150 }) {
   // Guard empty/degenerate input — never throw.
@@ -81,12 +81,10 @@ function StackedPanels({ series = [], panelHeight = 150 }) {
   const xaxes = {};
   series.forEach((s, si) => {
     const axisKey = si === 0 ? 'xaxis' : `xaxis${si + 1}`;
-    xaxes[axisKey] = {
-      tickformat: 'd',
-      dtick: 'auto',
+    xaxes[axisKey] = yearAxis({
       showticklabels: si === n - 1,
       ...(si === 0 ? {} : { matches: 'x' }),
-    };
+    });
   });
 
   const layout = baseLayout({

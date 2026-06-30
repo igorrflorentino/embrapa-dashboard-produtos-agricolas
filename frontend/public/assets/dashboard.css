@@ -1150,6 +1150,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* Left-border tinted by maturity stage (matches the maturity tag). */
 .ab-banco.mat-planejado      { border-left: 3px solid var(--pres-gray-400); }
 .ab-banco.mat-desenvolvimento { border-left: 3px solid var(--status-mat-dev); background: color-mix(in srgb, var(--status-mat-dev) 5%, var(--bg-surface)); }
+.ab-banco.mat-ingestao       { border-left: 3px solid var(--status-mat-ingest); background: color-mix(in srgb, var(--status-mat-ingest) 5%, var(--bg-surface)); }
 .ab-banco.mat-beta           { border-left: 3px solid var(--info); }
 .ab-banco.mat-estavel        { border-left: 3px solid var(--ok); }
 .ab-banco.mat-manutencao     { border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 4%, var(--bg-surface)); }
@@ -1714,10 +1715,13 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   color: var(--fg-1);
   letter-spacing: -0.01em;
   margin-top: 8px;
-  white-space: nowrap;
-  /* Fixed px line-height (≥ max font) so the fit-to-width shrink changes only
-     the glyph size, never the element/card height — that would otherwise
-     retrigger the ResizeObserver in a loop and stall live re-fitting. */
+  /* WRAP, never overflow: a long text value (e.g. a banco's geographic reach) wraps to a
+     new line instead of spilling past the card edge. Numbers fit on one line, so they don't
+     wrap; only over-long content does. overflow-wrap:anywhere also breaks an unbreakable token.
+     (There is no KPI ResizeObserver — value sizing is pure CSS: fixed 28px here, a
+     container-query clamp on .kpi-card.spark — so wrapping can't retrigger a fit loop.) */
+  white-space: normal;
+  overflow-wrap: anywhere;
   line-height: 34px;
 }
 .kpi-sub {
@@ -1762,6 +1766,12 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* Grid/flex children must be allowed to shrink below their content min-width
    so charts (which scale via viewBox) reflow instead of forcing overflow. */
 .card, .kpi-card { min-width: 0; }
+/* GLOBAL SAFETY NET — text never spills past a card's edge: any long word/value/URL inside a
+   card wraps (breaking an unbreakable token if needed) instead of overflowing horizontally.
+   Elements that deliberately stay on one line (chips, tags, segmented buttons, table headers)
+   opt back in with their own `white-space: nowrap` and are short / live in scroll containers,
+   so this never clips legitimate content. */
+.card, .kpi-card { overflow-wrap: anywhere; }
 
 /* ---------- Charts ---------- */
 .chart { width: 100%; height: auto; display: block; }
@@ -2563,6 +2573,9 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+  /* Align groups to the top so a 2×2 group (Massa) growing taller never leaves empty
+     space under the shorter 3-option groups (Moeda/Volume). */
+  align-items: start;
 }
 .mc-group {
   display: flex;
@@ -2581,6 +2594,12 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   min-height: 44px;
   flex-wrap: wrap;
   align-items: stretch;
+}
+/* 4-option group → balanced 2×2 grid (no lopsided 3+1 wrap, no excess empty space). */
+.mc-group .seg.seg-2x2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
 }
 .mc-group .seg-opt {
   flex: 1 1 auto;
@@ -3042,7 +3061,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* ====================================================================
    Banco status indicators — TWO axes
      • .mat-tag / .mat-legend / .mat-banner  → maturity (dataset lifecycle)
-     • .use-dot / .use-tag                    → usage (ativo/inativo)
+     • .use-dot / .mat-tag.use-on|use-off     → usage (ativo/inativo)
    Driven by window.MATURITY (bancos.js) via Status.jsx.
    ==================================================================== */
 
@@ -3068,6 +3087,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* Per-stage faint background tint so the chip reads at a glance. */
 .mat-tag.mat-planejado      { background: var(--bg-surface-2); }
 .mat-tag.mat-desenvolvimento { background: color-mix(in srgb, var(--status-mat-dev) 12%, var(--bg-surface)); }
+.mat-tag.mat-ingestao       { background: color-mix(in srgb, var(--status-mat-ingest) 12%, var(--bg-surface)); }
 .mat-tag.mat-beta           { background: color-mix(in srgb, var(--info) 12%, var(--bg-surface)); }
 .mat-tag.mat-estavel        { background: color-mix(in srgb, var(--ok)   12%, var(--bg-surface)); }
 .mat-tag.mat-manutencao     { background: color-mix(in srgb, var(--warn) 14%, var(--bg-surface)); }
@@ -3086,15 +3106,12 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   background: transparent;
   border: 1.5px solid var(--pres-gray-400);
 }
-/* Usage pill (hero / about). */
-.use-tag {
-  display: inline-flex; align-items: center; gap: 6px;
-  font: 600 9.5px var(--font-body);
-  letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 2px 9px 2px 7px; border-radius: 999px; flex-shrink: 0;
-}
-.use-tag.on  { color: var(--embrapa-green-darker); background: color-mix(in srgb, var(--ok) 14%, var(--bg-surface)); }
-.use-tag.off { color: var(--fg-4); background: var(--bg-surface-2); }
+/* Usage pill (hero / about). Reuses the .mat-tag chip base (Status.jsx renders
+   `mat-tag use-on|use-off`) so it is visually identical to a maturity tag —
+   border, padding, flat dot, neutral uppercase label — and only the dot colour
+   + faint tint mark the usage axis. Keeps the two status pills harmonized. */
+.mat-tag.use-on  { background: color-mix(in srgb, var(--ok) 12%, var(--bg-surface)); }
+.mat-tag.use-off { background: var(--bg-surface-2); }
 
 /* Sidebar wiring: usage dot left, name flexes, maturity tag pinned right. */
 .side-item .use-dot { margin-right: 1px; }

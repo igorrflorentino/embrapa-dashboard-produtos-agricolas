@@ -242,20 +242,21 @@ function ViewOverview({ families, summary, database, conventions }) {
               ...u,
               value: geoVal(u) * geoMul,
             }));
-            const max = Math.max(...ufRows.map(u => u.value), 0);
-            const { data, label } = window.scaleSeries(ufRows, max, conv, 'value', geoUnit);
             return (
               <>
                 <window.SectionHeader
                   overline={`Distribuição geográfica · ${mapYearTag}`}
-                  title={`${onCount ? 'Cabeças' : 'Valor'} por UF · ${label}`}
+                  title={`${onCount ? 'Cabeças' : 'Valor'} por UF · ${geoUnit}`}
                   action={
                     <span className="caption">
                       {top3.length ? 'Top 3: ' + top3.map(u => u.uf).join(' · ') : '—'}
                     </span>
                   }
                 />
-                <window.BrazilTileMap data={data} valueKey="value" label={label} />
+                {/* RAW values + base unit: the tile map formats each UF with its OWN compact
+                    magnitude (per-tile), so the global auto-scale — which floored small UFs to
+                    "0" when ON — is intentionally NOT applied to the map. */}
+                <window.BrazilTileMap data={ufRows} valueKey="value" label={geoUnit} />
                 {filtered.ufYearPartial && (
                   <p className="caption" style={{ padding: '8px 4px 0' }}>
                     <strong>{mapYear} (parcial):</strong> o último ano com dados por UF fica antes do

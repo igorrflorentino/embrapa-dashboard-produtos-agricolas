@@ -484,7 +484,10 @@ def _classify_serving_marts(client, settings: Settings) -> tuple[list[str], list
 # The trailing slash is important — without it `list_blobs(delimiter="/")` would
 # return individual blob names instead of the `run=*/` directory prefixes.
 _BACKUP_PREFIX = f"{BACKUP_PREFIX}/"
-_BACKUP_RUN_RE = re.compile(r"^backups/run=(\d{8}T\d{6}Z)/$")
+# Derive the run-prefix pattern from BACKUP_PREFIX (the single source of truth in backup.py)
+# rather than hardcoding 'backups/' — otherwise changing BACKUP_PREFIX would make this match
+# nothing and falsely report "no snapshot" even with valid backups present.
+_BACKUP_RUN_RE = re.compile(rf"^{re.escape(BACKUP_PREFIX)}/run=(\d{{8}}T\d{{6}}Z)/$")
 
 
 def _list_backup_runs(client, settings: Settings) -> list[tuple[datetime, str]]:

@@ -262,16 +262,48 @@ def _backup_status(settings: Settings) -> tuple[bool, str]:
         return False, f"não foi possível verificar o backup: {exc}"
 
 
+def _resolve_purge_prefix(cfg: Settings, banco: str, codigo: str) -> str:
+    """The actual ``code_prefix`` to purge for a descontinuado (banco, codigo_commodity).
+
+    Orphan DETECTION matches lingering Gold via ``code LIKE code_prefix || '%'`` (see
+    ``gateway.fetch_orphan_commodities``), and the catalog deliberately supports a COARSE
+    prefix where ``code_prefix != codigo_commodity`` (a coarse prefix auto-absorbs future
+    sub-codes — ``serving.curation``). The purge MUST delete by that SAME prefix; using the
+    codigo would, for a coarse prefix, UNDER-purge — leaving the very Gold rows that made
+    the entry an orphan — while the audit records it as ``purged``. Resolve the prefix from
+    the orphan worklist (which carries the real tombstoned ``code_prefix`` keyed by
+    codigo_commodity + banco), falling back to the codigo only when it can't be resolved
+    (e.g. the log/worklist is unreadable) — the old behaviour, never a regression."""
+    try:
+        orphans = gateway.fetch_orphan_commodities()
+    except Exception as exc:  # NotFound (no log) / cache unbound / BQ unreachable
+        logger.warning(
+            "Could not resolve code_prefix for %s:%s (%s) — using codigo", banco, codigo, exc
+        )
+        return codigo
+    if orphans is None or orphans.empty:
+        return codigo
+    for o in orphans.itertuples():
+        if o.banco == banco and str(o.codigo_commodity) == codigo:
+            pref = ("" if o.code_prefix is None else str(o.code_prefix)).strip()
+            return pref or codigo
+    return codigo
+
+
 def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
     """Build the human-runnable PURGE PLAN for a Descontinuado orphan: the scoped DELETE
     for each Gold table whose rows match the prefix, the backup status, and the
     re-ingestion caveat. Does NOT delete anything — the operator runs the printed
     statements (the project hands destructive deletes to a human). Raises ValueError if
-    the element is not currently Descontinuado, or the banco/code is malformed."""
+    the element is not currently Descontinuado, or the banco/code is malformed.
+
+    ``code`` is the codigo_commodity (the orphan worklist identity); the DELETE is built
+    from the entry's RESOLVED ``code_prefix`` (which may be coarser than the codigo), so it
+    matches exactly what orphan detection flagged — never under/over-purging."""
     cfg = settings or get_settings()
     banco = (banco or "").strip()
     code = (code or "").strip()
-    # The code is interpolated into a printed ``LIKE '<code>%'`` plan, so it must contain
+    # The code is interpolated into a printed ``LIKE '<prefix>%'`` plan, so it must contain
     # NEITHER LIKE wildcard: '%' (already excluded) NOR '_' (a single-char wildcard that
     # would silently over-match, e.g. '12_4' hitting '1204'/'1214'). Allow only a literal
     # token — letters, digits, dot, hyphen.
@@ -282,14 +314,21 @@ def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
             f"{banco}:{code} is not marked Descontinuado — refuse to plan a purge "
             "(only orphans that were detected + marked may be purged)."
         )
+    prefix = _resolve_purge_prefix(cfg, banco, code)
+    # The resolved prefix lands verbatim in the printed DELETE, so it carries the same
+    # wildcard-free guarantee as the codigo (curation also rejects '%'/'_' at write time).
+    if not re.fullmatch(r"[A-Za-z0-9.\-]+", prefix):
+        raise ValueError(f"resolved code_prefix {prefix!r} is not a simple token — refuse to plan.")
     statements = [
-        f"DELETE FROM `{sqlbuild.table_ref(cfg, dataset_attr, table)}` WHERE {col} LIKE '{code}%';"
+        f"DELETE FROM `{sqlbuild.table_ref(cfg, dataset_attr, table)}` "
+        f"WHERE {col} LIKE '{prefix}%';"
         for dataset_attr, table, col in _PURGE_TARGETS.get(banco, [])
     ]
     backup_ok, backup_msg = _backup_status(cfg)
     return {
         "banco": banco,
         "code": code,
+        "code_prefix": prefix,
         "statements": statements,
         "backup_ok": backup_ok,
         "backup_msg": backup_msg,

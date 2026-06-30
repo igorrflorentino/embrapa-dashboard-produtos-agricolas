@@ -63,7 +63,7 @@ function ViewPartners({ summary, conventions, database }) {
         <window.KpiCardSpark label={`Maior ${data.flowLabel}`} value={top?.name || '—'} sub={fmtMetric(top)} />
         <window.KpiCardSpark label="Parceiros mapeados" value={partners.length} sub={`por ${spec.label.toLowerCase()}`} />
         <window.KpiCardSpark label={kpi3.label} value={kpi3.value} sub={kpi3.sub} />
-        <window.KpiCardSpark label="Granularidade" value={banco?.scope || '—'} sub={banco?.domain || ''} />
+        <window.KpiCardSpark label="Abrangência geográfica" value={banco?.scope || '—'} sub={banco?.domain || ''} />
       </div>
 
       <div className="card">

@@ -34,7 +34,7 @@ function wirePlotlyEvents(el) {
   el.__emit = (evt, payload) => (el.__listeners[evt] || []).forEach((f) => f(payload));
 }
 
-import { Plot, ptBrLinearAxis, ptBrMagnitude, ptBrValueTicks, seriesMax } from './_base.jsx';
+import { Plot, baseLayout, ptBrLinearAxis, ptBrMagnitude, ptBrValueTicks, seriesMax, yearAxis } from './_base.jsx';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -162,5 +162,46 @@ describe('ptBrLinearAxis / seriesMax (FINDING #9 — shared across charts)', () 
     expect(seriesMax([{ v: NaN }, { v: -5 }], (d) => d.v)).toBe(0);
     expect(seriesMax([])).toBe(0);
     expect(seriesMax(null)).toBe(0);
+  });
+});
+
+describe('yearAxis (width-adaptive year x-axis — audit AXIS-1)', () => {
+  // The shared annual x-axis contract. It must NOT pin a tick on every year: it
+  // leaves dtick/nticks UNSET so Plotly's tickmode 'auto' scales the tick count to
+  // the rendered width (the old `dtick:'auto'` coerced to dtick:1 → all ~39 years
+  // crushed in a narrow card). Integer year labels via tickformat 'd'.
+  it('emits integer year ticks with NO dtick/nticks (lets Plotly thin by width)', () => {
+    const ax = yearAxis();
+    expect(ax.tickformat).toBe('d');
+    expect(ax.dtick).toBeUndefined();
+    expect(ax.nticks).toBeUndefined();
+    expect(ax.tickmode).toBeUndefined(); // unset → Plotly defaults to 'auto'
+  });
+
+  it('spreads caller overrides last (subplot panels add showticklabels / matches)', () => {
+    const ax = yearAxis({ showticklabels: false, matches: 'x' });
+    expect(ax.tickformat).toBe('d');
+    expect(ax.showticklabels).toBe(false);
+    expect(ax.matches).toBe('x');
+    expect(ax.dtick).toBeUndefined();
+  });
+});
+
+describe('baseLayout hover tooltip (audit HOVER-1 — solid, never transparent)', () => {
+  // Every chart's tooltip must have an OPAQUE background so the chart never bleeds
+  // through the text. jsdom has no CSS vars, so cssVar falls back to the literal
+  // '#ffffff' — the assertion proves the contract regardless of theme resolution.
+  it('pins an opaque hoverlabel bgcolor + border + font', () => {
+    const lay = baseLayout();
+    expect(lay.hoverlabel).toBeDefined();
+    expect(lay.hoverlabel.bgcolor).toBe('#ffffff'); // cssVar fallback in jsdom
+    expect(lay.hoverlabel.bgcolor).not.toMatch(/rgba?\([^)]*,\s*0\s*\)/); // not transparent
+    expect(lay.hoverlabel.bordercolor).toBeTruthy();
+    expect(lay.hoverlabel.font).toBeDefined();
+  });
+
+  it('lets a caller override the whole layout hoverlabel via `over`', () => {
+    const lay = baseLayout({ hoverlabel: { bgcolor: '#222' } });
+    expect(lay.hoverlabel.bgcolor).toBe('#222');
   });
 });

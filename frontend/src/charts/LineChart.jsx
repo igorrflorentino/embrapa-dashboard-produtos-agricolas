@@ -3,7 +3,7 @@
 // unchanged — but now with zoom/pan/hover (the point of the Plotly migration).
 //   data: [{ y, [valueKey] }]
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, withAlpha } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, withAlpha, yearAxis } from './_base';
 
 function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = '', valueKey = 'v', trend = false }) {
   const c = resolveColor(color);
@@ -46,7 +46,7 @@ function LineChart({ data = [], height = 200, color = 'var(--viz-1)', label = ''
   const layout = baseLayout({
     margin: { l: 56, r: 12, t: 18, b: 28 },
     yaxis,
-    xaxis: { dtick: 'auto', tickformat: 'd' },
+    xaxis: yearAxis(),
   });
   return <Plot traces={traces} layout={layout} height={height} />;
 }

@@ -27,10 +27,15 @@ function UsageDot({ active }) {
 }
 
 // ── Usage tag: explicit ativo/inativo pill (hero / about). ──────────────
-function UsageTag({ active }) {
+// Shares the maturity-tag chip styling (.mat-tag: border + flat dot + neutral
+// uppercase label) so the TWO status axes — maturity and usage — read as one
+// visual family in the hero; only the dot colour + faint tint differ. The
+// caller passes size="sm" to match the small maturity tag beside it.
+function UsageTag({ active, size }) {
   return (
-    <span className={'use-tag ' + (active ? 'on' : 'off')}>
-      <span className={'use-dot ' + (active ? 'on' : 'off')}></span>
+    <span className={'mat-tag ' + (active ? 'use-on' : 'use-off') + (size === 'sm' ? ' sm' : '')}
+          title={active ? 'Ativo · fonte dos dados em tela' : 'Inativo'}>
+      <span className="mat-tag-dot" style={{ background: active ? 'var(--ok)' : 'var(--pres-gray-400)' }}></span>
       {active ? 'Ativo' : 'Inativo'}
     </span>
   );
@@ -38,22 +43,20 @@ function UsageTag({ active }) {
 
 // ── Caveat banner shown atop data views for beta / manutencao /
 //    descontinuado (the caveat:true stages). ─────────────────────────
+// The caveat text is the registry's MATURITY[stage].desc — the SAME string the
+// "Sobre o dashboard" maturity legend shows (MaturityLegend below) — so the beta
+// (and every stage's) description reads identically in both places (audit HERO-2).
+// An operator-set banco.maturityNote still overrides it per banco.
 function MaturityBanner({ banco }) {
   if (!banco) return null;
   const m = window.maturityMeta(banco);
   if (!m.caveat) return null;
-  const FALLBACK = {
-    beta:          'Cobertura ainda parcial — alguns períodos podem não estar completos e os valores podem mudar.',
-    manutencao:    'Correção/atualização em andamento — alguns valores podem mudar.',
-    descontinuado: 'Banco descontinuado e sem manutenção — será removido em breve. Exporte o que precisar.',
-  };
-  const fallback = FALLBACK[m.id] || m.desc;
   return (
     <div className={'mat-banner mat-banner-' + m.id} style={{ '--st-color': m.color }} role="status">
       <span className="mat-banner-dot" style={{ background: m.color }}></span>
       <div className="mat-banner-body">
         <strong>{m.label}.</strong>{' '}
-        <span>{banco.maturityNote || fallback}</span>
+        <span>{banco.maturityNote || m.desc}</span>
         {banco.maturityDate ? <span className="mat-banner-date tnum"> · {banco.maturityDate}</span> : null}
       </div>
     </div>

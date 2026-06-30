@@ -17,7 +17,13 @@
   function toCSV(headers, rows) {
     const esc = (v) => {
       if (v == null) return '';
-      const s = String(v);
+      let s = String(v);
+      // Spreadsheet formula-injection guard (CWE-1236): a cell beginning with = + @ or a
+      // control char (tab/CR) is executed as a formula by Excel/LibreOffice. Researcher-
+      // editable commodity/region names flow into this CSV, so neutralize the trigger with a
+      // leading apostrophe — but leave plain numbers (incl. negatives) untouched so an
+      // exported numeric column stays numeric.
+      if (!/^[-+]?\d[\d.,\s]*$/.test(s) && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
       return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const head = headers.join(';');                 // pt-BR friendly delimiter

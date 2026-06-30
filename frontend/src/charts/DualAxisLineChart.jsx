@@ -8,7 +8,7 @@
 // axis, the SECOND to the RIGHT. Series sharing a unit share an axis. The view
 // caps dual-axis mode at 2 distinct units, so we only ever wire two axes.
 
-import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette } from './_base';
+import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, yearAxis } from './_base';
 
 function DualAxisLineChart({ series = [], height = 200 }) {
   // Discover the distinct units in encounter order (max 2 → left/right).
@@ -47,7 +47,7 @@ function DualAxisLineChart({ series = [], height = 200 }) {
     margin: { l: 56, r: 60, t: 18, b: 30 },
     showlegend: true,
     legend: { orientation: 'h', x: 0, y: 1.08, font: { size: 11 } },
-    xaxis: { dtick: 'auto', tickformat: 'd' },
+    xaxis: yearAxis(),
     yaxis: {
       title: { text: leftUnit || '', font: { size: 11 }, standoff: 8 },
       ...ptBrLinearAxis(maxForUnit(leftUnit)),

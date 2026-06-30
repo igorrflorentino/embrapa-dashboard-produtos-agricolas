@@ -4,7 +4,7 @@
 // prototype's component. Same name + props (incl. onSelect for drill-down).
 //   data: [{ uf, col, row, region, [valueKey] }]  (col/row decorated client-side)
 
-function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height = 420, onSelect }) {
+function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height = 420, onSelect, compact = true }) {
   const COLS = 8;
   const ROWS = 9;
   const CELL_W = 60;
@@ -42,6 +42,20 @@ function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height 
   const textColor = (v) => {
     const i = level(v);
     return i < 0 ? 'var(--fg-3)' : i >= 4 ? '#fff' : 'var(--fg-1)';
+  };
+  // Per-VALUE compact magnitude (e.g. 2_900_918_362 → "2,9 bi", 384_329_590 → "384 mi",
+  // 938_274 → "938 mil") so each cell uses its OWN magnitude — a small UF is never rounded to
+  // "0" by a single global factor, and a big one never overflows the 60px cell. Reuses the
+  // shared magnitude kernel (autoScaleNum = magnitudeParts). `compact=false` keeps the full
+  // integer (for metrics like kg/ha yield that fit and where the exact figure matters).
+  const fmtTile = (v) => {
+    if (compact && window.autoScaleNum && Math.abs(v) >= 1000) {
+      const mp = window.autoScaleNum(v);
+      const scaled = v / mp.factor;
+      const txt = scaled.toLocaleString('pt-BR', { maximumFractionDigits: Math.abs(scaled) < 10 ? 1 : 0 });
+      return mp.suffix ? `${txt} ${mp.suffix}` : txt;
+    }
+    return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
   };
   const REGION_BG = {
     N: 'color-mix(in srgb, var(--viz-2) 10%, transparent)',
@@ -88,7 +102,7 @@ function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height 
                 textAnchor="middle"
                 style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fill: textColor(v), opacity: 0.85 }}
               >
-                {v ? v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '—'}
+                {v ? fmtTile(v) : '—'}
               </text>
             </g>
           );
@@ -103,7 +117,7 @@ function BrazilTileMap({ data = [], valueKey = 'value', label = 'R$ mi', height 
           ))}
         </div>
         <span className="caption tnum">
-          {min.toLocaleString('pt-BR')} – {max.toLocaleString('pt-BR')}
+          {fmtTile(min)} – {fmtTile(max)}
         </span>
       </div>
     </div>

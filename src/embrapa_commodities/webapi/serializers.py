@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from embrapa_commodities import __version__ as _APP_VERSION
+
 from . import format as fmt
 
 # Gold timestamps are UTC; the dashboard provenance stamp is displayed in
@@ -182,6 +184,12 @@ def serialize_source_meta(meta: dict | None) -> dict:
         "maturityNote": meta.get("maturity_note"),
         "maturityDate": meta.get("maturity_date"),
         "cobertura": meta.get("cobertura"),
+        # The running dashboard version — the SINGLE SOURCE OF TRUTH is the installed
+        # package version (pyproject.toml → importlib.metadata), the same value the release
+        # tag bumps. Surfaced here so the SPA shows the REAL release (and tags feedback with
+        # it) instead of a frontend package.json that drifts. Global, not per-banco, but rides
+        # along the provenance payload the hero/Sobre already load.
+        "appVersion": _APP_VERSION,
     }
 
 

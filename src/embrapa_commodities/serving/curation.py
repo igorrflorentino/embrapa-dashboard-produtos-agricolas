@@ -463,8 +463,14 @@ def _catalog_row(
 
 
 def invalidate_commodity_catalog_cache() -> None:
-    """Drop the cached current-catalog read so the next query is fresh (best-effort)."""
-    try:
-        cache.delete_memoized(gateway.fetch_commodity_catalog)
-    except Exception as exc:  # pragma: no cover - cache unbound / backend down
-        logger.warning("Could not invalidate commodity-catalog cache: %s", exc)
+    """Drop the cached current-catalog read so the next query is fresh (best-effort).
+
+    Also drops ``fetch_orphan_commodities``: the orphan worklist derives its tombstones
+    from the SAME commodity_catalog_log, so a catalog write (especially a removal) must
+    refresh it too — otherwise the Descontinuados view lags read-after-write up to its TTL.
+    """
+    for fn in (gateway.fetch_commodity_catalog, gateway.fetch_orphan_commodities):
+        try:
+            cache.delete_memoized(fn)
+        except Exception as exc:  # pragma: no cover - cache unbound / backend down
+            logger.warning("Could not invalidate commodity-catalog cache: %s", exc)
