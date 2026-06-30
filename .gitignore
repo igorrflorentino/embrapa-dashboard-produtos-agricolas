@@ -50,8 +50,12 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-.cov_*                 # per-run COVERAGE_FILE data files
-frontend/coverage/     # vitest v8 coverage output (npm test --coverage)
+# per-run COVERAGE_FILE data files
+.cov_*
+# vitest v8 coverage output (npm test --coverage)
+frontend/coverage/
+# local preview launcher (serves the built SPA against PROD BigQuery; not for CI)
+run_preview_local.py
 
 # Translations
 *.mo
