@@ -201,9 +201,15 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // Preview perspectives bring their own banco-keyed (synthetic) data, so
   // they render even while the banco itself is 'soon'. They take precedence
   // over the banco-level coming-soon — but ONLY when the view applies.
+  //
+  // Gate on isSoon: this minimal hero (no MaturityBanner, no provenance box) is
+  // ONLY for a 'soon' banco previewing with synthetic data. For a LIVE banco a
+  // selfData view (Produtividade/PAM, Fluxos, Sazonalidade) must fall through to
+  // the FULL hero below so it gets the same beta banner + provenance/selection
+  // box as every other live perspective (audit HERO-1).
   const _vm = window.viewById ? window.viewById(view) : null;
   const _compat = window.viewAppliesTo ? window.viewAppliesTo(view, database) : { applies: true, missing: [] };
-  if (_vm && _vm.selfData && _compat.applies) {
+  if (_vm && _vm.selfData && _compat.applies && isSoon) {
     const PreviewComp = window.viewComponent(view);
     if (PreviewComp) {
       return (
@@ -212,7 +218,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             <div>
               <div className="overline">{banco.short} · {_vm.group?.label}</div>
               <h1 className="page-title">{VIEW_LABEL[view]}</h1>
-              <p className="page-sub">{banco.sub}</p>
+              <p className="page-sub">{banco.sub}{_vm.desc ? '. ' + _vm.desc : ''}</p>
             </div>
           </div>
           <PreviewComp summary={filters} conventions={conventions} database={database} />
@@ -287,7 +293,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
               <div className="meta-row">
                 <span className="meta-label">Uso</span>
                 <span className="meta-val" style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <window.UsageTag active={true} />
+                  <window.UsageTag active={true} size="sm" />
                 </span>
               </div>
               {bm.maturityDate && (
@@ -434,8 +440,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
           <div className="overline">Pesquisa histórica · {BANCO_LABEL[database]}</div>
           <h1 className="page-title">{VIEW_LABEL[view]}</h1>
           <p className="page-sub">
-            {BANCO_SUB[database]} · séries históricas para análise da evolução
-            temporal de produção e exploração de cada commodity.
+            {BANCO_SUB[database]}{_vm && _vm.desc ? '. ' + _vm.desc : ''}
           </p>
         </div>
         <div className="hero-meta">
@@ -443,13 +448,18 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             <div className="meta-group-head">Proveniência</div>
             <div className="meta-row">
               <span className="meta-label">Banco</span>
-              <span className="meta-val">{prov.source} · <code>{prov.table}</code></span>
+              <span className="meta-val">
+                {prov.source} ·{' '}
+                <code title="Tabela Gold de referência do banco. Os gráficos do painel leem marts pré-agregados da camada Serving, derivados desta tabela Gold — veja a linhagem completa na perspectiva 'Estrutura de dados'.">
+                  {prov.table}
+                </code>
+              </span>
             </div>
             <div className="meta-row">
               <span className="meta-label">Status</span>
               <span className="meta-val" style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
                 <window.MaturityTag banco={banco} size="sm" />
-                <window.UsageTag active={true} />
+                <window.UsageTag active={true} size="sm" />
               </span>
             </div>
             <div className="meta-row">

@@ -90,6 +90,10 @@ function fetchSourceMeta(id) {
     .then((m) => {
       if (m && typeof m === 'object') {
         sourceMeta[id] = m;
+        // The backend reports the running release version (pyproject → the SoT). Hydrate the
+        // single frontend global both ViewAbout (footer) and feedback.js (diagnostics) read,
+        // so neither shows the stale package.json literal once any source-meta resolves.
+        if (m.appVersion) window.APP_VERSION = m.appVersion;
         overlayBancoMetadata(id, m); // live maturity/coverage → registry banco
       } else {
         // HTTP error / empty: record an EMPTY resolution so hasMeta() turns true

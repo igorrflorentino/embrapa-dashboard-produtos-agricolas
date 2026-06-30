@@ -251,9 +251,13 @@ function ViewGeography({ families, conventions, summary, database }) {
                 <button className={'seg-opt ' + (ufViz === 'tiles' ? 'on' : '')} onClick={() => setUfViz('tiles')}>Blocos</button>
               </div>
             </div>
+            {/* The UF maps get the RAW (unscaled) per-UF values + just the currency symbol:
+                each cell/popup is formatted with its OWN compact magnitude (e.g. "2,9 bi",
+                "384 mi", "3,0 mi"), so small UFs never round to "0" (the global-factor
+                auto-scale problem) and big ones never overflow the cell. */}
             {ufViz === 'map'
-              ? <window.BrazilChoropleth data={ufScaled.data} valueKey={valueKey} label={displayUnit} />
-              : <window.BrazilTileMap data={ufScaled.data} valueKey={valueKey} label={displayUnit} />}
+              ? <window.BrazilChoropleth data={scaledUFs} valueKey={valueKey} label={valueUnitLabel} />
+              : <window.BrazilTileMap data={scaledUFs} valueKey={valueKey} label={valueUnitLabel} />}
             {filtered.ufYearPartial && (
               <p className="caption" style={{ padding: '8px 4px 0' }}>
                 <strong>{mapYear} (parcial):</strong> o último ano com dados por UF disponíveis fica

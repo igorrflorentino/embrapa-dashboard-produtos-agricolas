@@ -23,7 +23,18 @@ function ViewConcentration({ summary, conventions, database }) {
   // the three views robust to that) (DOC-8).
   const yearPartialCal = !!lm && lm.yearComplete === false
     && (lm.completeYear == null || filtered.yearEnd > lm.completeYear);
-  const prodYearTag = `${filtered.yearEnd}${yearPartialCal ? ' (parcial)' : ''}`;
+  // The product cross-section takes each product's LATEST in-window value; a product
+  // discontinued before yearEnd contributes an EARLIER year, so — unlike the geo panel,
+  // a true single-year snapshot — this can MIX terminal years. Only claim the exact year
+  // when every product actually reaches yearEnd; otherwise label it honestly as the most
+  // recent available per product (avoids over-claiming a synchronized yearEnd cross-section).
+  const prodTerminalYears = Object.values(filtered.productTS)
+    .map((s) => s[s.length - 1]?.y)
+    .filter((y) => y != null);
+  const prodRagged = prodTerminalYears.some((y) => y !== filtered.yearEnd);
+  const prodYearTag = prodRagged
+    ? `mais recente disponível · ≤ ${filtered.yearEnd}`
+    : `${filtered.yearEnd}${yearPartialCal ? ' (parcial)' : ''}`;
   const geoYear = filtered.ufLatestYear;
   const geoPartial = filtered.ufYearPartial || (yearPartialCal && geoYear === filtered.yearEnd);
   const geoYearTag = `${geoYear}${geoPartial ? ' (parcial)' : ''}`;

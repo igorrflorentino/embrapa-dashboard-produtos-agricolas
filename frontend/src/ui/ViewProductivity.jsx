@@ -27,8 +27,10 @@ function ViewProductivity({ summary, conventions, database }) {
   const yUnit = data.yieldUnit;
 
   const fmtY    = (v) => window.numBR(Math.round(v), 0) + ' ' + yUnit;
-  const fmtArea = (v) => v >= 1e6 ? window.numBR(v / 1e6, 1) + ' mi ha' : window.numBR(v / 1e3, 0) + ' mil ha';
-  const fmtProd = (v) => v >= 1e6 ? window.numBR(v / 1e6, 1) + ' mi t'  : window.numBR(v / 1e3, 0) + ' mil t';
+  // Sub-1000 values get the bare unit — without this tier they'd divide by 1e3 and round,
+  // so 500 ha rendered as "1 mil ha" and the empty/loading frame (0) as "0 mil ha".
+  const fmtArea = (v) => v >= 1e6 ? window.numBR(v / 1e6, 1) + ' mi ha' : v >= 1e3 ? window.numBR(v / 1e3, 0) + ' mil ha' : window.numBR(Math.round(v), 0) + ' ha';
+  const fmtProd = (v) => v >= 1e6 ? window.numBR(v / 1e6, 1) + ' mi t'  : v >= 1e3 ? window.numBR(v / 1e3, 0) + ' mil t'  : window.numBR(Math.round(v), 0) + ' t';
 
   const series = data.series;
   const last = series[series.length - 1] || { y: 0, yieldKgHa: 0, areaHa: 0, prodT: 0 };
@@ -134,7 +136,7 @@ function ViewProductivity({ summary, conventions, database }) {
             title={`Onde ${data.crop.name} rende mais`}
             action={<span className="caption">{yUnit}</span>}
           />
-          <window.BrazilTileMap data={mapData} valueKey="yieldKgHa" label={yUnit} height={420} />
+          <window.BrazilTileMap data={mapData} valueKey="yieldKgHa" label={yUnit} height={420} compact={false} />
         </div>
         <div className="card">
           <window.SectionHeader

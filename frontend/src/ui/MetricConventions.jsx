@@ -36,7 +36,9 @@ function MetricConventions({ value, onChange, families, banco }) {
   const Group = ({ label, options, active, onPick, mono }) => (
     <div className="mc-group">
       <span className="mc-label">{label}</span>
-      <div className="seg">
+      {/* A 4-option group lays out as a balanced 2×2 grid (e.g. Massa kg/t/@/sc) instead of
+          wrapping 3+1 with a lopsided lone item; ≤3 options stay on one row. */}
+      <div className={'seg' + (options.length === 4 ? ' seg-2x2' : '')}>
         {options.map(o => (
           <button key={o.id}
                   type="button"

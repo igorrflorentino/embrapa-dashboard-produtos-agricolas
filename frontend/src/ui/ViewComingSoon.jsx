@@ -29,7 +29,7 @@ function ViewComingSoon({ banco, view }) {
             <span className="meta-val">{bm.domain}</span>
           </div>
           <div className="cs-meta-row">
-            <span className="meta-label">Granularidade</span>
+            <span className="meta-label">Abrangência geográfica</span>
             <span className="meta-val">{bm.scope}</span>
           </div>
           <div className="cs-meta-row">

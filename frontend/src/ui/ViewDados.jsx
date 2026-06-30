@@ -1,10 +1,13 @@
-// ViewDados — raw tabular inspection of a banco's tables (the researcher's "olhar para a
-// tabela de dados" perspective). Lists the banco's Gold table + the serving marts that
-// feed its charts; for the selected table it browses the RAW rows with server-side
-// pagination, ORDER BY and per-column filters. The column allowlist is the table's OWN
-// schema, enforced server-side (a bad column/table → 400). Self-contained (its own fetch
-// + state, like ViewProductProfile) — no chart, no rescaling: a faithful window onto the
-// data so a researcher can verify line-by-line or hunt a value they suspect is wrong.
+// ViewDados — the "Estrutura de dados" perspective: the central place to investigate the
+// tables behind a banco across ALL FOUR medallion layers (Bronze → Silver → Gold → Serving).
+// The table picker is grouped by layer with a per-layer explanation (the medallion overview
+// lives here, not in the onboarding "Sobre" page); for the selected table it browses the RAW
+// rows with server-side pagination, ORDER BY and per-column filters. The (banco, table) pair +
+// every column are validated server-side against the allowlist / the table's OWN schema (a bad
+// one → 400). Browsing is free (tabledata.list); ORDER BY / filter is cost-guarded. Bronze and
+// Silver are pre-curation raw lineage (shown ungated on purpose — a transparency/audit tool).
+// Self-contained (its own fetch + state) — no chart, no rescaling: a faithful window onto the
+// data so a researcher can verify line-by-line, trace a number's origin, or hunt a suspected bug.
 
 const { useState: useDtState, useEffect: useDtEffect } = React;
 
@@ -19,6 +22,18 @@ const _DT_OPS = [
 const _DT_VALUELESS = new Set(['is_null', 'not_null']);
 const _DT_PAGE = 100;       // rows per page
 const _DT_EXPORT_CAP = 500; // server's RAW_TABLE_MAX_LIMIT — the most one fetch returns
+
+// The four medallion layers, in lineage order — groups the table picker and explains what
+// each layer IS (the conceptual pipeline overview, the home for medallion/table detail).
+// `layer` on each /api/tables row decides which group a table falls into.
+const _DT_LAYERS = [
+  { id: 'bronze',  label: 'Bronze',  hint: 'bruto',                desc: 'Cópia fiel das fontes oficiais, sem nenhuma alteração — cada extração registrada com a data de coleta, para rastreabilidade.' },
+  { id: 'silver',  label: 'Silver',  hint: 'padronizado',          desc: 'Códigos de produto reconciliados entre fontes, séries históricas reconstruídas, tipos corrigidos e a marca de confiabilidade de cada valor.' },
+  { id: 'gold',    label: 'Gold',    hint: 'analítico completo',   desc: 'Uma tabela abrangente por fonte, já com a conversão de moeda e a correção pela inflação aplicadas — a base de toda a análise.' },
+  { id: 'serving', label: 'Serving', hint: 'pronto para o painel', desc: 'Recortes pré-agregados na granularidade exata de cada gráfico, derivados do Gold — é daqui que o painel lê todos os números.' },
+];
+// Per-layer left-border accent (reuses the About pipeline palette tokens).
+const _DT_LAYER_COLOR = { bronze: '#a87b4f', silver: '#8a8f98', gold: '#c9a227', serving: 'var(--viz-2, #2f7ed8)' };
 
 function _dtCsv(columns, rows) {
   const esc = (v) => {
@@ -135,21 +150,43 @@ function ViewDados({ database }) {
 
   return (
     <>
-      {/* Table picker — the banco's principal (Gold) + the marts that feed its charts */}
-      <div className="pp-selector">
-        <span className="pp-selector-label">
-          Tabela do banco <small className="pc-cap">(principal + derivadas dos gráficos)</small>
-        </span>
-        <div className="pp-chips">
-          {tables.map((t) => (
-            <button key={t.id} type="button" title={t.grain}
-                    className={'pp-chip ' + (t.id === table ? 'on' : '')}
-                    onClick={() => { setTable(t.id); setTableBanco(database); resetView(); }}>
-              {t.label}
-            </button>
-          ))}
-          {!tables.length && <span className="caption">Nenhuma tabela inspecionável para este banco.</span>}
-        </div>
+      {/* Medallion-layer table explorer — the lineage behind this banco, Bronze → Serving.
+          Each layer's tables are browsable line-by-line; this is the home for table + layer detail. */}
+      <div className="card">
+        <window.SectionHeader
+          overline="Estrutura de dados"
+          title="As tabelas por trás deste banco, camada a camada"
+        />
+        <p className="caption" style={{ margin: '0 2px 14px' }}>
+          Os dados percorrem quatro camadas, da cópia bruta da fonte oficial (Bronze) ao recorte
+          que o painel consome (Serving). Escolha qualquer tabela para investigá-la linha a linha.
+          As camadas <strong>Bronze</strong> e <strong>Silver</strong> são o dado cru, anterior à
+          curadoria — úteis para auditar a origem de um número.
+        </p>
+        {_DT_LAYERS.map((L) => {
+          const layerTables = tables.filter((t) => t.layer === L.id);
+          if (!layerTables.length) return null;
+          return (
+            <div key={L.id} className="dt-layer"
+                 style={{ borderLeft: `3px solid ${_DT_LAYER_COLOR[L.id]}`, padding: '4px 0 4px 12px', margin: '0 0 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <strong style={{ fontSize: 13, letterSpacing: '0.04em' }}>{L.label}</strong>
+                <span className="caption" style={{ textTransform: 'uppercase', fontSize: 10 }}>{L.hint}</span>
+              </div>
+              <p className="caption" style={{ margin: '2px 0 8px' }}>{L.desc}</p>
+              <div className="pp-chips">
+                {layerTables.map((t) => (
+                  <button key={t.id} type="button" title={t.grain}
+                          className={'pp-chip ' + (t.id === table ? 'on' : '')}
+                          onClick={() => { setTable(t.id); setTableBanco(database); resetView(); }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {!tables.length && <span className="caption">Nenhuma tabela inspecionável para este banco.</span>}
       </div>
 
       {table && (

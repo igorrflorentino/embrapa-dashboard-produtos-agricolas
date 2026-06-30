@@ -6,9 +6,11 @@
 
 const API = '/api';
 
-// App version for feedback diagnostics. Kept in sync with package.json (read at
-// build time would need a Vite define; a constant is fine for a diagnostic field).
-window.APP_VERSION = window.APP_VERSION || '0.1.0';
+// App version for feedback diagnostics. The LIVE value is hydrated from the backend
+// (pyproject → /api/source-meta.appVersion → window.APP_VERSION, set in dataStore) — the
+// single source of truth. This literal is only the pre-hydration fallback; keep it at the
+// current release so a report sent before any source-meta resolves isn't mistagged.
+window.APP_VERSION = window.APP_VERSION || '1.7.0';
 
 // POST one feedback report. Resolves with the echoed row (incl. issue_url when the
 // backend forwarded it to GitHub); rejects with an Error carrying the server message.

@@ -211,6 +211,15 @@ function AppShell({
   const buildPermalink = () => {
     if (!window.urlEncodeState) return null;
     const arrParam = window.urlEncodeArr || (() => '');
+    // Cap the município list embedded in the share URL: a large selection (e.g. "all
+    // municípios" of several big states ≈ thousands of 7-digit codes) would overflow the
+    // ~8 KB request-line limit of proxies/Cloud Run/IAP → the shared link 414s or truncates.
+    // Past the cap, omit `mn` and let the higher sub-UF facets (me/mc/it/im) — already
+    // serialized below — reconstruct the scope (the common parent-driven selection case).
+    const MN_URL_CAP = 200;
+    const munis = summary?.munis;
+    const mnParam =
+      Array.isArray(munis) && munis.length > MN_URL_CAP ? '' : arrParam(munis);
     const state = {
       v: view, b: database, ip: infoPage,
       cur: conventions?.currency, corr: conventions?.correction,
@@ -220,7 +229,7 @@ function AppShell({
       // dropped by urlEncodeState, so a non-narrowed selection adds nothing.
       me: arrParam(summary?.mesos), mc: arrParam(summary?.micros),
       it: arrParam(summary?.inters), im: arrParam(summary?.imediatas),
-      mn: arrParam(summary?.munis),
+      mn: mnParam,
       vmn: summary?.valueMin ?? '', vmx: summary?.valueMax ?? '',
       sd: summary?.startDate || '', ed: summary?.endDate || '',
       // Server-side flow filter (export/import); omitted when 'all'/absent.

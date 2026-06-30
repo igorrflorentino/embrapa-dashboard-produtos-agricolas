@@ -58,7 +58,7 @@ window.MATURITY = {
   manutencao:      { id: 'manutencao',      label: 'Em manutenção',      color: 'var(--warn)',          hasData: true,  caveat: true, order: 6,
                      desc: 'Em produção, porém em correção de cálculo/tabela ou atualização programada.' },
   descontinuado:   { id: 'descontinuado',   label: 'Descontinuado',      color: 'var(--status-mat-sunset)', hasData: true,  caveat: true, sunset: true, order: 7,
-                     desc: 'Banco obsoleto, não recebe mais manutenção e será removido em breve.' },
+                     desc: 'Banco obsoleto, não recebe mais manutenção e será removido em breve — exporte o que precisar antes da remoção.' },
 };
 // Per-banco maturity is NOT defined in this file. Its single source of truth is
 // BigQuery (research_inputs.banco_metadata), served via /api/source-meta and
@@ -91,6 +91,9 @@ window.BANCOS = [
     short:  'IBGE PEVS',
     label:  'IBGE · Produção da Extração Vegetal e da Silvicultura',
     sub:    'Produção e exploração de commodities no território brasileiro',
+    // Onboarding description (ViewAbout): plain-language, non-technical — what the banco
+    // IS and what it's FOR, for a researcher meeting it for the first time.
+    about:  'Reúne, ano a ano, a quantidade e o valor da produção do extrativismo vegetal e da silvicultura no Brasil — castanha-do-pará, madeira, lenha, carvão vegetal, açaí e outros. É a base para acompanhar a exploração de recursos florestais, nativos e plantados, ao longo das décadas.',
     domain: 'Produção interna',
     scope:  'Brasil · UF · município',
     source: 'IBGE',
@@ -138,6 +141,11 @@ window.BANCOS = [
     prov: {
       lastCrop: 'PEVS 2024',
     },
+    cobertura: {
+      years:      '1986 → presente',
+      atualizacao:'anual',
+      granularidade: 'produto × município × ano',
+    },
   },
 
   // ─── Connected (representative snapshots) ─────────────────────────────
@@ -148,6 +156,7 @@ window.BANCOS = [
     short:  'IBGE PAM',
     label:  'IBGE · Produção Agrícola Municipal',
     sub:    'Área, produção e rendimento das lavouras temporárias e permanentes',
+    about:  'Detalha a produção agrícola municipal — área plantada e colhida, quantidade produzida, rendimento médio e valor — das principais lavouras temporárias e permanentes do país. Ideal para analisar o desempenho de culturas como soja, milho, café, cana-de-açúcar e mandioca.',
     domain: 'Produção agrícola',
     scope:  'Brasil · UF · município',
     source: 'IBGE',
@@ -198,6 +207,7 @@ window.BANCOS = [
     short:  'IBGE PPM',
     label:  'IBGE · Pesquisa da Pecuária Municipal',
     sub:    'Efetivo dos rebanhos e produção de origem animal (leite, ovos, mel, lã)',
+    about:  'Reúne informações anuais sobre os efetivos da pecuária — o tamanho dos rebanhos, em cabeças — e a produção de origem animal (leite, ovos, mel e lã) nos municípios brasileiros. Permite avaliar tanto o estoque de animais quanto o que eles produzem.',
     domain: 'Produção pecuária',
     scope:  'Brasil · UF · município',
     source: 'IBGE',
@@ -243,6 +253,7 @@ window.BANCOS = [
     short:  'MDIC COMEX',
     label:  'MDIC · Comércio Exterior',
     sub:    'Exportação e importação brasileiras por estado de origem, produto e parceiro comercial',
+    about:  'Consolida as estatísticas oficiais do comércio exterior brasileiro: exportações e importações por produto (NCM), estado de origem e país parceiro. Fundamental para análises de balança comercial e do fluxo de mercadorias entre o Brasil e o mundo.',
     domain: 'Comércio exterior',
     scope:  'UF de origem ↔ países parceiros',
     source: 'MDIC · SECEX',
@@ -291,6 +302,7 @@ window.BANCOS = [
     short:  'UN COMTRADE',
     label:  'UN Comtrade · Estatísticas de Comércio Internacional',
     sub:    'Fluxos de comércio entre nações reportados à Divisão de Estatística da ONU',
+    about:  'É o maior repositório global de dados oficiais de comércio internacional, compilado pelas Nações Unidas. Oferece estatísticas de importação e exportação reportadas por diversos países, permitindo situar a participação do Brasil no mercado mundial de cada commodity.',
     domain: 'Comércio internacional',
     scope:  'País → país (com ou sem filtro Brasil)',
     source: 'UN Statistics Division',
@@ -341,6 +353,7 @@ window.BANCOS = [
     short:  'SEFAZ NFe',
     label:  'SEFAZ · Fluxos de Notas Fiscais Eletrônicas',
     sub:    'Comércio interno brasileiro reconstruído a partir de NFe inter-estaduais e intermunicipais',
+    about:  'Reconstrói o comércio interno brasileiro a partir das Notas Fiscais Eletrônicas, registrando operações de compra e venda entre estados e municípios. Trará uma visão de alta granularidade da movimentação econômica e fiscal — banco ainda em planejamento.',
     domain: 'Comércio interno',
     scope:  'UF ↔ UF · município ↔ município',
     source: 'Receita · SEFAZ',

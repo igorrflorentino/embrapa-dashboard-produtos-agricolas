@@ -96,6 +96,13 @@ function ViewValueVolume({ families, conventions, summary, database }) {
   const massFamily = families.includes('mass');
   const volFamily  = families.includes('volume');
   const countFamily = families.includes('count');
+  // Only a STOCK (herd head-count) is non-summable across species; count-family FLOWS
+  // (ovos/mel) DO carry monetary value and ARE summable. Gate the "veja Rebanho" note on a
+  // stock actually being in the selection (mirrors ViewOverview) — not on the count family
+  // alone, which would falsely flag an egg/honey basket and point to an empty Rebanho view.
+  const hasStock = (filtered.products || []).some(
+    (p) => p.measure_kind === 'stock' && (filtered.selectedProducts || []).includes(p.code),
+  );
   // A value-less basket (the livestock herd — a stock) has R$ 0 every year; show the
   // monetary cards only when there IS value, and explain the absence honestly.
   const hasValue = valueMax > 0;
@@ -144,9 +151,10 @@ function ViewValueVolume({ families, conventions, summary, database }) {
       </div>
       )}
 
-      {/* The herd (count family) may be in a value-bearing basket but is not summable
-          across species, so it is not aggregated here — point to the Rebanho view. */}
-      {hasValue && countFamily && (
+      {/* A herd STOCK may be in a value-bearing basket but is not summable across species,
+          so it is not aggregated here — point to the Rebanho view. Count-family FLOWS
+          (ovos/mel) are summable and value-bearing, so they don't trigger this note. */}
+      {hasValue && countFamily && hasStock && (
         <div className="card subtle" style={{ marginBottom: 12 }}>
           <p className="caption" style={{ padding: '10px 12px' }}>
             O <strong>efetivo dos rebanhos</strong> (cabeças) está na seleção mas não é exibido aqui —

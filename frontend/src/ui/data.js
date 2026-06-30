@@ -226,14 +226,17 @@ window.QUALITY_FLAGS = [
 // ────────────────────────────────────────────────────────────────────
 // Formatters
 // ────────────────────────────────────────────────────────────────────
-// bi/mi/mil ladder kept local on purpose: fmtBRL thresholds on the SIGNED value (n >= 1e9,
-// not |n|) and uses per-tier decimals, so it can't share magnitude.js's abs-based kernel
-// verbatim — but it must stay aligned with it (DEDUP-7).
+// bi/mi/mil ladder kept local on purpose (per-tier decimals), but buckets on the MAGNITUDE
+// (|n|) and re-applies the sign — aligned with magnitude.js's abs-based kernel (DEDUP-7), so
+// a large negative (e.g. a net balance) abbreviates to "-2,50 bi" instead of falling through
+// to the unabbreviated locale string.
 window.fmtBRL = (n) => {
   if (n == null) return '—';
-  if (n >= 1e9) return 'R$ ' + (n / 1e9).toFixed(2).replace('.', ',') + ' bi';
-  if (n >= 1e6) return 'R$ ' + (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
-  if (n >= 1e3) return 'R$ ' + (n / 1e3).toFixed(0).replace('.', ',') + ' mil';
+  const a = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (a >= 1e9) return 'R$ ' + sign + (a / 1e9).toFixed(2).replace('.', ',') + ' bi';
+  if (a >= 1e6) return 'R$ ' + sign + (a / 1e6).toFixed(1).replace('.', ',') + ' mi';
+  if (a >= 1e3) return 'R$ ' + sign + (a / 1e3).toFixed(0).replace('.', ',') + ' mil';
   return 'R$ ' + n.toLocaleString('pt-BR');
 };
 window.fmtNum = (n, unit) => {

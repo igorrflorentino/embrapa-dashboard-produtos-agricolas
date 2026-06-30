@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
 const BANCOS = [
-  { id: 'ibge_pevs', short: 'IBGE PEVS', sub: 'Produção extrativa', maturity: 'estavel', status: 'live' },
-  { id: 'sefaz_nf', short: 'SEFAZ NFe', sub: 'Comércio interno', maturity: 'planejado', status: 'soon' },
+  { id: 'ibge_pevs', short: 'IBGE PEVS', sub: 'Produção extrativa', about: 'Reúne dados anuais da extração vegetal e da silvicultura no Brasil.', maturity: 'estavel', status: 'live' },
+  { id: 'sefaz_nf', short: 'SEFAZ NFe', sub: 'Comércio interno', about: 'Reconstrói o comércio interno a partir das Notas Fiscais Eletrônicas.', maturity: 'planejado', status: 'soon' },
 ];
 
 const VIEW_GROUPS = [
@@ -66,6 +66,7 @@ function stubGlobals(store) {
       scope: 'Brasil · UF · município',
       source: 'IBGE',
       table: `gold_${id}`,
+      cobertura: { granularidade: 'produto × município × ano' },
       maturityDate: hasData ? null : '2026-Q4',
     };
   };
@@ -117,17 +118,24 @@ describe('ViewAbout — render smoke + main sections', () => {
     expect(store.loadMeta).toHaveBeenCalledTimes(BANCOS.length);
   });
 
-  it('shows the Gold table for a banco WITH data and "ainda não publicada" for a planned one', () => {
+  it('shows the friendly onboarding description (not the technical Gold table name)', () => {
     stubGlobals(makeStore());
     const { container } = render(<ViewAbout />);
-    // The estavel banco's card exposes its Gold table in a <code> element.
-    const codes = [...container.querySelectorAll('.ab-banco code')].map((e) => e.textContent);
-    expect(codes).toContain('gold_ibge_pevs');
-    // The planejado banco's table cell reads the "not published" note.
-    expect(container.textContent).toContain('ainda não publicada');
-    // The planejado banco also surfaces its expected-completion date.
+    // The card now shows the plain-language `about` description…
+    expect(container.textContent).toContain('Reúne dados anuais da extração vegetal');
+    // …and NO LONGER the technical Gold table name (that moved to "Estrutura de dados").
+    expect(container.querySelectorAll('.ab-banco code').length).toBe(0);
+    expect(container.textContent).not.toContain('gold_ibge_pevs');
+    expect(container.textContent).not.toContain('camada Serving');
+    // The planejado banco still surfaces its expected-completion date.
     expect(container.textContent).toContain('Conclusão prevista');
     expect(container.textContent).toContain('2026-Q4');
+    // Geographic reach is labelled "Abrangência geográfica" (no longer the misleading
+    // "Granularidade"); the real grain is shown separately as "Granularidade".
+    expect(container.textContent).toContain('Abrangência geográfica');
+    expect(container.textContent).toContain('Brasil · UF · município');
+    expect(container.textContent).toContain('Granularidade');
+    expect(container.textContent).toContain('produto × município × ano');
   });
 
   it('groups the perspectives, dropping glossary + desc-less views and empty groups', () => {

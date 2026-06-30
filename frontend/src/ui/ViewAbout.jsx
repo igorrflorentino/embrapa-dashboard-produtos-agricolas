@@ -4,8 +4,10 @@
 // or live analysis — just orientation. All per-banco facts (maturity, coverage,
 // refresh, table) come from the backend (/api/source-meta), never hardcoded here.
 
-// App version — sourced from the package manifest so it never drifts from the real
-// release (single source of truth, like maturity comes from BigQuery).
+// App version — the live value comes from the BACKEND (pyproject → importlib.metadata →
+// /api/source-meta.appVersion → window.APP_VERSION, hydrated by dataStore), the single source
+// of truth the release tag bumps. package.json is only the pre-load fallback (a frontend-only
+// manifest that historically drifted — kept in sync but never load-bearing for display).
 import pkg from '../../package.json';
 
 const { useState: useAbState, useEffect: useAbEffect } = React;
@@ -49,39 +51,9 @@ function ViewAbout() {
     .filter(g => g.views.length);
   const totalViews = groups.reduce((n, g) => n + g.views.length, 0);
 
-  // Gold tables — only for bancos that actually HAVE a Gold table (planejado bancos
-  // like SEFAZ have none; their registry literal is a placeholder, not a real table).
-  const goldTables = bancos
-    .filter(b => window.maturityMeta(b).hasData)
-    .map(b => window.bancoTable(b.id))
-    .join(', ');
-
-  const APP_VERSION = 'v' + pkg.version;
+  const APP_VERSION = 'v' + (window.APP_VERSION || pkg.version);
   const _pevMeta = window.dataStore && window.dataStore.meta ? window.dataStore.meta('ibge_pevs') : null;
   const refreshDate = ((_pevMeta && _pevMeta.refresh) || '').split(' · ')[0] || '—';
-
-  const PIPELINE = [
-    {
-      stage: 'Bronze',
-      hint: 'Bruto',
-      desc: 'Cópia fiel das fontes oficiais, sem nenhuma alteração: tabelas do IBGE (SIDRA), arquivos do comércio exterior (MDIC) e dados da ONU (UN Comtrade). Cada arquivo é registrado com a data de coleta, para rastreabilidade.',
-    },
-    {
-      stage: 'Silver',
-      hint: 'Padronizado',
-      desc: 'Padronização: os diferentes códigos de produto de cada fonte são reconciliados entre si, as séries históricas são reconstruídas e cada valor recebe uma marca de confiabilidade.',
-    },
-    {
-      stage: 'Gold',
-      hint: 'Analítico completo',
-      desc: `Uma tabela abrangente por fonte (${goldTables}), já com as conversões de moeda e a correção pela inflação aplicadas. É a base de toda a análise — e a fonte direta do Looker Studio.`,
-    },
-    {
-      stage: 'Serving',
-      hint: 'Pronto para o painel',
-      desc: 'Recortes pré-agregados na granularidade exata de cada gráfico (ano × UF × produto, sazonalidade, fluxos por parceiro), derivados do Gold e combinados com os calendários e a geografia oficiais. É daqui que este painel lê todos os números — respostas rápidas sem reprocessar o Gold a cada filtro.',
-    },
-  ];
 
   const TIPS = [
     {
@@ -156,7 +128,6 @@ function ViewAbout() {
         <div className="ab-banco-grid">
           {bancos.map(b => {
             const bm = window.bancoMeta(b.id);
-            const hasData = window.maturityMeta(b).hasData;
             return (
               <div key={b.id} className={'ab-banco mat-' + b.maturity}>
                 <div className="ab-banco-head">
@@ -164,16 +135,20 @@ function ViewAbout() {
                   <window.MaturityTag banco={b} />
                 </div>
                 <div className="ab-banco-domain">{bm.domain}</div>
-                <p className="ab-banco-sub">{b.sub}</p>
+                <p className="ab-banco-sub">{b.about || b.sub}</p>
                 <dl className="ab-banco-meta">
-                  <dt>Granularidade</dt><dd>{bm.scope}</dd>
+                  {/* "Abrangência geográfica" = the geographic levels/reach (Brasil·UF·
+                      município, or origin↔partner for trade) — NOT the row grain. */}
+                  <dt>Abrangência geográfica</dt><dd>{bm.scope}</dd>
+                  {/* "Granularidade" = the finest detail, i.e. the unique key of a row
+                      (dim × dim × … × tempo) — the consistent answer to "até que nível vai
+                      o detalhamento". Sourced from cobertura.granularidade. */}
+                  {bm.cobertura && bm.cobertura.granularidade && (
+                    <>
+                      <dt>Granularidade</dt><dd>{bm.cobertura.granularidade}</dd>
+                    </>
+                  )}
                   <dt>Fonte</dt><dd>{bm.source}</dd>
-                  <dt>Tabela</dt>
-                  <dd>
-                    {hasData
-                      ? <><code>{bm.table}</code><span className="ab-banco-table-note"> — tabela Gold de referência; os gráficos são lidos de recortes pré-agregados da camada Serving, derivados dela.</span></>
-                      : <span className="ab-banco-table-note">ainda não publicada</span>}
-                  </dd>
                   {bm.maturityDate && (
                     <>
                       <dt>Conclusão prevista</dt><dd className="tnum">{bm.maturityDate}</dd>
@@ -216,28 +191,21 @@ function ViewAbout() {
         </div>
       </div>
 
-      {/* Data pipeline */}
+      {/* Data processing — concept + pointer to the per-layer table explorer */}
       <div className="card">
         <window.SectionHeader
           overline="Como os dados são processados"
-          title="Das fontes oficiais aos números do painel, em quatro etapas"
+          title="Das fontes oficiais aos números do painel"
         />
-        <div className="ab-pipeline">
-          {PIPELINE.map((s, i) => (
-            <React.Fragment key={s.stage}>
-              <div className={'ab-stage ab-stage-' + s.stage.toLowerCase()}>
-                <div className="ab-stage-head">
-                  <span className="ab-stage-name">{s.stage}</span>
-                  <span className="ab-stage-hint">{s.hint}</span>
-                </div>
-                <p className="ab-stage-desc">{s.desc}</p>
-              </div>
-              {i < PIPELINE.length - 1 && (
-                <div className="ab-stage-arrow" aria-hidden="true">→</div>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
+        <p className="ab-lead">
+          Cada número exibido percorre um pipeline de quatro camadas — das cópias fiéis das
+          fontes oficiais (<strong>Bronze</strong>), passando pela padronização
+          (<strong>Silver</strong>) e pela tabela analítica completa de cada fonte
+          (<strong>Gold</strong>), até os recortes prontos para o painel
+          (<strong>Serving</strong>). Para conhecer cada camada em detalhe e investigar as
+          tabelas linha a linha, abra a perspectiva <strong>Estrutura de dados</strong> (no
+          menu “Selecionar perspectiva”, em “Documentação do banco”).
+        </p>
       </div>
 
       {/* Usage tips */}

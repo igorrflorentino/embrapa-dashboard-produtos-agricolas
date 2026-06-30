@@ -9,9 +9,12 @@ import { cleanup, render, waitFor } from '@testing-library/react';
 
 let ViewDados;
 
+// One table per medallion layer — exercises the layer-grouped picker (Bronze → Serving).
 const TABLES = [
-  { id: 'gold_ppm_production', label: 'Gold · pecuária PPM', grain: 'linha por (ano, UF, município)' },
-  { id: 'serving_ppm_annual', label: 'Serving · mart anual', grain: 'ano × UF × produto × família' },
+  { id: 'sidra_t3939_raw', label: 'SIDRA 3939 (bruto)', grain: 'cópia fiel do IBGE', layer: 'bronze' },
+  { id: 'silver_ibge_ppm', label: 'PPM padronizado', grain: 'tipado + qualidade', layer: 'silver' },
+  { id: 'gold_ppm_production', label: 'Pecuária PPM', grain: 'linha por (ano, UF, município)', layer: 'gold' },
+  { id: 'serving_ppm_annual', label: 'Mart anual', grain: 'ano × UF × produto × família', layer: 'serving' },
 ];
 const PAGE = {
   columns: [
@@ -58,11 +61,11 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe('ViewDados — raw table inspection', () => {
   it('lists the banco tables and renders the grid columns + rows', async () => {
     const { container } = render(<ViewDados database="ibge_ppm" />);
-    // table picker chips appear once /api/tables resolves
-    await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(2));
-    const chips = [...container.querySelectorAll('.pp-chip')].map((e) => e.textContent);
-    expect(chips.some((t) => /Gold/.test(t))).toBe(true);
-    expect(chips.some((t) => /Serving/.test(t))).toBe(true);
+    // one chip per table (4 layers) appears once /api/tables resolves
+    await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(4));
+    // tables are grouped by medallion layer — each layer header is shown
+    const layerNames = [...container.querySelectorAll('.dt-layer strong')].map((e) => e.textContent);
+    expect(layerNames).toEqual(['Bronze', 'Silver', 'Gold', 'Serving']);
     // grid headers + a row appear once /api/table resolves
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const headers = [...container.querySelectorAll('.dt-table thead th')].map((e) =>
@@ -87,7 +90,7 @@ describe('ViewDados — raw table inspection', () => {
     // Switch banco: the rows effect is gated on tableBanco===database, so the new table
     // list is fetched and the grid renders again without getting stuck.
     rerender(<ViewDados database="mdic_comex" />);
-    await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(2));
+    await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(4));
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
   });
 });

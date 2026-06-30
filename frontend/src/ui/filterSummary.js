@@ -28,7 +28,11 @@ const filterSummary = {
     munisTotal,
     muniSliceable,
   }) {
-    const muniFull = !muniSliceable || munisSize === munisTotal;
+    // A município count of 0 means "no município narrowing" (an emptied/cleared facet),
+    // which dataFilters treats as NO constraint (shows all) — same as a full selection. So
+    // 0 and full both count as muniFull, and neither renders a misleading "0 municípios".
+    const muniNarrowed = muniSliceable && munisSize > 0 && munisSize < munisTotal;
+    const muniFull = !muniNarrowed;
     if (!hasGeo) return 'sem recorte geográfico';
     if (
       nationsSize === nationsTotal &&
@@ -39,7 +43,7 @@ const filterSummary = {
       return 'todo o território';
     if (hasOnlyBR && statesSize === statesTotal && muniFull) return 'Brasil · todos os estados';
     if (muniSliceable)
-      return `${nationsSize} nação(ões), ${statesSize} UF, ${munisSize === munisTotal ? 'todos os' : munisSize} municípios`;
+      return `${nationsSize} nação(ões), ${statesSize} UF, ${muniNarrowed ? munisSize : 'todos os'} municípios`;
     return `${nationsSize} nação(ões), ${statesSize} UF`;
   },
 
@@ -57,7 +61,11 @@ const filterSummary = {
     munisTotal,
     muniSliceable,
   }) {
-    const muniFull = !muniSliceable || munisSize === munisTotal;
+    // 0 municípios = an emptied/cleared facet = NO município narrowing (dataFilters shows
+    // all), same as a full selection — so it counts as muniFull and never prints
+    // "0 municípios" while the data shows every município.
+    const muniNarrowed = muniSliceable && munisSize > 0 && munisSize < munisTotal;
+    const muniFull = !muniNarrowed;
     if (!hasGeo) return 'Não se aplica';
     if (hasOnlyBR && statesSize === statesTotal && muniFull) return `Brasil · ${statesTotal} UFs`;
     if (

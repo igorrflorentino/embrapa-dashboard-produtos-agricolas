@@ -197,9 +197,15 @@ describe('ViewValueVolume — value-less herd + combo-pending branches', () => {
     expect(yoyProps).toBeUndefined();
   });
 
-  it('redirects the count family to Rebanho when the basket also has value', () => {
-    // A value-bearing basket that ALSO includes the count family → the cross-species note.
-    stubGlobals(valueFixture());
+  it('redirects to Rebanho only when a herd STOCK is in a value-bearing count basket', () => {
+    // A value-bearing basket whose count family includes a STOCK (herd head-count) → the
+    // cross-species "veja Rebanho" note (heads are not summable across species).
+    stubGlobals(
+      valueFixture({
+        products: [{ code: 'H1', name: 'Bovino', measure_kind: 'stock' }],
+        selectedProducts: ['H1'],
+      }),
+    );
     const { container } = render(
       <ViewValueVolume
         families={['count']}
@@ -208,9 +214,28 @@ describe('ViewValueVolume — value-less herd + combo-pending branches', () => {
         conventions={{ currency: 'BRL', correction: 'IPCA', autoScale: false }}
       />
     );
-    // hasValue (value series present) + countFamily → the Rebanho redirect note.
     expect(container.textContent).toContain('efetivo dos rebanhos');
     expect(container.textContent).toContain('Rebanho');
+  });
+
+  it('does NOT show the herd note for a value-bearing count FLOW (ovos/mel, no stock)', () => {
+    // Count family WITHOUT a stock (e.g. eggs/honey are flows that DO carry value and ARE
+    // summable) → the misleading "efetivo dos rebanhos / veja Rebanho" note must not appear.
+    stubGlobals(
+      valueFixture({
+        products: [{ code: 'E1', name: 'Ovos', measure_kind: 'flow' }],
+        selectedProducts: ['E1'],
+      }),
+    );
+    const { container } = render(
+      <ViewValueVolume
+        families={['count']}
+        summary={{}}
+        database="ibge_ppm"
+        conventions={{ currency: 'BRL', correction: 'IPCA', autoScale: false }}
+      />
+    );
+    expect(container.textContent).not.toContain('efetivo dos rebanhos');
   });
 
   it('holds the ts-derived series behind the basket×UF combo-pending note', () => {
