@@ -12,12 +12,27 @@
     which is only correct when the window scans the full series. A partition-
     overwrite incremental would silently break the chain for unaffected months.
     The table is small (~2k rows) so the full rebuild cost is negligible.
+
+    Surfaces ONLY the SGS inflation series the config currently pulls — IPCA / IGP-M /
+    IGP-DI — by filtering series_code to the three `inflation_series_*` vars (mirrors
+    BCB_INFLATION_SERIES / config.py and the Gold deflation pivot). Bronze is APPEND-ONLY,
+    so a code dropped from the config can still sit in Bronze; without this filter that
+    stale series would leak into the chain index. Symmetric with silver_bcb_currency.
+    Keep in sync with config.py's bcb_inflation_series.
 -#}
+
+{#- Configured SGS inflation series codes (IPCA 433, IGP-M 189, IGP-DI 190 by default). -#}
+{%- set _inflation_codes = [
+    "'" ~ var('inflation_series_ipca',  '433') ~ "'",
+    "'" ~ var('inflation_series_igpm',  '189') ~ "'",
+    "'" ~ var('inflation_series_igpdi', '190') ~ "'",
+] -%}
 
 with deduplicated as (
 
     select *
     from {{ source('bronze_bcb', 'inflation_raw') }}
+    where series_code in ({{ _inflation_codes | join(', ') }})
     qualify row_number() over (
         partition by series_code, reference_date_str
         order by ingestion_timestamp desc

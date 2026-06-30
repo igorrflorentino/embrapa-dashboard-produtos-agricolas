@@ -294,6 +294,7 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     from embrapa_commodities import doctor
     from embrapa_commodities.serving import catalog_lifecycle
 
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -321,6 +322,7 @@ def test_purge_plan_backup_no_runs(monkeypatch):
     from embrapa_commodities import doctor
     from embrapa_commodities.serving import catalog_lifecycle
 
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -343,6 +345,7 @@ def test_purge_plan_backup_only_partial(monkeypatch):
     from embrapa_commodities import doctor
     from embrapa_commodities.serving import catalog_lifecycle
 
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -369,6 +372,7 @@ def test_purge_plan_backup_stale(monkeypatch):
     from embrapa_commodities import doctor
     from embrapa_commodities.serving import catalog_lifecycle
 
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -393,6 +397,7 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import catalog_lifecycle
 
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",

@@ -397,6 +397,12 @@ def fetch_chunk_adaptive(
     df = fetch_chunk(
         base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
     )
+    # Strict `<`: a result of EXACTLY PER_CALL_ROW_CAP rows is treated as truncated. The API
+    # exposes no count/hasMore field, so a genuinely-complete leaf of exactly the cap is
+    # indistinguishable from a truncated page by row count alone — and below it would re-raise
+    # ComtradeTruncationError (never archiving). This off-by-one is vanishingly unlikely within
+    # the 0801+44 scope (a single reporter/flow/cmd/year hitting exactly 100_000 rows), and the
+    # conservative direction: better to retry than to silently archive a truncated chunk.
     if len(df) < PER_CALL_ROW_CAP:
         return df
 

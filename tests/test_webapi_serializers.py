@@ -814,6 +814,18 @@ def test_serialize_source_meta_empty_is_empty_dict():
     assert s.serialize_source_meta({}) == {}
 
 
+def test_serialize_source_meta_carries_app_version():
+    """The running release version (pyproject → importlib.metadata, the SoT the tag bumps) is
+    surfaced as appVersion so the SPA shows the REAL version, never the stale frontend
+    package.json literal. Absent for empty meta (caught by the guard above). (Asserted against
+    the serializer's captured constant, not the live ``embrapa_commodities.__version__`` global,
+    which another test mutates via importlib.reload.)"""
+    out = s.serialize_source_meta({"source": "x", "gold_table": "g"})
+    assert out["appVersion"] == s._APP_VERSION
+    assert isinstance(out["appVersion"], str) and out["appVersion"]  # present + non-empty
+    assert "appVersion" not in s.serialize_source_meta({})
+
+
 def test_serialize_monthly_empty_emits_twelve_values():
     """serialize_monthly must always emit 12 monthlyAvg entries — an empty list
     crashed ViewSeasonality's peak/low/amplitude math. Both metrics (value +

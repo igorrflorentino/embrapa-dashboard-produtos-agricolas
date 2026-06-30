@@ -296,7 +296,7 @@ def test_purge_orphan_prints_plan_with_backup_ok(monkeypatch: pytest.MonkeyPatch
     result = runner.invoke(cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405"])
 
     assert result.exit_code == 0, result.output
-    assert "Plano de purga" in result.output
+    assert "Purge plan" in result.output
     assert "backup OK" in result.output
     assert "DELETE FROM" in result.output
     assert "--mark-purged" in result.output
@@ -322,8 +322,8 @@ def test_purge_orphan_warns_when_backup_missing(monkeypatch: pytest.MonkeyPatch)
     result = runner.invoke(cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405"])
 
     assert result.exit_code == 0, result.output
-    assert "backup AUSENTE" in result.output
-    assert "ANTES de executar" in result.output
+    assert "backup MISSING/STALE" in result.output
+    assert "Back up Gold BEFORE" in result.output
 
 
 def test_purge_orphan_exits_1_on_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -364,12 +364,12 @@ def test_purge_orphan_mark_purged_records_event(monkeypatch: pytest.MonkeyPatch)
 
     assert result.exit_code == 0, result.output
     assert captured == {"banco": "pevs", "code": "3405", "edited_by": "alice"}
-    assert "registrado" in result.output
-    assert "por alice" in result.output
+    assert "recorded" in result.output
+    assert "by alice" in result.output
 
 
 def test_purge_orphan_mark_purged_dedup_verb(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A deduped mark_purged result swaps the verb to 'já registrado'."""
+    """A deduped mark_purged result swaps the verb to 'already recorded'."""
     from embrapa_commodities.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
@@ -384,7 +384,7 @@ def test_purge_orphan_mark_purged_dedup_verb(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     assert result.exit_code == 0, result.output
-    assert "já registrado" in result.output
+    assert "already recorded" in result.output
 
 
 # ─── _with_webapp_context helper (lines 920-929) ────────────────────────────────

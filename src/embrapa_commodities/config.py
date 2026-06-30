@@ -195,6 +195,12 @@ class Settings(BaseSettings):
     # daily series is the most accurate base. The previous 3694/4393 were
     # wrong: 3694 is annual and 4393 is not a BRL-per-unit FX rate at all.
     bcb_currency_series: str = Field(default="1:USD,21619:EUR")
+    # Every configured inflation/FX series is ingested from this single start year. IGP-DI
+    # (SGS 190) actually has monthly history back to 1944, but at 1980 the deflated
+    # val_real_* columns are honestly NULL for production years before an index's inception
+    # (IPCA/IGP-M ~1980/1989) — including 1974–1979 PAM/PPM, which IGP-DI alone could deflate.
+    # Lower this (e.g. to 1974) only if full early-history deflation is wanted; IPCA/IGP-M
+    # simply 404→empty before they exist (the client maps 404 to an empty concat).
     bcb_start_year: int = Field(default=1980)
     bcb_end_year: int = Field(default_factory=_current_year)
 

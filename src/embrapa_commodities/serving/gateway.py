@@ -992,7 +992,6 @@ def _cross_metric(metric: str) -> tuple[str, str, str, str, str | None]:
         ) from None
 
 
-@cache.memoize()
 def fetch_cross_series(
     metric: str,
     year_start: int | None = None,
@@ -1011,11 +1010,28 @@ def fetch_cross_series(
     Only the COMEX mart carries ``state_acronym``, so the filter is applied ONLY for
     COMEX metrics; for COMTRADE metrics it is dropped (its origin is a reporter
     country, not a Brazilian UF), keeping the query valid and the series national.
+
+    The uf_codes are NORMALIZED before the memoized boundary (dropped for non-COMEX
+    metrics) so two UF selections that build the identical national COMTRADE query share
+    one cache entry instead of fanning out redundant keys + BigQuery round-trips.
     """
+    table_name = _cross_metric(metric)[0]
+    uf = tuple(uf_codes) if table_name == "serving_comex_annual" else ()
+    return _fetch_cross_series_cached(metric, year_start, year_end, tuple(codes), uf)
+
+
+@cache.memoize()
+def _fetch_cross_series_cached(
+    metric: str,
+    year_start: int | None,
+    year_end: int | None,
+    codes: tuple[str, ...],
+    uf_codes: tuple[str, ...],
+):
+    """Cached core of :func:`fetch_cross_series` — keyed on the NORMALIZED uf_codes."""
     table_name, measure, flow, code_column, brazil_column = _cross_metric(metric)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
-    uf = tuple(uf_codes) if table_name == "serving_comex_annual" else ()
     sql, params = sqlbuild.cross_annual(
         table,
         measure_column=measure,
@@ -1026,7 +1042,7 @@ def fetch_cross_series(
         reporter_value=settings.comtrade_brazil_iso if brazil_column else None,
         year_start=year_start,
         year_end=year_end,
-        uf_codes=uf,
+        uf_codes=uf_codes,
     )
     return run_query(sql, params)
 
@@ -1054,81 +1070,206 @@ def fetch_current_code_industrialization():
 # (table, dataset_attr, label, grain); `table` is BOTH the BigQuery table name and the
 # stable id /api/table resolves. The endpoint REFUSES any (banco, table) not in this map
 # — the security boundary that stops a raw-row endpoint from reading an arbitrary table.
-_INSPECT_TABLES: dict[str, list[tuple[str, str, str, str]]] = {
+# The four medallion LAYERS, in lineage order — drives the "Estrutura de dados" explorer's
+# grouping + the per-layer explanation. Each _INSPECT_TABLES row carries its layer (5th field).
+_INSPECT_LAYERS = ("bronze", "silver", "gold", "serving")
+
+# Shared deflation/FX reference (Silver) — feeds the real (inflation-corrected) and
+# currency-converted values of EVERY monetary banco's Gold, so it is surfaced (labelled
+# "apoio · compartilhada") under each banco's Silver layer. No commodity code → no F7 gate.
+_SILVER_DEFLATION: list[tuple[str, str, str, str, str]] = [
+    (
+        "silver_bcb_inflation",
+        "bq_silver_dataset",
+        "Inflação IPCA/IGP — apoio (compartilhada)",
+        "Índices mensais encadeados (IPCA, IGP-M, IGP-DI) — base da correção para valores reais.",
+        "silver",
+    ),
+    (
+        "silver_bcb_currency",
+        "bq_silver_dataset",
+        "Câmbio PTAX — apoio (compartilhada)",
+        "Cotações diárias de BRL por USD/EUR — base da conversão entre moedas.",
+        "silver",
+    ),
+]
+
+# Allowlist of inspectable tables per banco, now spanning ALL FOUR medallion layers
+# (Bronze → Silver → Gold → Serving) for the "Estrutura de dados" perspective. Each entry is
+# (table, dataset_attr, label, grain, layer); `table` is BOTH the BigQuery table name and the
+# stable id /api/table resolves. The endpoint REFUSES any (banco, table) not in this map — the
+# security boundary that stops a raw-row endpoint from reading an arbitrary table. Browsing is
+# free (tabledata.list, storage order); ORDER BY / filter is cost-guarded (RAW_TABLE_MAX_BYTES).
+# NOTE: the F7 visibility gate is applied only to the Gold fact (see _inspect_visibility_predicate);
+# Bronze/Silver are PRE-curation raw lineage, shown ungated on purpose (transparency tool).
+_INSPECT_TABLES: dict[str, list[tuple[str, str, str, str, str]]] = {
     "ibge_pevs": [
+        (
+            "sidra_t289_raw",
+            "bq_bronze_ibge_dataset",
+            "SIDRA 289 — extração vegetal (bruto)",
+            "Cópia fiel do IBGE/SIDRA (PEVS), append-only, todas as colunas como texto.",
+            "bronze",
+        ),
+        (
+            "silver_ibge_pevs",
+            "bq_silver_dataset",
+            "PEVS padronizado",
+            "Deduplicado por chave natural, tipado e com a marca de qualidade — antes do Gold.",
+            "silver",
+        ),
+        *_SILVER_DEFLATION,
         (
             "gold_pevs_production",
             "bq_gold_dataset",
-            "Gold · produção PEVS",
+            "Produção PEVS",
             "Tabela principal — uma linha por (ano, UF, município, produto).",
+            "gold",
         ),
         (
             "serving_pevs_annual",
             "bq_serving_dataset",
-            "Serving · mart anual",
+            "Mart anual",
             "Derivada — agregado (ano × UF × produto × família) que alimenta os gráficos.",
+            "serving",
         ),
     ],
     "ibge_pam": [
         (
+            "sidra_t5457_raw",
+            "bq_bronze_pam_dataset",
+            "SIDRA 5457 — produção agrícola (bruto)",
+            "Cópia fiel do IBGE/SIDRA (PAM), append-only, todas as colunas como texto.",
+            "bronze",
+        ),
+        (
+            "silver_ibge_pam",
+            "bq_silver_dataset",
+            "PAM padronizado",
+            "Deduplicado, tipado, com área plantada/colhida e a marca de qualidade.",
+            "silver",
+        ),
+        *_SILVER_DEFLATION,
+        (
             "gold_pam_production",
             "bq_gold_dataset",
-            "Gold · produção PAM",
+            "Produção PAM",
             "Tabela principal — uma linha por (ano, UF, município, produto), com área.",
+            "gold",
         ),
         (
             "serving_pam_annual",
             "bq_serving_dataset",
-            "Serving · mart anual",
+            "Mart anual",
             "Derivada — agregado (ano × UF × produto × família) com área/rendimento.",
+            "serving",
         ),
     ],
     "ibge_ppm": [
         (
+            "sidra_t3939_raw",
+            "bq_bronze_ppm_dataset",
+            "SIDRA 3939 — efetivo dos rebanhos (bruto)",
+            "Cópia fiel do IBGE/SIDRA (PPM, rebanhos/cabeças), append-only, colunas como texto.",
+            "bronze",
+        ),
+        (
+            "sidra_t74_raw",
+            "bq_bronze_ppm_dataset",
+            "SIDRA 74 — produção animal (bruto)",
+            "Cópia fiel do IBGE/SIDRA (PPM, leite/ovos/mel/lã), append-only, colunas como texto.",
+            "bronze",
+        ),
+        (
+            "silver_ibge_ppm",
+            "bq_silver_dataset",
+            "PPM padronizado",
+            "União das duas tabelas Bronze, tipado, com measure_kind (estoque|fluxo) e qualidade.",
+            "silver",
+        ),
+        *_SILVER_DEFLATION,
+        (
             "gold_ppm_production",
             "bq_gold_dataset",
-            "Gold · pecuária PPM",
+            "Pecuária PPM",
             "Tabela principal — uma linha por (ano, UF, município, produto/rebanho).",
+            "gold",
         ),
         (
             "serving_ppm_annual",
             "bq_serving_dataset",
-            "Serving · mart anual",
+            "Mart anual",
             "Derivada — agregado (ano × UF × produto × família) com measure_kind.",
+            "serving",
         ),
     ],
     "mdic_comex": [
         (
+            "comex_flows_raw",
+            "bq_bronze_comex_dataset",
+            "Comex Stat — fluxos (bruto)",
+            "Cópia fiel do CSV do MDIC/SECEX (EXP/IMP), append-only, colunas como texto.",
+            "bronze",
+        ),
+        (
+            "silver_comex_flows",
+            "bq_silver_dataset",
+            "COMEX padronizado",
+            "Deduplicado, tipado, NCM aposentado normalizado e a marca de qualidade.",
+            "silver",
+        ),
+        *_SILVER_DEFLATION,
+        (
             "gold_comex_flows",
             "bq_gold_dataset",
-            "Gold · fluxos COMEX",
+            "Fluxos COMEX",
             "Tabela principal — fluxos mensais (ano, mês, NCM, UF, país, fluxo).",
+            "gold",
         ),
         (
             "serving_comex_annual",
             "bq_serving_dataset",
-            "Serving · mart anual",
+            "Mart anual",
             "Derivada — agregado anual (ano × NCM × UF × fluxo) dos gráficos.",
+            "serving",
         ),
         (
             "serving_comex_seasonality",
             "bq_serving_dataset",
-            "Serving · sazonalidade",
+            "Mart de sazonalidade",
             "Derivada — grão mensal (ano × mês × NCM × UF × fluxo) da view Sazonalidade.",
+            "serving",
         ),
     ],
     "un_comtrade": [
         (
+            "comtrade_flows_raw",
+            "bq_bronze_comtrade_dataset",
+            "UN Comtrade — fluxos (bruto)",
+            "Cópia fiel da API da ONU, append-only, todas as colunas como texto.",
+            "bronze",
+        ),
+        (
+            "silver_comtrade_flows",
+            "bq_silver_dataset",
+            "COMTRADE padronizado",
+            "Deduplicado, tipado, HS aposentado normalizado e a marca de qualidade.",
+            "silver",
+        ),
+        *_SILVER_DEFLATION,
+        (
             "gold_comtrade_flows",
             "bq_gold_dataset",
-            "Gold · fluxos COMTRADE",
+            "Fluxos COMTRADE",
             "Tabela principal — fluxos (ano, HS, reporter, parceiro, fluxo).",
+            "gold",
         ),
         (
             "serving_comtrade_annual",
             "bq_serving_dataset",
-            "Serving · mart anual",
+            "Mart anual",
             "Derivada — agregado anual (ano × HS × reporter × parceiro × fluxo).",
+            "serving",
         ),
     ],
 }
@@ -1144,12 +1285,14 @@ RAW_TABLE_MAX_BYTES = 10 * 1024**3
 def inspectable_tables(banco_id: str) -> list[dict]:
     """The allowlisted tables a researcher may browse for a banco (the 'Dados' picker).
 
-    Returns ``[{id, label, grain}]`` — empty for an unknown banco. ``id`` is the BigQuery
-    table name, the same token /api/table resolves. (The dataset is resolved server-side in
-    _resolve_inspect_table — never exposed, so the wire payload leaks no internal attr.)"""
+    Returns ``[{id, label, grain, layer}]`` — empty for an unknown banco. ``id`` is the
+    BigQuery table name, the same token /api/table resolves; ``layer`` is one of
+    _INSPECT_LAYERS (bronze|silver|gold|serving) so the UI groups the pipeline. (The dataset is
+    resolved server-side in _resolve_inspect_table — never exposed, so the payload leaks no
+    internal attr.)"""
     return [
-        {"id": table, "label": label, "grain": grain}
-        for table, _dataset_attr, label, grain in _INSPECT_TABLES.get(banco_id, [])
+        {"id": table, "label": label, "grain": grain, "layer": layer}
+        for table, _dataset_attr, label, grain, layer in _INSPECT_TABLES.get(banco_id, [])
     ]
 
 
@@ -1158,7 +1301,7 @@ def _resolve_inspect_table(banco_id: str, table_id: str) -> str:
 
     The SECURITY boundary of the raw-row endpoint: a (banco, table) outside _INSPECT_TABLES
     raises ValueError (→ 400), so no caller can read an arbitrary BigQuery table."""
-    for table, dataset_attr, _label, _grain in _INSPECT_TABLES.get(banco_id, []):
+    for table, dataset_attr, _label, _grain, _layer in _INSPECT_TABLES.get(banco_id, []):
         if table == table_id:
             return sqlbuild.table_ref(get_settings(), dataset_attr, table)
     raise ValueError(
@@ -1241,7 +1384,13 @@ def fetch_table_rows(
 @cache.memoize()
 def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
     """Total matching rows (the pagination denominator). Unfiltered → the table's cached
-    ``num_rows`` (free); filtered → a cost-guarded ``COUNT(*)``."""
+    ``num_rows`` (free); filtered → a cost-guarded ``COUNT(*)``.
+
+    The unfiltered denominator inherits the table-metadata cache TTL, so in the brief window
+    right after a nightly dbt rebuild changes the row count it can momentarily disagree with a
+    freshly-fetched page — the same CACHE_DEFAULT_TIMEOUT convergence the serving marts follow
+    (ARCHITECTURE.md). Deliberately accepted: a shorter dedicated TTL would multiply free-but-
+    frequent metadata reads for a cosmetic, self-healing off-by-N on a once-a-day boundary."""
     vis = _inspect_visibility_predicate(banco_id, table_id)
     # Unfiltered + ungated → the table's cached num_rows (free). A gated Gold fact must run a
     # real COUNT(*) so the denominator matches the gated page (hidden rows excluded from both).

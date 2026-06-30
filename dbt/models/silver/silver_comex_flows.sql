@@ -64,9 +64,13 @@ parsed as (
 
     select
         flow,
-        cast(CO_ANO as int64)                               as reference_year,
-        cast(CO_MES as int64)                               as reference_month,
-        date(cast(CO_ANO as int64), cast(CO_MES as int64), 1) as reference_date,
+        -- CO_ANO/CO_MES are STRING Bronze columns. Use SAFE casts + SAFE.DATE so a
+        -- non-numeric or out-of-range month (e.g. a malformed republished file) yields
+        -- NULL and is dropped by the final `where reference_date is not null` — a plain
+        -- CAST/DATE would RAISE and abort the whole nightly Silver build instead.
+        safe_cast(CO_ANO as int64)                          as reference_year,
+        safe_cast(CO_MES as int64)                          as reference_month,
+        safe.date(safe_cast(CO_ANO as int64), safe_cast(CO_MES as int64), 1) as reference_date,
         CO_NCM                                              as ncm_code,
         substr(CO_NCM, 1, 2)                                as hs_chapter,
         CO_PAIS                                             as country_code,
