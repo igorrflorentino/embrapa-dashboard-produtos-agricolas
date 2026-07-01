@@ -144,7 +144,10 @@ function ViewProductivity({ summary, conventions, database }) {
             title="UFs mais produtivas"
             action={<span className="caption">Top 12 · {yUnit}</span>}
           />
-          <window.BarChart data={byUFTop} valueKey="yieldKgHa" color="var(--viz-6)" height={360} />
+          {/* compact=false: yield is a UNIT metric (kg/ha) — show the exact figure
+              ("3.500"), not the misleading magnitude word ("3,5 mil"); matches the
+              per-UF tile map above, which is also compact=false (audit CORR-1). */}
+          <window.BarChart data={byUFTop} valueKey="yieldKgHa" color="var(--viz-6)" height={360} compact={false} />
         </div>
       </div>
     </>

@@ -1281,6 +1281,14 @@ _INSPECT_TABLES: dict[str, list[tuple[str, str, str, str, str]]] = {
 # (defense-in-depth for a raw-data endpoint).
 RAW_TABLE_MAX_BYTES = 10 * 1024**3
 
+# Upper bound on the pagination OFFSET for the raw-table / seed browse. The free
+# tabledata.list browse path passes ``start_index=offset`` straight to BigQuery, which
+# skips proportionally through storage — so an absurd ``?offset=9999999999`` on a large
+# Bronze table would trigger a needless deep skip (no bytes billed, but wasted compute).
+# The UI paginates 100 rows/page, so 5M rows deep is far past any manual browse; clamp
+# there to bound the worst case while keeping every realistic page reachable (audit COST-1).
+RAW_TABLE_MAX_OFFSET = 5_000_000
+
 
 def inspectable_tables(banco_id: str) -> list[dict]:
     """The allowlisted tables a researcher may browse for a banco (the 'Dados' picker).
@@ -1355,7 +1363,7 @@ def fetch_table_rows(
     ref = _resolve_inspect_table(banco_id, table_id)
     vis = _inspect_visibility_predicate(banco_id, table_id)
     lim = max(1, min(int(limit), sqlbuild.RAW_TABLE_MAX_LIMIT))
-    off = max(0, int(offset))
+    off = max(0, min(int(offset), RAW_TABLE_MAX_OFFSET))
     # A gated Gold fact (vis != '') CANNOT use the free tabledata.list shortcut — that path
     # can't carry the F7 predicate — so it always goes through the (cost-guarded) query path.
     if not order_by and not filters and not vis:
@@ -1563,7 +1571,7 @@ def fetch_seed_rows(
     reference tables. Read-only — there is no write counterpart for seeds."""
     ref = _resolve_seed_table(seed_id)
     lim = max(1, min(int(limit), sqlbuild.RAW_TABLE_MAX_LIMIT))
-    off = max(0, int(offset))
+    off = max(0, min(int(offset), RAW_TABLE_MAX_OFFSET))
     if not order_by and not filters:
         return (
             _client()

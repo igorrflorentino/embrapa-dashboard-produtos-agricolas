@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-30
+
+Post-v1.8.0 adversarial audit of the change set (6-lens fan-out; 3 confirmed / 6 refuted,
+0 critical). Three follow-up fixes.
+
+### Fixed
+- **Yield ranking no longer mislabels kg/ha with a magnitude word (audit CORR-1).** BarChart
+  gained a `compact` flag and ViewProductivity passes `compact={false}`, so a 3.500 kg/ha yield
+  reads "3.500" — matching the per-UF tile map — instead of "3,5 mil". The v1.8.0 compact-label
+  change had applied magnitude scaling to unit metrics too.
+- **Raw-table browse offset is now bounded (audit COST-1).** The "Estrutura de dados" explorer
+  exposed Bronze/Silver tables to the free `tabledata.list` browse path, which passes the request
+  `offset` straight to `start_index`. `RAW_TABLE_MAX_OFFSET` (5M) clamps it in `fetch_table_rows`
+  and `fetch_seed_rows`, so an absurd `?offset=…` can't trigger a needless deep storage skip.
+- **Backend "Estrutura de dados" view description matches the frontend (audit CONS-1).** The
+  parity registry entry regained its trailing "Para conferir os dados ou rastrear de onde vem
+  cada número." clause.
+
 ## [1.8.0] - 2026-06-30
 
 Mobile-responsive pass, a 4-layer data-structure explorer, a per-(banco × perspectiva)
