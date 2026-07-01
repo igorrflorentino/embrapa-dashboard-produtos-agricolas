@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-01
+
+UI polish across the shell — a bank-operability system-health page, a clearer feedback entry
+point, and a roomier filter-menu product picker. Frontend-only (no dbt/Gold changes).
+
 ### Changed
 - **The filter menu's product list is no longer cramped, for every banco.** The products
   section was capped at a tight 132px scroll box while the whole modal grew unbounded and the
