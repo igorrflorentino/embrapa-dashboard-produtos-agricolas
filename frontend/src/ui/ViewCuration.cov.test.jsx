@@ -1,5 +1,5 @@
 // ViewCuration.cov.test.jsx — coverage for the FROZEN curation surfaces:
-//   • ViewCuration.jsx        → ViewEnrichmentIndustrialization + ViewEnrichmentMarketNature
+//   • ViewCuration.jsx        → ViewEnrichmentIndustrialization (industrialization editor)
 //   • ViewCuratedAnalyses.jsx → ViewValueAdded + ViewMarketNature
 // Both feature sets are hidden behind the frozen Curadoria feature but the
 // scaffold still renders when reached via stale deep links — so we mount each
@@ -69,14 +69,6 @@ function fakeEnrichment(over = {}) {
     { id: 'ibge_pevs:1.2', group: 'acai', source: 'ibge_pevs', code: '1.2', desc: 'Açaí proc.', level: '' }, // todo
     { id: 'mdic_comex:4407', group: 'madeira', source: 'mdic_comex', code: '4407', desc: 'Madeira', level: 'processada' },
   ];
-  const regimes = [
-    { id: 'C03', term: 'Exportação definitiva (C03)', label: 'Exportação definitiva (C03)', hint: 'h' },
-    { id: 'C04', term: 'Entreposto (C04)', label: 'Entreposto (C04)', hint: 'h' },
-  ];
-  const flowTypes = [
-    { id: 'M', term: 'Importação (M)', label: 'Importação (M)', hint: 'h' },
-    { id: 'X', term: 'Exportação (X)', label: 'Exportação (X)', hint: 'h' },
-  ];
   const base = {
     codes: () => codes,
     worklist: () => codes,
@@ -84,16 +76,9 @@ function fakeEnrichment(over = {}) {
       codesTotal: 3,
       unclassified: 1,
       byLevel: { bruta: 1, processada: 1 },
-      flowsClassified: 1,
-      flowsTotal: 4,
     }),
-    regimes: () => regimes,
-    flowTypes: () => flowTypes,
     chapterOf: (src, code) => (src === 'ibge_pevs' ? 'Produtos alimentícios' : '44 · Madeira'),
-    pairMarket: (r, f) => (r === 'C04' && f === 'M' ? 'consumo' : null),
-    pairValueLabel: (r, f) => (r === 'C03' && f === 'X' ? 'US$ 3 bi' : ''),
     setCode: vi.fn(),
-    setPair: vi.fn(),
     apply: vi.fn((cb) => cb && cb()),
     discard: vi.fn(),
     isCommitting: () => false,
@@ -224,64 +209,6 @@ describe('EnrichmentApplyBar states', () => {
   });
 });
 
-// ── ViewEnrichmentMarketNature (the regime × flow matrix) ──────────────────────
-describe('ViewEnrichmentMarketNature', () => {
-  it('renders the matrix with regime rows, flow columns + per-cell values', () => {
-    const { container } = render(<window.ViewEnrichmentMarketNature />);
-    // KPIs
-    const kpi = (l) => container.querySelector(`.kpi[data-label="${l}"] .kpi-value`)?.textContent;
-    expect(kpi('Combinações classificadas')).toBe('1 / 4');
-    expect(kpi('Regimes aduaneiros')).toBe('2');
-    expect(kpi('Fluxos comerciais')).toBe('2');
-    // matrix legend uses ENRICH_MARKETS shorts
-    expect(container.textContent).toContain('Consumo');
-    expect(container.textContent).toContain('Processamento');
-    // regime/flow header terms + the per-pair value label
-    expect(container.textContent).toContain('Exportação definitiva (C03)');
-    expect(container.textContent).toContain('Importação (M)');
-    expect(container.textContent).toContain('US$ 3 bi');
-    // 2 regimes × 2 flows = 4 cell selects
-    expect(container.querySelectorAll('select.cur-cell').length).toBe(4);
-  });
-
-  it('a matrix cell change calls enrichment.setPair', () => {
-    const setPair = vi.fn();
-    fakeEnrichment({ setPair });
-    const { container } = render(<window.ViewEnrichmentMarketNature />);
-    const cell = container.querySelector('select.cur-cell');
-    fireEvent.change(cell, { target: { value: 'consumo' } });
-    expect(setPair).toHaveBeenCalled();
-    expect(setPair.mock.calls[0][2]).toBe('consumo');
-  });
-
-  it('the CurHint fast-tooltip machinery fires on hover (enter/move/leave)', () => {
-    vi.useFakeTimers();
-    try {
-      const { container } = render(<window.ViewEnrichmentMarketNature />);
-      // CurHint wraps the regime row + flow header in elements bearing .cur-hashint.
-      const hint = container.querySelector('.cur-hashint').closest('th, td');
-      // hover-in arms the 90 ms timer → _showTip builds + positions the body bubble
-      fireEvent.mouseEnter(hint, { clientX: 10, clientY: 10 });
-      vi.advanceTimersByTime(120);
-      const tip = document.querySelector('.cur-tip-pop');
-      expect(tip).toBeTruthy();
-      expect(tip.classList.contains('on')).toBe(true);
-      // a move re-places the (already-on) bubble
-      fireEvent.mouseMove(hint, { clientX: 600, clientY: 400 });
-      // leave hides it
-      fireEvent.mouseLeave(hint);
-      expect(tip.classList.contains('on')).toBe(false);
-      // a scroll anywhere also drops the bubble (the registered listener)
-      fireEvent.mouseEnter(hint, { clientX: 10, clientY: 10 });
-      vi.advanceTimersByTime(120);
-      window.dispatchEvent(new Event('scroll'));
-      expect(document.querySelector('.cur-tip-pop').classList.contains('on')).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
 // ── ViewValueAdded (curated analysis powered by the enrichment layer) ─────────
 function valueAddedData(over = {}) {
   const series = [
@@ -339,11 +266,11 @@ describe('ViewValueAdded', () => {
 
 // ── ViewMarketNature (curated economic-purpose analysis) ──────────────────────
 describe('ViewMarketNature (curated analysis)', () => {
-  it('renders the honest "classify first" empty state when the series is empty', () => {
+  it('renders the honest empty state when the series is empty (seed-driven, no classified pair)', () => {
     window.marketNatureAnalysis = vi.fn(() => ({ series: [] }));
     const { container } = render(<window.ViewMarketNature />);
-    expect(container.textContent).toContain('Classifique os pares');
-    expect(container.textContent).toContain('Nenhum par');
+    expect(container.textContent).toContain('Sem finalidade econômica classificada');
+    expect(container.textContent).toContain('seed de tipos de mercado');
     // selector still renders
     expect(container.textContent).toContain('Todas curadas');
   });

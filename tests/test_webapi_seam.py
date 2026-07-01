@@ -54,62 +54,18 @@ def _bind_simplecache():
     return app, cache
 
 
-def test_flow_market_worklist_builds_grid_with_summed_values(monkeypatch):
-    seam = _seam()
-    cpc = pd.DataFrame(
-        [
-            # same pair across two years → summed into one cell
-            {"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9},
-            {"customs_code": "C04", "flow_code": "M", "reference_year": 2023, "value_usd": 0.5e9},
-            {"customs_code": "C03", "flow_code": "X", "reference_year": 2022, "value_usd": 3e9},
-        ]
-    )
-    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: None)  # log absent → {}
-
-    out = seam.flow_market_worklist()
-
-    assert out["customs"] == ["C03", "C04"]  # sorted set of present codes
-    assert {f["code"] for f in out["flows"]} == {"M", "X"}
-    assert out["total"] == 2 and out["classified"] == 0  # nobody classified yet
-    cells = {(c["customs_code"], c["flow_code"]): c["value_usd"] for c in out["cells"]}
-    assert cells[("C04", "M")] == 1.5e9  # summed across 2022 + 2023
-    assert cells[("C03", "X")] == 3e9
-    assert out["cells"][0]["customs_code"] == "C03"  # cells sorted by value desc
-
-
-def test_flow_market_worklist_carries_persisted_market(monkeypatch):
-    seam = _seam()
-    cpc = pd.DataFrame(
-        [{"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9}]
-    )
-    fm = pd.DataFrame([{"customs_code": "C04", "flow_code": "M", "market": "processamento"}])
-    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: fm)
-
-    out = seam.flow_market_worklist()
-    assert out["classified"] == 1
-    assert out["cells"][0]["market"] == "processamento"
-
-
 def test_market_nature_sums_value_by_curated_purpose(monkeypatch):
+    # Market nature is SEED-DRIVEN now: the serving mart pre-carries the
+    # market_nature column, so the analysis just sums fetch_market_nature_series
+    # (already NULL-filtered + grouped by (market_nature × year)) into US$ bi.
     seam = _seam()
-    cpc = pd.DataFrame(
+    df = pd.DataFrame(
         [
-            {"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9},
-            {"customs_code": "C03", "flow_code": "X", "reference_year": 2022, "value_usd": 2e9},
-            # unclassified pair → must be dropped from the analysis
-            {"customs_code": "C99", "flow_code": "M", "reference_year": 2022, "value_usd": 5e9},
+            {"reference_year": 2022, "market_nature": "processamento", "value_usd": 1e9},
+            {"reference_year": 2022, "market_nature": "consumo", "value_usd": 2e9},
         ]
     )
-    fm = pd.DataFrame(
-        [
-            {"customs_code": "C04", "flow_code": "M", "market": "processamento"},
-            {"customs_code": "C03", "flow_code": "X", "market": "consumo"},
-        ]
-    )
-    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: fm)
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", lambda codes=(): df)
 
     out = seam.market_nature()
 
@@ -117,45 +73,42 @@ def test_market_nature_sums_value_by_curated_purpose(monkeypatch):
     row = out["series"][0]
     assert row["y"] == 2022
     assert row["consumo"] == 2.0  # 2e9 USD → US$ bi
-    assert row["processamento"] == 1.0  # 1e9 USD → US$ bi (C99 unclassified excluded)
+    assert row["processamento"] == 1.0  # 1e9 USD → US$ bi
     assert out["latest"] == row
-    assert out["n_classified"] == 2
 
 
 def test_market_nature_empty_when_nothing_classified(monkeypatch):
+    # An empty serving frame (no market_nature-mapped rows) → empty analysis.
     seam = _seam()
-    cpc = pd.DataFrame(
-        [{"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9}]
-    )
-    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: None)  # log absent
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", lambda codes=(): pd.DataFrame())
 
     out = seam.market_nature()
     assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
-    assert out["n_classified"] == 0
 
 
 def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
     # A commodity scoped by the selector that has NO COMTRADE HS codes must return
     # empty — NOT silently fall through to the unscoped all-commodities total
-    # (an empty codes tuple means "no filter" to fetch_comtrade_cpc_value).
+    # (an empty codes tuple means "no filter" to fetch_market_nature_series).
     seam = _seam()
     monkeypatch.setattr(
         _base(),
         "commodity_catalog",
         lambda: {"manicoba": {"comtrade": [], "comex": ["1"], "pevs": ["2"]}},
     )
-    # Data + a classification both exist; the guard must still return empty here.
-    cpc = pd.DataFrame(
-        [{"customs_code": "C04", "flow_code": "M", "reference_year": 2022, "value_usd": 1e9}]
+    # Data exists in the mart; the no-codes guard must still short-circuit to empty
+    # (fetch_market_nature_series must never even be called for a code-less commodity).
+    df = pd.DataFrame(
+        [{"reference_year": 2022, "market_nature": "processamento", "value_usd": 1e9}]
     )
-    fm = pd.DataFrame([{"customs_code": "C04", "flow_code": "M", "market": "processamento"}])
-    monkeypatch.setattr(seam.gateway, "fetch_comtrade_cpc_value", lambda codes=(): cpc)
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", lambda: fm)
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_market_nature_series",
+        lambda codes=(): pytest.fail("must not query the unscoped market-nature total") or df,
+    )
 
     out = seam.market_nature("manicoba")
     assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
-    assert out["n_classified"] == 1  # the mapping is still reported
 
 
 # ── overview quantities: base unit (t / m³), never the mixed native units ──────
@@ -1021,9 +974,19 @@ def test_snapshot_comtrade_uses_comtrade_overview_and_no_geo(monkeypatch):
     seam = _seam()
     recorded = {}
 
-    def fake_overview(year_start=None, year_end=None, cmd_codes=(), flow=None, value_column=None):
+    def fake_overview(
+        year_start=None,
+        year_end=None,
+        cmd_codes=(),
+        flow=None,
+        customs=None,
+        market=None,
+        value_column=None,
+    ):
         recorded["cmd_codes"] = cmd_codes
         recorded["value_column"] = value_column
+        recorded["customs"] = customs  # the regime filter reaches the comtrade overview
+        recorded["market"] = market  # the market-nature filter reaches it too
         return pd.DataFrame([{"reference_year": 2022, "total_value_usd": 4.0}])
 
     monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
@@ -1782,20 +1745,6 @@ def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
     assert unclassified["level"] is None and unclassified["commodity"] is None
 
 
-# ── _flow_market_map NotFound branch (market-nature/worklist degrade gracefully)
-
-
-def test_flow_market_map_empty_on_notfound(monkeypatch):
-    seam = _seam()
-    from google.api_core.exceptions import NotFound
-
-    def boom():
-        raise NotFound("log table absent")
-
-    monkeypatch.setattr(seam.gateway, "fetch_current_flow_market", boom)
-    assert seam._flow_market_map() == {}
-
-
 # ── value_added: empty until codes are classified ──────────────────────────────
 
 
@@ -1928,25 +1877,6 @@ def test_record_code_level_forwards_headers_to_writer(monkeypatch):
     assert out == {"ok": True}
     assert captured["source"] == "mdic_comex" and captured["level"] == "processada"
     assert captured["headers"] == {} and captured["change_id"] == "abc"
-
-
-def test_record_flow_market_forwards_headers_to_writer(monkeypatch):
-    seam = _seam()
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    captured = {}
-
-    def fake_writer(customs_code, flow_code, market, headers, change_id=None):
-        captured.update(
-            customs_code=customs_code, flow_code=flow_code, market=market, change_id=change_id
-        )
-        return {"ok": True}
-
-    monkeypatch.setattr(curation, "record_flow_market", fake_writer)
-    out = seam.record_flow_market("C04", "M", "processamento", change_id="k1")
-    assert out == {"ok": True}
-    assert captured["customs_code"] == "C04" and captured["market"] == "processamento"
-    assert captured["change_id"] == "k1"
 
 
 # ── P6: per-UF scoping threads through the cross-source / curated / seasonality seam ──

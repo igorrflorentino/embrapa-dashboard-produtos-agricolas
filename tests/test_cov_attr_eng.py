@@ -7,26 +7,19 @@ Targets the currently-uncovered branches in the seam readers
   * seam: the empty-DataFrame degrade paths of ``curator_emails`` /
     ``_current_code_levels`` (and the latter's success row-mapping), the
     commodity-scope ``continue`` in ``_value_added_codes_by_level``, the
-    empty-value ``continue`` in ``_value_added_accumulate``, and the
-    None/empty short-circuit of ``_market_nature_accumulate``.
-  * serving: the over-length ``market`` validation raise, and the full
-    ``record_flow_market`` insert path with cache invalidation (which exercises
-    ``invalidate_flow_market_cache``'s success branch under an app-bound cache).
+    empty-value ``continue`` in ``_value_added_accumulate``, and the seed-driven
+    ``market_nature`` analysis (now backed by ``gateway.fetch_market_nature_series``).
+  * serving: the industrialization-level validation raise
+    (``_validate_code_edit``) and the ``market_nature_series`` SQL builder.
 
-The gateway readers are monkeypatched with synthetic DataFrames and the BQ
-client is a ``mock.Mock`` — no live warehouse. Reuses the house patterns
-(``pytest.importorskip('flask_caching')``, the SimpleCache app binding, the IAP
-email header).
+The gateway readers are monkeypatched with synthetic DataFrames — no live
+warehouse. Reuses the house pattern ``pytest.importorskip('flask_caching')``.
 """
 
 from __future__ import annotations
 
-from unittest import mock
-
 import pandas as pd
 import pytest
-
-from embrapa_commodities.serving import iap
 
 
 def _curation():
@@ -41,23 +34,6 @@ def _writer():
     from embrapa_commodities.serving import attribute_engineering
 
     return attribute_engineering
-
-
-def _bind_simplecache():
-    """Bind the shared serving cache to a fresh Flask app (SimpleCache)."""
-    from flask import Flask
-
-    from embrapa_commodities.serving.cache import cache
-
-    app = Flask(__name__)
-    cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
-    return app, cache
-
-
-def _settings():
-    from embrapa_commodities.config import Settings
-
-    return Settings(_env_file=None, gcp_project_id="test-project")  # type: ignore[call-arg]
 
 
 # ── seam line 64: curator_emails returns empty set on an empty DataFrame ────────
@@ -159,63 +135,117 @@ def test_value_added_returns_empty_when_value_query_empty(monkeypatch):
     assert out == {"series": [], "n_codes": 0}
 
 
-# ── seam line 352: _market_nature_accumulate short-circuits on None/empty ───────
+# ── seam market_nature: seed-driven analysis over serving_comtrade_annual ────────
+# market-nature is now READ-ONLY (seed-classified). The seam sums the serving mart's
+# market_nature column via gateway.fetch_market_nature_series — no editable-log path.
 
 
-def test_market_nature_accumulate_empty_on_none():
+def test_market_nature_empty_when_reader_returns_none(monkeypatch):
+    """The gateway reader returning None (or an empty frame) degrades to an empty
+    series rather than raising — mirrors the value_added empty path."""
     seam = _curation()
-    assert seam._market_nature_accumulate(None, {("C04", "M"): "processamento"}) == {}
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", lambda codes=(): None)
+    assert seam.market_nature() == {"years": [], "series": [], "latest": {}}
 
 
-def test_market_nature_accumulate_empty_on_empty_df():
+def test_market_nature_empty_when_reader_returns_empty_df(monkeypatch):
     seam = _curation()
-    assert seam._market_nature_accumulate(pd.DataFrame(), {}) == {}
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", lambda codes=(): pd.DataFrame())
+    assert seam.market_nature() == {"years": [], "series": [], "latest": {}}
 
 
-# ── writer line 311: _validate_flow_market_edit rejects an over-length market ────
+def test_market_nature_accumulates_series_from_mart(monkeypatch):
+    """Rows (reference_year, market_nature, value_usd) are summed into the
+    {consumo, processamento} series, scaled to US$ bi, with `latest` = last year."""
+    seam = _curation()
+    df = pd.DataFrame(
+        [
+            {"reference_year": 2020, "market_nature": "consumo", "value_usd": 2e9},
+            {"reference_year": 2020, "market_nature": "processamento", "value_usd": 1e9},
+            {"reference_year": 2021, "market_nature": "consumo", "value_usd": 3e9},
+        ]
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", lambda codes=(): df)
+    out = seam.market_nature()
+    assert out["years"] == [2020, 2021]
+    assert out["series"] == [
+        {"y": 2020, "consumo": 2.0, "processamento": 1.0},
+        {"y": 2021, "consumo": 3.0, "processamento": 0.0},
+    ]
+    assert out["latest"] == {"y": 2021, "consumo": 3.0, "processamento": 0.0}
 
 
-def test_validate_flow_market_edit_rejects_long_market():
-    curation = _writer()
-    too_long = "x" * (curation.MAX_STAGE_LEN + 1)
-    with pytest.raises(ValueError, match="market excede"):
-        curation._validate_flow_market_edit("4000", "X", too_long)
+def test_market_nature_scoped_commodity_without_codes_returns_empty(monkeypatch):
+    """A commodity with no COMTRADE (HS) codes short-circuits to empty, never
+    hitting the unscoped all-commodities total."""
+    seam = _curation()
+    from embrapa_commodities.webapi import seam_base
+
+    monkeypatch.setattr(seam_base, "_codes", lambda cid, src: [])
+    called = {"reader": False}
+
+    def _reader(codes=()):
+        called["reader"] = True
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", _reader)
+    assert seam.market_nature("castanha") == {"years": [], "series": [], "latest": {}}
+    assert called["reader"] is False  # short-circuited before the reader
 
 
-# ── writer lines 296 + 337-338: full insert path invalidates the bound cache ────
+def test_market_nature_scoped_commodity_passes_codes(monkeypatch):
+    """A scoped commodity forwards its HS codes to the gateway reader."""
+    seam = _curation()
+    from embrapa_commodities.webapi import seam_base
 
+    monkeypatch.setattr(seam_base, "_codes", lambda cid, src: ["0801", "0802"])
+    seen: dict = {}
 
-def test_record_flow_market_inserts_and_invalidates_cache(monkeypatch):
-    """A fresh edit (no client change_id → no dedupe probe) runs the INSERT and,
-    with invalidate_cache=True under an app-bound cache, exercises
-    ``invalidate_flow_market_cache``'s success branch (delete_memoized)."""
-    curation = _writer()
-
-    # Self-heal is a no-op (we don't create real tables).
-    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
-    client = mock.Mock()
-    client.query.return_value.result.return_value = None
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-
-    app, cache = _bind_simplecache()
-    with app.app_context():
-        # Prime the memoized reader so delete_memoized has a live entry to bump.
-        cache.clear()
-        record = curation.record_flow_market(
-            "4000",
-            "X",
-            "consumo",
-            headers,
-            settings=_settings(),
-            client=client,
-            invalidate_cache=True,  # drives line 296 -> invalidate_flow_market_cache (337-338)
+    def _reader(codes=()):
+        seen["codes"] = codes
+        return pd.DataFrame(
+            [{"reference_year": 2022, "market_nature": "consumo", "value_usd": 5e9}]
         )
 
-    assert record["deduped"] is False
-    assert record["customs_code"] == "4000"
-    assert record["flow_code"] == "X"
-    assert record["market"] == "consumo"
-    assert record["edited_by"] == "alice@embrapa.br"
-    # No client change_id → only the INSERT ran (no dedupe SELECT probe).
-    assert client.query.call_count == 1
-    assert "insert into" in client.query.call_args.args[0].lower()
+    monkeypatch.setattr(seam.gateway, "fetch_market_nature_series", _reader)
+    out = seam.market_nature("castanha")
+    assert seen["codes"] == ("0801", "0802")
+    assert out["latest"] == {"y": 2022, "consumo": 5.0, "processamento": 0.0}
+
+
+# ── writer: _validate_code_edit rejects an over-length industrialization level ────
+
+
+def test_validate_code_edit_rejects_long_level():
+    curation = _writer()
+    too_long = "x" * (curation.MAX_STAGE_LEN + 1)
+    with pytest.raises(ValueError, match="industrialization_level excede"):
+        curation._validate_code_edit("mdic_comex", "0801", too_long, None)
+
+
+# ── serving/sql: market_nature_series builds the grouped-sum query + code param ──
+
+
+def test_market_nature_series_sql_unscoped():
+    from embrapa_commodities.serving import sql as sqlbuild
+
+    query, params = sqlbuild.market_nature_series("proj.serving.serving_comtrade_annual")
+    low = query.lower()
+    assert "market_nature is not null" in low
+    assert "sum(val_yearfx_usd) as value_usd" in low
+    assert "group by market_nature, reference_year" in low
+    # No code scope → no cmd_code predicate and no params.
+    assert "cmd_code in unnest" not in low
+    assert params == []
+
+
+def test_market_nature_series_sql_scoped_by_codes():
+    from embrapa_commodities.serving import sql as sqlbuild
+
+    query, params = sqlbuild.market_nature_series(
+        "proj.serving.serving_comtrade_annual", codes=("0801", "0802")
+    )
+    assert "cmd_code in unnest(@cmd_codes)" in query.lower()
+    assert len(params) == 1
+    assert params[0].name == "cmd_codes"
+    assert list(params[0].values) == ["0801", "0802"]

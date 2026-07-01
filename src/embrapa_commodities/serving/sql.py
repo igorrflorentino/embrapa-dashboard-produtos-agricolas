@@ -169,6 +169,37 @@ def _flow(
         params.append(bigquery.ScalarQueryParameter("flow", "STRING", flow))
 
 
+def _customs(
+    conditions: list[str],
+    params: list[bigquery.ScalarQueryParameter],
+    customs: str | None,
+) -> None:
+    """Optional `customs_code = @customs` predicate — the customs procedure (regime
+    aduaneiro; UN Comtrade customsCode). None/absent references customs_code at all →
+    the reader sums over every regime = the bilateral total (C00 and the per-regime
+    breakdowns are mutually exclusive per key in silver_comtrade_flows, so the SUM is a
+    clean total, and a request without this param stays byte-identical to before the
+    regime dimension existed). Only the COMTRADE mart carries customs_code."""
+    if customs is not None:
+        conditions.append("customs_code = @customs")
+        params.append(bigquery.ScalarQueryParameter("customs", "STRING", customs))
+
+
+def _market_nature(
+    conditions: list[str],
+    params: list[bigquery.ScalarQueryParameter],
+    market: str | None,
+) -> None:
+    """Optional `market_nature = @market` predicate — the tipo de mercado (economic
+    purpose: consumo/processamento), seed-classified per (customs_code × flow). None/absent
+    references market_nature at all → sums over every purpose (incl. the unmapped NULL rows),
+    so a request without this param is byte-identical to before the dimension existed. Only
+    the COMTRADE mart carries market_nature."""
+    if market is not None:
+        conditions.append("market_nature = @market")
+        params.append(bigquery.ScalarQueryParameter("market", "STRING", market))
+
+
 def _reporter(
     conditions: list[str],
     params: list[bigquery.ScalarQueryParameter],
@@ -586,6 +617,8 @@ def trade_overview(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     value_column: str = "val_yearfx_usd",
     reporter_column: str | None = None,
     reporter_value: str | None = None,
@@ -611,6 +644,8 @@ def trade_overview(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow)
+    _customs(conditions, params, customs)
+    _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
@@ -883,124 +918,29 @@ def quality_timeseries(table: str, *, visibility_predicate: str = "") -> tuple[s
     return sql, []
 
 
-def comtrade_cpc_value(table: str, *, codes: Sequence[str] = ()) -> tuple[str, list]:
-    """Trade value by (customs procedure × flow × year) from the COMTRADE **Bronze**
-    (the Gold sums the customs dimension away, so the procedure detail only exists
-    here). Excludes the ``C00`` aggregate (it is the total of the specific
-    procedures — summing it would double-count). Optional ``codes`` filters to one
-    commodity's HS codes (cmdCode). Bronze is all-STRING → ``safe_cast`` the
-    measure + year. A bigger scan than a serving mart but cached + secondary;
-    promote to a serving mart (preserving customsCode) when this gets hot.
-
-    Bronze is append-only with at-least-once load semantics, so this query must
-    apply the same cleaning ``silver_comtrade_flows`` does (it bypasses Silver):
-    keep only the latest ingestion batch per (refYear, reporterCode) — without it
-    the summed value inflates with every re-ingestion — then dedup on the natural
-    key, collapsing the duplicate-qtyUnitCode variants that carry an identical
-    ``primaryValue``; and drop the World partner aggregate and legacy HS4 rows
-    (both double-count).
-
-    Byte budget: this reader runs under ``maximum_bytes_billed`` and a growing
-    Bronze can trip the ceiling and hard-fail the market-nature chart. The lever is
-    **column projection** — ``latest_batch`` selects only the columns the dedup
-    needs (Bronze is a wide all-STRING table), not ``select *``. BigQuery bills by
-    columns/partitions read, so projecting the ~12 needed columns is the real
-    saving. Crucially, projection does **not** change which generation the window
-    picks, so the predicates stay AFTER batch selection (in ``deduplicated``),
-    byte-for-byte mirroring ``silver_comtrade_flows`` — including its retraction
-    semantics (a re-published reporter-year that drops rows correctly retires the
-    prior generation). (A serving mart preserving ``customsCode`` is still the
-    proper fix when this gets hot.)"""
-    conditions = [
-        "customsCode != 'C00'",
-        "customsCode is not null",
-        "partnerCode != '0'",  # World aggregate — summing it double-counts partners
-        "length(cmdCode) = 6",  # HS6 leaves only — a legacy HS4 row double-counts
-        # Pin the OTHER three breakdown axes to their fully-aggregated value, exactly as
-        # silver_comtrade_flows does (motCode/partner2Code/mosCode = '0'), so the
-        # customs-procedure sum can never pick up a mot/mos/partner2 breakdown row and
-        # double-count (DBT-2). Today every non-C00 row already carries these = '0' under
-        # the single-axis breakdown model, so this is defensive parity, not a value
-        # change — but it keeps the sum provably equal to the C00 total split by
-        # procedure even if the API ever emits a customs × (mot|mos|partner2) cross-row.
-        "motCode = '0'",
-        "partner2Code = '0'",
-        "mosCode = '0'",
-    ]
+def market_nature_series(table: str, *, codes: Sequence[str] = ()) -> tuple[str, list]:
+    """COMTRADE trade value (nominal US$) by (economic-purpose market_nature × year) from
+    the serving mart. ``market_nature`` is the seed-classified consumo/processamento column
+    (NULL where the customs×flow pair has no mapping — excluded). Optional ``codes`` narrows
+    to one commodity's HS codes (cmd_code). The mart already dedups + preserves customs/flow,
+    so this is a plain grouped sum (no Bronze cleaning) — the seed conversion moved the
+    customs-procedure detail into Gold/serving, so no Bronze scan is needed anymore."""
+    conditions = ["market_nature is not null"]
     params: list = []
     if codes:
-        conditions.append("cmdCode IN UNNEST(@cmd_codes)")
+        conditions.append("cmd_code IN UNNEST(@cmd_codes)")
         params.append(bigquery.ArrayQueryParameter("cmd_codes", "STRING", list(codes)))
     sql = f"""
-        with latest_batch as (
-            -- Each Bronze load stamps a (year × reporter-batch) chunk with ONE
-            -- ingestion_timestamp; a re-published reporter-year REPLACES the
-            -- previous generation. Keep only the newest generation per
-            -- (refYear, reporterCode). Project an EXPLICIT column list (never
-            -- `select *`): BigQuery bills by columns read, Bronze is a wide
-            -- all-STRING table, and this reader runs under maximum_bytes_billed —
-            -- so reading only the ~12 columns the dedup needs is what keeps a
-            -- growing Bronze from tripping the ceiling. Predicates are applied
-            -- AFTER this window (in `deduplicated`), so batch selection is
-            -- byte-for-byte identical to silver_comtrade_flows.
-            select
-                customsCode, flowCode, refYear, reporterCode, partnerCode,
-                partner2Code, cmdCode, mosCode, motCode, qtyUnitCode,
-                primaryValue, ingestion_timestamp
-            from `{table}`
-            qualify ingestion_timestamp
-                = max(ingestion_timestamp) over (partition by refYear, reporterCode)
-        ),
-        deduplicated as (
-            -- Same predicates + dedup key/ordering as silver_comtrade_flows, applied
-            -- AFTER batch selection: drop the C00 customs aggregate, the World
-            -- partner aggregate, and legacy HS4 rows; then collapse the duplicate
-            -- qtyUnitCode variants (identical primaryValue) keeping the real unit.
-            select customsCode, flowCode, refYear, primaryValue
-            from latest_batch
-            {_where(conditions)}
-            qualify row_number() over (
-                partition by
-                    refYear, reporterCode, partnerCode, partner2Code,
-                    cmdCode, flowCode, customsCode, mosCode, motCode
-                -- Same key + ordering as silver_comtrade_flows: NOT partitioned
-                -- by qtyUnitCode (its variants duplicate the value) — recency
-                -- first, real-unit-over-'-1' as the tiebreaker.
-                order by ingestion_timestamp desc, (qtyUnitCode = '-1')
-            ) = 1
-        )
         select
-            customsCode                         as customs_code,
-            flowCode                            as flow_code,
-            safe_cast(refYear as int64)         as reference_year,
-            sum(safe_cast(primaryValue as float64)) as value_usd
-        from deduplicated
-        group by customs_code, flow_code, reference_year
+            market_nature,
+            reference_year,
+            sum(val_yearfx_usd) as value_usd
+        from `{table}`
+        {_where(conditions)}
+        group by market_nature, reference_year
         order by reference_year
     """
     return sql, params
-
-
-def current_flow_market(table: str) -> tuple[str, list]:
-    """Current (customs_code, flow_code) → market from the append-only flow-market
-    log: the latest edit per pair (a cleared market = empty string is dropped).
-
-    The latest-wins ordering breaks ties on the surrogate ``change_id`` (DESC), exactly
-    like ``dim_code_industrialization_scd2`` — so two edits to the same pair landing on
-    the same ``edited_at`` microsecond resolve deterministically (a clear-vs-set race
-    can't non-deterministically drop or keep the pair) (DBT-3)."""
-    sql = f"""
-        select customs_code, flow_code, market, edited_by, edited_at
-        from (
-            select *, row_number() over (
-                partition by customs_code, flow_code
-                order by edited_at desc, change_id desc
-            ) as rn
-            from `{table}`
-        )
-        where rn = 1 and market != ''
-    """
-    return sql, []
 
 
 def quality_by_product(

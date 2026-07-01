@@ -53,8 +53,12 @@ describe('GLOSSARY structure', () => {
     }
   });
 
-  it('does NOT include the frozen "curadoria" section (commented out)', () => {
-    expect(GLOSSARY.curadoria).toBeUndefined();
+  it('includes the Engenharia de atributos section (unfrozen): industrialization editable + market-nature seed', () => {
+    expect(GLOSSARY.curadoria).toBeDefined();
+    expect(GLOSSARY.curadoria.label).toBe('Engenharia de atributos');
+    const terms = GLOSSARY.curadoria.terms.map((t) => t.term);
+    expect(terms).toContain('Nível de industrialização');
+    expect(terms).toContain('Finalidade econômica (tipo de mercado)');
   });
 
   it('marks SEFAZ NFe as pending (not yet ingested)', () => {

@@ -8,8 +8,7 @@ pattern) by exercising the as-yet-uncovered paths:
 - ``_parse_table_filters`` malformed-shape ValueErrors (non-list payload, filter w/o 'col'),
 - the ``/geo-yearly?flow=`` server-side flow re-query branch,
 - the ``/products-by-uf`` route wiring,
-- the ``/feedback`` ``InvalidIapAssertionError`` → 403 branch,
-- the ``/curation/flow-market`` auth-failure + missing-field returns.
+- the ``/feedback`` ``InvalidIapAssertionError`` → 403 branch.
 
 No BigQuery: Settings is stubbed and every seam/feedback dependency is monkeypatched.
 The ``_client`` helper is reused verbatim from ``test_webapi_routes`` so the auth /
@@ -220,40 +219,3 @@ def test_feedback_invalid_iap_assertion_is_403(monkeypatch):
     resp = client.post("/api/feedback", json={"category": "bug", "message": "oi"})
     assert resp.status_code == 403
     assert "error" in resp.get_json()
-
-
-# ── /curation/flow-market: auth-failure return + missing-field 400 (lines 755, 761) ──
-
-
-def test_flow_market_post_without_identity_is_401(monkeypatch):
-    """No identity on the flow-market write → 401, short-circuiting on the authz error
-    tuple (line 755) before any seam write."""
-    from embrapa_commodities.webapi import seam
-
-    client = _client(monkeypatch)  # curation_dev_author=None, iap_audience=None
-
-    def must_not_run(*a, **k):
-        raise AssertionError("seam reached despite an auth failure")
-
-    monkeypatch.setattr(seam, "record_flow_market", must_not_run)
-    resp = client.post(
-        "/api/curation/flow-market",
-        json={"customs_code": "4", "flow_code": "1", "market": "consumo"},
-    )
-    assert resp.status_code == 401
-
-
-def test_flow_market_post_missing_fields_is_400(monkeypatch):
-    """Authenticated (dev fallback) but an incomplete flow-market body (no flow_code) →
-    400 before any write — line 761."""
-    from embrapa_commodities.webapi import seam
-
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
-
-    def must_not_run(*a, **k):
-        raise AssertionError("seam reached despite a missing field")
-
-    monkeypatch.setattr(seam, "record_flow_market", must_not_run)
-    resp = client.post("/api/curation/flow-market", json={"customs_code": "4"})  # no flow_code
-    assert resp.status_code == 400
-    assert "required" in resp.get_json()["error"]

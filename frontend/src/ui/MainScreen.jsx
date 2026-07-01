@@ -35,26 +35,26 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     );
   }
 
-  // FROZEN (Curadoria deferred to the "Versão Futura" roadmap phase): the enrichment
-  // editor screens are hidden. The components stay imported (scaffold), but any stale deep
-  // link (?ip=curation / enrich_industrial / enrich_market) now lands on a neutral notice
-  // instead of rendering the frozen editor — so the app is fully decoupled from curation
-  // even via direct URL. Restore these screens alongside the feature. (audit FREEZE-1)
-  if (infoPage === 'enrich_industrial' || infoPage === 'enrich_market' || infoPage === 'curation') {
+  // Engenharia de atributos — the per-code industrialization editor (researcher-editable,
+  // gated by the enable_curation dbt var). ?ip=curation is the legacy alias. The old
+  // ?ip=enrich_market editor is GONE (market-nature is seed-driven now → the "Finalidade
+  // econômica" analysis + the "Tipo de mercado" filter), so a stale enrich_market link
+  // falls through to the generic info handler below.
+  if (infoPage === 'enrich_industrial' || infoPage === 'curation') {
     return (
-      <div className="screen" data-screen-label="Engenharia de atributos · indisponível">
+      <div className="screen" data-screen-label="Engenharia de atributos · Nível de industrialização">
         <div className="page-hero">
           <div>
             <div className="overline">Engenharia de atributos</div>
-            <h1 className="page-title">Funcionalidade em desenvolvimento</h1>
+            <h1 className="page-title">Nível de industrialização</h1>
             <p className="page-sub">
-              A <strong>Engenharia de atributos</strong> (classificação do nível de
-              industrialização e da finalidade econômica) foi adiada para a <strong>Versão
-              Futura</strong> do projeto e está temporariamente indisponível. Ela retornará quando
-              for concluída e validada com os pesquisadores.
+              Classifique cada código de produto por nível de industrialização
+              (bruta/processada). As edições exigem autorização e ficam registradas com o seu
+              e-mail; nada é salvo até você aplicar à base.
             </p>
           </div>
         </div>
+        <window.ViewEnrichmentIndustrialization />
       </div>
     );
   }
@@ -417,14 +417,17 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   // The registry prov no longer fabricates a row count, so the only source is the
   // live snapshot's quality-flag sum; show "—" until it resolves (never a fake total).
   const totalRows = _liveRows || prov.totalRows;
-  const rowsAfter = totalRows ? Math.round(
+  // Clamp the filtered estimate to the total: the per-dimension shares are heuristic
+  // (no real backend COUNT), so a share slightly >1 must never render "more filtered
+  // rows than the total" (defense in depth atop the dataFilters share fixes — M1).
+  const rowsAfter = totalRows ? Math.min(totalRows, Math.round(
     totalRows *
     (_shares.productShare ?? 1) *
     (_shares.valueShare   ?? 1) *
     (_shares.yearShare    ?? 1) *
     (_shares.flagShare    ?? 1) *
     (_shares.stateShare   ?? 1)
-  ) : null;
+  )) : null;
   const fmtRows = window.fmtRows;  // shared compact mi/mil counter (data.js)
   const rowsTotalLabel = totalRows ? fmtRows(totalRows) : '—';
   const rowsAfterLabel = rowsAfter != null ? fmtRows(rowsAfter) : '—';

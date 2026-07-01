@@ -435,6 +435,30 @@
   border: 1px dashed var(--border-subtle);
 }
 
+/* ----- Product tree (multi-tree NCM/HS pickers) --------------- */
+/* The tree reuses .fm-check for each row's label; the row adds the expand/collapse
+   toggle to the left and lets the label fill the remaining width. */
+.fm-tree { display: flex; flex-direction: column; gap: 1px; }
+.fm-tree-row { display: flex; align-items: center; gap: 2px; }
+.fm-tree-tog {
+  flex: 0 0 auto;
+  width: 18px; height: 24px;
+  padding: 0; border: none; background: none;
+  color: var(--fg-3); cursor: pointer;
+  font-size: 10px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.fm-tree-tog:hover { color: var(--embrapa-green-darker); background: var(--bg-surface-2); }
+.fm-tree-tog.spacer { cursor: default; }
+.fm-tree-tog.spacer:hover { background: none; }
+.fm-tree-row .fm-check.tree { flex: 1 1 auto; min-width: 0; }
+/* A parent whose leaves are only partly selected: mark the code count (SH group size)
+   so a glance distinguishes "some" from "all". */
+.fm-check.tree.is-partial { color: var(--fg-1); }
+.fm-check.tree.is-partial .fm-code { color: var(--embrapa-green); }
+
 /* ----- Bulk actions ------------------------------------------ */
 .fm-bulk {
   display: flex;
@@ -470,6 +494,16 @@
   background: var(--border-strong);
   border-radius: 50%;
 }
+/* Reach hint: how many (search-filtered) items the bulk actions affect when the list
+   scrolls beyond the viewport (L7). Pushed to the end of the row, muted. */
+.fm-bulk-reach {
+  margin-left: auto;
+  align-self: center;
+  font: 400 11px var(--font-body);
+  color: var(--fg-4);
+  white-space: nowrap;
+}
+.fm-bulk.compact .fm-bulk-reach { font-size: 10.5px; }
 
 /* ----- Período + Financeiro row ------------------------------
  * Two-up section card with a bold vertical divider so the user

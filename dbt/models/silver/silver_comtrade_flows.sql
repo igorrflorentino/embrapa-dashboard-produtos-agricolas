@@ -113,15 +113,33 @@ with latest_batch as (
 
 deduplicated as (
 
-    select *
-    from latest_batch
-    where partnerCode != '0'                       -- drop the World aggregate
-      and flowCode in ('X', 'M', 'RX', 'RM')       -- four primary regimes
-      and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
-      and motCode = '0'                             -- ┐ keep only the fully-
-      and customsCode = 'C00'                       -- │ aggregated record; the
-      and partner2Code = '0'                        -- │ breakdowns sum INTO it,
-      and mosCode = '0'                             -- ┘ so don't re-sum them
+    -- PRESERVE the customs procedure (regime aduaneiro) as a real dimension. Still keep
+    -- the fully-aggregated record over transport / supply / second-partner (those
+    -- breakdowns sum INTO the '0' record), but for CUSTOMS keep the per-regime breakdowns
+    -- (customsCode != 'C00') where the reporter provides them, and keep the C00 aggregate
+    -- ONLY for keys with no breakdown. Breakdowns sum EXACTLY to C00 (verified: 100%
+    -- reconciliation over 306k keys), so C00 and breakdown are MUTUALLY EXCLUSIVE per
+    -- (reporter, partner, cmd, flow, year) → SUM over customs_code in Gold never
+    -- double-counts and total value is preserved. (C00 = "todos os regimes / total".)
+    select * except (_regime_breakdown_rows)
+    from (
+        select
+            *,
+            countif(customsCode != 'C00') over (
+                partition by refYear, reporterCode, partnerCode, cmdCode, flowCode
+            ) as _regime_breakdown_rows
+        from latest_batch
+        where partnerCode != '0'                       -- drop the World aggregate
+          -- The ten UN Comtrade trade regimes. Only X/M/RX/RM are ingested today
+          -- (config.comtrade_flows); the other six join automatically once a
+          -- re-ingestion with the widened COMTRADE_FLOWS lands their rows in Bronze.
+          and flowCode in ('X', 'M', 'RX', 'RM', 'DX', 'FM', 'MIP', 'MOP', 'XIP', 'XOP')
+          and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
+          and motCode = '0'                             -- ┐ still aggregate over
+          and partner2Code = '0'                        -- │ transport / supply /
+          and mosCode = '0'                             -- ┘ second-partner
+    ) as regime_scan
+    where customsCode != 'C00' or _regime_breakdown_rows = 0
     qualify row_number() over (
         partition by
             refYear, reporterCode, partnerCode, partner2Code,
@@ -146,11 +164,21 @@ deduplicated as (
 parsed as (
 
     select
+        -- The ten UN Comtrade trade regimes → readable, stable `flow` tokens (the
+        -- filter values the backend allowlist + frontend send). X/M/RX/RM carry data
+        -- today; the six processing regimes map here so they surface automatically once
+        -- re-ingested (a code not in this CASE → NULL flow → dropped by the final WHERE).
         case flowCode
-            when 'X'  then 'export'
-            when 'M'  then 'import'
-            when 'RX' then 're-export'
-            when 'RM' then 're-import'
+            when 'X'   then 'export'
+            when 'M'   then 'import'
+            when 'RX'  then 're-export'
+            when 'RM'  then 're-import'
+            when 'DX'  then 'national-export'
+            when 'FM'  then 'foreign-import'
+            when 'MIP' then 'import-inward-processing'
+            when 'MOP' then 'import-outward-processing'
+            when 'XIP' then 'export-inward-processing'
+            when 'XOP' then 'export-outward-processing'
         end                                                 as flow,
         cast(refYear as int64)                              as reference_year,
         reporterCode                                        as reporter_code,
@@ -197,6 +225,11 @@ select
     p.cmd_code                                          as cmd_code_reported,
     p.hs_chapter,
     p.customs_code,
+    -- Tipo de mercado (natureza econômica: consumo / processamento) — a SEED-DRIVEN
+    -- classification of each (customs procedure × flow) pair, from the "Contrato de
+    -- Dados" spreadsheet (seed comtrade_market_nature). NULL where the pair has no
+    -- economic-purpose mapping ("Não se aplica" / unmapped, e.g. the C00 aggregate).
+    mn.market_nature,
     p.mode_of_supply_code,
     p.mode_of_transport_code,
     p.qty_unit_code,
@@ -219,4 +252,7 @@ left join {{ ref('unit_family_conversions') }} ufc
     on nullif(u.unit_raw, '') = ufc.unit_raw
 left join {{ ref('comtrade_hs_succession') }} succ
     on p.cmd_code = succ.reported_code
+-- Seed-driven tipo de mercado: (customs procedure × normalized flow) → consumo/processamento.
+left join {{ ref('comtrade_market_nature') }} mn
+    on p.customs_code = mn.customs_code and p.flow = mn.flow
 where p.flow is not null

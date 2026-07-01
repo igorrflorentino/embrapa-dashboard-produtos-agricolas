@@ -179,6 +179,7 @@ models:
             combination_of_columns:
               - reference_year
               - flow
+              - customs_code
               - cmd_code
               - reporter_code
               - partner_code
@@ -187,6 +188,11 @@ models:
         tests: [not_null]
       - name: flow
         tests: [not_null]
+      - name: customs_code
+        description: "UN customs procedure (regime aduaneiro). C00 = total; a reader summing over it gets the bilateral total. Server-side regime filter axis."
+        tests: [not_null]
+      - name: market_nature
+        description: "Tipo de mercado (consumo/processamento), seed-classified per (customs_code × flow). NULL where unmapped. Server-side market filter axis + the 'Finalidade econômica' analysis."
       - name: cmd_code
         tests: [not_null]
 

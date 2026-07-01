@@ -293,6 +293,39 @@ seeds:
       - name: description
         tests: [not_null]
 
+  - name: comtrade_market_nature
+    description: |
+      Tipo de mercado (natureza econômica: consumo / processamento) por par
+      (procedimento aduaneiro × fluxo) do UN Comtrade. É a fonte única de verdade da
+      classificação, transcrita da aba "Tipos de Mercado" da planilha Contrato de Dados
+      — SUBSTITUI o antigo caminho editável pelo pesquisador (append-log flow_market).
+      `customs_code` = customsCode C0x; `flow` = o token normalizado de fluxo
+      (export/import/re-export/re-import + regimes de aperfeiçoamento), casando o `flow`
+      de silver_comtrade_flows. Só os pares com natureza definida entram; a AUSÊNCIA de um
+      par = "Não se aplica" (market_nature NULL no join). Joina em silver_comtrade_flows
+      por (customs_code, flow) e propaga a Gold/serving como a coluna market_nature.
+      Para atualizar: editar esta planilha/seed (não há edição na UI).
+    config:
+      column_types:
+        customs_code: string
+        flow: string
+        market_nature: string
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [customs_code, flow]
+    columns:
+      - name: customs_code
+        tests: [not_null]
+      - name: flow
+        tests: [not_null]
+      - name: market_nature
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [consumo, processamento]
+
   - name: comtrade_hs_succession
     description: |
       HS code succession (retired → current) for transparent full-history queries.

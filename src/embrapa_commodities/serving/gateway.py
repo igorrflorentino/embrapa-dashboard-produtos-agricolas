@@ -373,12 +373,16 @@ def fetch_comtrade_overview(
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
     flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     value_column: str = "val_yearfx_usd",
 ):
     """Annual COMTRADE value + weight (backs overviewTS for COMTRADE).
 
     ``value_column`` picks the currency×correction measure (default USD); the mart
-    carries the full BRL/USD/EUR matrix so BRL/EUR serves the REAL column.
+    carries the full BRL/USD/EUR matrix so BRL/EUR serves the REAL column. ``customs``
+    optionally narrows to one customs procedure (regime aduaneiro); None sums every
+    regime (the total).
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
@@ -389,6 +393,8 @@ def fetch_comtrade_overview(
         year_end=year_end,
         codes=tuple(cmd_codes),
         flow=flow,
+        customs=customs,
+        market=market,
         value_column=value_column,
         # serving_comtrade_annual is multi-reporter (grain carries reporter_code); pin
         # Brazil so the banco's OWN overviewTS is Brazil's view, not a sum over every
@@ -670,15 +676,14 @@ _GOLD_PRODUCT = {
 
 
 @cache.memoize()
-def fetch_comtrade_cpc_value(codes: tuple = ()):
-    """COMTRADE trade value by (customs procedure × flow × year), from Bronze
-    (the only place the customs dimension survives). Backs the market-nature
-    analysis. ``codes`` optionally narrows to one commodity's HS codes."""
+def fetch_market_nature_series(codes: tuple = ()):
+    """COMTRADE trade value (US$) by (economic-purpose market_nature × year), summed from
+    the serving mart's seed-classified ``market_nature`` column (rows with no market nature
+    are excluded). Backs the "Finalidade econômica" analysis. ``codes`` optionally narrows
+    to one commodity's HS codes. Static-seed classification → the default mart TTL."""
     settings = get_settings()
-    table = sqlbuild.table_ref(
-        settings, "bq_bronze_comtrade_dataset", settings.bq_bronze_comtrade_flows_table
-    )
-    sql, params = sqlbuild.comtrade_cpc_value(table, codes=codes)
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
+    sql, params = sqlbuild.market_nature_series(table, codes=codes)
     return run_query(sql, params)
 
 
@@ -840,19 +845,6 @@ def fetch_lifecycle_status():
         ) where _rn = 1
     """
     return run_query(sql, [])
-
-
-@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_current_flow_market():
-    """Current (customs_code, flow_code) → market from the flow-market log.
-    Raises if the log table doesn't exist yet (no pair classified) — the seam
-    catches it and treats it as an empty mapping."""
-    settings = get_settings()
-    table = sqlbuild.table_ref(
-        settings, "bq_research_inputs_dataset", settings.bq_flow_market_log_table
-    )
-    sql, params = sqlbuild.current_flow_market(table)
-    return run_query(sql, params)
 
 
 @cache.memoize()

@@ -78,6 +78,15 @@ function stubGlobals() {
       .filter(([, v]) => v !== '' && v != null)
       .map(([k, v]) => `${k}=${v}`)
       .join('&');
+  // The shared single encoder buildPermalink now delegates to (urlState.buildUrlState);
+  // stub the fields it needs so the permalink resolves to a real URL in the test.
+  window.MN_URL_CAP = 200;
+  window.buildUrlState = ({ view, database, infoPage, summary }) => ({
+    v: view, b: database, ip: infoPage,
+    pb: window.urlEncodeArr(summary?.basket),
+    st: window.urlEncodeArr(summary?.states),
+    mn: window.urlEncodeArr(summary?.munis),
+  });
 }
 
 const baseProps = () => ({

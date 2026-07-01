@@ -39,10 +39,31 @@ function FilterTriggerBar({ summary, onOpen, onExport, live = true, banco = null
     const opts = (window.flowOptionsFor && banco && window.flowOptionsFor(banco.id)) || [];
     return (opts.find((o) => o.value === raw) || {}).label || raw;
   })();
+  // Regime chip (COMTRADE only): the apply path carries `summary.regime` (a label); a
+  // restored deep-link carries the raw `summary.customs`, resolved here. Gated on the
+  // banco carrying customs_code (customsOptionsFor non-null).
+  const regimeOpts = (window.customsOptionsFor && banco && window.customsOptionsFor(banco.id)) || null;
+  const regimeChip = (() => {
+    if (summary.regime) return summary.regime;
+    const raw = summary.customs;
+    if (!raw || raw === 'all') return 'Todos os regimes';
+    return (regimeOpts || []).find((o) => o.value === raw)?.label || raw;
+  })();
+  // Market chip (COMTRADE only): apply path carries summary.mercado; a restored deep-link
+  // carries the raw summary.market. Gated on the banco carrying market_nature.
+  const marketOpts = (window.marketOptionsFor && banco && window.marketOptionsFor(banco.id)) || null;
+  const marketChip = (() => {
+    if (summary.mercado) return summary.mercado;
+    const raw = summary.market;
+    if (!raw || raw === 'all') return 'Todos os mercados';
+    return (marketOpts || []).find((o) => o.value === raw)?.label || raw;
+  })();
   const chips = [
     has('product') && { k: 'Produtos',  v: summary.products },
     { k: 'Período', v: summary.period },
     has('flow')    && { k: 'Fluxo',      v: flowChip },
+    regimeOpts     && { k: 'Regime',     v: regimeChip },
+    marketOpts     && { k: 'Mercado',    v: marketChip },
     has('geo')     && { k: 'Geografia',  v: summary.geo },
     has('quality') && { k: 'Qualidade',  v: summary.quality },
   ].filter(Boolean);

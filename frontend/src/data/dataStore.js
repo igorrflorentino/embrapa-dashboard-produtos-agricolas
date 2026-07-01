@@ -41,7 +41,15 @@ let activeConv = { currency: 'BRL', correction: 'IPCA' };
 // cache key + request, exactly like the value column. 'all' (the default) sums every
 // flow, so a production banco (no flow) and an unfiltered trade request are unchanged.
 let activeFlow = 'all';
-const convKey = () => `${activeConv.currency}|${activeConv.correction}|${activeFlow}`;
+// Active customs procedure (regime aduaneiro) — a SECOND server-side trade filter, same
+// contract as activeFlow: part of the snapshot's cache key + request. 'all' (default) sums
+// every regime, so a non-COMTRADE banco and an unfiltered request are unchanged.
+let activeCustoms = 'all';
+// Active tipo de mercado (consumo/processamento) — a THIRD server-side trade filter, same
+// contract: part of the snapshot's cache key + request. 'all' (default) sums every purpose.
+let activeMarket = 'all';
+const convKey = () =>
+  `${activeConv.currency}|${activeConv.correction}|${activeFlow}|${activeCustoms}|${activeMarket}`;
 const cacheKey = (id) => `${id}|${convKey()}`;
 
 // The Gold table name is NOT duplicated here. Single source of truth: the live
@@ -183,6 +191,11 @@ async function fetchSnapshot(id) {
   // Server-side flow filter: only sent when narrowing (a banco without a flow
   // dimension, or 'all', omits it → the BFF sums every flow, the historical default).
   if (activeFlow && activeFlow !== 'all') qs.set('flow', activeFlow);
+  // Server-side regime filter (COMTRADE): only sent when narrowing → the BFF sums every
+  // regime otherwise (the total, byte-identical to before the dimension existed).
+  if (activeCustoms && activeCustoms !== 'all') qs.set('customs', activeCustoms);
+  // Server-side market filter (COMTRADE): only sent when narrowing → sums every purpose otherwise.
+  if (activeMarket && activeMarket !== 'all') qs.set('market', activeMarket);
   const r = await fetch(`${API}/snapshot?${qs}`);
   if (!r.ok) throw new Error(`Falha ao consultar a Gold no BigQuery (HTTP ${r.status}).`);
   const snap = await r.json();
@@ -212,6 +225,13 @@ window.dataStore = {
   // cube honours the SAME server-side flow filter as the snapshot — otherwise a
   // COMEX product basket would render all-flows totals against a flow-filtered app.
   flow: () => activeFlow,
+
+  // The active customs procedure (regime aduaneiro), same role as flow() — producers
+  // that fetch their own regime-scoped resources read this to stay consistent.
+  customs: () => activeCustoms,
+
+  // The active tipo de mercado (consumo/processamento), same role as flow()/customs().
+  market: () => activeMarket,
 
   // Live provenance for a banco. The numeric coverage (rows, products, UFs, year
   // span) + the last-refresh stamp are overlaid from /api/source-meta when it has
@@ -393,6 +413,30 @@ window.dataStore = {
     if (next === activeFlow) return;
     const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
     activeFlow = next;
+    notify();
+    loadedBancos.forEach((id) => this.load(id));
+  },
+
+  // Regime bridge: same contract as setFlow — the regime (customs procedure) is a
+  // server-side filter, so a new regime is a DIFFERENT cache key → re-fetch every loaded
+  // banco. 'all'/absent → sum every regime (the total, the default).
+  setCustoms(customs) {
+    const next = customs || 'all';
+    if (next === activeCustoms) return;
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
+    activeCustoms = next;
+    notify();
+    loadedBancos.forEach((id) => this.load(id));
+  },
+
+  // Market bridge: same contract as setFlow/setCustoms — the tipo de mercado is a
+  // server-side filter, so a new purpose is a DIFFERENT cache key → re-fetch every loaded
+  // banco. 'all'/absent → sum every purpose (the default).
+  setMarket(market) {
+    const next = market || 'all';
+    if (next === activeMarket) return;
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
+    activeMarket = next;
     notify();
     loadedBancos.forEach((id) => this.load(id));
   },

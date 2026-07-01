@@ -122,7 +122,7 @@ def _bind_classification_ttl(timeout: int) -> None:
     Imported lazily (gateway imports this module) to dodge a circular import.
     flask-caching reads ``decorated_fn.cache_timeout`` on every call, so updating
     it here overrides the decoration-time default with the authoritative value.
-    All the curation reads (per-code, flow-market, the curator allowlist AND the
+    All the curation reads (per-code industrialization, the curator allowlist AND the
     banco-maturity metadata) must use the short classification TTL — that short
     window is what bounds cross-instance staleness on per-process SimpleCache. The
     curator allowlist gates POST /api/curation/* authorization, so its read must also
@@ -133,12 +133,11 @@ def _bind_classification_ttl(timeout: int) -> None:
     classification window — so it must be rebound too. fetch_catalog_editors is the
     SAME pattern for the catalog: it gates POST /api/catalog/* and is Console-edited,
     so the TTL is the sole convergence control for revoking a removed editor — rebind
-    it too. Rebind all five.
+    it too. Rebind all four.
     """
     from embrapa_commodities.serving import gateway
 
     gateway.fetch_current_code_industrialization.cache_timeout = timeout
-    gateway.fetch_current_flow_market.cache_timeout = timeout
     gateway.fetch_curators.cache_timeout = timeout
     gateway.fetch_banco_metadata.cache_timeout = timeout
     gateway.fetch_catalog_editors.cache_timeout = timeout

@@ -36,8 +36,6 @@
 //                 gateway already accepts a flow param, so picking export/import
 //                 re-queries the snapshot. Client-side dims (product/geo/quality/
 //                 period) have no serverParam.
-//
-// num: section number shown in the live (PEVS) functional menu.
 
 // ── Value-range quick presets (single source of truth) ───────────────────
 // Used BOTH by the FilterMenu "valor mínimo" shortcut buttons AND by the
@@ -72,12 +70,51 @@ window.FLOW_OPTIONS = {
     { value: 'export', label: 'Exportação' },
     { value: 'import', label: 'Importação' },
   ],
+  // Values are the readable `flow` tokens Gold/serving carry verbatim (silver_comtrade_flows
+  // maps flowCode X/M/RX/RM → export/import/re-export/re-import). The re-flows MUST use the
+  // HYPHEN form ('re-export') to match the data and the backend allowlist — the earlier
+  // underscore form filtered zero rows and 400'd. The six detailed UN regimes
+  // (DX/FM/MIP/MOP/XIP/XOP) are added here once a re-ingestion lands their rows.
   un_comtrade: [
-    { value: 'all',       label: 'Todos' },
-    { value: 'export',    label: 'Export' },
-    { value: 'import',    label: 'Import' },
-    { value: 're_export', label: 'Re-export' },
-    { value: 're_import', label: 'Re-import' },
+    { value: 'all',        label: 'Todos' },
+    { value: 'export',     label: 'Exportação' },
+    { value: 'import',     label: 'Importação' },
+    { value: 're-export',  label: 'Reexportação' },
+    { value: 're-import',  label: 'Reimportação' },
+  ],
+};
+
+// Customs-procedure (regime aduaneiro) options for the COMTRADE server-side regime
+// filter. `value` is the Gold/serving `customs_code` the query binds; 'all' sums every
+// regime (the bilateral total = C00-equivalent). Labels are the raw UN codes (no
+// authoritative pt-BR customs-procedure reference in the repo yet — a follow-up); C00 is
+// the "total" bucket that holds ~86% of trade. Only Comtrade carries customs_code.
+window.CUSTOMS_OPTIONS = {
+  un_comtrade: [
+    { value: 'all', label: 'Todos os regimes' },
+    { value: 'C00', label: 'C00 · Total' },
+    { value: 'C01', label: 'C01' },
+    { value: 'C02', label: 'C02' },
+    { value: 'C03', label: 'C03' },
+    { value: 'C04', label: 'C04' },
+    { value: 'C05', label: 'C05' },
+    { value: 'C06', label: 'C06' },
+    { value: 'C07', label: 'C07' },
+    { value: 'C08', label: 'C08' },
+    { value: 'C14', label: 'C14' },
+    { value: 'C15', label: 'C15' },
+    { value: 'C20', label: 'C20' },
+  ],
+};
+
+// Tipo de mercado (economic purpose) options for the COMTRADE server-side market filter.
+// `value` is the seed-classified market_nature the query binds; 'all' sums every purpose
+// (incl. the unmapped rows). Only Comtrade carries market_nature.
+window.MARKET_OPTIONS = {
+  un_comtrade: [
+    { value: 'all', label: 'Todos' },
+    { value: 'consumo', label: 'Consumo' },
+    { value: 'processamento', label: 'Processamento' },
   ],
 };
 
@@ -85,19 +122,19 @@ window.FILTER_SCHEMAS = {
   ibge_pevs: {
     table: 'gold_pevs_production',
     dims: [
-      { id: 'produtos',  num: '01', tier: 'shared',    type: 'products',
+      { id: 'produtos',  tier: 'shared',    type: 'products',
         requires: 'product', backed: true,
         label: 'Produtos · PEVS',          column: 'codigo_pevs',
         hint: 'Commodities da extração vegetal e silvicultura.' },
-      { id: 'periodo',   num: '02', tier: 'universal', type: 'period-value',
+      { id: 'periodo',   tier: 'universal', type: 'period-value',
         requires: null, backed: true,
         label: 'Período & faixa de valor', column: 'ano · val_real_ipca',
         hint: 'Janela temporal e corte por valor monetário da linha.' },
-      { id: 'geografia', num: '03', tier: 'shared',    type: 'geo-cascade',
+      { id: 'geografia', tier: 'shared',    type: 'geo-cascade',
         requires: 'geo', backed: true,
         label: 'Geografia',                column: 'uf · municipio',
         hint: 'Cascata nação ▸ região ▸ estado ▸ meso/microrregião · intermediária/imediata ▸ município.' },
-      { id: 'qualidade', num: '04', tier: 'specific',  type: 'flags',
+      { id: 'qualidade', tier: 'specific',  type: 'flags',
         requires: 'quality', backed: true,
         label: 'Qualidade dos dados',      column: 'data_quality_flag',
         hint: 'Bandeira de qualidade por linha.' },
@@ -107,19 +144,19 @@ window.FILTER_SCHEMAS = {
   ibge_pam: {
     table: 'gold_pam_production',
     dims: [
-      { id: 'produtos',  num: '01', tier: 'shared',    type: 'products',
+      { id: 'produtos',  tier: 'shared',    type: 'products',
         requires: 'product', backed: true,
         label: 'Lavouras · PAM',           column: 'produto_pam',
         hint: 'Culturas temporárias e permanentes da Produção Agrícola Municipal.' },
-      { id: 'periodo',   num: '02', tier: 'universal', type: 'period-value',
+      { id: 'periodo',   tier: 'universal', type: 'period-value',
         requires: null, backed: true,
         label: 'Período & faixa de valor', column: 'ano · valor_producao',
         hint: 'Janela temporal (anual) e corte por valor da produção.' },
-      { id: 'geografia', num: '03', tier: 'shared',    type: 'geo-cascade',
+      { id: 'geografia', tier: 'shared',    type: 'geo-cascade',
         requires: 'geo', backed: true,
         label: 'Geografia',                column: 'uf · municipio',
         hint: 'Cascata nação ▸ região ▸ estado ▸ meso/microrregião · intermediária/imediata ▸ município.' },
-      { id: 'qualidade', num: '04', tier: 'specific',  type: 'flags',
+      { id: 'qualidade', tier: 'specific',  type: 'flags',
         requires: 'quality', backed: true,
         label: 'Qualidade dos dados',      column: 'data_quality_flag',
         hint: 'Bandeira de qualidade por linha.' },
@@ -129,19 +166,19 @@ window.FILTER_SCHEMAS = {
   ibge_ppm: {
     table: 'gold_ppm_production',
     dims: [
-      { id: 'produtos',  num: '01', tier: 'shared',    type: 'products',
+      { id: 'produtos',  tier: 'shared',    type: 'products',
         requires: 'product', backed: true,
         label: 'Rebanho/Produtos · PPM',   column: 'produto_ppm',
         hint: 'Tipos de rebanho e produtos de origem animal da Pesquisa da Pecuária Municipal.' },
-      { id: 'periodo',   num: '02', tier: 'universal', type: 'period-value',
+      { id: 'periodo',   tier: 'universal', type: 'period-value',
         requires: null, backed: true,
         label: 'Período & faixa de valor', column: 'ano · valor_producao',
         hint: 'Janela temporal (anual) e corte por valor da produção animal.' },
-      { id: 'geografia', num: '03', tier: 'shared',    type: 'geo-cascade',
+      { id: 'geografia', tier: 'shared',    type: 'geo-cascade',
         requires: 'geo', backed: true,
         label: 'Geografia',                column: 'uf · municipio',
         hint: 'Cascata nação ▸ região ▸ estado ▸ meso/microrregião · intermediária/imediata ▸ município.' },
-      { id: 'qualidade', num: '04', tier: 'specific',  type: 'flags',
+      { id: 'qualidade', tier: 'specific',  type: 'flags',
         requires: 'quality', backed: true,
         label: 'Qualidade dos dados',      column: 'data_quality_flag',
         hint: 'Bandeira de qualidade por linha.' },
@@ -203,7 +240,14 @@ window.FILTER_SCHEMAS = {
         requires: 'flow', backed: true, serverParam: 'flow',
         label: 'Fluxo',                    column: 'flow',
         hint: 'Direção do fluxo internacional.' },
-      // ── Declared but NOT filterable yet (backed:false → hidden) ──
+      { id: 'regime',   tier: 'specific',  type: 'segment',
+        requires: 'flow', backed: true, serverParam: 'customs',
+        label: 'Regime aduaneiro',         column: 'customs_code',
+        hint: 'Procedimento aduaneiro (customsCode). C00 = todos os regimes / total — ~86% do comércio só é reportado nesse nível.' },
+      { id: 'mercado',  tier: 'specific',  type: 'segment',
+        requires: 'flow', backed: true, serverParam: 'market',
+        label: 'Tipo de mercado',          column: 'market_nature',
+        hint: 'Natureza econômica (consumo/processamento) classificada por regime×fluxo (seed Contrato de Dados). Pares sem natureza ficam de fora.' },
       // reporter/partner are only resolved in the partner-level endpoints, not as
       // snapshot filter axes.
       { id: 'reporter', tier: 'specific',  type: 'multi-search',
@@ -290,6 +334,14 @@ window.bancoFilterDims = (bancoId) => {
 // Flow (server-side filter) options for a banco, or null when the banco has no
 // flow dimension (its snapshot isn't flow-separated → no fluxo control).
 window.flowOptionsFor = (bancoId) => window.FLOW_OPTIONS[bancoId] || null;
+
+// Customs-procedure (regime aduaneiro) options for a banco, or null when the banco has
+// no customs_code dimension (only COMTRADE carries it). Mirrors flowOptionsFor.
+window.customsOptionsFor = (bancoId) => window.CUSTOMS_OPTIONS[bancoId] || null;
+
+// Tipo de mercado (consumo/processamento) options, or null when the banco has no
+// market_nature dimension (only COMTRADE carries it). Mirrors flowOptionsFor.
+window.marketOptionsFor = (bancoId) => window.MARKET_OPTIONS[bancoId] || null;
 
 // ── Dev-time COVERAGE LINT (mirrors window.auditBancoCoverage) ────────────
 // Catches the drift the dual capability sources invite: a dim whose `requires`

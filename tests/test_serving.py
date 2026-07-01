@@ -53,7 +53,6 @@ def _restore_classification_ttls():
         return
     names = (
         "fetch_current_code_industrialization",
-        "fetch_current_flow_market",
         "fetch_curators",
     )
     saved = {n: getattr(gateway, n).cache_timeout for n in names}
@@ -1053,31 +1052,6 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
     assert params["change_id"] == "fresh-key-9"
 
 
-def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
-    """The flow-market writer honours the same idempotency contract."""
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
-    client = _seen_client(exists=True)
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-
-    record = curation.record_flow_market(
-        "4000",
-        "X",
-        "consumo",
-        headers,
-        change_id="dup-flow-1",
-        settings=_settings(),
-        client=client,
-        invalidate_cache=False,
-    )
-
-    assert record["deduped"] is True
-    assert client.query.call_count == 1
-    assert "insert into" not in client.query.call_args.args[0].lower()
-
-
 def test_ensure_curators_table_creates_with_explicit_schema(monkeypatch):
     """The Console-managed curator allowlist table is auto-created with the
     explicit (email, added_by, added_at) schema — never autodetected."""
@@ -1651,10 +1625,8 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
         # for an unknown source is covered separately).
         (lambda g: g.fetch_quality_timeseries("ibge_pevs"), "gold_pevs_production"),
         (lambda g: g.fetch_quality_by_product("ibge_pevs"), "gold_pevs_production"),
-        # CPC value reads Bronze (the only place the customs dimension survives).
-        (lambda g: g.fetch_comtrade_cpc_value(codes=("0801",)), "comtrade_flows_raw"),
-        # Curation flow-market log lives in research_inputs.
-        (lambda g: g.fetch_current_flow_market(), "flow_market_log"),
+        # Market-nature reads the serving mart's seed-classified market_nature column.
+        (lambda g: g.fetch_market_nature_series(codes=("0801",)), "serving_comtrade_annual"),
     ],
 )
 def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_table):
@@ -2211,180 +2183,22 @@ def test_record_code_industrialization_accepts_free_text_level(monkeypatch):
     assert record["industrialization_level"] == "nível-experimental-inédito"
 
 
-# ── market-nature: customsCode × flowCode value + curated-purpose log ──────────
+# ── market-nature: seed-classified market_nature × year value (serving mart) ───
 
 
-def test_comtrade_cpc_value_excludes_c00_aggregate_and_casts():
-    query, params = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw")
+def test_market_nature_series_sums_by_market_and_year_from_serving_mart():
+    query, params = sql.market_nature_series("p.serving.serving_comtrade_annual")
     low = query.lower()
-    assert "customscode != 'c00'" in low  # the aggregate is excluded (no double-count)
-    assert "safe_cast(primaryvalue as float64)" in low  # Bronze is all-STRING
-    assert "safe_cast(refyear as int64)" in low
-    assert "group by customs_code, flow_code, reference_year" in low
-    assert params == []  # no commodity filter → no params
+    assert "market_nature is not null" in low  # unmapped/NULL rows excluded
+    assert "sum(val_yearfx_usd) as value_usd" in low
+    assert "group by market_nature, reference_year" in low
+    assert params == []  # no code scope → no params
 
 
-def test_comtrade_cpc_value_dedups_append_only_bronze():
-    """The cpc read bypasses Silver, so it must mirror silver_comtrade_flows'
-    cleaning: latest ingestion batch per (refYear, reporterCode) — without it the
-    summed value inflates with every re-ingestion — then row-level dedup on the
-    natural key with the qtyUnitCode collapse, plus the World/HS4 exclusions."""
-    query, _ = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw")
-    flat = " ".join(query.lower().split())  # collapse whitespace for matching
-    # Stage 1: a re-published reporter-year replaces the previous generation.
-    assert "max(ingestion_timestamp) over (partition by refyear, reportercode)" in flat
-    # Stage 2: row-level dedup — NOT partitioned by qtyUnitCode (its duplicate
-    # variants carry an identical primaryValue), recency first, '-1' last.
-    assert "row_number() over" in flat
-    natural_key = (
-        "partition by refyear, reportercode, partnercode, partner2code, "
-        "cmdcode, flowcode, customscode, moscode, motcode"
-    )
-    assert natural_key in flat
-    assert "order by ingestion_timestamp desc, (qtyunitcode = '-1')" in flat
-    # Same exclusions as Silver: World partner aggregate + legacy HS4 rows.
-    assert "partnercode != '0'" in flat
-    assert "length(cmdcode) = 6" in flat
-    # DBT-2: also pin the other three breakdown axes to '0' exactly like Silver, so the
-    # customs-procedure sum can never pick up a mot/mos/partner2 breakdown row.
-    assert "motcode = '0'" in flat
-    assert "partner2code = '0'" in flat
-    assert "moscode = '0'" in flat
-
-
-def test_comtrade_cpc_value_filters_cmd_codes_when_scoped():
-    query, params = sql.comtrade_cpc_value("t", codes=("0801", "44"))
-    assert "cmdcode in unnest(@cmd_codes)" in query.lower()
-    assert params[0].name == "cmd_codes" and list(params[0].values) == ["0801", "44"]
-
-
-def test_comtrade_cpc_value_projects_columns_and_keeps_predicates_after_batch_selection():
-    """M5 (byte budget WITHOUT a semantic change): the latest_batch scan must reduce
-    bytes by PROJECTING an explicit column list (never `select *`) — Bronze is wide
-    and all-STRING and this reader runs under maximum_bytes_billed. The row predicates
-    must stay AFTER the max(ingestion_timestamp) batch-selection window (in the
-    deduplicated CTE), byte-for-byte mirroring silver_comtrade_flows — filtering
-    before the window could pick an older generation when the newest one's rows are
-    all predicate-filtered (a retraction-resurrection divergence we must NOT
-    introduce)."""
-    query, _ = sql.comtrade_cpc_value("p.bronze_comtrade.comtrade_flows_raw", codes=("0801",))
-    # Strip SQL line comments first so explanatory prose (which mentions "select *")
-    # can't satisfy or break the STRUCTURAL assertions below — match real SQL only.
-    code_only = "\n".join(line.split("--")[0] for line in query.splitlines())
-    flat = " ".join(code_only.lower().split())  # collapse whitespace for matching
-
-    # Column projection, not select-* — the actual byte lever in columnar BigQuery.
-    assert "select *" not in flat, "latest_batch must project columns, not select *"
-    assert "partner2code, cmdcode, moscode, motcode, qtyunitcode" in flat
-
-    where_pos = flat.find("where customscode != 'c00'")
-    window_pos = flat.find("max(ingestion_timestamp) over (partition by refyear, reportercode)")
-    rownum_pos = flat.find("row_number() over")
-    cmd_pos = flat.find("cmdcode in unnest(@cmd_codes)")
-
-    # Batch selection (the window) comes FIRST; predicates + cmdCode scope apply AFTER
-    # it — the only order that preserves silver_comtrade_flows' retraction semantics.
-    assert window_pos != -1 and where_pos != -1
-    assert window_pos < where_pos, "predicates must filter AFTER the batch-selection window"
-    assert window_pos < cmd_pos, "the cmdCode scope must also apply after the window"
-    # The dedup (row_number) runs on the chosen batch, after the predicates.
-    assert window_pos < rownum_pos
-    # The predicates live in the deduplicated CTE, scanning latest_batch (not the raw table).
-    assert "from latest_batch where customscode != 'c00'" in flat
-
-
-def test_current_flow_market_latest_wins_and_drops_cleared():
-    query, params = sql.current_flow_market("p.research_inputs.flow_market_log")
-    low = " ".join(query.lower().split())  # collapse whitespace for matching
-    assert "row_number() over" in low
-    # Latest-wins per pair, breaking same-microsecond ties on change_id DESC so a
-    # clear-vs-set race resolves deterministically — same tiebreaker the code SCD2 uses
-    # (DBT-3).
-    assert "partition by customs_code, flow_code order by edited_at desc, change_id desc" in low
-    assert "where rn = 1 and market != ''" in low  # a cleared (empty) market is dropped
-    assert params == []
-
-
-def test_record_flow_market_inserts_parameterized_row_with_author(monkeypatch):
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    # Isolate the INSERT — the first-write auto-create is covered by its own test.
-    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
-    client = mock.Mock()
-    client.query.return_value.result.return_value = None
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-
-    record = curation.record_flow_market(
-        "C04",
-        "M",
-        "processamento",
-        headers,
-        settings=_settings(),
-        client=client,
-        invalidate_cache=False,
-    )
-
-    assert record["edited_by"] == "alice@embrapa.br"
-    assert record["customs_code"] == "C04"
-    assert record["flow_code"] == "M"
-    assert record["market"] == "processamento"
-    sql_text = client.query.call_args.args[0].lower()
-    assert "insert into" in sql_text
-    assert "current_timestamp()" in sql_text  # server-side stamp, not client clock
-    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
-    assert params["customs_code"] == "C04"
-    assert params["flow_code"] == "M"
-    assert params["market"] == "processamento"
-    assert params["edited_by"] == "alice@embrapa.br"
-
-
-def test_record_flow_market_rejects_empty_pair():
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError):
-        curation.record_flow_market(
-            "", "M", "consumo", headers, settings=_settings(), client=mock.Mock()
-        )
-
-
-def test_record_flow_market_allows_empty_market_to_clear(monkeypatch):
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: None)
-    client = mock.Mock()
-    client.query.return_value.result.return_value = None
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    # market='' is the explicit "a classificar" clear — recorded, not rejected.
-    record = curation.record_flow_market(
-        "C04", "M", "", headers, settings=_settings(), client=client, invalidate_cache=False
-    )
-    assert record["market"] == ""
-
-
-def test_ensure_flow_market_log_table_creates_with_explicit_schema(monkeypatch):
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-
-    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    client = mock.Mock()
-    fqn = curation.ensure_flow_market_log_table(settings=_settings(), client=client)
-
-    assert fqn.endswith(".flow_market_log")
-    table_arg = client.create_table.call_args.args[0]
-    assert {f.name for f in table_arg.schema} == {
-        "customs_code",
-        "flow_code",
-        "market",
-        "edited_by",
-        "edited_at",
-        "change_id",
-    }
-    assert table_arg.clustering_fields == ["customs_code", "flow_code"]
-    assert client.create_table.call_args.kwargs["exists_ok"] is True
+def test_market_nature_series_scopes_to_cmd_codes_when_given():
+    query, params = sql.market_nature_series("t", codes=("0801", "44"))
+    assert "cmd_code in unnest(@cmd_codes)" in query.lower()
+    assert params[0].values == ["0801", "44"]
 
 
 # ── gateway: PAM rides the PEVS-shaped production registries ───────────────────

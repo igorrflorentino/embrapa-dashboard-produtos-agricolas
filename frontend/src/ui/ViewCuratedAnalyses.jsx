@@ -1,16 +1,10 @@
-// ─── FROZEN FEATURE: curated analyses (Curadoria) — postponed to "Versão Futura" ──
-// Leadership decision (2026-06): partially built + not yet validated. The two views
-// (Valor agregado / Finalidade econômica) are hidden from the topnav (views.js) and
-// the app runs fully decoupled. Kept as the scaffold for the real future
-// implementation — do not delete. They degrade to an honest empty state when the
-// curation data is absent.
-//
-// ViewCuratedAnalyses.jsx — analyses POWERED BY the enrichment layer. They
-// subscribe to the store, so editing the Curadoria re-renders them live.
-//   · ViewValueAdded   — exports split by industrialization (bruta × processada)
-//   · ViewMarketNature — trade value by curated economic purpose (consumo × processamento)
-// Both read real Gold/COMTRADE data; the curated split comes from Engenharia de
-// atributos and an empty classification shows an honest "classify first" state.
+// ViewCuratedAnalyses.jsx — the two Engenharia de Atributos analyses (Multi-fonte).
+//   · ViewValueAdded   — exports split by industrialization (bruta × processada), from the
+//                        researcher-editable per-code classification (subscribes to the
+//                        enrichment store so editing re-renders it live).
+//   · ViewMarketNature — COMTRADE value by economic purpose (consumo × processamento), from
+//                        the static comtrade_market_nature seed (serving mart) — NOT editable.
+// Both read real Gold/COMTRADE data and degrade to an honest empty state when absent.
 
 const { useState: useCaState, useEffect: useCaEffect } = React;
 
@@ -154,22 +148,20 @@ function ViewMarketNature() {
     </div>
   );
 
-  // Curated-real: the series is EMPTY until the researcher classifies customs×flow
-  // pairs in Curadoria (or while the fetch is in flight). Guard before reading
-  // series[0]/latest — show an honest "classify first" state, never a crash or
-  // synthetic chart. (preview only flips true if a trade banco isn't live.)
+  // Seed-driven: the series is empty when this commodity's COMTRADE trade has no rows whose
+  // (regime × fluxo) pair maps to a market nature (or while the fetch is in flight). Guard
+  // before reading series[0]/latest — show an honest empty state, never a crash.
   if (!data.series || !data.series.length) {
     return (
       <>
         {selector}
         <div className="card subtle">
           <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
-            title="Classifique os pares regime × fluxo para ativar esta análise" />
+            title="Sem finalidade econômica classificada para este recorte" />
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum par <strong>regime aduaneiro × fluxo</strong> classificado ainda. Defina a
-            finalidade (consumo ou processamento) de cada par em{' '}
-            <strong>Engenharia de atributos → Tipo de Mercado</strong> — esta análise passa a somar o
-            valor do COMTRADE por finalidade, ao vivo.
+            O COMTRADE deste recorte não tem operações cujo par <strong>regime aduaneiro × fluxo</strong>
+            {' '}esteja classificado como consumo ou processamento no seed de tipos de mercado
+            (Contrato de Dados). A maioria do comércio é reportada apenas no agregado, sem regime.
           </p>
         </div>
       </>
@@ -200,7 +192,7 @@ function ViewMarketNature() {
 
       <div className="card">
         <window.SectionHeader overline="Valor por finalidade econômica · US$ bi" title="Comprando/vendendo para consumir ou para processar"
-          action={<span className="caption">classificação da Curadoria</span>} />
+          action={<span className="caption">classificação por seed (Contrato de Dados)</span>} />
         <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} />
         <div className="pc-legend">
           {areaSeries.map(s => (
@@ -213,8 +205,8 @@ function ViewMarketNature() {
         <window.SectionHeader overline={`Composição · ${L.y}`} title="Quanto vai para consumo vs. processamento" />
         <window.Donut data={donut} valueKey="share" size={170} />
         <p className="caption" style={{ padding: '8px 4px 0' }}>
-          A direção (comprar/vender) vem do fluxo; a <strong>finalidade</strong> (consumo ou processamento) vem da Curadoria.
-          Reclassifique um par regime × fluxo e esta análise se atualiza.
+          A direção (comprar/vender) vem do fluxo; a <strong>finalidade</strong> (consumo ou processamento)
+          vem do seed do Contrato de Dados, classificada por par regime aduaneiro × fluxo.
         </p>
       </div>
     </>
