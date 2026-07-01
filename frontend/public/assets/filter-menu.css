@@ -23,6 +23,15 @@
   box-shadow: var(--shadow-4);
   overflow: hidden;
   animation: fm-rise var(--dur-slow) var(--ease-standard);
+  /* Cap the modal to the viewport (minus the backdrop's 40px top/bottom padding) and
+     lay it out as a flex column: a fixed header + a SCROLLING body + a fixed footer.
+     This replaces the old "modal grows unbounded, the whole backdrop scrolls, and each
+     list also scrolls inside a tiny 132px box" double-scroll — now there is one
+     predictable body scroll and "Aplicar filtros" stays pinned in view. Short content
+     (few products/sections) never hits the cap, so the modal still sizes to its content. */
+  max-height: min(900px, calc(100vh - 80px));
+  display: flex;
+  flex-direction: column;
 }
 
 /* Body region — light warm bg behind the section cards, so each
@@ -33,6 +42,10 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* The single scroll region between the fixed header + footer. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .fm-modal.wide { max-width: 1180px; }
 @keyframes fm-rise {
@@ -48,6 +61,7 @@
   gap: 16px;
   padding: 22px 28px 18px;
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0; /* fixed header — the body scrolls beneath it */
 }
 .fm-head-text { display: flex; flex-direction: column; gap: 6px; }
 .fm-head-over {
@@ -353,7 +367,12 @@
 
 /* ----- Checkbox grid ----------------------------------------- */
 .fm-grid-scroll {
-  max-height: 132px;
+  /* Products can be a long list (and differs per banco — PEVS/PAM/PPM flat, COMEX/
+     Comtrade an NCM/HS tree). Give it a roomy, viewport-responsive height instead of
+     the old cramped 132px, so many options are visible before scrolling. It only
+     scrolls internally once the list exceeds the cap; short lists (e.g. the 9 quality
+     flags that reuse this class) never reach it. */
+  max-height: clamp(240px, 46vh, 460px);
   overflow-y: auto;
   padding: 4px 8px 4px 4px;
   margin: 0 -8px 0 -4px;
@@ -751,6 +770,7 @@
   background: #fff;
   border-top: 2px solid var(--embrapa-green);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--embrapa-green-darker) 6%, transparent);
+  flex-shrink: 0; /* pinned footer — "Aplicar filtros" stays in view above the scroll */
 }
 .fm-foot-info {
   font-size: 12px;
