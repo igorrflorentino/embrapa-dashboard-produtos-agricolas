@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+### Changed
+- **"Saúde do sistema" is now focused on bank OPERABILITY, not data quality.** The page
+  previously leaked single-bank data-quality content (a PEVS-only "% de linhas íntegras"
+  chart + a PEVS quality-spike alert + a PEVS-scoped refresh KPI), which both duplicated the
+  dedicated **Qualidade dos dados** perspective and ignored the other five banks. It now
+  reports multi-bank operability only, from real backend signals:
+  - KPIs: **Status geral**, **Bancos operando** (X/Y), **Volume total na Gold** (rows summed
+    across sources), **Alertas operacionais** (real failed Gold queries).
+  - The per-bank matrix gained **Fonte** + **Período coberto** columns (live `year_start–year_end`)
+    alongside the real per-bank Gold-query status.
+  - The architecture card surfaces the **running app version**, the system-wide temporal
+    amplitude, an honest "telemetria de execuções não monitorada" note, and a pointer to the
+    Qualidade dos dados perspective (where data-quality diagnostics live).
+  - Removed the PEVS-only quality chart/alert/KPI + the retired run-history card, and swept the
+    orphaned CSS (`hs-runs*`, `hs-dur/hs-delta`, `hs-status-ok`, `hs-alert-warn/info`). The
+    page hero subtitle no longer promises "qualidade das tabelas Gold".
+
 ## [1.9.0] - 2026-07-01
 
 Unfroze **Engenharia de Atributos** and converted the market-nature (tipo de mercado) axis

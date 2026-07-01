@@ -14,10 +14,12 @@
 //     caveat:true); the no-data stages (planejado/ingestao) render the
 //     placeholder.
 //     NOTE: "source down right now" is NOT a maturity stage — that is a
-//     RUNTIME HEALTH state (shown in the UI as "Saudável" · "Em atenção" ·
-//     "Falha"), derived live in ViewHealth from pipeline runs / freshness /
-//     load errors. The two axes are orthogonal: an estavel banco can be in a
-//     failed health state; a beta banco can be healthy.
+//     RUNTIME HEALTH state (shown in the UI as "Saudável" · "Verificando…" ·
+//     "Falha"), derived live in ViewHealth from the REAL Gold-query outcome (a
+//     live banco whose pushdown query to Gold succeeds / is in flight / errors)
+//     — NOT from pipeline-run telemetry, which the page honestly reports as
+//     "não monitorada". The two axes are orthogonal: an estavel banco can be in
+//     a failed health state; a beta banco can be healthy.
 //
 //   • usage (active/inactive) — DERIVED at render time: a banco is "active"
 //     when it is the source feeding what the user currently sees (the
