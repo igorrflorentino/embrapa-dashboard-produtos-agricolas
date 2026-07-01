@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-01
+
+Unfroze **Engenharia de Atributos** and converted the market-nature (tipo de mercado) axis
+from a researcher-editable-in-UI table to a **seed-driven** classification transcribed from
+the "Contrato de Dados" sheet. Full UN Comtrade flow/regime/market filter surface, wired
+reporter-agnostically so it lights up as more reporters are ingested.
+
+### Added
+- **Seed `comtrade_market_nature`** — the (customs_code × normalized flow) → {consumo, processamento}
+  economic-purpose classification, transcribed from the "Tipos de Mercado" tab of the Contrato de
+  Dados sheet. Joined in `silver_comtrade_flows` and propagated (`any_value`) through
+  `gold_comtrade_flows` → `serving_comtrade_annual`. Uniqueness-tested on `(customs_code, flow)`;
+  `market_nature` accepted-values-tested `[consumo, processamento]`.
+- **"Finalidade econômica" analysis** (`curated_market_nature` → `ViewMarketNature`) — COMTRADE
+  value by seed-classified purpose (consumo × processamento), read from the serving mart
+  (`/api/cross/market-nature`). Replaces the frozen researcher-editable market-nature editor.
+- **UN Comtrade filter dimensions** — "Tipo de mercado" (server param `market`) and "Regime
+  aduaneiro" (`customs`) join "Fluxo" in the filter menu, trigger bar, and URL state (`mk`/`cx`).
+  The predicates are reporter-agnostic; they currently return data only where a reporter declares
+  per-customs-procedure detail.
+
+### Changed
+- **Engenharia de Atributos is live again.** The per-code industrialization editor ("Nível de
+  industrialização" / "Valor agregado") is unfrozen and researcher-editable; `DBT_ENABLE_CURATION`
+  is now `true` so the gated SCD2 view keeps rebuilding on every prod build. The `enable_curation`
+  dbt var now gates **only** the industrialization SCD2 — market-nature is never gated.
+- **Market-nature is no longer editable in the UI.** It is sourced entirely from the seed; there is
+  no "Tipo de Mercado" editor entry and no write endpoint.
+
+### Removed
+- All flow-market editor machinery (no backward compatibility): the `flow_market_log` table +
+  writer, `record_flow_market` / `flow_worklist` endpoints, the `_flow_market_map` /
+  `_market_nature_accumulate` seam helpers, the frontend flow-market draft store, and
+  `BQ_FLOW_MARKET_LOG_TABLE`. Market-nature now reads the serving mart directly (no Bronze scan).
+
+### Also in this release
+- **Filter-menu hardening** — a single URL-state encoder (`window.buildUrlState`) shared by every
+  writer, fixing município loss on reload, the geo-mesh load race, over-100% "Linhas" shares, a
+  focus-trap, and a handful of chip/value edge cases surfaced by the filter-menu audit.
+- **NCM/HS6 product tree** — the COMEX/Comtrade product picker gained an expandable SH2 ▸ SH4 ▸ SH6
+  tree with tri-state parents (a pure view over the leaf-code selection — no backend change).
+- **SH-chapter labels** — human-readable SH2 chapter names for the product groups (`shChapters.js`).
+
+### Notes
+- **Reporter scope.** The `un_comtrade` banco is pinned to Brazil's own declaration, and Brazil
+  reports only the aggregate customs procedure (C00), so the regime/market filters are empty for
+  Brazil today. The classification is applied to every reporter in the mart, so the filters need
+  **no code change** to light up as other reporters' data is used — the world view is already
+  surfaced by the "Finalidade econômica" analysis. Spec: `PLANS/comtrade_flows_regimes_market.md`.
+
 ## [1.8.1] - 2026-06-30
 
 Post-v1.8.0 adversarial audit of the change set (6-lens fan-out; 3 confirmed / 6 refuted,

@@ -78,8 +78,30 @@ describe('isMonetaryBanco — gates the currency/correction conventions', () => 
 describe('flowOptionsFor — server-side flow universe', () => {
   it('returns the direction options for trade bancos, null for production bancos', () => {
     expect(window.flowOptionsFor('mdic_comex').map((o) => o.value)).toContain('export');
-    expect(window.flowOptionsFor('un_comtrade').map((o) => o.value)).toContain('re_export');
+    // The re-flows use the HYPHEN token that matches the Gold/serving data + the backend
+    // allowlist (the underscore form filtered zero rows and 400'd).
+    expect(window.flowOptionsFor('un_comtrade').map((o) => o.value)).toContain('re-export');
+    expect(window.flowOptionsFor('un_comtrade').map((o) => o.value)).not.toContain('re_export');
     expect(window.flowOptionsFor('ibge_pevs')).toBeNull();
+  });
+});
+
+describe('customsOptionsFor — server-side regime (customs procedure) universe', () => {
+  it('returns the regime options for COMTRADE (C00=total), null for other bancos', () => {
+    const opts = window.customsOptionsFor('un_comtrade');
+    expect(opts.map((o) => o.value)).toContain('all');
+    expect(opts.map((o) => o.value)).toContain('C00');
+    expect(window.customsOptionsFor('mdic_comex')).toBeNull(); // COMEX has no customs_code
+    expect(window.customsOptionsFor('ibge_pevs')).toBeNull();
+  });
+});
+
+describe('marketOptionsFor — server-side tipo-de-mercado universe', () => {
+  it('returns consumo/processamento for COMTRADE, null for other bancos', () => {
+    const opts = window.marketOptionsFor('un_comtrade');
+    expect(opts.map((o) => o.value)).toEqual(['all', 'consumo', 'processamento']);
+    expect(window.marketOptionsFor('mdic_comex')).toBeNull(); // no market_nature
+    expect(window.marketOptionsFor('ibge_pevs')).toBeNull();
   });
 });
 

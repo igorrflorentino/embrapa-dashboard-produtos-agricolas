@@ -209,36 +209,15 @@ function AppShell({
   // Same codec as onShare (urlState.js); extracted so the citation and the Share
   // button can't drift. Returns null before the codec has loaded (degrade clean).
   const buildPermalink = () => {
-    if (!window.urlEncodeState) return null;
-    const arrParam = window.urlEncodeArr || (() => '');
-    // Cap the município list embedded in the share URL: a large selection (e.g. "all
-    // municípios" of several big states ≈ thousands of 7-digit codes) would overflow the
-    // ~8 KB request-line limit of proxies/Cloud Run/IAP → the shared link 414s or truncates.
-    // Past the cap, omit `mn` and let the higher sub-UF facets (me/mc/it/im) — already
-    // serialized below — reconstruct the scope (the common parent-driven selection case).
-    const MN_URL_CAP = 200;
-    const munis = summary?.munis;
-    const mnParam =
-      Array.isArray(munis) && munis.length > MN_URL_CAP ? '' : arrParam(munis);
-    const state = {
-      v: view, b: database, ip: infoPage,
-      cur: conventions?.currency, corr: conventions?.correction,
-      mu: conventions?.units?.mass, vu: conventions?.units?.volume, as: conventions?.autoScale ? 1 : 0,
-      pb: arrParam(summary?.basket), fl: arrParam(summary?.flags), st: arrParam(summary?.states),
-      // Sub-UF / município geography (v1.5.2). null = "all" → arrParam yields '' →
-      // dropped by urlEncodeState, so a non-narrowed selection adds nothing.
-      me: arrParam(summary?.mesos), mc: arrParam(summary?.micros),
-      it: arrParam(summary?.inters), im: arrParam(summary?.imediatas),
-      mn: mnParam,
-      vmn: summary?.valueMin ?? '', vmx: summary?.valueMax ?? '',
-      sd: summary?.startDate || '', ed: summary?.endDate || '',
-      // Server-side flow filter (export/import); omitted when 'all'/absent.
-      fx: summary?.flow && summary.flow !== 'all' ? summary.flow : '',
-      xs: isCrossView && crossState?.series ? crossState.series.map(r => `${r.b}:${r.m}`).join('|') : '',
-      xm: isCrossView ? (crossState?.mode || '') : '',
-      xy0: isCrossView && crossState?.y0 ? crossState.y0 : '',
-      xy1: isCrossView && crossState?.y1 ? crossState.y1 : '',
-    };
+    if (!window.urlEncodeState || !window.buildUrlState) return null;
+    // Same encoder as the address-bar write-back (main.jsx) — one source of truth for
+    // the wire format, so the shared/ABNT URL and a plain reload encode the SAME state
+    // identically (previously this permalink serialized the sub-UF/município keys but
+    // the write-back did not → the two "permalinks" disagreed; H1). Município cap +
+    // the value-range omission both live in buildUrlState now.
+    const state = window.buildUrlState({
+      view, database, infoPage, conventions, summary, crossState, isCross: isCrossView,
+    });
     return `${location.origin}${location.pathname}?${window.urlEncodeState(state)}`;
   };
   const _permalink = buildPermalink();
@@ -555,24 +534,15 @@ function AppShell({
             <window.Icon name="inventory_2"/>Cadastro de commodities
           </div>
 
-          {/* ─── FROZEN FEATURE: "Engenharia de atributos" ─────────────────────────────
-              Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06):
-              partially built + NOT yet validated, so the attribute-engineering editor is HIDDEN
-              from the sidebar and the app runs fully decoupled from it. Kept verbatim as the
-              scaffold for the real future implementation — DO NOT delete. To revive: un-comment
-              this section + the "Análises curadas" group in views.js, and build dbt with
-              `--vars 'enable_curation: true'`. (MainScreen still routes ?ip=enrich_industrial /
-              ?ip=enrich_market / ?ip=curation, so any stale deep link resolves rather than 404s.)
+          {/* Engenharia de Atributos — the per-code industrialization editor (researcher-
+              editable, gated by the `enable_curation` dbt var). The market-nature (Tipo de
+              Mercado) is now SEED-DRIVEN, so it has NO editor entry here — it surfaces only as
+              the "Finalidade econômica" analysis (Multi-fonte) + the "Tipo de mercado" filter. */}
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>
             <window.Icon name="factory"/>Nível de industrialização
           </div>
-          <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
-               {...clickable(() => onInfo('enrich_market'))}>
-            <window.Icon name="trending_up"/>Tipo de Mercado
-          </div>
-          */}
 
           <div className="side-section">Informações</div>
           <div className={'side-item ' + (infoPage === 'about' ? 'active' : '')}

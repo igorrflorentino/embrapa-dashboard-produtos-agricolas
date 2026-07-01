@@ -1,19 +1,17 @@
-"""FROZEN FEATURE (Engenharia de Atributos) — postponed to the "Versão Futura"
-roadmap phase (leadership decision, 2026-06): partially built + not yet validated.
-UI entry points hidden; the app runs fully decoupled. The readers below already
-degrade gracefully when the gated SCD2 view / log tables are absent. Kept as the
-scaffold for the real future implementation — do not delete.
-
-Engenharia de Atributos readers for the seam layer (historically mislabelled
+"""Engenharia de Atributos readers for the seam layer (historically mislabelled
 "Curadoria"; that name is now reserved for the catalog — what enters/exits the
 dashboard).
 
-The per-code industrialization (bruta/processada), the value-added analysis that
-splits COMEX exports by that derived level, and the market-nature analysis that
-splits COMTRADE value by the derived (customs procedure × flow) → market mapping.
-The READ side degrades gracefully when the gated SCD2 view / log tables are not
-built yet: every code/cell surfaces as unclassified instead of erroring. Writes go
-through the verified BFF writer (IAP author capture).
+Two derived attributes:
+  • Per-code INDUSTRIALIZATION (bruta/processada) + the value-added analysis that splits
+    COMEX exports by that level — RESEARCHER-EDITABLE (an append-log SCD2 the researcher
+    curates in the UI; gated by the `enable_curation` dbt var). Writes go through the
+    verified BFF writer (IAP author capture).
+  • MARKET NATURE (consumo/processamento) — SEED-DRIVEN, NOT editable: the (customs
+    procedure × flow) → market mapping is the static `comtrade_market_nature` seed
+    (Contrato de Dados), carried as gold/serving_comtrade_annual.market_nature. The
+    analysis just sums the serving mart by that column; the old researcher-editable
+    flow-market log path was removed.
 
 Imports only ``seam_base`` (the shared commodity toolkit) + the gateway, never
 ``seam`` itself, so the import graph stays acyclic. ``seam`` re-exports the public
@@ -23,7 +21,6 @@ working unchanged.
 
 from __future__ import annotations
 
-import pandas as pd
 from google.api_core.exceptions import NotFound
 
 from embrapa_commodities.serving import gateway
@@ -235,129 +232,35 @@ def _value_added_series_point(y: int, slot: dict) -> dict:
     }
 
 
-# ── Market-nature — COMTRADE value by curated economic purpose (regime×flow) ────
-# The customs procedure (customsCode) × flow (flowCode) pairs are CURATED to a
-# market (consumo/processamento) by the researcher; the analysis sums COMTRADE
-# value by that mapping. Real data — empty until pairs are classified.
-#
-# pt-BR labels for ALL ten UN Comtrade flow codes (the "trade regimes" reference:
-# comtradeapi.un.org/files/v1/app/reference/tradeRegimes.json). Only M/X/RM/RX are
-# ingested today (config.comtrade_flows), so only those reach the worklist; the
-# rest are kept here so the label is correct if the ingestion scope ever widens.
-_FLOW_LABELS = {
-    "M": "Importação",
-    "X": "Exportação",
-    "DX": "Exportação nacional",
-    "FM": "Importação estrangeira",
-    "MIP": "Importação para aperfeiçoamento ativo",
-    "MOP": "Importação após aperfeiçoamento passivo",
-    "RM": "Reimportação",
-    "RX": "Reexportação",
-    "XIP": "Exportação após aperfeiçoamento ativo",
-    "XOP": "Exportação para aperfeiçoamento passivo",
-}
-
-
-def _flow_market_map() -> dict:
-    """{(customs_code, flow_code): market} from the log; {} when the log is absent
-    (nobody classified yet) — so the matrix + analysis render before activation."""
-    try:
-        df = gateway.fetch_current_flow_market()
-    except NotFound:
-        # Log table absent (nobody classified yet) — render the matrix empty. Other
-        # errors propagate instead of being masked as "not activated yet".
-        return {}
-    if df is None or df.empty:
-        return {}
-    return {(r.customs_code, r.flow_code): r.market for r in df.itertuples()}
-
-
-def flow_market_worklist() -> dict:
-    """The (customs procedure × flow) matrix from COMTRADE ⟕ the current market
-    mapping — backs the regime×flow editor. Cells carry the real value so the
-    researcher classifies what actually matters."""
-    df = gateway.fetch_comtrade_cpc_value(())
-    mapping = _flow_market_map()
-    customs: set = set()
-    flows: set = set()
-    agg: dict = {}
-    if df is not None and not df.empty:
-        for r in df.itertuples():
-            customs.add(r.customs_code)
-            flows.add(r.flow_code)
-            key = (r.customs_code, r.flow_code)
-            agg[key] = agg.get(key, 0.0) + float(r.value_usd or 0)
-    cells = [
-        {"customs_code": c, "flow_code": f, "value_usd": v, "market": mapping.get((c, f))}
-        for (c, f), v in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
-    ]
-    return {
-        "customs": sorted(customs),
-        "flows": [{"code": f, "label": _FLOW_LABELS.get(f, f)} for f in sorted(flows)],
-        "cells": cells,
-        "classified": sum(1 for c in cells if c["market"]),
-        "total": len(cells),
-    }
-
-
-def record_flow_market(
-    customs_code: str, flow_code: str, market: str, change_id: str | None = None
-) -> dict:
-    """Append one (customs_code, flow_code) → market edit. Author from the IAP
-    header (dev fallback per config). ``change_id`` is the optional client
-    idempotency key (a retried save reusing it is a no-op). Wraps the verified
-    BFF writer."""
-    from flask import has_request_context, request
-
-    from embrapa_commodities.serving import attribute_engineering
-
-    headers = dict(request.headers) if has_request_context() else {}
-    return attribute_engineering.record_flow_market(
-        customs_code, flow_code, market, headers, change_id=change_id
-    )
-
-
+# ── Market-nature — COMTRADE value by economic purpose (consumo/processamento) ──
+# SEED-DRIVEN, not editable: the (customs procedure × flow) → market mapping is the static
+# comtrade_market_nature seed (Contrato de Dados), carried into serving_comtrade_annual as
+# the market_nature column. The analysis just sums the serving mart by that column, scoped
+# to a commodity's HS codes — pairs with no economic-purpose mapping are simply absent.
 def market_nature(commodity_id: str | None = None) -> dict:
-    """COMTRADE trade value (US$ bi) by curated economic purpose
-    (consumo/processamento) over the years, optionally scoped to ONE commodity's
-    HS codes. Empty until pairs are classified."""
-    mapping = _flow_market_map()
+    """COMTRADE trade value (US$ bi) by economic purpose (consumo/processamento) over the
+    years, optionally scoped to ONE commodity's HS codes. Seed-classified per
+    (customs procedure × flow); the serving mart pre-carries the market_nature column."""
     if commodity_id:
         codes = tuple(seam_base._codes(commodity_id, "comtrade"))
         if not codes:
-            # The commodity exists but has no COMTRADE (HS) codes → no global
-            # trade to split. Return empty rather than silently falling through
-            # to the UNSCOPED all-commodities total (an empty `codes` tuple means
-            # "no filter" to fetch_comtrade_cpc_value).
-            return {"years": [], "series": [], "latest": {}, "n_classified": len(mapping)}
+            # The commodity exists but has no COMTRADE (HS) codes → no global trade to
+            # split. Return empty rather than the unscoped all-commodities total.
+            return {"years": [], "series": [], "latest": {}}
     else:
         codes = ()
-    df = gateway.fetch_comtrade_cpc_value(codes)
+    df = gateway.fetch_market_nature_series(codes)
     markets = [m["id"] for m in ENRICH_MARKETS]
-    acc = _market_nature_accumulate(df, mapping)
+    acc: dict = {}
+    if df is not None and not df.empty:
+        for r in df.itertuples():
+            acc.setdefault(int(r.reference_year), {})[r.market_nature] = (
+                float(r.value_usd or 0) / 1e9
+            )
     years = sorted(acc)
     series = [{"y": y, **{m: acc[y].get(m, 0.0) for m in markets}} for y in years]
-    return {
-        "years": years,
-        "series": series,
-        "latest": series[-1] if series else {},
-        "n_classified": len(mapping),
-    }
+    return {"years": years, "series": series, "latest": series[-1] if series else {}}
 
 
-def _market_nature_accumulate(df: pd.DataFrame | None, mapping: dict) -> dict:
-    """{year: {market: US$ bi}} summed over COMTRADE rows by their curated market."""
-    acc: dict = {}
-    if df is None or df.empty:
-        return acc
-    for r in df.itertuples():
-        market = mapping.get((r.customs_code, r.flow_code))
-        if not market:
-            continue
-        slot = acc.setdefault(int(r.reference_year), {})
-        slot[market] = slot.get(market, 0.0) + float(r.value_usd or 0) / 1e9
-    return acc
-
-
-# Economic-purpose markets the curation maps to (mirrors the frontend ENRICH_MARKETS).
+# Economic-purpose markets the seed maps to (mirrors the frontend ENRICH_MARKETS).
 ENRICH_MARKETS = [{"id": "consumo"}, {"id": "processamento"}]

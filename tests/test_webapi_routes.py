@@ -132,6 +132,92 @@ def test_snapshot_route_threads_flow_to_seam(monkeypatch):
     assert captured["summary"] is None
 
 
+def test_snapshot_route_threads_customs_regime_to_seam(monkeypatch):
+    """/api/snapshot?customs=C03 reaches the seam as a regime filter (the second
+    server-side trade filter). 'all'/absent → not in the summary (sum every regime)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_snapshot(banco, conv, summary=None):
+        captured["summary"] = summary
+        return {}
+
+    monkeypatch.setattr(seam, "snapshot", fake_snapshot)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    assert client.get("/api/snapshot?banco=un_comtrade&customs=C03").status_code == 200
+    assert captured["summary"] == {"customs": "C03"}
+    # flow + customs compose into one summary.
+    client.get("/api/snapshot?banco=un_comtrade&flow=import&customs=C01")
+    assert captured["summary"] == {"flow": "import", "customs": "C01"}
+    # 'all' regime is dropped (sum every regime = the historical default).
+    client.get("/api/snapshot?banco=un_comtrade&customs=all")
+    assert captured["summary"] is None
+
+
+def test_invalid_customs_regime_is_400(monkeypatch):
+    """A malformed customs procedure 400s (not C+2 digits), mirroring flow validation;
+    C00 (total) and 'all' are valid."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    bad = client.get("/api/snapshot?banco=un_comtrade&customs=REGIME")
+    assert bad.status_code == 400
+    assert "regime aduaneiro inválido" in bad.get_json()["error"]
+    assert client.get("/api/snapshot?banco=un_comtrade&customs=C00").status_code == 200
+    assert client.get("/api/snapshot?banco=un_comtrade&customs=all").status_code == 200
+
+
+def test_snapshot_route_threads_market_nature_to_seam(monkeypatch):
+    """/api/snapshot?market=consumo reaches the seam as a tipo-de-mercado filter (the
+    third server-side trade filter, seed-driven). 'all'/absent → not in the summary
+    (sum every purpose)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_snapshot(banco, conv, summary=None):
+        captured["summary"] = summary
+        return {}
+
+    monkeypatch.setattr(seam, "snapshot", fake_snapshot)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    assert client.get("/api/snapshot?banco=un_comtrade&market=consumo").status_code == 200
+    assert captured["summary"] == {"market": "consumo"}
+    # flow + customs + market compose into one summary.
+    client.get("/api/snapshot?banco=un_comtrade&flow=import&customs=C01&market=processamento")
+    assert captured["summary"] == {"flow": "import", "customs": "C01", "market": "processamento"}
+    # 'all' market is dropped (sum every purpose = the historical default).
+    client.get("/api/snapshot?banco=un_comtrade&market=all")
+    assert captured["summary"] is None
+
+
+def test_invalid_market_nature_is_400(monkeypatch):
+    """A tipo-de-mercado outside the seed's ids {consumo, processamento, all} 400s,
+    mirroring flow/customs validation, rather than binding verbatim and matching zero
+    rows."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite an invalid tipo de mercado")
+
+    monkeypatch.setattr(seam, "snapshot", must_not_run)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    bad = client.get("/api/snapshot?banco=un_comtrade&market=xyz")
+    assert bad.status_code == 400
+    assert "tipo de mercado inválido" in bad.get_json()["error"]
+
+
 def test_invalid_flow_value_is_400(monkeypatch):
     """A bad ``flow`` (typo/accent/case) must 400 — not bind verbatim, match zero rows
     and return an empty-but-200 result (the silent-fallback the validation closes)."""
@@ -153,6 +239,25 @@ def test_invalid_flow_value_is_400(monkeypatch):
 
     # 'all' is valid (sums every flow) — passes through.
     assert client.get("/api/snapshot?banco=mdic_comex&flow=all").status_code == 200
+
+
+def test_reexport_reimport_flows_are_accepted(monkeypatch):
+    """The four Comtrade regimes present in gold_comtrade_flows — export/import AND the
+    hyphenated re-export/re-import — pass validation; the earlier UNDERSCORE form
+    ('re_export') was rejected AND matched zero rows (data uses the hyphen)."""
+    from embrapa_commodities.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    for flow in ("export", "import", "re-export", "re-import"):
+        resp = client.get(f"/api/snapshot?banco=un_comtrade&flow={flow}")
+        assert resp.status_code == 200, flow
+    # The old underscore form stays invalid (it never matched the data).
+    bad = client.get("/api/snapshot?banco=un_comtrade&flow=re_export")
+    assert bad.status_code == 400
+    assert "fluxo inválido" in bad.get_json()["error"]
 
 
 def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
@@ -792,18 +897,6 @@ def test_curation_worklist_get_returns_seam_payload(monkeypatch):
     assert resp.get_json() == {"rows": [], "total": 0, "classified": 0}
 
 
-def test_curation_flow_worklist_get_returns_seam_payload(monkeypatch):
-    from embrapa_commodities.webapi import seam
-
-    client = _client(monkeypatch)
-    monkeypatch.setattr(
-        seam, "flow_market_worklist", lambda: {"customs": [], "flows": [], "cells": []}
-    )
-    resp = client.get("/api/curation/flow-worklist")
-    assert resp.status_code == 200
-    assert resp.get_json() == {"customs": [], "flows": [], "cells": []}
-
-
 def test_get_endpoint_error_returns_json_500_not_html(monkeypatch):
     """A read endpoint that raises returns parseable JSON 500 (the SPA fetch layer
     can't recover from Flask's default HTML 500). Pins the handler for the GET
@@ -981,25 +1074,6 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     assert "error" in body
     # The writer's pt-BR reason reaches the UI (the route surfaces str(exc); writers raise pt-BR).
     assert "excede" in body["error"]
-
-
-def test_flow_market_post_overlong_market_is_400_not_500(monkeypatch):
-    """The second writer's over-length validation also maps to 400 (the route only
-    presence-checks; length is enforced in the serving writer) with the reason surfaced."""
-    from embrapa_commodities.webapi import seam
-
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
-
-    def raise_overlong(*a, **k):
-        raise ValueError("market excede 200 caracteres.")
-
-    monkeypatch.setattr(seam, "record_flow_market", raise_overlong)
-    resp = client.post(
-        "/api/curation/flow-market",
-        json={"customs_code": "4", "flow_code": "1", "market": "m" * 300},
-    )
-    assert resp.status_code == 400
-    assert "excede" in resp.get_json()["error"]
 
 
 def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):

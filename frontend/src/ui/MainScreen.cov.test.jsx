@@ -99,11 +99,12 @@ describe('MainScreen — info pages (sidebar)', () => {
     expect(container.textContent).toContain('Glossário global');
   });
 
-  it('routes the frozen curation deep links to the neutral "em desenvolvimento" notice', () => {
-    for (const ip of ['curation', 'enrich_industrial', 'enrich_market']) {
+  it('routes enrich_industrial/curation to the industrialization editor (unfrozen)', () => {
+    window.ViewEnrichmentIndustrialization = () => <div className="stub-enrich-ind" />;
+    for (const ip of ['curation', 'enrich_industrial']) {
       const { container, unmount } = render(<MainScreen infoPage={ip} />);
-      expect(container.textContent).toContain('Funcionalidade em desenvolvimento');
-      expect(container.querySelector('[data-screen-label]')).toBeTruthy();
+      expect(container.textContent).toContain('Nível de industrialização');
+      expect(container.querySelector('.stub-enrich-ind')).toBeTruthy();
       unmount();
     }
   });

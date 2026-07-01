@@ -350,9 +350,8 @@ class Settings(BaseSettings):
     # dim_code_industrialization_scd2 + the value-added analysis (COMEX exports
     # split by the curated bruta/processada level).
     bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
-    # Append-only log of the (customs procedure × flow) → economic-purpose market
-    # curation (consumo/processamento). Backs the market-nature analysis.
-    bq_flow_market_log_table: str = Field(default="flow_market_log")
+    # (The market-nature classification is no longer a log — it is the static
+    # comtrade_market_nature seed carried as serving_comtrade_annual.market_nature.)
     # ─── User feedback ("Reportar problema") ──────────────────────────────────
     # Append-only feedback/issue reports (bug/dúvida/sugestão) written by ANY
     # IAP-authenticated user, in the research_inputs dataset (auto-created on first write).

@@ -190,6 +190,10 @@ function SearchInput({ value, onChange, placeholder }) {
 }
 
 // ----- bulk actions row -------------------------------------------
+// Rows comfortably visible in a scrollable list before the bulk-action reach becomes
+// non-obvious (the list viewport shows ~9–10 rows); past this we annotate the reach.
+const BULK_REACH_HINT_AT = 12;
+
 function BulkActions({ all, none, invert, selectedCount, totalCount, compact }) {
   return (
     <div className={'fm-bulk' + (compact ? ' compact' : '')}>
@@ -204,8 +208,137 @@ function BulkActions({ all, none, invert, selectedCount, totalCount, compact }) 
       <button type="button" onClick={invert}>
         Inverter
       </button>
+      {/* The bulk actions operate on the WHOLE search-filtered set, which may extend
+          past the scroll viewport. Announce the reach whenever the list scrolls, so
+          "Selecionar tudo" over items off-screen is never a surprise (L7). */}
+      {totalCount > BULK_REACH_HINT_AT && (
+        <span className="fm-bulk-reach">afeta {totalCount}</span>
+      )}
     </div>
   );
+}
+
+// ----- product tree (multi-tree dims: NCM / HS by SH prefix) ------
+// COMEX/Comtrade "products" are hierarchical customs codes: an 8-digit NCM (or 6-digit
+// HS6) whose LEADING DIGITS are the hierarchy — SH2 (capítulo) ▸ SH4 (posição) ▸ SH6
+// (subposição) ▸ NCM8. Rather than a flat list of 100–200 codes, group them into an
+// expandable tree by prefix. Crucially the tree is a pure VIEW over the SAME flat
+// `products` Set of LEAF codes the grid uses, so apply / URL / the serving `ncm_code IN
+// (...)` filter are ALL untouched: toggling a parent just adds/removes its descendant
+// leaf codes, and a parent checkbox is TRI-STATE (on / off / indeterminate) derived from
+// how many of its leaves are selected.
+const SH_CUTS = [2, 4, 6]; // prefix lengths SHORTER than the code become parent levels
+
+function buildProductTree(prods, cuts = SH_CUTS) {
+  const byId = new Map();
+  const roots = [];
+  const ensure = (id, depth, isLeaf, product) => {
+    let n = byId.get(id);
+    if (!n) {
+      n = { id, code: id, depth, isLeaf, name: product ? product.name : null, children: [], leafCodes: [] };
+      byId.set(id, n);
+    }
+    return n;
+  };
+  for (const p of prods) {
+    const code = String(p.code);
+    const prefixes = cuts.filter((c) => c < code.length).map((c) => code.slice(0, c));
+    let parent = null;
+    prefixes.forEach((pref, i) => {
+      const node = ensure(pref, i + 1, false, null);
+      if (i === 0) { if (!roots.includes(node)) roots.push(node); }
+      else if (!parent.children.includes(node)) parent.children.push(node);
+      node.leafCodes.push(code);
+      parent = node;
+    });
+    const leaf = ensure(code, prefixes.length + 1, true, p);
+    leaf.leafCodes = [code];
+    if (parent) { if (!parent.children.includes(leaf)) parent.children.push(leaf); }
+    else if (!roots.includes(leaf)) roots.push(leaf); // code shorter than the first cut → top-level leaf
+  }
+  const sortRec = (ns) => { ns.sort((a, b) => a.code.localeCompare(b.code)); ns.forEach((n) => sortRec(n.children)); };
+  sortRec(roots);
+  return roots;
+}
+
+function ProductTree({ nodes, selected, setProducts, search }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const q = (search || '').trim().toLowerCase();
+  // SH2 chapter names (shChapters.js) label the top-level parent nodes readably; deeper
+  // parents (SH4/SH6) stay bare codes. Leaves already carry their own description.
+  const SH = window.SH_CHAPTERS || {};
+  const nodeLabel = (n) => {
+    if (n.isLeaf) return n.name || n.code;
+    const name = n.code.length === 2 ? SH[n.code] : null;
+    return name ? `${n.code} · ${name}` : n.code;
+  };
+
+  // Leaf codes matching the search (null = no search → everything visible). A parent is
+  // shown iff at least one descendant leaf matches; searching force-expands those branches.
+  const matches = useMemo(() => {
+    if (!q) return null;
+    const s = new Set();
+    const walk = (ns) => ns.forEach((n) => {
+      if (n.isLeaf) {
+        if (n.code.includes(q) || (n.name || '').toLowerCase().includes(q)) s.add(n.code);
+      } else walk(n.children);
+    });
+    walk(nodes);
+    return s;
+  }, [q, nodes]);
+
+  const toggleExpand = (id) =>
+    setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const setLeaves = (codes, on) =>
+    setProducts((prev) => {
+      const next = new Set(prev);
+      if (on) codes.forEach((c) => next.add(c)); else codes.forEach((c) => next.delete(c));
+      return next;
+    });
+  // Tri-state: 'on' = every leaf selected, 'off' = none, 'partial' = some.
+  const stateOf = (node) => {
+    let on = 0;
+    for (const c of node.leafCodes) if (selected.has(c)) on += 1;
+    if (on === 0) return 'off';
+    if (on === node.leafCodes.length) return 'on';
+    return 'partial';
+  };
+
+  const rows = [];
+  const isOpen = (n) => (q ? true : expanded.has(n.id));
+  const render = (ns) => {
+    for (const n of ns) {
+      if (matches && !n.leafCodes.some((c) => matches.has(c))) continue;
+      const st = stateOf(n);
+      rows.push(
+        <div key={n.id} className="fm-tree-row" style={{ paddingLeft: `${(n.depth - 1) * 18}px` }}>
+          {n.isLeaf ? (
+            <span className="fm-tree-tog spacer" aria-hidden="true" />
+          ) : (
+            <button type="button" className="fm-tree-tog" aria-expanded={isOpen(n)}
+                    aria-label={isOpen(n) ? `Recolher ${n.code}` : `Expandir ${n.code}`}
+                    onClick={() => toggleExpand(n.id)}>
+              {isOpen(n) ? '▾' : '▸'}
+            </button>
+          )}
+          <label className={'fm-check tree' + (st === 'on' ? ' is-on' : '') + (st === 'partial' ? ' is-partial' : '')}>
+            <input type="checkbox" checked={st === 'on'}
+                   ref={(el) => { if (el) el.indeterminate = st === 'partial'; }}
+                   onChange={() => setLeaves(n.isLeaf ? [n.code] : n.leafCodes, st !== 'on')} />
+            <span className="fm-name" title={nodeLabel(n)}>{nodeLabel(n)}</span>
+            <span className="fm-code">{n.isLeaf ? n.code : `${n.leafCodes.length}`}</span>
+          </label>
+        </div>,
+      );
+      if (!n.isLeaf && isOpen(n)) render(n.children);
+    }
+  };
+  render(nodes);
+
+  if (rows.length === 0) {
+    return <div className="fm-empty-grid">Nenhum produto corresponde a “{search}”.</div>;
+  }
+  return <div className="fm-tree">{rows}</div>;
 }
 
 // ----- reusable column for the geography cascade -----------------
@@ -324,6 +457,8 @@ const GEO_RENDER_CAP = 300;
 // what's live (incl. a shared deep-link) instead of silently resetting to all.
 function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply }) {
   const close = () => { if (typeof onClose === 'function') onClose(); };
+  const modalRef = React.useRef(null);
+  const lastFocusRef = React.useRef(null);
   // a11y: Escape closes the modal (mirrors the backdrop click). Listener is bound
   // only while the modal is open and torn down on close/unmount.
   React.useEffect(() => {
@@ -332,6 +467,39 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // a11y: focus management for the modal dialog (M2). On open, remember the element
+  // that had focus (the trigger) and move focus into the panel; while open, TRAP Tab
+  // so keyboard/screen-reader focus can't escape behind the backdrop; on close, restore
+  // focus to the trigger. Without this the dialog was announced (role/aria-modal) but
+  // keyboard focus stayed on the page underneath.
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const modal = modalRef.current;
+    if (!modal) return undefined;
+    lastFocusRef.current = document.activeElement;
+    const focusables = () =>
+      [...modal.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )].filter((el) => !el.disabled && el.offsetParent !== null);
+    // Initial focus: first focusable control, else the panel itself.
+    const first = focusables()[0];
+    (first || modal).focus();
+    const onKeyDown = (e) => {
+      if (e.key !== 'Tab') return;
+      const els = focusables();
+      if (els.length === 0) { e.preventDefault(); return; }
+      const firstEl = els[0], lastEl = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    };
+    modal.addEventListener('keydown', onKeyDown);
+    return () => {
+      modal.removeEventListener('keydown', onKeyDown);
+      const prev = lastFocusRef.current;
+      if (prev && typeof prev.focus === 'function') prev.focus();
+    };
+  }, [open]);
 
   const bancoMeta = window.bancoById ? window.bancoById(banco) : null;
   const schema    = window.filterSchemaFor ? window.filterSchemaFor(banco) : null;
@@ -344,6 +512,15 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const hasQuality  = provides.includes('quality');
   const hasFlow     = provides.includes('flow');
   const flowOptions = (hasFlow && window.flowOptionsFor) ? window.flowOptionsFor(banco) : null;
+  // Regime aduaneiro (customs procedure) — a SECOND server-side trade filter, gated on the
+  // banco actually carrying customs_code (only COMTRADE → window.customsOptionsFor non-null),
+  // not on a capability flag. Mirrors the flow control.
+  const regimeOptions = window.customsOptionsFor ? window.customsOptionsFor(banco) : null;
+  const hasRegime     = !!regimeOptions;
+  // Tipo de mercado (consumo/processamento) — a THIRD server-side trade filter, gated on
+  // the banco carrying market_nature (only COMTRADE → marketOptionsFor non-null).
+  const marketOptions = window.marketOptionsFor ? window.marketOptionsFor(banco) : null;
+  const hasMarket     = !!marketOptions;
 
   // ── Per-banco descriptors so the live menu is CORRECT for each banco
   // (no longer always PEVS): currency symbol/column, geo granularity, the
@@ -351,8 +528,6 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   // covered by the functional sections (surfaced read-only below).
   const geoLevel  = window.geoLevelFor ? window.geoLevelFor(banco) : (hasGeo ? 'municipio' : null);
   const showMunis = geoLevel === 'municipio';
-  const baseCcy   = (bancoMeta && bancoMeta.baseCurrency) || 'BRL';
-  const sym       = (window.CURRENCY_FX && window.CURRENCY_FX[baseCcy] && window.CURRENCY_FX[baseCcy].symbol) || 'R$';
   const dims      = (schema && schema.dims) || [];
   const prodDim   = dims.find(d => d.type === 'products' || d.type === 'multi-tree');
   const prodLabel = (prodDim && prodDim.label) || `Produtos · ${bancoMeta ? bancoMeta.short : 'PEVS'}`;
@@ -371,6 +546,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     return ((snap && snap.products) || window.PRODUCTS || [])
       .map(p => ({ code: p.code, name: p.name, unit: p.unit, family: p.family }));
   }, [banco]);
+
+  // A `multi-tree` product dim (COMEX NCM, Comtrade HS6) renders the picker as an
+  // expandable SH-prefix tree instead of the flat grid; PEVS/PAM/PPM ('products') stay
+  // flat. The tree is derived purely from the flat PRODS by code-prefix (no backend).
+  const isTreeProducts = !!(prodDim && prodDim.type === 'multi-tree');
+  const productTree = useMemo(
+    () => (isTreeProducts ? buildProductTree(PRODS) : null), [isTreeProducts, PRODS]);
 
   // Município + sub-UF universe — the IBGE territorial mesh (/api/geo-mesh, via
   // window.geoMesh). Every município → its 7-digit city_code + UF + grande região +
@@ -464,45 +646,59 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [startDate,  setStartDate]  = useState(`${yearStart}-01`);
   const [endDate,    setEndDate]    = useState(`${yearEnd}-12`);
 
-  // per-row value (filter range — in BRL, no conversion)
-  // null = no limit
-  const [valueMin, setValueMin] = useState(null);
-  const [valueMax, setValueMax] = useState(null);
+  // (The per-row value-range filter was removed: it has no backend filter path, so its
+  // state/chip/normalization was vestigial plumbing that misled the next reader into
+  // thinking "Faixa de valor" was activatable — N1. VALUE_PRESETS/valueShareForRange
+  // stay in filtersSchema/dataFilters only where the "Linhas" counter still reads them.)
 
   // Fluxo (export/import) — a SERVER-SIDE filter: the trade snapshot is pre-aggregated
   // over flow, so picking a direction re-fetches (the data layer's setFlow bridge).
   // 'all' = every flow. Only trade bancos (hasFlow) render the control.
   const [flow, setFlow] = useState((value && value.flow) || 'all');
+  // Regime aduaneiro (server-side, COMTRADE only). 'all' = every regime (the total).
+  const [customs, setCustoms] = useState((value && value.customs) || 'all');
+  // Tipo de mercado (server-side, COMTRADE only). 'all' = every purpose.
+  const [market, setMarket] = useState((value && value.market) || 'all');
 
   // (eligibility memos + cascade-pruning effects now live in useGeoCascade above)
 
-  // Seed the panel from the currently-APPLIED filter every time it opens, so
-  // it mirrors the live state (a shared deep-link, or a prior apply) instead of
-  // its hardcoded defaults. Missing dimensions fall back to "all selected".
+  // Seed the NON-geo panel state from the currently-APPLIED filter each time the menu
+  // opens, so it mirrors the live state (a shared deep-link, or a prior apply) instead
+  // of its hardcoded defaults. The GEO seed is a SEPARATE effect (below) because its
+  // universe — the IBGE mesh — loads asynchronously.
   const wasOpen = React.useRef(false);
+  const geoSeeded = React.useRef(false);
   React.useEffect(() => {
     if (open && !wasOpen.current) {
       const v = value || {};
       setProducts(v.basket  != null ? new Set(v.basket)  : new Set(PRODS.map(p => p.code)));
       setFlags(   v.flags   != null ? new Set(v.flags)   : new Set(QUALITY.map(f => f.flag)));
       setNations( v.nations != null ? new Set(v.nations) : new Set(['BR']));
-      setRegions( v.regions != null ? new Set(v.regions) : new Set(FM_REGIONS.map(r => r.id)));
-      setStates(  v.states  != null ? new Set(v.states)  : new Set(STATES.map(s => s.uf)));
-      setMesos(    v.mesos     != null ? new Set(v.mesos)     : new Set(Object.keys(mesoNames)));
-      setMicros(   v.micros    != null ? new Set(v.micros)    : new Set(Object.keys(microNames)));
-      setInters(   v.inters    != null ? new Set(v.inters)    : new Set(Object.keys(interNames)));
-      setImediatas(v.imediatas != null ? new Set(v.imediatas) : new Set(Object.keys(imediataNames)));
-      setMunis(   v.munis   != null ? new Set(v.munis)   : new Set(MUNIS.map(m => m.code)));
+      // States travel in the deep-link; regions/nations do NOT. Seed states from the
+      // applied filter, then DERIVE the region checkboxes from that subset — mark a
+      // region whenever it contributes at least one selected UF — so the cascade no
+      // longer shows every region checked over a partial state selection (L6). Using
+      // "≥1 UF" (not "all UFs") keeps every restored UF ELIGIBLE, so the cascade's own
+      // state-pruning never drops one.
+      const seededStates = v.states != null ? new Set(v.states) : new Set(STATES.map(s => s.uf));
+      setStates(seededStates);
+      if (v.regions != null) {
+        setRegions(new Set(v.regions));
+      } else if (v.states != null) {
+        const byRegion = {};
+        STATES.forEach(s => { (byRegion[s.region] = byRegion[s.region] || []).push(s.uf); });
+        setRegions(new Set(FM_REGIONS.filter(r => (byRegion[r.id] || []).some(uf => seededStates.has(uf))).map(r => r.id)));
+      } else {
+        setRegions(new Set(FM_REGIONS.map(r => r.id)));
+      }
       const sd = v.startDate || `${yearStart}-01`;
       const ed = v.endDate   || `${yearEnd}-12`;
       setStartDate(sd); setEndDate(ed);
       setQuickRange((sd === `${yearStart}-01` && ed === `${yearEnd}-12`) ? 'all' : null);
-      // Value-range filter is disabled (no backend row-level path yet) — force the
-      // limits to null even if a bookmarked URL restored a value, so the chip never
-      // claims an active filter that changes nothing.
-      setValueMin(null);
-      setValueMax(null);
       setFlow(v.flow || 'all');
+      setCustoms(v.customs || 'all');
+      setMarket(v.market || 'all');
+      geoSeeded.current = false; // let the geo effect (re)seed once the mesh is ready
     }
     wasOpen.current = open;
     // Intentionally keyed ONLY on `open`: this re-syncs the DRAFT filter state from
@@ -510,6 +706,26 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     // clobbered by unrelated prop changes (value/year/basket) while it is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // GEO seed — kept SEPARATE because the sub-UF/município universe is the IBGE mesh, an
+  // async resource independent of the snapshot. Seeding the geo Sets before the mesh
+  // lands would seed them from an EMPTY universe; the cascade would then prune a
+  // deep-linked município subset and refill it to "all", so Apply emits null="all" and
+  // silently discards the shared filter (H2). Gate the seed on geo-readiness and run it
+  // exactly ONCE per open. This effect is registered AFTER useGeoCascade, so it wins the
+  // effect-flush against the cascade's reconcile (its write is the last one applied).
+  const geoReady = !showMunis || muniUniverseLive;
+  React.useEffect(() => {
+    if (!open || geoSeeded.current || !geoReady) return;
+    geoSeeded.current = true;
+    const v = value || {};
+    setMesos(    v.mesos     != null ? new Set(v.mesos)     : new Set(Object.keys(mesoNames)));
+    setMicros(   v.micros    != null ? new Set(v.micros)    : new Set(Object.keys(microNames)));
+    setInters(   v.inters    != null ? new Set(v.inters)    : new Set(Object.keys(interNames)));
+    setImediatas(v.imediatas != null ? new Set(v.imediatas) : new Set(Object.keys(imediataNames)));
+    setMunis(    v.munis     != null ? new Set(v.munis)     : new Set(MUNIS.map(m => m.code)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, geoReady]);
 
   // products / flags filtered by search
   const filteredProducts = useMemo(() => {
@@ -577,13 +793,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   }, [products, startDate, endDate, nations, regions, states, munis, hasGeo, muniSliceable, MUNIS, PRODS.length]);
 
   // chip-bar summary published on apply (display strings only)
-  const buildChipSummary = (vMin = valueMin, vMax = valueMax) => {
+  const buildChipSummary = () => {
     const prodChip = window.chipFmt.products(
       products.size, PRODS.length, (PRODS.find(p => products.has(p.code)) || {}).name);
-    const periodChip =
-      quickRange === 'all' ? `${yearStart}–${yearEnd}`
-      : `${formatMonth(startDate)}–${formatMonth(endDate)}`;
-    const valueChip = window.chipFmt.valueRange(vMin, vMax, sym);
+    // Period chip is YEAR–YEAR in both the apply AND the URL-restore path (withChips
+    // uses chipFmt.period), because the underlying filter is year-granular — showing
+    // MM/AAAA here made the chip change shape between apply and reload (L1).
+    const periodChip = window.chipFmt.period(startDate.slice(0, 4), endDate.slice(0, 4));
     const geoChip = window.filterSummary.geoChipText({
       hasGeo,
       nationsSize: nations.size,
@@ -598,42 +814,57 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       muniSliceable,
     });
     const qualityChip = window.chipFmt.quality([...flags], QUALITY.length, qualityLabelOf);
-    const fluxoChip = hasFlow
+    // Guard on flowOptions too (not just hasFlow): a banco could declare provides:['flow']
+    // before its FLOW_OPTIONS entry exists — then flowOptions is null and .find would
+    // throw (L3). Mirrors the section's own `hasFlow && flowOptions` gate.
+    const fluxoChip = (hasFlow && flowOptions)
       ? (flow === 'all' ? 'Todos os fluxos' : ((flowOptions.find(o => o.value === flow) || {}).label || flow))
       : null;
-    return { products: prodChip, period: periodChip, valueRange: valueChip, geo: geoChip, quality: qualityChip, fluxo: fluxoChip };
+    const regimeChip = (hasRegime && regimeOptions)
+      ? (customs === 'all' ? 'Todos os regimes' : ((regimeOptions.find(o => o.value === customs) || {}).label || customs))
+      : null;
+    const marketChip = (hasMarket && marketOptions)
+      ? (market === 'all' ? 'Todos os mercados' : ((marketOptions.find(o => o.value === market) || {}).label || market))
+      : null;
+    return { products: prodChip, period: periodChip, geo: geoChip, quality: qualityChip, fluxo: fluxoChip, regime: regimeChip, mercado: marketChip };
   };
 
   const applyAndClose = () => {
-    // Normalize an inverted value range (min > max) before publishing, so the
-    // chip and stored filter never show a backwards "R$ 1 mi – R$ 1 mil".
-    let vMin = valueMin, vMax = valueMax;
-    if (vMin != null && vMax != null && vMin > vMax) { const t = vMin; vMin = vMax; vMax = t; }
+    // Normalize a FULL selection to null = "no narrowing" for EVERY list dimension
+    // (dataFilters + the URL codec treat null and the full set identically). This keeps
+    // the share URL small (no dumping the whole product catalog / 27-UF list), makes
+    // "touched-but-full" behave exactly like "untouched", and fixes both the stateShare
+    // >1 counter and the COMEX pseudo-origin drop that a full 27-UF array triggered (L2)
+    // — matching the null-when-full rule the geo levels already used.
+    const fullOrNull = (set, size) => (set.size >= size ? null : [...set]);
+    // If the IBGE mesh is not live yet, the local geo Sets can't be trusted (the cascade
+    // may have refilled a deep-linked subset to "all"); preserve the incoming value's geo
+    // selection verbatim so Apply never silently widens it (H2 belt-and-suspenders).
+    const v = value || {};
     if (typeof onApply === 'function') {
       onApply({
-        ...buildChipSummary(vMin, vMax),
-        basket:    [...products],
-        flags:     [...flags],
+        ...buildChipSummary(),
+        basket:    fullOrNull(products, PRODS.length),
+        flags:     fullOrNull(flags, QUALITY.length),
         nations:   [...nations],
         regions:   [...regions],
-        states:    [...states],
+        states:    fullOrNull(states, STATES.length),
         // The four sub-UF levels (two parallel IBGE divisions) + município, all
         // CODE-keyed off the mesh — dataFilters rolls the município cube up to the
-        // active level via /api/geo-mesh. A FULL selection emits null = "all" (no
-        // narrowing): dataFilters treats null and the full set identically, and the
-        // share-URL codec then omits it instead of serializing every código (which
-        // for the ~5570-município universe would rebuild the very long URL the
-        // POST /api/municipio-yearly path was created to avoid).
-        mesos:     _geoArr(mesos, mesoNames),
-        micros:    _geoArr(micros, microNames),
-        inters:    _geoArr(inters, interNames),
-        imediatas: _geoArr(imediatas, imediataNames),
-        munis:     munis.size >= MUNIS.length ? null : [...munis],
+        // active level via /api/geo-mesh. A FULL selection emits null = "all".
+        mesos:     geoReady ? _geoArr(mesos, mesoNames)         : (v.mesos ?? null),
+        micros:    geoReady ? _geoArr(micros, microNames)       : (v.micros ?? null),
+        inters:    geoReady ? _geoArr(inters, interNames)       : (v.inters ?? null),
+        imediatas: geoReady ? _geoArr(imediatas, imediataNames) : (v.imediatas ?? null),
+        munis:     geoReady ? (munis.size >= MUNIS.length ? null : [...munis]) : (v.munis ?? null),
         startDate, endDate,
-        valueMin:  vMin,  valueMax: vMax,
         // Fluxo (server-side): omitted when 'all' so the summary/URL stay clean and
         // the data-layer bridge reads it as "every flow" (the default).
         flow: flow !== 'all' ? flow : undefined,
+        // Regime aduaneiro (server-side, COMTRADE): omitted when 'all' = every regime.
+        customs: customs !== 'all' ? customs : undefined,
+        // Tipo de mercado (server-side, COMTRADE): omitted when 'all' = every purpose.
+        market: market !== 'all' ? market : undefined,
       });
     }
     close();
@@ -652,9 +883,9 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     setImediatas(new Set(Object.keys(imediataNames)));
     setMunis(new Set(MUNIS.map(m => m.code)));
     applyQuick('all');
-    setValueMin(null);
-    setValueMax(null);
     setFlow('all');
+    setCustoms('all');
+    setMarket('all');
     [setQProducts, setQFlags, setQNations, setQRegions, setQStates,
      setQMesos, setQMicros, setQInters, setQImediatas, setQMunis].forEach(fn => fn(''));
   };
@@ -663,7 +894,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
 
   return (
     <div className="fm-backdrop" onClick={close}>
-      <div className="fm-modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fm-title">
+      <div ref={modalRef} tabIndex={-1} className="fm-modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fm-title">
         {/* HEADER */}
             <header className="fm-head">
               <div className="fm-head-text">
@@ -674,7 +905,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 <span id="fm-title" className="fm-title">
                   {isLive ? 'Editar filtros' : 'Dimensões filtráveis'}
                 </span>
-                <span className="fm-summary">
+                <span className="fm-summary" role="status" aria-live="polite">
                   {isLive
                     ? <><strong>{summary.prodTxt}</strong> · {summary.period} · {summary.geoTxt}</>
                     : <>Pré-visualização · este banco será habilitado em <strong>{bancoMeta?.maturityDate || 'breve'}</strong></>}
@@ -704,23 +935,40 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 </span>
               </div>
 
+              {/* Surface the product dim's hint in the LIVE menu too (it used to appear
+                  only in the "soon" preview), so a hierarchical code dim like NCM/HS6
+                  documents its SH2▸SH4▸SH6 structure where the researcher actually
+                  picks — instead of the flat grid promising nothing (L4). */}
+              {prodDim?.hint && <div className="fm-cascade-hint">{prodDim.hint}</div>}
+
               <div className="fm-section-inner">
                 <div className="fm-grid-scroll">
-                  <div className="fm-grid">
-                    {filteredProducts.length === 0 ? (
-                      <div className="fm-empty-grid">Nenhum produto corresponde a “{qProducts}”.</div>
-                    ) : filteredProducts.map(p => {
-                      const on = products.has(p.code);
-                      return (
-                        <label key={p.code} className={'fm-check' + (on ? ' is-on' : '')}>
-                          <input type="checkbox" checked={on}
-                                 onChange={() => setProducts(s => toggleIn(s, p.code))}/>
-                          <span className="fm-name">{p.name}</span>
-                          <span className="fm-code">{p.code}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                  {isTreeProducts ? (
+                    /* Hierarchical NCM/HS picker (COMEX/Comtrade): a pure view over the
+                       same `products` leaf-code Set. */
+                    <ProductTree
+                      nodes={productTree}
+                      selected={products}
+                      setProducts={setProducts}
+                      search={qProducts}
+                    />
+                  ) : (
+                    <div className="fm-grid">
+                      {filteredProducts.length === 0 ? (
+                        <div className="fm-empty-grid">Nenhum produto corresponde a “{qProducts}”.</div>
+                      ) : filteredProducts.map(p => {
+                        const on = products.has(p.code);
+                        return (
+                          <label key={p.code} className={'fm-check' + (on ? ' is-on' : '')}>
+                            <input type="checkbox" checked={on}
+                                   onChange={() => setProducts(s => toggleIn(s, p.code))}/>
+                            <span className="fm-name">{p.name}</span>
+                            <span className="fm-code">{p.code}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <BulkActions
@@ -756,6 +1004,69 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                             className={'seg-opt ' + (flow === o.value ? 'on' : '')}
                             aria-pressed={flow === o.value}
                             onClick={() => setFlow(o.value)}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            )}
+
+            {/* ─── REGIME ADUANEIRO (customs procedure) — server-side, COMTRADE only.
+                 Like Fluxo, picking a regime re-fetches the snapshot narrowed to that
+                 customs_code. 'all' sums every regime (the bilateral total). ~86% of
+                 trade is reported only at C00, so most cuts land in "Todos / C00". ─── */}
+            {hasRegime && regimeOptions && (
+            <section className="fm-section">
+              <div className="fm-section-head">
+                <div className="fm-section-head-l">
+                  <span className="fm-section-label">Regime aduaneiro</span>
+                  <span className="fm-cascade-hint">C00 = todos os regimes · ~86% do comércio só é reportado nesse nível</span>
+                </div>
+                <span className="fm-section-meta">
+                  {customs === 'all'
+                    ? 'todos os regimes'
+                    : ((regimeOptions.find(o => o.value === customs) || {}).label || '')}
+                </span>
+              </div>
+              <div className="fm-section-inner">
+                <div className="seg wrap">
+                  {regimeOptions.map(o => (
+                    <button key={o.value} type="button"
+                            className={'seg-opt ' + (customs === o.value ? 'on' : '')}
+                            aria-pressed={customs === o.value}
+                            onClick={() => setCustoms(o.value)}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            )}
+
+            {/* ─── TIPO DE MERCADO (natureza econômica) — server-side, COMTRADE only.
+                 consumo/processamento seed-classified per (regime × fluxo). 'all' sums
+                 every purpose. Pairs with no natureza are excluded from a specific pick. ─── */}
+            {hasMarket && marketOptions && (
+            <section className="fm-section">
+              <div className="fm-section-head">
+                <div className="fm-section-head-l">
+                  <span className="fm-section-label">Tipo de mercado</span>
+                  <span className="fm-cascade-hint">natureza econômica classificada por regime × fluxo (seed Contrato de Dados)</span>
+                </div>
+                <span className="fm-section-meta">
+                  {market === 'all'
+                    ? 'todos os mercados'
+                    : ((marketOptions.find(o => o.value === market) || {}).label || '')}
+                </span>
+              </div>
+              <div className="fm-section-inner">
+                <div className="seg">
+                  {marketOptions.map(o => (
+                    <button key={o.value} type="button"
+                            className={'seg-opt ' + (market === o.value ? 'on' : '')}
+                            aria-pressed={market === o.value}
+                            onClick={() => setMarket(o.value)}>
                       {o.label}
                     </button>
                   ))}
@@ -1031,7 +1342,10 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                 <span className="fm-dot"></span>
                 {bancoMeta?.prov?.refresh ? `Refresh ${bancoMeta.prov.refresh}` : 'Atualização diária às 06h00 BRT'}
               </div>
-              <button className="btn-ghost" onClick={restoreDefaults}>Restaurar padrão</button>
+              {/* "Redefinir campos" (not "Restaurar padrão") makes explicit that it
+                  only resets the DRAFT form to defaults — the reset takes effect on
+                  "Aplicar filtros", so Cancelar/Esc afterwards discards it (N3). */}
+              <button className="btn-ghost" onClick={restoreDefaults}>Redefinir campos</button>
               <button className="btn-secondary" onClick={close}>Cancelar</button>
               <button className="btn-primary" onClick={applyAndClose}>Aplicar filtros</button>
             </footer>
@@ -1110,3 +1424,5 @@ function formatMonth(iso) {
 }
 
 window.FilterMenu = FilterMenu;
+// Exposed for unit-testing the SH-prefix grouping independently of the component.
+window.buildProductTree = buildProductTree;

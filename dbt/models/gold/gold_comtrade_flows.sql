@@ -6,7 +6,7 @@
             'data_type': 'int64',
             'range': {'start': 1960, 'end': 2050, 'interval': 1}
         },
-        cluster_by=['flow', 'cmd_code', 'reporter_code', 'partner_code']
+        cluster_by=['flow', 'customs_code', 'cmd_code', 'reporter_code']
     )
 }}
 
@@ -59,7 +59,7 @@ with with_dominant as (
     select
         *,
         first_value(qty_unit_code) over (
-            partition by flow, reference_year, reporter_code, partner_code, cmd_code
+            partition by flow, customs_code, reference_year, reporter_code, partner_code, cmd_code
             order by qty_native desc nulls last, qty_unit_code
         ) as dominant_qty_unit_code
     from {{ ref('silver_comtrade_flows') }}
@@ -70,11 +70,15 @@ base_flows as (
 
     select
         flow,
+        customs_code,
         reference_year,
         reporter_code,
         partner_code,
         cmd_code,
         any_value(hs_chapter)                     as hs_chapter,
+        -- market_nature is a pure function of (customs_code, flow), both in the group key,
+        -- so any_value is exact (one value per group).
+        any_value(market_nature)                  as market_nature,
         -- The unit fields are picked together from the group's dominant-quantity
         -- row (same ORDER BY for all five) so family/base_unit/unit stay COHERENT
         -- even when a (reporter, partner, cmd) reported under mixed qty units; a
@@ -96,7 +100,7 @@ base_flows as (
         count(*)                                  as source_rows,
         max(ingestion_timestamp)                  as last_refresh
     from with_dominant
-    group by flow, reference_year, reporter_code, partner_code, cmd_code
+    group by flow, customs_code, reference_year, reporter_code, partner_code, cmd_code
 
 ),
 
@@ -141,8 +145,17 @@ select
     reference_year,
     date(reference_year, 12, 31)                            as reference_date,
 
-    -- ── Flow direction ───────────────────────────────────────────────────────
+    -- ── Flow direction + customs regime (regime aduaneiro) ───────────────────
     flow,
+    -- The UN customs procedure. 'C00' = todos os regimes / total (the only value for
+    -- ~86% of trade, which reports no per-regime split); specific procedures otherwise.
+    -- Preserved without double-count (see silver_comtrade_flows): SUM over customs_code
+    -- equals the old C00-only total. A regime filter narrows on this; omitting it sums
+    -- every regime back to the bilateral total.
+    customs_code,
+    -- Tipo de mercado (consumo / processamento), seed-classified per (customs_code × flow);
+    -- NULL where the pair has no economic-purpose mapping. A market filter narrows on this.
+    market_nature,
 
     -- ── Product (HS) ─────────────────────────────────────────────────────────
     enriched.cmd_code,

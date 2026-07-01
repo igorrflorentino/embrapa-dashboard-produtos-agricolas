@@ -60,6 +60,7 @@ import './ui/UnitFamily.jsx';
 import './ui/Atoms.jsx';
 import './ui/DataBoundary.jsx';
 import './ui/Glossary.jsx';
+import './ui/shChapters.js'; // window.SH_CHAPTERS — SH2 names for the product tree
 import './ui/FilterMenu.jsx';
 import './ui/FilterTriggerBar.jsx';
 import './ui/FeedbackModal.jsx';
@@ -85,9 +86,8 @@ import './ui/ViewPartners.jsx';
 import './ui/ViewCrossSource.jsx';
 import './ui/ViewsMultiSource.jsx';
 import './ui/ViewsChain.jsx';
-// FROZEN (Curadoria — postponed to "Versão Futura"): kept imported so the components
-// stay defined and any stale curated/enrich deep link degrades gracefully. The UI
-// entry points are hidden in views.js + AppShell.jsx — see those files.
+// Engenharia de Atributos: the industrialization editor (ViewCuration) + the two curated
+// analyses (ViewCuratedAnalyses — Valor agregado editável, Finalidade econômica seed-driven).
 import './ui/ViewCuration.jsx';
 import './ui/ViewCuratedAnalyses.jsx';
 import './ui/ViewAbout.jsx';
@@ -127,12 +127,20 @@ function readStateFromURL() {
     inters: window.urlDecodeArr(q, 'it'),
     imediatas: window.urlDecodeArr(q, 'im'),
     munis: window.urlDecodeArr(q, 'mn'),
-    valueMin: window.urlDecodeNum(q, 'vmn'),
-    valueMax: window.urlDecodeNum(q, 'vmx'),
+    // Value-range is INTENTIONALLY non-backed (no row-level filter path): the
+    // FilterMenu forces it to null on open, so a stale/hand-edited URL carrying
+    // vmn/vmx must NOT restore a phantom range (which the ABNT citation would then
+    // assert as a real "Faixa de valor"). Force null here, mirroring the menu.
+    valueMin: null,
+    valueMax: null,
     startDate: q.get('sd') || null,
     endDate: q.get('ed') || null,
     // Server-side flow filter (export/import); absent → all flows.
     flow: q.get('fx') || null,
+    // Server-side customs-procedure filter (regime aduaneiro, COMTRADE); absent → all regimes.
+    customs: q.get('cx') || null,
+    // Server-side tipo-de-mercado filter (COMTRADE); absent → all purposes.
+    market: q.get('mk') || null,
   };
   let crossState = window.DEFAULT_CROSS_STATE;
   const xs = q.get('xs');
@@ -201,12 +209,33 @@ function withChips(summary, database, conventions) {
   const realUfCount = ufDataFull.filter(isRealUf).length;
   const ufTotal = Math.min(27, realUfCount || 27);
   const hasGeo = ufDataFull.length > 0;
+  // Geo chip via the SAME formatter the FilterMenu uses on apply
+  // (filterSummary.geoChipText), so a URL-restored summary shows the identical chip
+  // — including a município/sub-UF narrowing — instead of chipFmt.geoStates, which
+  // only counted UFs and silently dropped the município scope (M3). nations/regions
+  // don't travel in the URL, so they default to the menu's restore defaults
+  // (BR only, all regions); the município universe comes from the IBGE mesh (0 until
+  // it lands — the chip corrects on the resource re-render).
+  const meshLen = (window.geoMesh && (window.geoMesh() || []).length) || 0;
+  const muniSliceable =
+    hasGeo && meshLen > 0 &&
+    (!window.geoLevelFor || window.geoLevelFor(database) === 'municipio');
+  const geoChip = window.filterSummary
+    ? window.filterSummary.geoChipText({
+        hasGeo,
+        nationsSize: 1, nationsTotal: 1, hasOnlyBR: true,
+        regionsSize: 5, regionsTotal: 5,
+        statesSize: s.states ? s.states.length : 27, statesTotal: 27,
+        munisSize: s.munis ? s.munis.length : meshLen, munisTotal: meshLen,
+        muniSliceable,
+      })
+    : window.chipFmt.geoStates(s.states ? s.states.length : null, ufTotal, hasGeo);
   return {
     ...s,
     products: window.chipFmt.products(basket ? basket.length : null, total, firstName),
     period: window.chipFmt.period(yearStart, yearEnd),
     valueRange: window.chipFmt.valueRange(s.valueMin, s.valueMax, sym),
-    geo: window.chipFmt.geoStates(s.states ? s.states.length : null, ufTotal, hasGeo),
+    geo: geoChip,
     quality: window.chipFmt.quality(s.flags || null, flagsAll.length, labelOf),
   };
 }
@@ -319,6 +348,19 @@ function Dashboard() {
     if (window.dataStore?.setFlow) window.dataStore.setFlow(summary.flow || 'all');
   }, [summary.flow]);
 
+  // Regime → data layer bridge: the customs procedure (regime aduaneiro) is the SECOND
+  // server-side filter for COMTRADE (the snapshot is pre-aggregated over customs_code),
+  // so a regime change re-fetches. Absent/'all' sums every regime (the total).
+  useEffect(() => {
+    if (window.dataStore?.setCustoms) window.dataStore.setCustoms(summary.customs || 'all');
+  }, [summary.customs]);
+
+  // Market → data layer bridge: the tipo de mercado is the THIRD server-side filter for
+  // COMTRADE (the snapshot is pre-aggregated over market_nature), so a change re-fetches.
+  useEffect(() => {
+    if (window.dataStore?.setMarket) window.dataStore.setMarket(summary.market || 'all');
+  }, [summary.market]);
+
   // Banco switch (changeDatabase): the prototype's bancos.js/MetricConventions doc
   // promised two resets the React port had dropped. Without them a banco switch
   // left BOTH the previous banco's filter basket and display currency in place:
@@ -398,33 +440,14 @@ function Dashboard() {
   // conventions/cross. Uses the SAME codec (urlState.js) the share button +
   // readStateFromURL use, so the encoder/decoder can't drift on the wire format.
   useEffect(() => {
-    if (!window.urlEncodeState) return;
-    const arr = window.urlEncodeArr || (() => '');
+    if (!window.urlEncodeState || !window.buildUrlState) return;
     const isCross = !!(window.viewById && window.viewById(view)?.crossBanco);
-    const qs = window.urlEncodeState({
-      v: view,
-      b: database,
-      ip: infoPage,
-      cur: conventions?.currency,
-      corr: conventions?.correction,
-      mu: conventions?.units?.mass,
-      vu: conventions?.units?.volume,
-      as: conventions?.autoScale ? 1 : 0,
-      pb: arr(summary?.basket),
-      fl: arr(summary?.flags),
-      st: arr(summary?.states),
-      vmn: summary?.valueMin ?? '',
-      vmx: summary?.valueMax ?? '',
-      sd: summary?.startDate || '',
-      ed: summary?.endDate || '',
-      // Server-side flow filter (export/import); omitted when 'all'/absent so a
-      // production banco's URL is unchanged and reload restores the exact direction.
-      fx: summary?.flow && summary.flow !== 'all' ? summary.flow : '',
-      xs: isCross && crossState?.series ? crossState.series.map((r) => `${r.b}:${r.m}`).join('|') : '',
-      xm: isCross ? crossState?.mode || '' : '',
-      xy0: isCross && crossState?.y0 ? crossState.y0 : '',
-      xy1: isCross && crossState?.y1 ? crossState.y1 : '',
-    });
+    // Same encoder as the Compartilhar/ABNT permalink (urlState.buildUrlState) —
+    // so the address-bar URL and the shared URL can never encode the SAME state
+    // differently (the H1 drift, where the write-back dropped me/mc/it/im/mn).
+    const qs = window.urlEncodeState(
+      window.buildUrlState({ view, database, infoPage, conventions, summary, crossState, isCross }),
+    );
     window.history.replaceState(null, '', qs ? `${location.pathname}?${qs}` : location.pathname);
   }, [view, database, infoPage, summary, conventions, crossState]);
 

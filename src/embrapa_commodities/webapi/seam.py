@@ -147,6 +147,39 @@ def _flow_from_summary(summary: dict | None) -> str | None:
     return flow
 
 
+def _customs_from_summary(summary: dict | None) -> str | None:
+    """The server-side customs-procedure filter (regime aduaneiro) from the FilterMenu.
+
+    Like ``flow``, this re-queries the trade snapshot server-side (the COMTRADE mart
+    carries ``customs_code``). ``'all'`` / absent → ``None`` = sum every regime (the
+    total, C00-equivalent), so an unfiltered request is byte-identical to before the
+    regime dimension existed. Only the COMTRADE mart carries ``customs_code``, so the
+    seam passes this ONLY for that source.
+    """
+    if not summary:
+        return None
+    customs = summary.get("customs")
+    if not customs or customs == "all":
+        return None
+    return customs
+
+
+def _market_from_summary(summary: dict | None) -> str | None:
+    """The server-side tipo-de-mercado filter (consumo/processamento) from the FilterMenu.
+
+    Like ``flow``/``customs``, this re-queries the trade snapshot server-side (the COMTRADE
+    mart carries the seed-classified ``market_nature`` column). ``'all'`` / absent → ``None``
+    = sum every purpose (incl. unmapped), so an unfiltered request is byte-identical to
+    before the dimension existed. Only the COMTRADE mart carries market_nature.
+    """
+    if not summary:
+        return None
+    market = summary.get("market")
+    if not market or market == "all":
+        return None
+    return market
+
+
 def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     """Return the per-banco serving snapshot for the active conventions + filters.
 
@@ -172,6 +205,12 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     # Flow (export/import) is server-side — the trade marts are pre-aggregated over
     # flow, so it re-queries here (None = sum every flow, the historical default).
     flow = _flow_from_summary(summary)
+    # Customs procedure (regime aduaneiro) is server-side too, but ONLY the COMTRADE mart
+    # carries customs_code — so it is passed only in the comtrade overview call below
+    # (None = sum every regime = the total).
+    customs = _customs_from_summary(summary)
+    # Tipo de mercado (consumo/processamento) — same server-side story, COMTRADE-only.
+    market = _market_from_summary(summary)
 
     products = gateway.fetch_products(banco_id)
     quality = gateway.fetch_quality_by_source(source=banco_id)
@@ -190,8 +229,16 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             else gateway.fetch_comtrade_overview
         )
         code_kw = "ncm_codes" if banco_id == "mdic_comex" else "cmd_codes"
+        # customs_code + market_nature live only on the COMTRADE mart, so the regime + market
+        # filters reach only fetch_comtrade_overview (COMEX has neither dimension).
+        regime_kw = {} if banco_id == "mdic_comex" else {"customs": customs, "market": market}
         overview_ts = overview_fn(
-            year_start=y0, year_end=y1, value_column=value_col, flow=flow, **{code_kw: codes}
+            year_start=y0,
+            year_end=y1,
+            value_column=value_col,
+            flow=flow,
+            **{code_kw: codes},
+            **regime_kw,
         )
         uf_data = (
             gateway.fetch_comex_by_uf(
@@ -752,23 +799,18 @@ def seed_page(
 # shared commodity toolkit lives in seam_base; both modules depend only on it, so
 # the import graph is an acyclic base ← {cross, curation} ← seam.
 from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at module end)
-    _FLOW_LABELS,
     CUR_LEVELS,
     ENRICH_MARKETS,
     _code_to_commodity,
     _current_code_levels,
-    _flow_market_map,
-    _market_nature_accumulate,
     _value_added_accumulate,
     _value_added_codes_by_level,
     _value_added_series_point,
     _worklist_rows_for_source,
     curation_worklist,
     curator_emails,
-    flow_market_worklist,
     market_nature,
     record_code_level,
-    record_flow_market,
     value_added,
 )
 from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, intentional)

@@ -128,24 +128,23 @@ const GLOSSARY = {
     ],
   },
 
-  // FROZEN (Curadoria deferred to the "Versão Futura" phase, audit FREEZE-1): the glossary
-  // section for the hidden curation feature is commented out so users aren't shown docs for an
-  // unavailable tool. Restore alongside the feature.
-  /* curadoria: {
-    label: 'Curadoria',
-    sub:   'Engenharia de atributos — conhecimento do pesquisador sobre os dados',
+  // Engenharia de atributos — o nível de industrialização é editável pelo pesquisador; o
+  // tipo de mercado (finalidade econômica) vem de um seed (Contrato de Dados).
+  curadoria: {
+    label: 'Engenharia de atributos',
+    sub:   'Atributos derivados: conhecimento do pesquisador (industrialização) + seed (tipo de mercado)',
     kind:  'tema',
     terms: [
-      { term: 'Curadoria (engenharia de atributos)', cat: 'Conceito', short: 'Camada de anotações institucionais e compartilhadas sobre as dimensões dos bancos. Alimenta as análises curadas no modo multi-fonte.' },
-      { term: 'Nível de industrialização', cat: 'Dimensão', short: 'Classificação de cada código de produto como Bruta, Processada ou Misturado. Base da análise de valor agregado.' },
+      { term: 'Engenharia de atributos', cat: 'Conceito', short: 'Camada de colunas derivadas construídas sobre os dados: o nível de industrialização (editável pelo pesquisador) e o tipo de mercado (definido por seed). Alimenta as análises curadas no modo multi-fonte.' },
+      { term: 'Nível de industrialização', cat: 'Dimensão', short: 'Classificação de cada código de produto como Bruta, Processada ou Misturado, feita pelo pesquisador. Base da análise de valor agregado.' },
       { term: 'Bruta · Processada · Misturado', cat: 'Dimensão', short: 'Produto sem transformação · produto com beneficiamento industrial · código que agrega os dois (não separável).' },
-      { term: 'Finalidade econômica', cat: 'Dimensão', short: 'Finalidade atribuída ao par regime × fluxo: Consumo ou Processamento. Combinada com a direção (importação = comprar, exportação = vender), classifica cada transação.' },
-      { term: 'Consumo · Processamento', cat: 'Dimensão', short: 'Os dois destinos do bem: consumo final, ou transformação/beneficiamento industrial. É a finalidade que a curadoria atribui a cada par regime × fluxo.' },
+      { term: 'Finalidade econômica (tipo de mercado)', cat: 'Dimensão', short: 'Finalidade do par regime aduaneiro × fluxo: Consumo ou Processamento, definida por um seed do Contrato de Dados. Combinada com a direção (importação = comprar, exportação = vender), classifica cada transação.' },
+      { term: 'Consumo · Processamento', cat: 'Dimensão', short: 'Os dois destinos do bem: consumo final, ou transformação/beneficiamento industrial. É a finalidade que o seed atribui a cada par regime × fluxo.' },
       { term: 'Par regime × fluxo', cat: 'Conceito', short: 'Unidade de classificação da finalidade econômica: um regime aduaneiro cruzado com uma direção de fluxo. Um regime ou fluxo isolado não determina o mercado — só o par.' },
       { term: 'Valor agregado', cat: 'Análise', short: 'Exportação separada entre bruta e processada, com participação do processado no tempo e prêmio de preço do processado sobre o bruto.' },
-      { term: 'Rascunho → aplicado', cat: 'Operação', short: 'As classificações ficam em rascunho até você clicar em "Aplicar à base"; a partir daí ficam salvas e as análises se atualizam ao vivo para todos os pesquisadores. O histórico de alterações é preservado.' },
+      { term: 'Rascunho → aplicado', cat: 'Operação', short: 'As classificações de industrialização ficam em rascunho até você clicar em "Aplicar à base"; a partir daí ficam salvas e as análises se atualizam ao vivo para todos os pesquisadores. O histórico de alterações é preservado.' },
     ],
-  }, */
+  },
 
   // Statistical methods that surface in the perspective names/descriptions
   // (views.js) but a low-IT researcher would not know — glossed in plain pt-BR.

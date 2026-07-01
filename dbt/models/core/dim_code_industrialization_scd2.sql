@@ -6,11 +6,11 @@
     )
 }}
 
--- FROZEN FEATURE (Curadoria) — postponed to the "Versão Futura" roadmap phase
--- (leadership decision, 2026-06): partially built + not yet validated, hidden from the
--- UI, app fully decoupled. This model self-disables via the `enable_curation` flag in
--- the config above, so default builds skip it. Kept as the scaffold for the real
--- future implementation — do not delete.
+-- Researcher-editable per-code industrialization (bruta/processada). This model
+-- self-disables via the `enable_curation` flag in the config above, so a prod build must
+-- pass `--vars 'enable_curation: true'` to materialize it (and thus the value-added analysis
+-- + the industrialization editor's reads). NOTE: this var now gates ONLY industrialization —
+-- the market-nature is seed-driven (comtrade_market_nature → serving mart), never gated.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only

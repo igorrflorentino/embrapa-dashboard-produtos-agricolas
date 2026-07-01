@@ -472,8 +472,19 @@
     const flagShare  = flagSet
       ? filteredFlags.reduce((s, f) => s + f.share, 0)
       : 1;
-    const yearShare = (yearEnd - yearStart + 1) / ((OVERVIEW_T && OVERVIEW_T.length) || 39);
-    const stateShare = stateSet ? (stateSet.size / ((UF_DATA_T && UF_DATA_T.length) || 27)) : 1;
+    // yearShare = fraction of the banco's COVERED years that fall in the window. Base it
+    // on the COUNT of covered years in-window over the total covered count — never the
+    // window SPAN (yearEnd-yearStart+1) over the count, which a gap-y annual series makes
+    // >1 (M1). Clamp for safety.
+    const _yearsInWindow = (OVERVIEW_T || []).filter(d => d.y >= yearStart && d.y <= yearEnd).length;
+    const yearShare = Math.min(1, _yearsInWindow / ((OVERVIEW_T && OVERVIEW_T.length) || 39));
+    // stateShare = selected UFs over the banco's REAL UF universe. Numerator and
+    // denominator must share a universe: count only real UFs (a trade banco's ufData
+    // carries non-state pseudo-origins ND/EX/ZN that must not shrink the denominator),
+    // and clamp at 1 so a mismatch never yields >100% (M1). stateSet is null when the
+    // selection is full (applyAndClose normalizes full→null) → "no narrowing" → 1.
+    const _realUfCount = ((UF_DATA_T || []).filter(u => u.real !== false).length) || 27;
+    const stateShare = stateSet ? Math.min(1, stateSet.size / _realUfCount) : 1;
 
     return {
       ts, productTS, ufData, regionData, topMunis, topProducts,

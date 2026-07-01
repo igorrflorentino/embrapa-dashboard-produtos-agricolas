@@ -6,7 +6,7 @@
             'data_type': 'int64',
             'range': {'start': 1970, 'end': 2050, 'interval': 1}
         },
-        cluster_by=['flow', 'cmd_code', 'reporter_code']
+        cluster_by=['flow', 'customs_code', 'cmd_code', 'reporter_code']
     )
 }}
 
@@ -35,6 +35,12 @@ with comtrade as (
     select
         reference_year,
         flow,
+        -- Customs procedure (regime aduaneiro), carried as a server-side filter axis like
+        -- `flow`. C00 = todos os regimes / total (the only value for ~86% of trade). A
+        -- reader that does NOT filter or group by customs_code sums over it → the bilateral
+        -- total (no double-count: C00 and breakdowns are mutually exclusive per key,
+        -- guaranteed in silver_comtrade_flows). The regime filter narrows on it.
+        customs_code,
         cmd_code,
         reporter_code,
         partner_code,
@@ -46,6 +52,9 @@ with comtrade as (
         -- key. Every Gold row thus carries a single family and this GROUP BY adds
         -- no rows (which is why the YAML uniqueness test omits family).
         family,
+        -- Tipo de mercado (consumo/processamento), a function of (customs_code, flow) both
+        -- in the grain → any_value is exact. The server-side market filter binds on it.
+        any_value(market_nature)    as market_nature,
         any_value(hs_chapter)       as hs_chapter,
         any_value(cmd_description)  as cmd_description,
         any_value(reporter_name)    as reporter_name,
@@ -81,7 +90,7 @@ with comtrade as (
         max(last_refresh)           as last_refresh
     from {{ ref('gold_comtrade_flows') }}
     where {{ hidden_code_predicate('comtrade', 'cmd_code') }}
-    group by reference_year, flow, cmd_code, reporter_code, partner_code, family
+    group by reference_year, flow, customs_code, cmd_code, reporter_code, partner_code, family
 
 )
 
@@ -89,6 +98,8 @@ select
     ct.reference_year,
     date(ct.reference_year, 12, 31) as reference_date,
     ct.flow,
+    ct.customs_code,
+    ct.market_nature,
     ct.cmd_code,
     ct.hs_chapter,
     ct.cmd_description,

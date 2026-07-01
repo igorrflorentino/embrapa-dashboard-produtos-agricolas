@@ -98,6 +98,10 @@ function stubRegistry(opts = {}) {
     id === 'mdic_comex'
       ? [{ value: 'export', label: 'Exportação' }, { value: 'import', label: 'Importação' }]
       : null;
+  // Regime (customs procedure) + tipo-de-mercado options — default null so existing tests
+  // render no regime/market section; the specific describes override these.
+  window.customsOptionsFor = () => null;
+  window.marketOptionsFor = () => null;
   window.geoMesh = () => mesh;
   window.snapshotFor = () => ({
     products: PRODUCTS,
@@ -162,7 +166,7 @@ describe('FilterMenu — live render (ibge_pevs: product + geo + quality)', () =
     expect(container.textContent).not.toContain('todos os fluxos');
 
     // The footer's three actions.
-    expect(container.querySelector('.btn-ghost').textContent).toContain('Restaurar padrão');
+    expect(container.querySelector('.btn-ghost').textContent).toContain('Redefinir campos');
     expect(container.querySelector('.btn-secondary').textContent).toContain('Cancelar');
     expect(container.querySelector('.btn-primary').textContent).toContain('Aplicar filtros');
   });
@@ -219,8 +223,8 @@ describe('FilterMenu — checkbox toggles', () => {
     fireEvent.click(container.querySelector('.btn-primary'));
     expect(onApply).toHaveBeenCalledTimes(1);
     const payload = onApply.mock.calls[0][0];
-    expect(payload.basket).toHaveLength(2); // one product dropped
-    expect(payload.flags).toHaveLength(9); // quality untouched → all flags
+    expect(payload.basket).toHaveLength(2); // one product dropped (proper subset → array)
+    expect(payload.flags).toBeNull(); // quality untouched (all 9) → null = "all" (L2)
   });
 
   it('"Limpar" in the produtos bulk row clears the (search-filtered) selection', () => {
@@ -317,8 +321,9 @@ describe('FilterMenu — footer actions', () => {
     expect(payload.products).toContain('Todos (3)');
     expect(payload.quality).toContain('Todas (9)');
     expect(payload.period).toBe('1997–2024');
-    // Raw filter dims present.
-    expect(Array.isArray(payload.basket)).toBe(true);
+    // Raw filter dims: a FULL selection now normalizes to null = "all" (no narrowing),
+    // so the share URL/data layer treat it identically to "untouched" (L2).
+    expect(payload.basket).toBeNull();
     expect(payload.startDate).toBeTruthy();
     expect(onClose).toHaveBeenCalled();
   });
@@ -334,7 +339,7 @@ describe('FilterMenu — footer actions', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('"Restaurar padrão" resets a narrowed selection back to all-selected', () => {
+  it('"Redefinir campos" resets a narrowed selection back to all-selected', () => {
     const { container } = render(
       <FilterMenu open banco="ibge_pevs" value={null} onClose={() => {}} onApply={() => {}} />
     );
@@ -418,5 +423,175 @@ describe('FilterMenu — "soon" banco preview', () => {
     );
     fireEvent.click(container.querySelector('.fm-preview .btn-primary'));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// ── Product tree (multi-tree NCM / HS pickers) ────────────────────────────────
+const NCM = [
+  { code: '08012100', name: 'Castanha-do-pará com casca', unit: 'kg', family: 'mass' },
+  { code: '08012200', name: 'Castanha-do-pará sem casca', unit: 'kg', family: 'mass' },
+  { code: '10051000', name: 'Milho para semeadura', unit: 'kg', family: 'mass' },
+];
+
+describe('buildProductTree — SH-prefix grouping', () => {
+  it('nests 8-digit NCM as SH2 ▸ SH4 ▸ SH6 ▸ leaf and aggregates leafCodes up the path', () => {
+    const tree = window.buildProductTree(NCM);
+    expect(tree.map((n) => n.id)).toEqual(['08', '10']); // two chapters, sorted
+    const ch08 = tree[0];
+    expect(ch08.isLeaf).toBe(false);
+    expect([...ch08.leafCodes].sort()).toEqual(['08012100', '08012200']);
+    const sh4 = ch08.children[0]; // '0801'
+    expect(sh4.id).toBe('0801');
+    expect(sh4.children.map((n) => n.id)).toEqual(['080121', '080122']); // two SH6 groups
+    const leaf = sh4.children[0].children[0];
+    expect(leaf.isLeaf).toBe(true);
+    expect(leaf.code).toBe('08012100');
+    expect(leaf.name).toBe('Castanha-do-pará com casca');
+  });
+
+  it('6-digit HS6 codes bottom out as leaves at the SH6 level (2 parent levels)', () => {
+    const tree = window.buildProductTree([
+      { code: '080121', name: 'com casca' },
+      { code: '080122', name: 'sem casca' },
+    ]);
+    expect(tree[0].id).toBe('08');
+    const sh4 = tree[0].children[0]; // '0801'
+    expect(sh4.id).toBe('0801');
+    expect(sh4.children.every((n) => n.isLeaf)).toBe(true);
+    expect(sh4.children.map((n) => n.code)).toEqual(['080121', '080122']);
+  });
+});
+
+describe('FilterMenu — product tree (multi-tree banco)', () => {
+  function stubComexTree() {
+    stubRegistry();
+    window.bancoById = () => ({
+      id: 'mdic_comex', short: 'MDIC COMEX', status: 'live', baseCurrency: 'USD',
+      provides: ['product'], maturityDate: null,
+    });
+    window.filterSchemaFor = () => ({
+      dims: [{ id: 'ncm', type: 'multi-tree', tier: 'shared', label: 'Produto · NCM / SH',
+               column: 'ncm', hint: 'Hierarquia SH2 ▸ SH4 ▸ SH6 ▸ NCM 8 dígitos.' }],
+    });
+    window.dataStore = {
+      get: () => ({ products: NCM, overviewTS: [{ y: 1997 }, { y: 2024 }] }),
+      meta: () => ({ table: 'gold_comex_flows' }),
+    };
+    window.snapshotFor = () => ({ products: NCM, overviewTS: [{ y: 1997 }, { y: 2024 }] });
+    window.geoLevelFor = () => 'uf';
+  }
+
+  it('renders a tree (not the flat grid) with collapsed SH2 chapters; leaves hidden', () => {
+    stubComexTree();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={() => {}} />
+    );
+    expect(container.querySelector('.fm-tree')).toBeTruthy();
+    const names = [...container.querySelectorAll('.fm-tree-row .fm-name')].map((e) => e.textContent);
+    // startsWith (not exact) so the assertion survives whether or not SH2 chapter names
+    // are loaded (the row label is "08" bare, or "08 · Frutas…" when SH_CHAPTERS is set).
+    expect(names.some((n) => n.startsWith('08'))).toBe(true);
+    expect(names.some((n) => n.startsWith('10'))).toBe(true);
+    // Collapsed → leaf names not yet in the DOM.
+    expect(container.textContent).not.toContain('Castanha-do-pará com casca');
+    // The hierarchy hint shows in the live menu.
+    expect(container.textContent).toContain('Hierarquia SH2');
+  });
+
+  it('expanding a chapter reveals its SH4 descendants', () => {
+    stubComexTree();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={() => {}} />
+    );
+    const firstToggle = container.querySelector('.fm-tree-tog:not(.spacer)');
+    fireEvent.click(firstToggle); // expand '08'
+    const names = [...container.querySelectorAll('.fm-tree-row .fm-name')].map((e) => e.textContent);
+    expect(names).toContain('0801');
+  });
+
+  it('toggling a chapter selects ALL its leaf codes; apply emits the leaf basket', () => {
+    stubComexTree();
+    const onApply = vi.fn();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={{ basket: [] }} onClose={() => {}} onApply={onApply} />
+    );
+    // Nothing selected (value.basket === []). Click the first chapter's checkbox ('08').
+    const firstBox = container.querySelector('.fm-tree-row .fm-check.tree input');
+    fireEvent.click(firstBox);
+    fireEvent.click(container.querySelector('.btn-primary'));
+    const payload = onApply.mock.calls[0][0];
+    // '08' expands to its two leaf NCMs (proper subset of the 3 → an array, not null).
+    expect([...payload.basket].sort()).toEqual(['08012100', '08012200']);
+  });
+
+  it('a search filters the tree to matching branches (auto-expanded)', () => {
+    stubComexTree();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={() => {}} />
+    );
+    const search = container.querySelector('.fm-section .fm-search input');
+    fireEvent.change(search, { target: { value: 'Milho' } });
+    // Only chapter 10's branch remains, auto-expanded down to the leaf.
+    expect(container.textContent).toContain('Milho para semeadura');
+    const names = [...container.querySelectorAll('.fm-tree-row .fm-name')].map((e) => e.textContent);
+    expect(names.some((n) => n.startsWith('10'))).toBe(true);
+    expect(names.some((n) => n.startsWith('08'))).toBe(false);
+  });
+
+  it('renders the Regime aduaneiro segment + apply emits the customs code (COMTRADE)', () => {
+    stubComexTree();
+    // COMTRADE-like: carries a regime universe (customs_code); a segment renders.
+    window.customsOptionsFor = (id) =>
+      id === 'mdic_comex'
+        ? [{ value: 'all', label: 'Todos os regimes' }, { value: 'C00', label: 'C00 · Total' },
+           { value: 'C03', label: 'C03' }]
+        : null;
+    const onApply = vi.fn();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={onApply} />
+    );
+    // The Regime section renders with its segment options.
+    expect(container.textContent).toContain('Regime aduaneiro');
+    const seg = [...container.querySelectorAll('.seg-opt')].find((b) => b.textContent.trim() === 'C03');
+    expect(seg).toBeTruthy();
+    fireEvent.click(seg);
+    fireEvent.click(container.querySelector('.btn-primary'));
+    const payload = onApply.mock.calls[0][0];
+    expect(payload.customs).toBe('C03'); // server-side regime emitted
+    // 'all' (default) would be omitted; a specific regime travels.
+  });
+
+  it('renders the Tipo de mercado segment + apply emits the market (COMTRADE)', () => {
+    stubComexTree();
+    window.marketOptionsFor = (id) =>
+      id === 'mdic_comex'
+        ? [{ value: 'all', label: 'Todos' }, { value: 'consumo', label: 'Consumo' },
+           { value: 'processamento', label: 'Processamento' }]
+        : null;
+    const onApply = vi.fn();
+    const { container } = render(
+      <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={onApply} />
+    );
+    expect(container.textContent).toContain('Tipo de mercado');
+    const seg = [...container.querySelectorAll('.seg-opt')].find((b) => b.textContent.trim() === 'Processamento');
+    expect(seg).toBeTruthy();
+    fireEvent.click(seg);
+    fireEvent.click(container.querySelector('.btn-primary'));
+    expect(onApply.mock.calls[0][0].market).toBe('processamento'); // server-side market emitted
+  });
+
+  it('labels SH2 chapters with their pt-BR name when SH_CHAPTERS is loaded', () => {
+    stubComexTree();
+    window.SH_CHAPTERS = { '08': 'Frutas; cascas de cítricos e melões', '10': 'Cereais' };
+    try {
+      const { container } = render(
+        <FilterMenu open banco="mdic_comex" value={null} onClose={() => {}} onApply={() => {}} />
+      );
+      const names = [...container.querySelectorAll('.fm-tree-row .fm-name')].map((e) => e.textContent);
+      expect(names).toContain('08 · Frutas; cascas de cítricos e melões');
+      expect(names).toContain('10 · Cereais');
+    } finally {
+      delete window.SH_CHAPTERS; // don't leak into sibling tests
+    }
   });
 });

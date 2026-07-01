@@ -8,7 +8,8 @@
 // fetch (ensure) + return a safe pending placeholder. A CrossBoundary (main.jsx)
 // subscribes to resource changes and re-renders, so the view's next sync call
 // gets real data. Trade adapters (flow/partner/monthly) have no endpoint yet;
-// chain/lag/market-nature are data-blocked — all return honest preview shells.
+// chain/lag are data-blocked — those return honest preview shells. (market-nature is
+// now seed-driven + real, see window.marketNatureAnalysis below.)
 
 import { decorateUfRows } from './decorate';
 import { ensure, get } from './resource';
@@ -319,10 +320,11 @@ window.harvestShipmentLag = function harvestShipmentLag() {
     lagMonths: 0, corrAtLag: 0, lagProfile: [],
   };
 };
-// market-nature is now CURATED-REAL: COMTRADE value summed by the economic
-// purpose (consumo/processamento) the researcher assigns to each customsCode×
-// flowCode pair in Curadoria. Empty series until pairs are classified — the view
-// guards that with an honest "classify first" state (no synthetic fallback).
+// market-nature is SEED-DRIVEN: COMTRADE value summed by the economic purpose
+// (consumo/processamento) the static comtrade_market_nature seed (Contrato de Dados)
+// assigns to each (customs procedure × flow) pair, carried as serving_comtrade_annual.
+// market_nature. Empty series when the recorte has no classified pair — the view guards
+// that with an honest empty state (no synthetic fallback).
 window.marketNatureAnalysis = crossAnalytic('market-nature', 'market-nature', {
   preview: false, years: [], series: [], latest: {},
 });

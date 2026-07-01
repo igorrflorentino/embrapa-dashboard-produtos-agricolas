@@ -323,8 +323,9 @@ describe('views.js — VIEW_GROUPS registry shape', () => {
   it('VIEW_BY_ID flattens every view and attaches its group', () => {
     expect(window.VIEW_BY_ID.overview.group.id).toBe('aggregate');
     expect(window.VIEW_BY_ID.cross_source.group.id).toBe('crosssource');
-    // The frozen "curated" group is commented out → not in the flattened map.
-    expect(window.VIEW_BY_ID.curated_value_added).toBeUndefined();
+    // The "curated" group (Análises curadas) is now live → its views are flattened.
+    expect(window.VIEW_BY_ID.curated_value_added.group.id).toBe('curated');
+    expect(window.VIEW_BY_ID.curated_market_nature.group.id).toBe('curated');
   });
 });
 

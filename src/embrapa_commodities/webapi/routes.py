@@ -6,8 +6,8 @@ the reused React views fetch these instead of computing synthetically. Same
 Pushdown model underneath — parameterized BigQuery, memoized by flask-caching.
 
 See ``PLANS/react_migration_contract_map.md`` §1 for the endpoint table. The
-data-blocked producers (chain/lag/market-nature) have no endpoint — the views
-ship honest placeholders.
+data-blocked producers (chain/lag) have no endpoint — the views ship honest
+placeholders. (market-nature IS live now — seed-driven, /api/cross/market-nature.)
 """
 
 from __future__ import annotations
@@ -63,7 +63,14 @@ def _conversion_or_400():
 
 
 # Trade-direction vocabulary the gateway binds (sql._flow). 'all'/absent sums every flow.
-_ALLOWED_FLOWS = frozenset({"export", "import", "all"})
+# Values are the readable `flow` tokens produced in silver_comtrade_flows — hyphenated
+# 're-export'/'re-import', matching the Gold/serving data verbatim so the bound
+# `flow = @flow` predicate hits real rows (the frontend previously sent underscore
+# 're_export' → zero rows AND was rejected here). COMEX exposes only export/import;
+# Comtrade adds the two re-flows (both present in gold_comtrade_flows). The six detailed
+# UN regimes (DX/FM/MIP/MOP/XIP/XOP) join this set once a re-ingestion with the widened
+# COMTRADE_FLOWS lands their rows in Gold.
+_ALLOWED_FLOWS = frozenset({"export", "import", "re-export", "re-import", "all"})
 
 
 def _flow_or_400(flow: str | None):
@@ -74,6 +81,36 @@ def _flow_or_400(flow: str | None):
     if flow and flow not in _ALLOWED_FLOWS:
         return None, (jsonify(error=f"fluxo inválido: {flow!r}"), 400)
     return flow, None
+
+
+def _customs_or_400(customs: str | None):
+    """Validate the optional customs-procedure param (regime aduaneiro; the COMTRADE
+    server-side regime filter). UN customsCode is 'C' + two digits (C00 = total / todos
+    os regimes); 'all'/absent passes through (→ sum every regime). A malformed value 400s
+    rather than binding verbatim and matching zero rows (mirrors _flow_or_400). The value
+    is bound as a query param downstream, so this guards typos, not injection."""
+    if (
+        customs
+        and customs != "all"
+        and not (len(customs) == 3 and customs[0] == "C" and customs[1:].isdigit())
+    ):
+        return None, (jsonify(error=f"regime aduaneiro inválido: {customs!r}"), 400)
+    return customs, None
+
+
+# Tipo de mercado (economic purpose) the seed classifies — the COMTRADE server-side market
+# filter. 'all'/absent sums every purpose.
+_ALLOWED_MARKETS = frozenset({"consumo", "processamento", "all"})
+
+
+def _market_or_400(market: str | None):
+    """Validate the optional tipo-de-mercado param (consumo/processamento; the COMTRADE
+    server-side market filter). 'all'/absent passes through. A value outside the seed's
+    market ids 400s rather than binding verbatim and matching zero rows (mirrors
+    _flow_or_400)."""
+    if market and market not in _ALLOWED_MARKETS:
+        return None, (jsonify(error=f"tipo de mercado inválido: {market!r}"), 400)
+    return market, None
 
 
 @api.errorhandler(ValueError)
@@ -393,8 +430,20 @@ def snapshot():
     flow, err = _flow_or_400(request.args.get("flow"))
     if err:
         return err
-    summary = {"flow": flow} if flow else None
-    return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, summary)))
+    customs, err = _customs_or_400(request.args.get("customs"))
+    if err:
+        return err
+    market, err = _market_or_400(request.args.get("market"))
+    if err:
+        return err
+    summary: dict = {}
+    if flow:
+        summary["flow"] = flow
+    if customs and customs != "all":
+        summary["customs"] = customs
+    if market and market != "all":
+        summary["market"] = market
+    return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, summary or None)))
 
 
 @api.get("/product-uf")
@@ -712,13 +761,11 @@ def feedback_submit():
     return jsonify(result)
 
 
-# ─── FROZEN FEATURE: Curadoria / enrichment endpoints ───────────────────────────
-# The curated value-added + market-nature readers (below) and the /curation/* editor
-# read/write routes are postponed to the "Versão Futura" roadmap phase (leadership
-# decision, 2026-06). Their UI entry points are hidden (views.js + AppShell.jsx), so
-# the app runs fully decoupled; the routes stay registered + tested and degrade
-# gracefully (empty results when `enable_curation` is unbuilt). Kept as the scaffold
-# for the real future implementation — do not delete.
+# ─── Engenharia de Atributos endpoints ─────────────────────────────────────────
+# Two derived-attribute analyses + the per-code industrialization editor. Value-added +
+# the per-code industrialization are researcher-EDITABLE (gated by the `enable_curation`
+# dbt var). Market-nature is SEED-DRIVEN (the comtrade_market_nature seed → serving mart),
+# so it has NO editor route — only the read below.
 @api.get("/cross/value-added")
 def cross_value_added():
     """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""
@@ -727,7 +774,7 @@ def cross_value_added():
 
 @api.get("/cross/market-nature")
 def cross_market_nature():
-    """COMTRADE value by curated economic purpose (consumo/processamento)."""
+    """COMTRADE value by seed-classified economic purpose (consumo/processamento)."""
     return jsonify(serializers.serialize_market_nature(seam.market_nature(_commodity())))
 
 
@@ -755,27 +802,3 @@ def curation_code_level():
         return jsonify(error="source, code and level are required"), 400
     logger.info("curation write by %s: %s/%s → %s", author, source, code, level)
     return jsonify(seam.record_code_level(source, code, level, change_id))
-
-
-@api.get("/curation/flow-worklist")
-def curation_flow_worklist():
-    """The (customs procedure × flow) matrix ⟕ current market (regime×flow editor)."""
-    return jsonify(seam.flow_market_worklist())
-
-
-@api.post("/curation/flow-market")
-def curation_flow_market():
-    """Append one (customs_code, flow_code) → market edit (market='' clears).
-    Author from the IAP header; 401 (no identity) / 403 (invalid assertion or not
-    an allowlisted curator)."""
-    author, err = _authorize_curator()
-    if err:
-        return err
-    body = request.get_json(silent=True) or {}
-    customs, flow = body.get("customs_code"), body.get("flow_code")
-    market = body.get("market", "")
-    change_id = body.get("change_id")
-    if not (customs and flow):
-        return jsonify(error="customs_code and flow_code are required"), 400
-    logger.info("flow-market write by %s: %s×%s → %s", author, customs, flow, market)
-    return jsonify(seam.record_flow_market(customs, flow, market, change_id))
