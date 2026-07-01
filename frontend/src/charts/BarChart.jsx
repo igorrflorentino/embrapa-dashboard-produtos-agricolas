@@ -5,7 +5,7 @@
 
 import { Plot, baseLayout, ptBrLinearAxis, ptBrMagnitude, resolveColor, seriesMax } from './_base';
 
-function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '', valueKey = 'value' }) {
+function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '', valueKey = 'value', compact = true }) {
   const c = resolveColor(color);
   // Category label per row (uf preferred, name fallback) and its value.
   const cats = data.map((d) => d.uf || d.name);
@@ -21,8 +21,11 @@ function BarChart({ data = [], height = 200, color = 'var(--viz-2)', label = '',
       // COMPACT magnitude label at the bar tip ("2,9 bi", "384 mi") — the raw pt-BR
       // number ("2.900.918.362,00") overflowed the card and was clipped at the edge
       // on the longest bar (audit LABEL-1). Compact matches the x-axis magnitude
-      // ticks; the hover still shows the exact value.
-      text: vals.map((v) => (v == null ? '' : ptBrMagnitude(v))),
+      // ticks; the hover still shows the exact value. `compact=false` keeps the full
+      // integer for UNIT metrics where the exact figure matters and the magnitude
+      // word misleads — e.g. kg/ha yield ("3.500", not "3,5 mil"); mirrors
+      // BrazilTileMap's compact flag so a view's map + ranking read the same (audit CORR-1).
+      text: vals.map((v) => (v == null ? '' : compact ? ptBrMagnitude(v) : v.toLocaleString('pt-BR'))),
       textposition: 'outside',
       cliponaxis: false,
       hovertemplate: '<b>%{y}</b>  %{x:,.2f}<extra></extra>',

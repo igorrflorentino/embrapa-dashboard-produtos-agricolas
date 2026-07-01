@@ -2579,6 +2579,33 @@ def test_gateway_inspectable_tables_and_allowlist_boundary():
         gateway._resolve_inspect_table("ibge_pevs", "bronze_ibge")  # not allowlisted at all
 
 
+def test_fetch_table_rows_clamps_absurd_offset(monkeypatch):
+    """The free tabledata.list browse passes ``offset`` straight to ``start_index``; an
+    absurd offset is clamped to RAW_TABLE_MAX_OFFSET so it can't drive a needless deep
+    storage skip on a large Bronze table (audit COST-1). A normal offset is untouched."""
+    from embrapa_commodities.serving import gateway
+
+    captured = {}
+
+    class _Rows:
+        def to_dataframe(self, **_kw):
+            return "df"
+
+    class _Client:
+        def list_rows(self, ref, *, max_results, start_index):
+            captured["start_index"] = start_index
+            return _Rows()
+
+    monkeypatch.setattr(gateway, "_resolve_inspect_table", lambda b, t: "proj.ds.tbl")
+    monkeypatch.setattr(gateway, "_inspect_visibility_predicate", lambda b, t: "")  # ungated
+    monkeypatch.setattr(gateway, "_client", lambda: _Client())
+
+    gateway.fetch_table_rows("ibge_pevs", "sidra_t289_raw", limit=100, offset=10**12)
+    assert captured["start_index"] == gateway.RAW_TABLE_MAX_OFFSET
+    gateway.fetch_table_rows("ibge_pevs", "sidra_t289_raw", limit=100, offset=250)
+    assert captured["start_index"] == 250  # a realistic offset is passed through unchanged
+
+
 def test_gateway_seed_catalog_and_allowlist_boundary():
     """The 'Referências' seed catalog: the editable flag distinguishes the editable
     catalog seed from the read-only CALIBRATION seeds, and an id outside the catalog is

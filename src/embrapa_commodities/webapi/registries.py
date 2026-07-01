@@ -730,7 +730,8 @@ VIEW_GROUPS: list[ViewGroup] = [
                 "live",
                 desc="A estrutura por trás do banco: percorra as tabelas de cada camada do "
                 "pipeline (Bronze → Silver → Gold → Serving) e investigue qualquer uma linha a "
-                "linha, com paginação, ordenação e filtros por coluna.",
+                "linha, com paginação, ordenação e filtros por coluna. Para conferir os dados ou "
+                "rastrear de onde vem cada número.",
             ),
             View(
                 "glossary",
