@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 ## [Unreleased]
 
 ### Changed
+- **The filter menu's product list is no longer cramped, for every banco.** The products
+  section was capped at a tight 132px scroll box while the whole modal grew unbounded and the
+  backdrop scrolled — a nested double-scroll that made picking from long product sets awkward
+  (worst on PPM's 23 flat products and the COMEX/Comtrade NCM/HS trees). The modal is now a
+  fixed-height flex column — a pinned header, a single scrolling body, and a **pinned footer**
+  so "Aplicar filtros" always stays in view — and the product list gets a roomy,
+  viewport-responsive height (`clamp(240px, 46vh, 460px)`, up from 132px). Short lists (e.g.
+  PEVS/PAM) still size to their content with no wasted space; long lists and expanded trees get
+  ~3× the visible rows. Verified across all five live bancos and on a short (640px) viewport.
 - **The topbar "Reportar problema" action is now "Enviar feedback".** The button opened a
   dialog that already accepted a problem, a question (dúvida) OR a suggestion, but its label
   implied problems only — and, unlike "Citar painel" / "Compartilhar", it rendered with no

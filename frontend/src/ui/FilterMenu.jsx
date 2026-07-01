@@ -12,7 +12,9 @@
 //   • Product label, value-filter currency symbol/column and the value
 //     shortcuts all come from the active banco (schema + baseCurrency), so
 //     COMEX shows "Produto · NCM/SH" + US$, Comtrade "Produto · HS6", etc.
-//   • Scrollable lists (260px max-height) for long enumerations
+//   • The modal is capped to the viewport as a flex column — fixed header +
+//     scrolling body (.fm-body) + pinned footer — so "Aplicar" stays in view;
+//     long product lists get a roomy, viewport-responsive height (.fm-grid-scroll)
 //   • Each multi-select has its own bulk actions row
 //
 // Selection cascades downward: unchecking "Norte" PRUNES its 7 states
