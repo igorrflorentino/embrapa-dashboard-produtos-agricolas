@@ -45,6 +45,12 @@ const ICONS = {
   table_chart: `<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>`,
   trending_up: `<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>`,
   factory: `<path d="M3 21V9l6 4V9l6 4V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v16z"/><path d="M3 21h18"/><line x1="7" y1="17" x2="7.01" y2="17"/><line x1="11" y1="17" x2="11.01" y2="17"/><line x1="15" y1="17" x2="15.01" y2="17"/>`,
+  // Feedback channel + catalog
+  feedback: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/>`,
+  bug_report: `<line x1="9" y1="5" x2="7.5" y2="3.5"/><line x1="15" y1="5" x2="16.5" y2="3.5"/><rect x="8" y="6" width="8" height="13" rx="4"/><line x1="12" y1="7" x2="12" y2="19"/><line x1="8" y1="10" x2="5" y2="9"/><line x1="8" y1="13" x2="4.5" y2="13"/><line x1="8" y1="16" x2="5" y2="17.5"/><line x1="16" y1="10" x2="19" y2="9"/><line x1="16" y1="13" x2="19.5" y2="13"/><line x1="16" y1="16" x2="19" y2="17.5"/>`,
+  lightbulb: `<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.4 1 1.1 1 1.8v.5h6v-.5c0-.7.4-1.4 1-1.8A7 7 0 0 0 12 2z"/>`,
+  check_circle: `<circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>`,
+  inventory_2: `<rect x="3" y="8" width="18" height="12" rx="1.5"/><path d="M3 8l1.8-3.2A1 1 0 0 1 5.7 4h12.6a1 1 0 0 1 .9.8L21 8"/><line x1="10" y1="12" x2="14" y2="12"/>`,
 };
 
 window.Icon = Icon;

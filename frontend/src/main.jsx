@@ -28,7 +28,7 @@ import './ui/MetricConventions.jsx';
 import './data/dataStore.js';
 import './data/producers.js';
 import './data/enrichment.js';
-import './data/feedback.js'; // window.postFeedback — the "Reportar problema" channel
+import './data/feedback.js'; // window.postFeedback — the "Enviar feedback" channel
 import './ui/contracts.js'; // runtime contract-drift lint: audits live producers vs SNAPSHOT_CONTRACTS on load
 
 // ── charts (NEW — Plotly for analytical charts; SVG ports for tile-map/donut) ─
