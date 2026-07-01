@@ -86,7 +86,7 @@ function AppShell({
   const [reportOpen, setReportOpen] = React.useState(false);
   const [utilOpen, setUtilOpen] = React.useState(false); // mobile (≤768px) "⋯" overflow menu for the util actions
   // Optional prefill (view/category/message) for a CONTEXTUAL feedback open (e.g. the
-  // Referências "report a value" action); null = the generic "Reportar problema" button.
+  // Referências "report a value" action); null = the generic "Enviar feedback" button.
   const [reportPrefill, setReportPrefill] = React.useState(null);
 
   // a11y: Escape closes the citation modal (mirrors its backdrop click + Fechar).
@@ -438,9 +438,9 @@ function AppShell({
             <window.Icon name="link" size={16}/>
             <span>{shared ? 'URL copiada' : 'Compartilhar'}</span>
           </button>
-          <button className="util-action" onClick={onReport} title="Reportar um problema ou enviar uma sugestão">
+          <button className="util-action" onClick={onReport} title="Relate um problema, tire uma dúvida ou envie uma sugestão">
             <window.Icon name="feedback" size={16}/>
-            <span>Reportar problema</span>
+            <span>Enviar feedback</span>
           </button>
 
           {/* Mobile (≤768px): the three actions above are hidden and collapse into this
@@ -461,7 +461,7 @@ function AppShell({
                     <window.Icon name="link" size={18}/><span>{shared ? 'URL copiada' : 'Compartilhar'}</span>
                   </button>
                   <button role="menuitem" className="util-menu-item" onClick={() => { setUtilOpen(false); onReport(); }}>
-                    <window.Icon name="feedback" size={18}/><span>Reportar problema</span>
+                    <window.Icon name="feedback" size={18}/><span>Enviar feedback</span>
                   </button>
                 </div>
               </>

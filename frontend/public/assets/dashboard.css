@@ -1429,9 +1429,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   color: var(--st-color, var(--fg-1));
   white-space: nowrap;
 }
-.hs-status-pill.hs-status-ok {
-  --st-color: var(--ok);
-}
 .hs-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
@@ -1490,49 +1487,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   padding: 1px 6px;
   border-radius: 3px;
 }
-.hs-dur, .hs-delta {
-  display: block;
-  margin-top: 2px;
-  color: var(--fg-3);
-}
-.hs-delta { color: var(--ok); font-weight: 500; }
-
-/* Run history strip */
-.hs-runs {
-  display: grid;
-  grid-template-columns: repeat(14, 1fr);
-  gap: 6px;
-  padding: 6px 4px 12px;
-}
-.hs-run {
-  display: flex;
-  flex-direction: column-reverse;
-  align-items: center;
-  gap: 6px;
-  padding-top: 4px;
-}
-.hs-run-bar {
-  display: block;
-  width: 100%;
-  height: 56px;
-  border-radius: 3px;
-  opacity: 0.92;
-  transition: opacity 120ms;
-}
-.hs-run:hover .hs-run-bar { opacity: 1; }
-.hs-run-date {
-  font: 500 10px var(--font-mono);
-  color: var(--fg-3);
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-.hs-runs-legend {
-  display: flex;
-  gap: 14px;
-  padding: 8px 4px 0;
-  border-top: 1px dashed var(--border-subtle);
-}
-
 /* Sources */
 .hs-sources {
   display: flex;
@@ -1549,6 +1503,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 }
 .hs-source:last-child { border-bottom: none; }
 .hs-source.pending .hs-source-name { color: var(--fg-3); }
+.hs-source-l { flex: 1; min-width: 0; }
 .hs-source-name {
   font: 600 13.5px var(--font-display);
   color: var(--fg-1);
@@ -1583,8 +1538,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface-2);
 }
-.hs-alert-warn { border-left: 3px solid var(--warn); }
-.hs-alert-info { border-left: 3px solid var(--info); }
 .hs-alert-fail { border-left: 3px solid var(--err); }
 .hs-alert-head {
   display: flex;
@@ -1610,8 +1563,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 @media (max-width: 980px) {
   .hs-source { flex-direction: column; align-items: flex-start; gap: 6px; }
   .hs-source-r { text-align: left; }
-  .hs-runs { grid-template-columns: repeat(7, 1fr); }
-  .hs-runs > .hs-run:nth-child(n+8) { display: none; }
 }
 /* ---------- Content ---------- */
 .content {

@@ -1,4 +1,5 @@
-// FeedbackModal.jsx — the "Reportar problema" dialog. Captures a category + a free-text
+// FeedbackModal.jsx — the "Enviar feedback" dialog (problema / dúvida / sugestão).
+// Captures a category + a free-text
 // message and AUTO-attaches reproduction context (the permalink to the current dashboard
 // state, the active view/banco, app version, optional user-agent) so a report is
 // actionable without the researcher copying anything. POSTs via window.postFeedback;
@@ -76,7 +77,7 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
         <header className="cite-head">
           <div>
             <div className="overline">Feedback</div>
-            <h2 id="fb-title">Reportar problema ou sugestão</h2>
+            <h2 id="fb-title">Fale com a equipe</h2>
             <p className="caption">
               Sua mensagem é registrada com o link da tela atual (perspectiva e filtros) e
               seu e-mail institucional, para que a equipe consiga reproduzir e responder.

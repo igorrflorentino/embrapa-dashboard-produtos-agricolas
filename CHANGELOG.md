@@ -19,6 +19,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   viewport-responsive height (`clamp(240px, 46vh, 460px)`, up from 132px). Short lists (e.g.
   PEVS/PAM) still size to their content with no wasted space; long lists and expanded trees get
   ~3× the visible rows. Verified across all five live bancos and on a short (640px) viewport.
+- **The topbar "Reportar problema" action is now "Enviar feedback".** The button opened a
+  dialog that already accepted a problem, a question (dúvida) OR a suggestion, but its label
+  implied problems only — and, unlike "Citar painel" / "Compartilhar", it rendered with no
+  icon (the `feedback` icon was missing from the registry, so `Icon` returned null). Relabeled
+  to the encompassing "Enviar feedback" (+ a matching message-bubble icon), and the dialog
+  title is now "Fale com a equipe".
+- **"Saúde do sistema" is now focused on bank OPERABILITY, not data quality.** The page
+  previously leaked single-bank data-quality content (a PEVS-only "% de linhas íntegras"
+  chart + a PEVS quality-spike alert + a PEVS-scoped refresh KPI), which both duplicated the
+  dedicated **Qualidade dos dados** perspective and ignored the other five banks. It now
+  reports multi-bank operability only, from real backend signals:
+  - KPIs: **Status geral**, **Bancos operando** (X/Y), **Volume total na Gold** (rows summed
+    across sources), **Alertas operacionais** (real failed Gold queries).
+  - The per-bank matrix gained **Fonte** + **Período coberto** columns (live `year_start–year_end`)
+    alongside the real per-bank Gold-query status.
+  - The architecture card surfaces the **running app version**, the system-wide temporal
+    amplitude, an honest "telemetria de execuções não monitorada" note, and a pointer to the
+    Qualidade dos dados perspective (where data-quality diagnostics live).
+  - Removed the PEVS-only quality chart/alert/KPI + the retired run-history card, and swept the
+    orphaned CSS (`hs-runs*`, `hs-dur/hs-delta`, `hs-status-ok`, `hs-alert-warn/info`). The
+    page hero subtitle no longer promises "qualidade das tabelas Gold".
+
+### Fixed
+- **Missing icons that rendered blank.** Added the icons the app referenced but the registry
+  lacked: `feedback` (topbar button), `bug_report` / `lightbulb` (the Problema / Sugestão
+  category chips in the feedback dialog — only Dúvida had one before), `check_circle` (the
+  feedback "enviado" confirmation), and `inventory_2` (the "Cadastro de commodities" sidebar
+  item). All were silently rendering nothing.
 
 ## [1.9.0] - 2026-07-01
 
