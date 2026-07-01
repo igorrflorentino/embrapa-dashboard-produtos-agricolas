@@ -138,7 +138,7 @@ deduplicated as (
           and motCode = '0'                             -- ┐ still aggregate over
           and partner2Code = '0'                        -- │ transport / supply /
           and mosCode = '0'                             -- ┘ second-partner
-    )
+    ) as regime_scan
     where customsCode != 'C00' or _regime_breakdown_rows = 0
     qualify row_number() over (
         partition by
