@@ -456,10 +456,10 @@ describe('AppShell — share + feedback', () => {
     expect(container.textContent).toContain('URL copiada');
   });
 
-  it('Reportar problema opens the FeedbackModal with the current view/banco context', () => {
+  it('Enviar feedback opens the FeedbackModal with the current view/banco context', () => {
     const props = baseProps();
     const { container } = render(<AppShell {...props} />);
-    fireEvent.click([...container.querySelectorAll('.util-action')].find((b) => b.textContent.includes('Reportar problema')));
+    fireEvent.click([...container.querySelectorAll('.util-action')].find((b) => b.textContent.includes('Enviar feedback')));
     const modal = container.querySelector('.feedback-modal');
     expect(modal).toBeTruthy();
     expect(modal.dataset.view).toBe('overview');
@@ -522,19 +522,19 @@ describe('AppShell — mobile topbar: util overflow menu (⋯)', () => {
     const menu = container.querySelector('.util-menu');
     expect(menu).toBeTruthy();
     const labels = [...menu.querySelectorAll('.util-menu-item')].map((b) => b.textContent.trim());
-    expect(labels).toEqual(['Citar painel', 'Compartilhar', 'Reportar problema']);
+    expect(labels).toEqual(['Citar painel', 'Compartilhar', 'Enviar feedback']);
     expect(container.querySelector('.util-more').getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('a menu item fires its action and closes the menu (Reportar → feedback modal)', () => {
+  it('a menu item fires its action and closes the menu (Enviar feedback → feedback modal)', () => {
     const { container } = render(<AppShell {...baseProps()} />);
     fireEvent.click(container.querySelector('.util-more'));
     const reportItem = [...container.querySelectorAll('.util-menu-item')].find((b) =>
-      b.textContent.includes('Reportar'),
+      b.textContent.includes('Enviar feedback'),
     );
     fireEvent.click(reportItem);
     expect(container.querySelector('.util-menu')).toBeNull(); // menu closed
-    expect(container.querySelector('.feedback-modal')).toBeTruthy(); // Reportar opened the modal
+    expect(container.querySelector('.feedback-modal')).toBeTruthy(); // Enviar feedback opened the modal
   });
 
   it('closes the overflow menu via the scrim and via Escape', () => {

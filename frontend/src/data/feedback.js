@@ -1,4 +1,4 @@
-// feedback.js — data layer for the "Reportar problema" channel. A single POST to
+// feedback.js — data layer for the "Enviar feedback" channel. A single POST to
 // /api/feedback; the author is captured server-side from the IAP identity (no login
 // field), so the payload carries only the report + auto-collected repro context
 // (current permalink, view, banco, app version, optional user-agent). Exposes

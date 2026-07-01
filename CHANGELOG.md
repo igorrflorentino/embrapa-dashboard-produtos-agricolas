@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 ## [Unreleased]
 
 ### Changed
+- **The topbar "Reportar problema" action is now "Enviar feedback".** The button opened a
+  dialog that already accepted a problem, a question (dúvida) OR a suggestion, but its label
+  implied problems only — and, unlike "Citar painel" / "Compartilhar", it rendered with no
+  icon (the `feedback` icon was missing from the registry, so `Icon` returned null). Relabeled
+  to the encompassing "Enviar feedback" (+ a matching message-bubble icon), and the dialog
+  title is now "Fale com a equipe".
 - **"Saúde do sistema" is now focused on bank OPERABILITY, not data quality.** The page
   previously leaked single-bank data-quality content (a PEVS-only "% de linhas íntegras"
   chart + a PEVS quality-spike alert + a PEVS-scoped refresh KPI), which both duplicated the
@@ -25,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
   - Removed the PEVS-only quality chart/alert/KPI + the retired run-history card, and swept the
     orphaned CSS (`hs-runs*`, `hs-dur/hs-delta`, `hs-status-ok`, `hs-alert-warn/info`). The
     page hero subtitle no longer promises "qualidade das tabelas Gold".
+
+### Fixed
+- **Missing icons that rendered blank.** Added the icons the app referenced but the registry
+  lacked: `feedback` (topbar button), `bug_report` / `lightbulb` (the Problema / Sugestão
+  category chips in the feedback dialog — only Dúvida had one before), `check_circle` (the
+  feedback "enviado" confirmation), and `inventory_2` (the "Cadastro de commodities" sidebar
+  item). All were silently rendering nothing.
 
 ## [1.9.0] - 2026-07-01
 
