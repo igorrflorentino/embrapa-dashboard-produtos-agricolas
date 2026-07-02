@@ -6,8 +6,8 @@
 --
 -- A researcher can set a commodity's Ciclo de Vida to "Fazer Ingestão mas deixar
 -- indisponível": ingest its data into Gold but HIDE the commodity from the
--- dashboard. This view emits ONLY the (source, code_prefix) of such hidden
--- commodities (latest-wins, active). The gate is applied as a NOT EXISTS predicate
+-- dashboard. This view emits ONLY the (source, code) of such hidden commodities
+-- (the exact codigo_commodity; latest-wins, active). The gate is a NOT EXISTS predicate
 -- over this view (see macros/hidden_code_predicate.sql + serving/sql.visibility_clause):
 -- a Gold code with NO row here stays visible — so PPM (no catalog rows) and any
 -- code outside the catalog are unaffected.
@@ -19,7 +19,7 @@
 -- picker). `banco` is already the short source token (pevs/pam/ppm/comex/comtrade),
 -- matching the Gold tables' source — verified on prod data.
 --
--- Grain: one row per hidden (source, code_prefix). Empty when nothing is hidden
+-- Grain: one row per hidden (source, code). Empty when nothing is hidden
 -- (the no-op steady state today: all active catalog rows are "deixar disponível").
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ with current_catalog as (
 
     select
         banco           as source,
-        code_prefix,
+        codigo_commodity,
         ciclo_de_vida,
         active,
         row_number() over (
@@ -40,7 +40,7 @@ with current_catalog as (
 
 select
     source,
-    code_prefix
+    codigo_commodity as code
 from current_catalog
 where _rn = 1
   and active

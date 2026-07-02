@@ -97,9 +97,9 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     out = seam_curation.catalog_worklist(banco="any")
 
     assert out["total"] == 3
-    # str() coercion on a numeric codigo_commodity / code_prefix.
+    # str() coercion on a numeric codigo_commodity; code_prefix is gone entirely.
     first = out["entries"][0]
-    assert first["codigo_commodity"] == "4403" and first["code_prefix"] == "4403"
+    assert first["codigo_commodity"] == "4403" and "code_prefix" not in first
     # Source description: 4407 (comex) resolves; the un_comtrade 4403 + comex 9999 don't.
     by_code = {(e["banco"], e["codigo_commodity"]): e for e in out["entries"]}
     assert by_code[("comex", "4407")]["descricao_fonte"] == "Madeira serrada (NCM)"
@@ -115,6 +115,121 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     assert groups["Madeira"]["n"] == 2
     assert groups["Madeira"]["bancos"] == ["comex", "un_comtrade"]
     assert groups["—"]["n"] == 1 and groups["—"]["bancos"] == ["comex"]
+
+
+# ── source_codes (add-form autocomplete + client-side existence check) ─────────
+
+
+def test_source_codes_unknown_banco_is_empty(monkeypatch):
+    """An unknown banco token has no source id → an empty (not error) code list, so the
+    add form degrades to a free-text field rather than blowing up."""
+    out = seam_curation.source_codes("not_a_banco")
+    assert out == {"banco": "not_a_banco", "codes": []}
+
+
+def test_source_codes_empty_when_products_table_absent(monkeypatch):
+    """A known banco whose products table isn't built yet → empty list (NotFound), not
+    an error."""
+
+    def _raise(src):
+        raise NotFound("products table not built")
+
+    monkeypatch.setattr(gateway, "fetch_products", _raise)
+    assert seam_curation.source_codes("comtrade") == {"banco": "comtrade", "codes": []}
+
+
+def test_source_codes_empty_when_products_df_empty(monkeypatch):
+    """A known banco whose products table is present but EMPTY → empty code list."""
+    monkeypatch.setattr(gateway, "fetch_products", lambda src: pd.DataFrame())
+    assert seam_curation.source_codes("comtrade") == {"banco": "comtrade", "codes": []}
+
+
+def test_source_codes_projects_code_and_name(monkeypatch):
+    """The happy path maps the banco token to its source id, reads the products, and
+    projects each to {code, name} (both str-coerced)."""
+    seen = {}
+
+    def _products(src):
+        seen["src"] = src
+        return pd.DataFrame([{"code": 4403, "name": "Madeira em toras"}, {"code": "4407"}])
+
+    monkeypatch.setattr(gateway, "fetch_products", _products)
+    out = seam_curation.source_codes("comtrade")
+
+    assert seen["src"] == "un_comtrade"  # short token → long source id
+    assert out["banco"] == "comtrade"
+    codes = {c["code"]: c["name"] for c in out["codes"]}
+    assert codes["4403"] == "Madeira em toras"  # int code coerced to str
+    assert codes["4407"] == ""  # a missing name normalizes to an empty string
+
+
+# ── catalog_status (per-commodity Gold state: linhas + período) ────────────────
+
+
+def test_catalog_status_empty_when_catalog_absent(monkeypatch):
+    """No catalog yet (NotFound) → an empty status map, not an error."""
+
+    def _raise(banco=None):
+        raise NotFound("catalog log absent")
+
+    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _raise)
+    assert seam_curation.catalog_status() == {"status": {}}
+
+
+def test_catalog_status_empty_when_catalog_df_empty(monkeypatch):
+    """An empty catalog DataFrame → an empty status map (no Gold scans)."""
+    monkeypatch.setattr(gateway, "fetch_commodity_catalog", lambda banco=None: pd.DataFrame())
+    assert seam_curation.catalog_status() == {"status": {}}
+
+
+def test_catalog_status_joins_gold_stats_per_code(monkeypatch):
+    """The happy path groups cataloged codes by banco, reads ONE Gold aggregate per banco,
+    and keys the result ``"<banco>:<code>"`` — a code with no Gold rows reports
+    n_rows=0/has_data=False (a registered-but-empty commodity)."""
+
+    def _catalog(banco=None):
+        return pd.DataFrame(
+            [
+                {"codigo_commodity": "4403", "banco": "comtrade"},
+                {"codigo_commodity": "9999", "banco": "comtrade"},  # cataloged, no Gold rows
+            ]
+        )
+
+    def _stats(banco):
+        # Only 4403 has Gold rows; 9999 is absent from the aggregate.
+        return pd.DataFrame([{"code": "4403", "n_rows": 12, "year_start": 2000, "year_end": 2024}])
+
+    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _catalog)
+    monkeypatch.setattr(gateway, "fetch_source_code_stats", _stats)
+
+    status = seam_curation.catalog_status()["status"]
+    assert status["comtrade:4403"] == {
+        "n_rows": 12,
+        "year_start": 2000,
+        "year_end": 2024,
+        "has_data": True,
+    }
+    assert status["comtrade:9999"] == {
+        "n_rows": 0,
+        "year_start": None,
+        "year_end": None,
+        "has_data": False,
+    }
+
+
+def test_catalog_status_skips_banco_when_stats_absent(monkeypatch):
+    """A banco whose Gold fact table is missing (fetch_source_code_stats → NotFound) is
+    skipped entirely rather than aborting the whole status map."""
+
+    def _catalog(banco=None):
+        return pd.DataFrame([{"codigo_commodity": "1", "banco": "not_a_banco"}])
+
+    def _raise(banco):
+        raise NotFound("no Gold table for that banco")
+
+    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _catalog)
+    monkeypatch.setattr(gateway, "fetch_source_code_stats", _raise)
+    assert seam_curation.catalog_status() == {"status": {}}
 
 
 # ── record_catalog_entry ──────────────────────────────────────────────────────
@@ -141,7 +256,6 @@ def test_record_catalog_entry_threads_payload_without_request_context(monkeypatc
         "agrupamento": "Madeira",
         "descricao_commodity": "Madeira em toras",
         "ciclo_de_vida": "Disponível",
-        "code_prefix": "440",
         "commodity_id": "madeira",
         "change_id": "k1",
     }
@@ -152,7 +266,7 @@ def test_record_catalog_entry_threads_payload_without_request_context(monkeypatc
     assert captured["headers"] == {}  # no request context → empty headers
     assert captured["kw"]["agrupamento"] == "Madeira"
     assert captured["kw"]["change_id"] == "k1"
-    assert captured["kw"]["code_prefix"] == "440"
+    assert "code_prefix" not in captured["kw"]  # prefixes removed from the writer
 
 
 def test_record_catalog_entry_captures_iap_headers_in_request_context(monkeypatch):

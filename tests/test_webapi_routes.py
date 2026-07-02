@@ -1321,6 +1321,52 @@ def test_catalog_entries_route_returns_worklist(monkeypatch):
     assert body["total"] == 1 and body["entries"][0]["codigo_commodity"] == "4403"
 
 
+def test_catalog_source_codes_route_forwards_banco(monkeypatch):
+    """GET /api/catalog/source-codes?banco= returns the source's real codes for the add
+    form's autocomplete + existence check."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(
+        seam,
+        "source_codes",
+        lambda banco: (
+            seen.update(banco=banco)
+            or {"banco": banco, "codes": [{"code": "4403", "name": "Madeira"}]}
+        ),
+    )
+    resp = client.get("/api/catalog/source-codes?banco=comtrade")
+    assert resp.status_code == 200
+    assert seen["banco"] == "comtrade"
+    assert resp.get_json()["codes"][0]["code"] == "4403"
+
+
+def test_catalog_status_route_returns_per_code_state(monkeypatch):
+    """GET /api/catalog/status returns the per-commodity Gold state map (linhas + período)."""
+    from embrapa_commodities.webapi import seam
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        seam,
+        "catalog_status",
+        lambda: {
+            "status": {
+                "comtrade:4403": {
+                    "n_rows": 12,
+                    "year_start": 2000,
+                    "year_end": 2024,
+                    "has_data": True,
+                }
+            }
+        },
+    )
+    resp = client.get("/api/catalog/status")
+    assert resp.status_code == 200
+    st = resp.get_json()["status"]["comtrade:4403"]
+    assert st["n_rows"] == 12 and st["year_start"] == 2000 and st["has_data"] is True
+
+
 def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
     """POST /api/catalog/entry threads the body to the seam writer (open allowlist)."""
     from embrapa_commodities.webapi import seam
@@ -1370,24 +1416,25 @@ def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
     assert resp.status_code == 403
 
 
-def test_catalog_entry_upsert_overlapping_prefix_is_400(monkeypatch):
-    """A ValueError from the writer (overlapping prefix / bad key / over-length) → 400."""
+def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
+    """A ValueError from the writer (code doesn't exist / bad key / over-length) → 400,
+    with the REASON forwarded so the UI can tell the researcher the code isn't real."""
     from embrapa_commodities.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
 
-    def raise_overlap(body):
-        raise ValueError("O prefixo '440' se sobrepõe ao prefixo '4403' — use prefixos disjuntos.")
+    def raise_missing(body):
+        raise ValueError("O código '9999' não existe no banco comtrade — cadastre códigos reais.")
 
-    monkeypatch.setattr(seam, "record_catalog_entry", raise_overlap)
+    monkeypatch.setattr(seam, "record_catalog_entry", raise_missing)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade", "code_prefix": "440"},
+        json={"codigo_commodity": "9999", "banco": "comtrade"},
     )
     assert resp.status_code == 400
-    # The overlap REASON must reach the UI so the researcher can pick disjoint prefixes.
-    assert "sobrepõe" in resp.get_json()["error"]
+    # The rejection REASON must reach the UI so the researcher knows the code isn't real.
+    assert "não existe" in resp.get_json()["error"]
 
 
 def test_catalog_entry_remove_threads_to_seam(monkeypatch):

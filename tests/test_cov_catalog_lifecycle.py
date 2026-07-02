@@ -312,7 +312,7 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is True
     assert "2026-06-27" in plan["backup_msg"]
-    assert any("gold_comex_flows" in s and "20079926%" in s for s in plan["statements"])
+    assert any("gold_comex_flows" in s and "= '20079926'" in s for s in plan["statements"])
     assert all(s.strip().startswith("DELETE FROM") for s in plan["statements"])
 
 

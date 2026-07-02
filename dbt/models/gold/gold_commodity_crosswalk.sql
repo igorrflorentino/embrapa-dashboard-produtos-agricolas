@@ -9,34 +9,27 @@
 -- trade mirror, harvest→shipment lag) must join the SAME commodity across them —
 -- and that link is domain knowledge, not a SELECT DISTINCT.
 --
--- The hand-maintained `commodity_crosswalk` seed encodes that knowledge at the
--- commodity-CONCEPT level: a few code PREFIXES per commodity (e.g. roundwood ↔
--- HS/NCM 4403). This model expands those prefixes against the codes that actually
--- appear in each Gold fact table, emitting exact (source, code) → commodity rows
--- so a consumer joins on equality. A code that matches no prefix is simply absent
--- here → "unlinked" (graceful degradation), never an error.
+-- The editable Curadoria catalog registers each commodity by its EXACT source code
+-- (`codigo_commodity`; no prefixes). This model joins those codes to the codes that
+-- actually appear in each Gold fact table, emitting exact (source, code) → commodity
+-- rows so a consumer joins on equality. A Gold code not in the catalog is simply
+-- absent here → "unlinked" (graceful degradation), never an error.
 --
 -- Grain: one row per (source, code). source ∈ {pevs, comex, comtrade}.
 --
--- ⚠ SEED INVARIANT (load-bearing): within a single source, no commodity's
--- code_prefix may be a prefix of a code that ANOTHER commodity also matches.
--- The join below is `code LIKE prefix || '%'` and the SELECT is only `distinct`
--- (which collapses fully-identical rows, NOT a (source, code) that resolves to
--- two commodity_ids). If two commodities had overlapping prefixes — e.g. one
--- seeds `1201` (soja) and another `12010` (a soja sub-product) — a code like
--- `1201010` would resolve to BOTH, and because the serving marts LEFT JOIN this
--- crosswalk on (source, code), that row would FAN OUT and silently DOUBLE every
--- qty_base/val_* sum for that code. The `dbt_utils.unique_combination_of_columns`
--- test on (source, code) in _gold.yml is the build-time guard that trips if this
--- invariant is ever broken — keep it, and keep seed prefixes non-overlapping.
+-- ⚠ INVARIANT (load-bearing): (codigo_commodity, source) is unique in the catalog, and
+-- the join below is a plain equality `code = codigo_commodity`, so a Gold code resolves
+-- to AT MOST one commodity_id — the cross-source LEFT JOIN in the serving marts cannot
+-- FAN OUT and double any qty_base/val_* sum. The `dbt_utils.unique_combination_of_columns`
+-- test on (source, code) in _gold.yml is the build-time guard that trips if this is ever
+-- broken (e.g. the same code cataloged under two commodities).
 -- ────────────────────────────────────────────────────────────────────────────
 
 with xwalk as (
 
     -- The editable Curadoria catalog (dim_commodity_catalog), the SOT that replaced
-    -- the commodity_crosswalk seed. Same columns (commodity_id/commodity_name/source/
-    -- code_prefix) — the cutover was proven row-identical on real data (191=191, 0 diffs).
-    select commodity_id, commodity_name, source, code_prefix
+    -- the commodity_crosswalk seed. Each row is one exact (source, codigo_commodity).
+    select commodity_id, commodity_name, source, codigo_commodity
     from {{ ref('dim_commodity_catalog') }}
 
 ),
@@ -70,4 +63,4 @@ select distinct
 from source_codes c
 join xwalk x
     on c.source = x.source
-    and c.code like x.code_prefix || '%'
+    and c.code = x.codigo_commodity

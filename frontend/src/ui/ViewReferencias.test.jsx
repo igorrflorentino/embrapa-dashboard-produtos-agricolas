@@ -13,7 +13,7 @@ const SEEDS = [
     id: 'commodity_crosswalk',
     label: 'Crosswalk de commodities',
     editable: true,
-    description: 'Liga o mesmo produto entre as fontes por prefixo de código.',
+    description: 'Liga o mesmo produto entre as fontes pelo código real.',
   },
   {
     id: 'historical_currency_factors',
@@ -26,13 +26,13 @@ const SEED_PAGE = {
   columns: [
     { name: 'commodity_id', type: 'STRING' },
     { name: 'source', type: 'STRING' },
-    { name: 'code_prefix', type: 'STRING' },
+    { name: 'codigo_commodity', type: 'STRING' },
   ],
   rows: [['acai', 'pevs', '3403'], ['acai', 'comex', null]],
   total: 46,
   table: 'commodity_crosswalk',
   label: 'Crosswalk de commodities',
-  grain: 'Liga o mesmo produto entre as fontes por prefixo de código.',
+  grain: 'Liga o mesmo produto entre as fontes pelo código real.',
   editable: true,
 };
 
@@ -78,7 +78,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     const headers = [...container.querySelectorAll('.dt-table thead th')]
       .map((e) => e.textContent.replace(/[▲▼\s]/g, ''))
       .filter(Boolean); // drop the empty leading "report" column header
-    expect(headers).toEqual(['commodity_id', 'source', 'code_prefix']);
+    expect(headers).toEqual(['commodity_id', 'source', 'codigo_commodity']);
     expect(container.querySelector('.dt-null')).toBeTruthy(); // the null cell renders ∅
     expect(container.textContent).toContain('46'); // total row count
     // the first seed (commodity_crosswalk) is editable → the catalog badge says so

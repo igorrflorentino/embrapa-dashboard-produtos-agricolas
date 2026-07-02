@@ -145,9 +145,9 @@ sources:
         identifier: "{{ env_var('BQ_COMMODITY_CATALOG_LOG_TABLE', 'commodity_catalog_log') }}"
         description: >
           Append-only Curadoria (catalog) source: one row per manual commodity-catalog
-          edit. Columns: codigo_commodity, banco (source token pevs/comex/comtrade/
-          pam/ppm), agrupamento (cross-source concept), descricao_commodity,
-          ciclo_de_vida, code_prefix, commodity_id, active
+          edit. Columns: codigo_commodity (the EXACT source code — no prefixes), banco
+          (source token pevs/comex/comtrade/pam/ppm), agrupamento (cross-source concept),
+          descricao_commodity, ciclo_de_vida, commodity_id, active
           (false = a tombstone: the entry left the catalog → its Gold data is an
           orphan), edited_by (IAP email), edited_at (TIMESTAMP), change_id.
           dim_commodity_catalog derives the current (latest-wins, active) catalog and

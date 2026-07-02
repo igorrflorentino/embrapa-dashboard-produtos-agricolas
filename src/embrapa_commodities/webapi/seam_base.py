@@ -42,7 +42,7 @@ def _crosswalk_df() -> pd.DataFrame:
     sql = (
         f"select x.commodity_id, x.commodity_name, x.source, x.code from `{fqn}` x "
         f"where not exists (select 1 from `{vis}` v "
-        f"where v.source = x.source and x.code like v.code_prefix || '%')"
+        f"where v.source = x.source and x.code = v.code)"
     )
     return gateway.run_query(sql, [])
 

@@ -60,15 +60,14 @@ def catalog_worklist(banco: str | None = None) -> dict:
             "agrupamento": _clean(r.agrupamento),
             "descricao_commodity": _clean(r.descricao_commodity),
             "ciclo_de_vida": _clean(r.ciclo_de_vida),
-            "code_prefix": str(r.code_prefix),
             "commodity_id": _clean(r.commodity_id),
         }
         for r in df.itertuples()
     ]
     # Attach the source's ORIGINAL product description per (banco, codigo) — the name the
     # source (IBGE/COMEX/Comtrade) gives that code — so a bare numeric code isn't opaque.
-    # Read once per source (memoized). A code that isn't an EXACT source code (a coarse
-    # prefix registered for a group) has no single description → left None.
+    # Read once per source (memoized). Every catalog code is now an EXACT source code, so
+    # each resolves to a description (None only if the source products table is unread).
     source_names: dict[str, dict] = {}
     for b in {e["banco"] for e in entries}:
         src = _BANCO_TO_SOURCE.get(b)
@@ -92,10 +91,70 @@ def catalog_worklist(banco: str | None = None) -> dict:
     return {"entries": entries, "total": len(entries), "by_agrupamento": by_agrupamento}
 
 
+def source_codes(banco: str) -> dict:
+    """The source's real product codes (+ names) for ONE banco token — backs the add
+    form's autocomplete and the client-side "the code must exist" check (the server also
+    enforces it). Empty when the banco is unknown or its products table isn't built."""
+    src = _BANCO_TO_SOURCE.get((banco or "").strip())
+    if src is None:
+        return {"banco": banco, "codes": []}
+    try:
+        df = gateway.fetch_products(src)
+    except NotFound:
+        return {"banco": banco, "codes": []}
+    if df is None or df.empty:
+        return {"banco": banco, "codes": []}
+    codes = [
+        # _clean maps a NULL name (float NaN from BigQuery) to None → "" (never the literal
+        # string "nan"), so the datalist option label is empty rather than misleading.
+        {"code": str(p.code), "name": str(_clean(getattr(p, "name", None)) or "")}
+        for p in df.itertuples()
+    ]
+    return {"banco": banco, "codes": codes}
+
+
+def catalog_status() -> dict:
+    """Per-commodity Gold STATE for every cataloged (banco, code): row count + reference-
+    year span. Backs the catalog's status columns. One cheap aggregate per source that has
+    catalog entries (cached); a cataloged code with no Gold rows reports n_rows=0 /
+    has_data=False (a registered-but-empty commodity). Keyed ``"<banco>:<code>"``."""
+    import collections
+
+    try:
+        df = gateway.fetch_commodity_catalog(None)
+    except NotFound:
+        return {"status": {}}
+    if df is None or df.empty:
+        return {"status": {}}
+    by_banco: dict[str, set] = collections.defaultdict(set)
+    for r in df.itertuples():
+        by_banco[r.banco].add(str(r.codigo_commodity))
+    status: dict[str, dict] = {}
+    for banco, codes in by_banco.items():
+        try:
+            sdf = gateway.fetch_source_code_stats(banco)
+        except NotFound:
+            continue
+        stat = (
+            {str(r.code): r for r in sdf.itertuples()} if sdf is not None and not sdf.empty else {}
+        )
+        for code in codes:
+            s = stat.get(code)
+            status[f"{banco}:{code}"] = {
+                "n_rows": int(s.n_rows) if s is not None else 0,
+                "year_start": int(s.year_start)
+                if s is not None and s.year_start is not None
+                else None,
+                "year_end": int(s.year_end) if s is not None and s.year_end is not None else None,
+                "has_data": bool(s is not None and s.n_rows),
+            }
+    return {"status": status}
+
+
 def record_catalog_entry(payload: dict) -> dict:
     """Upsert one catalog entry from a request body. Author from the IAP header (dev
     fallback per config). Wraps the verified writer; raises ValueError on a bad key /
-    over-length / overlapping prefix (→ HTTP 400)."""
+    over-length / a code that doesn't exist in the source (→ HTTP 400)."""
     from flask import has_request_context, request
 
     from embrapa_commodities.serving import curation
@@ -108,7 +167,6 @@ def record_catalog_entry(payload: dict) -> dict:
         agrupamento=payload.get("agrupamento"),
         descricao_commodity=payload.get("descricao_commodity"),
         ciclo_de_vida=payload.get("ciclo_de_vida"),
-        code_prefix=payload.get("code_prefix"),
         commodity_id=payload.get("commodity_id"),
         change_id=payload.get("change_id"),
     )
@@ -228,7 +286,6 @@ def orphan_worklist() -> dict:
                 "codigo_commodity": code,
                 "banco": o.banco,
                 "agrupamento": o.agrupamento,
-                "code_prefix": str(o.code_prefix),
                 # Honor the recorded status: a re-orphaned, already-purged code reads
                 # 'purged', not a hardcoded 'descontinuado'. None until the marker runs.
                 "status": (st.status if st is not None else "descontinuado"),

@@ -68,16 +68,16 @@ def test_validate_catalog_edit_rejects_invalid_ciclo_enum():
         curation._validate_catalog_edit("4403", "un_comtrade", "Talvez disponível")
 
 
-# ── _current_prefixes: NotFound fall-through (lines 174-175) ──────────────────
+# ── _is_active_entry: NotFound fall-through (log table absent) ────────────────
 
 
-def test_current_prefixes_returns_empty_when_table_absent():
+def test_is_active_entry_false_when_table_absent():
     from embrapa_commodities.serving import curation
 
     client = mock.Mock()
     client.query.side_effect = NotFound("table does not exist yet")
-    # The first write has no log table → NotFound → no conflicts ([]).
-    assert curation._current_prefixes(client, "proj.ds.tbl", "un_comtrade") == []
+    # No log table yet → the entry can't be active → False.
+    assert curation._is_active_entry(client, "proj.ds.tbl", "4403", "un_comtrade") is False
 
 
 # ── record_commodity_catalog: over-length text guards (lines 241, 243) ────────
@@ -128,7 +128,7 @@ def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [])
+    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
     # A client-supplied change_id already present in the log → the write is a no-op.
     monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
     client = mock.Mock()
@@ -147,10 +147,10 @@ def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
 
     assert rec["deduped"] is True
     assert rec["active"] is True
-    assert rec["code_prefix"] == "4403"
+    assert "code_prefix" not in rec
     assert rec["change_id"] == "retry-key-1"
-    # No INSERT was issued on the dedup path — the only query is the disjoint read,
-    # which we monkeypatched away, so query() was never called for an insert.
+    # No INSERT was issued on the dedup path — the existence gate is monkeypatched away,
+    # so query() was never called for an insert.
     insert_calls = [c for c in client.query.call_args_list if "insert into" in c.args[0].lower()]
     assert insert_calls == []
 
@@ -163,7 +163,7 @@ def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [])
+    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
     client = mock.Mock()
     client.query.return_value.result.return_value = []
 
@@ -225,7 +225,7 @@ def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [("4403", "4403")])
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
     client = mock.Mock()
     client.query.return_value.result.return_value = []
 

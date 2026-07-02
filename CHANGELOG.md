@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.0] - 2026-07-02
+
+Simplify the commodity catalog: each commodity is registered by its **exact source
+code**, one at a time — no more prefixes. A redesigned, guided add screen that **won't
+let you register a code that doesn't exist**, and status columns showing each
+commodity's current state in the dashboard.
+
+### Added
+- **Catalog status columns** — the "Cadastro de commodities" table now shows, per
+  commodity, its current Gold state: **linhas na Gold**, **período coberto**
+  (ano mais antigo–recente) and a **tem-dados** indicator (a registered code with no
+  Gold rows reads "sem dados"). Backed by one cheap cached aggregate per source
+  (`GET /api/catalog/status` → `gateway.fetch_source_code_stats`).
+- **Code autocomplete + hard existence check on the add form** — the code field
+  autocompletes from the source's REAL product list (`GET /api/catalog/source-codes`),
+  shows a live ✓/✗ hint, and both the client AND the server (`serving/curation.
+  _assert_code_exists`) **reject a code that doesn't exist in the source** (HTTP 400,
+  pt-BR reason). You can no longer register a phantom commodity.
+
+### Changed
+- **`code_prefix` eliminated end-to-end** (DB, backend, dbt, UI). Every commodity is
+  keyed by its exact `(codigo_commodity, banco)`; the cross-source bridge, the F7
+  visibility gate (`dim_commodity_visibility` + `hidden_code_predicate`), the PAM/PPM
+  serving joins, the orphan diff and the purge plan all switched from
+  `LIKE code_prefix||'%'` to exact `= code`. Behavior-preserving — after the v1.9.5
+  import every entry's prefix already equalled its exact leaf code.
+- **The "Adicionar commodity" screen was redesigned** — a clear labelled grid (banco ·
+  código · agrupamento · ciclo · descrição) with inline validation feedback, replacing
+  the cramped free-form row. Registration is one code at a time.
+
+### Removed
+- The prefix-disjointness write guard and the coarse-prefix purge resolution (both
+  moot once codes are exact).
+
+### Operator follow-up (zero-downtime column removal — two steps around the deploy)
+- **Before deploy** (makes prod ready for the new writer; the old revision is unaffected —
+  it still writes a non-null value into a now-nullable column):
+  `ALTER TABLE research_inputs.commodity_catalog_log ALTER COLUMN code_prefix DROP NOT NULL;`
+- **After the new revision is live and verified** (fully removes the column — the new code
+  never references it):
+  `ALTER TABLE research_inputs.commodity_catalog_log DROP COLUMN code_prefix;`
+
 ## [1.9.5] - 2026-07-02
 
 Connect Curadoria (Cadastro de commodities) and Engenharia de Atributos (Nível de
