@@ -117,7 +117,7 @@ window.VIEW_GROUPS = [
     views: [
       { id: 'curated_value_added', label: 'Valor agregado', status: 'live', requires: [], crossBanco: true, curated: true, align: 'nível de industrialização',
         sources: ['mdic_comex', 'un_comtrade'],
-        desc: 'Exportação separada entre bruta e processada, a partir da classificação curada dos códigos. Participação do processado e prêmio de preço.' },
+        desc: 'Exportação distribuída pelos 8 níveis de industrialização (do bruto ao manufaturado), a partir da classificação curada dos códigos. Valor, volume e preço por nível, com prêmio de processamento.' },
       { id: 'curated_market_nature', label: 'Finalidade econômica', status: 'live', requires: [], crossBanco: true, curated: true, align: 'finalidade (consumo/processamento)',
         sources: ['mdic_comex', 'un_comtrade'],
         desc: 'Valor comercializado por finalidade econômica (consumo × processamento), classificado por par regime aduaneiro × fluxo a partir do seed do Contrato de Dados. Cruzada com a direção, separa comprar/vender para consumir ou processar.' },

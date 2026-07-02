@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.9.4] - 2026-07-02
+
+Engenharia de Atributos — the per-code industrialization scale is now an **8-level ordinal
+taxonomy** (Commodity Pura → Manufaturado Especializado), replacing the old 3-value
+bruta/processada/misturado. Backend storage is open-vocabulary, so no schema change.
+
+### Changed
+- **Industrialization is now an 8-level ordinal scale** (`Commodity Pura`, `Higienizada`,
+  `Acondicionada`, `Consumível`, `Subproduto`; `Manufaturado Artesanal`, `Industrial`,
+  `Especializado`), each with a researcher-facing definition. The classifier editor offers the
+  8 options + a reference legend ("O que significa cada nível") and per-option tooltips.
+- **The "Valor agregado" analysis is redesigned as a per-level gradient** instead of a binary
+  Bruto×Processado split: stacked-area of export value (US$ bi) and volume (mil t) by level, a
+  per-level unit-price chart (US$/kg), and a "prêmio de processamento" = price of the most-
+  processed present level ÷ the least-processed. New KPIs (níveis presentes, nível predominante).
+  The seam/serializer now emit per-level series (`byLevel`/`byLevelWeight`/`byLevelPrice`).
+- **PAM and PPM are now classifiable.** The industrialization worklist covers every live source
+  (`CLASSIFIABLE_SOURCES`) — IBGE PEVS/PAM/PPM + MDIC COMEX + UN Comtrade — so their commodities
+  can be classified too (the value-added analysis itself stays COMEX-only).
+
+### Added
+- Glossary + view descriptions updated for the 8-level scale and the two families
+  (Commodity × Manufaturado).
+
 ## [1.9.3] - 2026-07-01
 
 A mobile-responsiveness fix for the "Saúde do sistema" page — the per-banco operational

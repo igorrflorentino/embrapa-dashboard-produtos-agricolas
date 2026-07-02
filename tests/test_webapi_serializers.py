@@ -294,42 +294,69 @@ def test_serialize_cross_camelcase_and_preview():
     assert ec["byUf"] == [] and ec["incompatible"] is True and ec["preview"] is False
 
 
-def test_serialize_value_added_derives_bylevel():
+def test_serialize_value_added_pivots_per_level():
     out = s.serialize_value_added(
         {
             "series": [
                 {
                     "y": 2020,
-                    "brutaV": 2.0,
-                    "procV": 3.0,
-                    "brutaW": 8.0,
-                    "procW": 2.0,
-                    "procShare": 60.0,
-                    "procShareW": 20.0,
-                    "priceBruta": 0.25,
-                    "priceProc": 1.5,
-                    "premium": 6.0,
+                    "levels": {
+                        "commodity_pura": {"v": 2.0, "w": 8.0, "price": 0.25},
+                        "manufaturado_industrial": {"v": 3.0, "w": 2.0, "price": 1.5},
+                    },
+                    "totalV": 5.0,
+                    "totalW": 10.0,
                 }
             ],
+            "levels": ["commodity_pura", "manufaturado_industrial"],
+            "premium": 6.0,
+            "predominant": {"level": "manufaturado_industrial", "shareV": 60.0},
             "n_codes": 4,
         }
     )
     assert out["years"] == [2020] and out["nCodes"] == 4
-    assert out["byLevel"]["bruta"] == [{"y": 2020, "v": 2.0}]
-    assert out["byLevel"]["processada"] == [{"y": 2020, "v": 3.0}]
-    # volume composition (mil t) derived alongside the value composition
-    assert out["byLevelWeight"]["bruta"] == [{"y": 2020, "v": 8.0}]
-    assert out["byLevelWeight"]["processada"] == [{"y": 2020, "v": 2.0}]
-    # absolute per-level prices + weights survive on the flat series (for the bars)
-    assert out["series"][0]["priceBruta"] == 0.25 and out["series"][0]["priceProc"] == 1.5
+    assert out["levels"] == ["commodity_pura", "manufaturado_industrial"]
+    # value composition (US$ bi) pivoted into a continuous array per level
+    assert out["byLevel"]["commodity_pura"] == [{"y": 2020, "v": 2.0}]
+    assert out["byLevel"]["manufaturado_industrial"] == [{"y": 2020, "v": 3.0}]
+    # volume (mil t) + unit price (US$/kg) pivoted alongside
+    assert out["byLevelWeight"]["commodity_pura"] == [{"y": 2020, "v": 8.0}]
+    assert out["byLevelPrice"]["manufaturado_industrial"] == [{"y": 2020, "v": 1.5}]
+    # scalar rollups pass through
+    assert out["premium"] == 6.0 and out["predominant"]["level"] == "manufaturado_industrial"
 
 
-def test_serialize_value_added_weight_defaults_when_absent():
-    """A pre-existing series row without weights → byLevelWeight 0 (back-compat)."""
+def test_serialize_value_added_zero_fills_absent_level_year():
+    """A level present overall but absent in a given year → 0 in that year's slot,
+    so the stacked-area series stays continuous."""
     out = s.serialize_value_added(
-        {"series": [{"y": 2019, "brutaV": 1.0, "procV": 1.0}], "n_codes": 1}
+        {
+            "series": [
+                {
+                    "y": 2019,
+                    "levels": {"commodity_pura": {"v": 1.0, "w": 4.0, "price": 0.25}},
+                    "totalV": 1.0,
+                    "totalW": 4.0,
+                },
+                {
+                    "y": 2020,
+                    "levels": {"manufaturado_industrial": {"v": 2.0, "w": 1.0, "price": 2.0}},
+                    "totalV": 2.0,
+                    "totalW": 1.0,
+                },
+            ],
+            "levels": ["commodity_pura", "manufaturado_industrial"],
+            "premium": 0.0,
+            "predominant": {"level": "manufaturado_industrial", "shareV": 100.0},
+            "n_codes": 2,
+        }
     )
-    assert out["byLevelWeight"]["bruta"] == [{"y": 2019, "v": 0}]
+    # commodity_pura has no export in 2020 → filled with v:0 to keep the series continuous
+    assert out["byLevel"]["commodity_pura"] == [{"y": 2019, "v": 1.0}, {"y": 2020, "v": 0}]
+    assert out["byLevelWeight"]["manufaturado_industrial"] == [
+        {"y": 2019, "v": 0},
+        {"y": 2020, "v": 1.0},
+    ]
 
 
 def test_cross_series_none_passthrough():

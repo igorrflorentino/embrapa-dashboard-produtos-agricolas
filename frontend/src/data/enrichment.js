@@ -1,11 +1,12 @@
 // enrichment.js — the researcher ENRICHMENT store (Engenharia de Atributos), API-backed.
 //
-// ONE institutional axis remains editable: CODE-level industrialization
-// (bruta/processada/misturado) — the worklist is /api/curation/worklist (Gold DISTINCT
+// ONE institutional axis remains editable: CODE-level industrialization — an 8-level
+// ordinal scale from a raw commodity (Commodity Pura) to a specialized manufactured good
+// (Manufaturado Especializado). The worklist is /api/curation/worklist (Gold DISTINCT
 // codes ⟕ the append-only SCD2 classification log); it drives window.valueAddedAnalysis
-// (→ /api/cross/value-added). Edits stage in a local draft and commit via POST on
-// "Aplicar à base" (the append-only writer, author captured from IAP), gated downstream
-// by the `enable_curation` dbt var.
+// (→ /api/cross/value-added, exports charted per level). Edits stage in a local draft and
+// commit via POST on "Aplicar à base" (the append-only writer, author captured from IAP),
+// gated downstream by the `enable_curation` dbt var.
 //
 // (The OTHER axis — tipo de mercado / market nature — is no longer editable here: it is the
 // static comtrade_market_nature seed carried as serving_comtrade_annual.market_nature, and
@@ -17,10 +18,27 @@ const API = '/api';
 const WL_KEY = 'curation:worklist'; // code-level industrialization worklist
 
 // ── static registries (industrialization levels + the economic-purpose markets) ──
+// The 8 industrialization levels, ORDERED least→most processed (the ordinal drives the
+// value-added gradient chart + the most-vs-least "prêmio de processamento"). `id` is the
+// stored slug (open-vocabulary in the backend); `description` is the researcher-facing
+// definition shown in the editor + reference legend.
 window.ENRICH_LEVELS = [
-  { id: 'bruta', label: 'Bruta', color: 'var(--viz-3)' },
-  { id: 'processada', label: 'Processada', color: 'var(--viz-2)' },
-  { id: 'misturado', label: 'Misturado', color: 'var(--pres-gray-300)' },
+  { id: 'commodity_pura', label: 'Commodity Pura', color: 'var(--viz-3)',
+    description: 'Produto em estado original, sem nenhuma modificação pós-colheita ou extração.' },
+  { id: 'commodity_higienizada', label: 'Commodity Higienizada', color: 'var(--viz-5)',
+    description: 'Produto passou por algumas etapas simples de limpeza, como tratamento contra microorganismos e remoção de elementos indesejáveis (sujeira, parasitas, terra e afins).' },
+  { id: 'commodity_acondicionada', label: 'Commodity Acondicionada', color: 'var(--viz-2)',
+    description: 'Produto passou por algumas etapas simples de aperfeiçoamento, como remoção de cascas e excessos e compartimentalização em tamanhos e recipientes específicos (cortes, sacas, perfilamento e afins).' },
+  { id: 'commodity_consumivel', label: 'Commodity Consumível', color: 'var(--viz-4)',
+    description: 'Produto passou por todas as etapas necessárias para poder ser usado como insumo em uma nova cadeia industrial (transformado, combinado e afins) ou ser consumido diretamente como produto fim.' },
+  { id: 'commodity_subproduto', label: 'Commodity Subproduto', color: 'var(--viz-8)',
+    description: 'Produto que sobrou de alguma etapa anterior de processamento e ainda pode ser usado ou reaproveitado em alguma cadeia produtiva ou ser consumido diretamente.' },
+  { id: 'manufaturado_artesanal', label: 'Manufaturado Artesanal', color: 'var(--viz-6)',
+    description: 'Produto que passou por um processamento de diferenciação de forma manual, sem processo ou etapas de construção definidos ou padronizados.' },
+  { id: 'manufaturado_industrial', label: 'Manufaturado Industrial', color: 'var(--viz-1)',
+    description: 'Produto que passou por um processamento de diferenciação de forma industrial, com um processo ou etapas de construção bem definidos e padronizados.' },
+  { id: 'manufaturado_especializado', label: 'Manufaturado Especializado', color: 'var(--viz-9)',
+    description: 'Produto que passou por um processamento de diferenciação com exclusividade intelectual, em geral envolvendo camadas de propriedade intelectual como inovações e patentes.' },
 ];
 // The economic-purpose markets (consumo/processamento) the seed classifies — consumed by
 // the "Finalidade econômica" analysis (ViewCuratedAnalyses).
@@ -93,6 +111,7 @@ window.enrichment = {
 
   levelLabel: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).label || id,
   levelColor: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).color || 'var(--fg-3)',
+  levelDesc: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).description || '',
   groupLabel: (id) => (window.ENRICH_GROUPS.find((g) => g.id === id) || {}).label || id,
 
   // Chapter derived from the code prefix (NCM/HS by leading 2 digits; PEVS by group).

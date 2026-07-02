@@ -1,7 +1,8 @@
 // ViewCuratedAnalyses.jsx — the two Engenharia de Atributos analyses (Multi-fonte).
-//   · ViewValueAdded   — exports split by industrialization (bruta × processada), from the
-//                        researcher-editable per-code classification (subscribes to the
-//                        enrichment store so editing re-renders it live).
+//   · ViewValueAdded   — exports split across the 8 industrialization levels (Commodity Pura
+//                        → Manufaturado Especializado), from the researcher-editable per-code
+//                        classification (subscribes to the enrichment store so editing
+//                        re-renders it live).
 //   · ViewMarketNature — COMTRADE value by economic purpose (consumo × processamento), from
 //                        the static comtrade_market_nature seed (serving mart) — NOT editable.
 // Both read real Gold/COMTRADE data and degrade to an honest empty state when absent.
@@ -15,31 +16,34 @@ function useEnrichmentTick() {
 
 const caNum = window.numBR, caPct = window.pctBR;
 
-// ── Value added: bruta × processada ───────────────────────────────────
+// ── Value added: exports across the 8 industrialization levels ─────────
 function ViewValueAdded() {
   useEnrichmentTick();
   const [group, setGroup] = useCaState(null);
   // Per-UF scoping ('' = Brasil). The COMEX export side honours it.
   const [uf, setUf] = useCaState('');
   const data = window.valueAddedAnalysis(group, uf ? [uf] : undefined);
+  const levels = data.levels || [];
   const last = data.series[data.series.length - 1];
-  const first = data.series[0];
 
-  const areaSeries = [
-    { name: 'Bruta', color: 'var(--viz-3)', data: data.byLevel.bruta },
-    { name: 'Processada', color: 'var(--viz-2)', data: data.byLevel.processada },
-  ];
-  // Volume composition (mil t) — the same bruta×processada split, by weight.
-  const areaSeriesW = [
-    { name: 'Bruta', color: 'var(--viz-3)', data: (data.byLevelWeight || { bruta: [] }).bruta },
-    { name: 'Processada', color: 'var(--viz-2)', data: (data.byLevelWeight || { processada: [] }).processada },
-  ];
-  // Absolute unit price per level (US$/kg) — not just the premium ratio.
-  const priceSeries = [
-    { name: 'Bruta', color: 'var(--viz-3)', data: data.series.map(d => ({ y: d.y, v: d.priceBruta })) },
-    { name: 'Processada', color: 'var(--viz-2)', data: data.series.map(d => ({ y: d.y, v: d.priceProc })) },
-  ];
-  const shareTs = data.series.map(d => ({ y: d.y, v: d.procShare }));
+  // One chart series per PRESENT level, in ordinal order (least→most processed),
+  // coloured + labelled from the shared ENRICH_LEVELS registry.
+  const levelMeta = (id) => window.ENRICH_LEVELS.find(l => l.id === id) || { label: id, color: 'var(--fg-3)' };
+  const mkSeries = (byLevel) => levels.map(id => ({ name: levelMeta(id).label, color: levelMeta(id).color, data: (byLevel || {})[id] || [] }));
+  const areaSeries = mkSeries(data.byLevel);       // value · US$ bi
+  const areaSeriesW = mkSeries(data.byLevelWeight); // volume · mil t
+  const priceSeries = mkSeries(data.byLevelPrice);  // unit price · US$/kg
+
+  const predom = data.predominant;
+  const predomLabel = predom ? levelMeta(predom.level).label : '—';
+
+  const Legend = ({ series }) => (
+    <div className="pc-legend">
+      {series.map(s => (
+        <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>
+      ))}
+    </div>
+  );
 
   return (
     <>
@@ -61,64 +65,49 @@ function ViewValueAdded() {
       <window.UfScopePicker value={uf} onChange={setUf} />
 
       <div className="kpi-row">
-        <window.KpiCardSpark label="Exportação processada" value={caPct(last?.procShare)} sub={`${last?.y ?? '—'} · do valor exportado`} />
-        <window.KpiCardSpark label="Variação na janela" value={window.fmtSigned((last?.procShare || 0) - (first?.procShare || 0), 1, ' p.p.')} deltaPositive={(last?.procShare || 0) >= (first?.procShare || 0)} sub={`${first?.y ?? '—'}–${last?.y ?? '—'}`} />
-        <window.KpiCardSpark label="Prêmio do processado" value={'×' + caNum(last?.premium, 1)} sub="preço processada ÷ bruta" />
+        <window.KpiCardSpark label="Níveis presentes" value={levels.length} sub={`de ${window.ENRICH_LEVELS.length} na escala`} />
+        <window.KpiCardSpark label="Nível predominante" value={predomLabel} sub={predom ? `${caPct(predom.shareV)} do valor em ${last?.y ?? '—'}` : 'sem exportação classificada'} />
+        <window.KpiCardSpark label="Prêmio de processamento" value={data.premium ? '×' + caNum(data.premium, 1) : '—'} sub="preço do mais ÷ menos processado" />
         <window.KpiCardSpark label="Códigos na análise" value={data.nCodes} sub="incluídos e classificados" />
       </div>
 
       <div className="card">
-        <window.SectionHeader overline="Valor exportado por nível · US$ bi" title="Quanto sai bruto e quanto sai processado"
+        <window.SectionHeader overline="Valor exportado por nível · US$ bi" title="Quanto sai em cada nível de industrialização"
           action={<span className="caption">classificação da Curadoria</span>} />
         {data.nCodes < 1 ? (
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum código bruto/processado incluído para esta seleção. Ajuste em <strong>Engenharia de atributos → Nível de industrialização</strong>.
+            Nenhum código classificado incluído para esta seleção. Ajuste em <strong>Engenharia de atributos → Nível de industrialização</strong>.
           </p>
         ) : (
           <>
             <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} />
-            <div className="pc-legend">
-              {areaSeries.map(s => (
-                <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>
-              ))}
-            </div>
+            <Legend series={areaSeries} />
           </>
         )}
       </div>
 
       {data.nCodes >= 1 && (
         <div className="card">
-          <window.SectionHeader overline="Volume exportado por nível · mil t" title="Quanto sai bruto e quanto sai processado (em peso)"
-            action={<span className="caption">{caPct(last?.procShareW)} processado em {last?.y ?? '—'}</span>} />
+          <window.SectionHeader overline="Volume exportado por nível · mil t" title="Quanto sai em cada nível (em peso)"
+            action={<span className="caption">composição por nível</span>} />
           <window.StackedArea series={areaSeriesW} valueKey="v" label="mil t" height={260} />
-          <div className="pc-legend">
-            {areaSeriesW.map(s => (
-              <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>
-            ))}
-          </div>
+          <Legend series={areaSeriesW} />
         </div>
       )}
 
       {data.nCodes >= 1 && (
         <div className="card">
-          <window.SectionHeader overline="Preço médio por nível · US$/kg" title="Quanto vale o quilo bruto vs. processado"
-            action={<span className="caption">prêmio ×{caNum(last?.premium, 1)}</span>} />
+          <window.SectionHeader overline="Preço médio por nível · US$/kg" title="Quanto vale o quilo em cada nível"
+            action={<span className="caption">{data.premium ? 'prêmio ×' + caNum(data.premium, 1) : '—'}</span>} />
           <window.MultiLineChart series={priceSeries} valueKey="v" label="US$/kg" height={260} trend />
           <p className="caption" style={{ padding: '8px 4px 0' }}>
-            O prêmio do processado é o quociente destes dois preços — agregar valor é vender o quilo mais caro.
+            O prêmio de processamento é o quociente entre o preço do nível <strong>mais processado</strong> e o do
+            <strong> menos processado</strong> presentes — agregar valor é vender o quilo mais caro.
+            Reclassifique um código em <strong>Engenharia de atributos → Nível de industrialização</strong> e esta
+            análise se atualiza — é o conhecimento do pesquisador entrando no dado.
           </p>
         </div>
       )}
-
-      <div className="card">
-        <window.SectionHeader overline="Participação do processado no tempo" title="A pauta está agregando mais valor?"
-          action={<span className="caption">% · valor processado ÷ total</span>} />
-        <window.LineChart data={shareTs} valueKey="v" label="% processado" color="var(--viz-2)" height={240} />
-        <p className="caption" style={{ padding: '8px 4px 0' }}>
-          Reclassifique um código entre <strong>bruta</strong> e <strong>processada</strong> em <strong>Engenharia de atributos → Nível de industrialização</strong> e esta análise se atualiza —
-          é o conhecimento do pesquisador entrando no dado.
-        </p>
-      </div>
     </>
   );
 }

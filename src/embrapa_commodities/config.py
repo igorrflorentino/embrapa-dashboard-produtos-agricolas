@@ -348,7 +348,7 @@ class Settings(BaseSettings):
     bq_research_inputs_dataset: str = Field(default="research_inputs")
     # Per-CODE industrialization log — the primary curation grain. Backs
     # dim_code_industrialization_scd2 + the value-added analysis (COMEX exports
-    # split by the curated bruta/processada level).
+    # split by the curated 8-level Commodity → Manufaturado scale).
     bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
     # (The market-nature classification is no longer a log — it is the static
     # comtrade_market_nature seed carried as serving_comtrade_annual.market_nature.)

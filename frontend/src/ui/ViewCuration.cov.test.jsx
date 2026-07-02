@@ -48,8 +48,9 @@ function stubWidgets() {
 // ── static enrichment registries (mirror data/enrichment.js) ──────────────────
 function stubRegistries() {
   window.ENRICH_LEVELS = [
-    { id: 'bruta', label: 'Bruta', color: 'var(--viz-3)' },
-    { id: 'processada', label: 'Processada', color: 'var(--viz-2)' },
+    { id: 'commodity_pura', label: 'Commodity Pura', color: 'var(--viz-3)', description: 'Produto em estado original.' },
+    { id: 'commodity_acondicionada', label: 'Commodity Acondicionada', color: 'var(--viz-2)', description: 'Produto acondicionado.' },
+    { id: 'manufaturado_industrial', label: 'Manufaturado Industrial', color: 'var(--viz-1)', description: 'Produto manufaturado.' },
   ];
   window.ENRICH_MARKETS = [
     { id: 'consumo', label: 'Consumo', short: 'Consumo', color: 'var(--viz-1)' },
@@ -65,9 +66,9 @@ function stubRegistries() {
 // tests can drive the apply-bar states (committing / pending / error) etc.
 function fakeEnrichment(over = {}) {
   const codes = [
-    { id: 'ibge_pevs:1.1', group: 'acai', source: 'ibge_pevs', code: '1.1', desc: 'Açaí', level: 'bruta' },
+    { id: 'ibge_pevs:1.1', group: 'acai', source: 'ibge_pevs', code: '1.1', desc: 'Açaí', level: 'commodity_pura' },
     { id: 'ibge_pevs:1.2', group: 'acai', source: 'ibge_pevs', code: '1.2', desc: 'Açaí proc.', level: '' }, // todo
-    { id: 'mdic_comex:4407', group: 'madeira', source: 'mdic_comex', code: '4407', desc: 'Madeira', level: 'processada' },
+    { id: 'mdic_comex:4407', group: 'madeira', source: 'mdic_comex', code: '4407', desc: 'Madeira', level: 'manufaturado_industrial' },
   ];
   const base = {
     codes: () => codes,
@@ -75,8 +76,9 @@ function fakeEnrichment(over = {}) {
     stats: () => ({
       codesTotal: 3,
       unclassified: 1,
-      byLevel: { bruta: 1, processada: 1 },
+      byLevel: { commodity_pura: 1, commodity_acondicionada: 0, manufaturado_industrial: 1 },
     }),
+    levelDesc: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).description || '',
     chapterOf: (src, code) => (src === 'ibge_pevs' ? 'Produtos alimentícios' : '44 · Madeira'),
     setCode: vi.fn(),
     apply: vi.fn((cb) => cb && cb()),
@@ -116,8 +118,8 @@ describe('ViewEnrichmentIndustrialization', () => {
     const kpi = (l) => container.querySelector(`.kpi[data-label="${l}"] .kpi-value`)?.textContent;
     expect(kpi('Total de códigos')).toBe('3');
     expect(kpi('A classificar')).toBe('1');
-    expect(kpi('Bruta')).toBe('1');
-    expect(kpi('Processada')).toBe('1');
+    expect(kpi('Classificados')).toBe('2');
+    expect(kpi('Níveis usados')).toBe('2'); // commodity_pura + manufaturado_industrial
     // commodity group header + a "a classificar" todo pill on the level-less row
     expect(container.textContent).toContain('Açaí');
     expect(container.textContent).toContain('a classificar');
@@ -141,8 +143,8 @@ describe('ViewEnrichmentIndustrialization', () => {
     fakeEnrichment({ setCode });
     const { container } = render(<window.ViewEnrichmentIndustrialization />);
     const sel = container.querySelector('select.cur-level');
-    fireEvent.change(sel, { target: { value: 'processada' } });
-    expect(setCode).toHaveBeenCalledWith('ibge_pevs:1.1', { level: 'processada' });
+    fireEvent.change(sel, { target: { value: 'manufaturado_industrial' } });
+    expect(setCode).toHaveBeenCalledWith('ibge_pevs:1.1', { level: 'manufaturado_industrial' });
   });
 });
 
@@ -211,33 +213,65 @@ describe('EnrichmentApplyBar states', () => {
 
 // ── ViewValueAdded (curated analysis powered by the enrichment layer) ─────────
 function valueAddedData(over = {}) {
+  const levels = ['commodity_pura', 'manufaturado_industrial']; // ordinal order
   const series = [
-    { y: 2019, priceBruta: 1, priceProc: 2, procShare: 30, procShareW: 25, premium: 2 },
-    { y: 2020, priceBruta: 1.2, priceProc: 3, procShare: 40, procShareW: 35, premium: 2.5 },
+    {
+      y: 2019,
+      levels: {
+        commodity_pura: { v: 7, w: 70, price: 0.1 },
+        manufaturado_industrial: { v: 3, w: 10, price: 0.3 },
+      },
+      totalV: 10,
+      totalW: 80,
+    },
+    {
+      y: 2020,
+      levels: {
+        commodity_pura: { v: 8, w: 72, price: 0.11 },
+        manufaturado_industrial: { v: 4, w: 11, price: 0.36 },
+      },
+      totalV: 12,
+      totalW: 83,
+    },
   ];
   return {
     series,
-    byLevel: { bruta: [{ y: 2019, v: 7 }], processada: [{ y: 2020, v: 3 }] },
-    byLevelWeight: { bruta: [{ y: 2019, v: 70 }], processada: [{ y: 2020, v: 30 }] },
+    levels,
+    byLevel: {
+      commodity_pura: [{ y: 2019, v: 7 }, { y: 2020, v: 8 }],
+      manufaturado_industrial: [{ y: 2019, v: 3 }, { y: 2020, v: 4 }],
+    },
+    byLevelWeight: {
+      commodity_pura: [{ y: 2019, v: 70 }, { y: 2020, v: 72 }],
+      manufaturado_industrial: [{ y: 2019, v: 10 }, { y: 2020, v: 11 }],
+    },
+    byLevelPrice: {
+      commodity_pura: [{ y: 2019, v: 0.1 }, { y: 2020, v: 0.11 }],
+      manufaturado_industrial: [{ y: 2019, v: 0.3 }, { y: 2020, v: 0.36 }],
+    },
+    premium: 3.3,
+    predominant: { level: 'commodity_pura', shareV: 66.7 },
     nCodes: 5,
     ...over,
   };
 }
 
 describe('ViewValueAdded', () => {
-  it('renders the full chart stack + KPIs when codes are classified', () => {
+  it('renders the per-level chart stack + KPIs when codes are classified', () => {
     window.valueAddedAnalysis = vi.fn(() => valueAddedData());
     const { container } = render(<window.ViewValueAdded />);
     expect(window.valueAddedAnalysis).toHaveBeenCalled();
     // commodity chips (Todas curadas + ENRICH_GROUPS)
     expect(container.textContent).toContain('Todas curadas');
     expect(container.textContent).toContain('Açaí');
-    // KPI: códigos na análise = nCodes
+    // KPI: códigos na análise = nCodes; níveis presentes = levels.length
     expect(container.querySelector('.kpi[data-label="Códigos na análise"] .kpi-value')?.textContent).toBe('5');
-    // the value/weight/price/share charts are all present (nCodes >= 1)
+    expect(container.querySelector('.kpi[data-label="Níveis presentes"] .kpi-value')?.textContent).toBe('2');
+    // value + volume stacked areas + the per-level price multiline (nCodes >= 1)
     expect(container.querySelectorAll('.stacked-area').length).toBe(2); // value + weight
-    expect(container.querySelector('.multiline')).toBeTruthy(); // price
-    expect(container.querySelector('.linechart')).toBeTruthy(); // share
+    expect(container.querySelector('.multiline')).toBeTruthy(); // price per level
+    // the old binary "% processado" line chart is gone (gradient replaces it)
+    expect(container.querySelector('.linechart')).toBeFalsy();
   });
 
   it('selecting a commodity chip + the UF picker re-queries valueAddedAnalysis', () => {
@@ -256,9 +290,11 @@ describe('ViewValueAdded', () => {
   });
 
   it('shows the honest empty state when no codes are classified (nCodes < 1)', () => {
-    window.valueAddedAnalysis = vi.fn(() => valueAddedData({ nCodes: 0, byLevelWeight: undefined }));
+    window.valueAddedAnalysis = vi.fn(() =>
+      valueAddedData({ nCodes: 0, levels: [], byLevel: {}, byLevelWeight: {}, byLevelPrice: {} })
+    );
     const { container } = render(<window.ViewValueAdded />);
-    expect(container.textContent).toContain('Nenhum código bruto/processado incluído');
+    expect(container.textContent).toContain('Nenhum código classificado incluído');
     // the secondary charts are suppressed when nCodes < 1
     expect(container.querySelector('.multiline')).toBeFalsy();
   });
