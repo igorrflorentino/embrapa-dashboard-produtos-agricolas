@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.1] - 2026-07-02
+
+### Fixed
+- **"Tipos de mercado" agora aparece em "Tabelas de referência".** A seed
+  `comtrade_market_nature` (a natureza de mercado — consumo / processamento — por par
+  regime aduaneiro × fluxo do COMTRADE) materializava no `silver` e já alimentava o
+  pipeline, mas nunca havia sido registrada no catálogo de Referências (`_SEED_CATALOG`),
+  então não era consultável. Registrada como somente-leitura (calibração). Verificada
+  fiel à aba "Tipos de Mercado" da planilha Contrato de Dados (25 pares de natureza
+  definida; os pares ausentes = "Não se aplica").
+
+### Added
+- Teste de regressão (`test_every_seed_csv_is_a_consultable_reference_table`) que garante
+  a bijeção seed CSV ↔ `_SEED_CATALOG`: uma nova seed que materialize no `silver` mas não
+  for registrada no catálogo de Referências passa a quebrar o CI (com uma lista de exclusão
+  explícita e documentada para casos intencionais, como a `commodity_crosswalk` aposentada).
+
 ## [1.10.0] - 2026-07-02
 
 Simplify the commodity catalog: each commodity is registered by its **exact source
