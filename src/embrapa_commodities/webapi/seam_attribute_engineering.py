@@ -27,8 +27,7 @@ from google.api_core.exceptions import NotFound
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving.cache import cache
 
-from . import seam_base
-from .seam_base import _LIVE_SOURCES
+from . import seam_base, seam_curation
 
 # The 8 industrialization levels, ORDERED least→most processed. Mirrors the frontend
 # window.ENRICH_LEVELS ids. The order is the ordinal the value-added analysis uses to draw
@@ -45,19 +44,6 @@ CUR_LEVELS = (
     "manufaturado_industrial",
     "manufaturado_especializado",
 )
-
-# Sources whose Gold product codes appear in the industrialization worklist (the
-# researcher can classify them). Every live IBGE + trade source — PAM/PPM included, so
-# their commodities are classifiable too (the value-added analysis itself is COMEX-only,
-# but the per-code industrialization is a general attribute across sources).
-CLASSIFIABLE_SOURCES = (
-    "ibge_pevs",
-    "ibge_pam",
-    "ibge_ppm",
-    "mdic_comex",
-    "un_comtrade",
-)
-
 
 @cache.memoize()
 def _code_to_commodity() -> dict:
@@ -104,42 +90,38 @@ def _current_code_levels() -> dict:
     return {(r.source, str(r.code)): r.industrialization_level for r in df.itertuples()}
 
 
-def _worklist_rows_for_source(src: str, levels: dict, cmap: dict, catalog: dict) -> list[dict]:
-    """The per-source code rows: each Gold code ⟕ its level + crosswalk commodity."""
-    products = gateway.fetch_products(src)
-    if products is None or products.empty:
-        return []
+def curation_worklist() -> dict:
+    """The classification worklist = the CURADORIA CATALOG entries ⟕ current levels.
+
+    Reads the SAME live commodity catalog the "Cadastro de commodities" editor uses
+    (``seam_curation.catalog_worklist`` → the append-only ``commodity_catalog_log``,
+    latest-wins active), so the two features stay in lock-step: identical
+    banco+código+descrição+agrupamento, and any catalog edit (a new/renamed/moved/removed
+    commodity or group) propagates here automatically. Each catalog entry carries its
+    curated level or None ("a classificar"); its ``agrupamento`` is the grouping. PAM/PPM
+    are included by construction (they live in the catalog with their agrupamentos, unlike
+    the crosswalk). Pure reads; safe before any catalog / SCD2 view exists (renders empty).
+    """
+    levels = _current_code_levels()
+    catalog = seam_curation.catalog_worklist()
     rows = []
-    for p in products.itertuples():
-        code = str(p.code)
-        cid = cmap.get((src, code))
+    for e in catalog.get("entries", []):
+        src = seam_curation._BANCO_TO_SOURCE.get(e.get("banco"))
+        if src is None:
+            continue
+        code = str(e["codigo_commodity"])
         rows.append(
             {
                 "source": src,
                 "code": code,
-                "name": str(getattr(p, "name", code) or code),
-                "commodity": cid,
-                "commodity_name": catalog.get(cid, {}).get("name") if cid else None,
+                # Source's original product name (parity with the catalog's "Descrição
+                # (fonte)" column); fall back to the researcher description, then the code.
+                "name": e.get("descricao_fonte") or e.get("descricao_commodity") or code,
+                "commodity": e.get("commodity_id"),
+                "commodity_name": e.get("agrupamento"),
                 "level": levels.get((src, code)),
             }
         )
-    return rows
-
-
-def curation_worklist() -> dict:
-    """The LEFT JOIN: Gold DISTINCT codes (per live source) ⟕ current levels.
-
-    Each code carries its curated level or None ("a classificar"), plus the
-    commodity it maps to (via the crosswalk) for grouping. Pure reads; safe before
-    the SCD2 view exists (all codes then read as unclassified).
-    """
-    levels = _current_code_levels()
-    cmap = _code_to_commodity()
-    catalog = seam_base.commodity_catalog()
-    rows = []
-    for src in CLASSIFIABLE_SOURCES:
-        if src in _LIVE_SOURCES:
-            rows.extend(_worklist_rows_for_source(src, levels, cmap, catalog))
     classified = sum(1 for r in rows if r["level"])
     by_level = {lvl: sum(1 for r in rows if r["level"] == lvl) for lvl in CUR_LEVELS}
     return {

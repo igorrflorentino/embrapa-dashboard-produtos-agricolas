@@ -806,7 +806,6 @@ from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at m
     _value_added_accumulate,
     _value_added_codes_by_level,
     _value_added_series_point,
-    _worklist_rows_for_source,
     curation_worklist,
     curator_emails,
     market_nature,

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.9.5] - 2026-07-02
+
+Connect Curadoria (Cadastro de commodities) and Engenharia de Atributos (Nível de
+industrialização) — one catalog, in sync.
+
+### Changed
+- **The industrialization worklist now reads the SAME live commodity catalog the
+  "Cadastro de commodities" editor uses** (`seam_curation.catalog_worklist` → the
+  append-only `commodity_catalog_log`). So both features share identical
+  banco+código+descrição+agrupamento, any catalog edit (new/renamed/moved/removed
+  commodity or group) propagates to both automatically, and **PAM/PPM now group by
+  commodity** (they live in the catalog with their agrupamentos, unlike the crosswalk).
+  Replaces the old worklist that read the Gold code universe + the crosswalk (which
+  lacked PAM/PPM). The value-added analysis is unchanged (it reads the classification
+  log directly).
+- **"Código" column** in the classifier no longer cramped — codes stay on one line with
+  room to breathe.
+- Page subtitle for "Nível de industrialização" updated for the 8-level scale (was
+  "(bruta/processada)").
+
+### Fixed
+- `catalog_worklist` no longer 500s when a catalog entry has a NULL agrupamento/
+  descrição/ciclo — BigQuery returns those as `NaN` (float), which broke the group sort;
+  now normalized to None.
+
 ## [1.9.4] - 2026-07-02
 
 Engenharia de Atributos — the per-code industrialization scale is now an **8-level ordinal

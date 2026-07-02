@@ -2940,6 +2940,15 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .cur-check { width: 17px; height: 17px; accent-color: var(--embrapa-green); cursor: pointer; }
 .cur-level { height: 30px; padding: 0 8px; font-size: 12.5px; }
 .cur-table td { vertical-align: middle; }
+/* "Código" column: keep codes (e.g. 08012100) on one line with room to breathe — the
+   description column was squeezing it. Targets the code cell (td.tnum) + its header. */
+.cur-table td.tnum,
+.cur-table thead th:nth-child(2) {
+  white-space: nowrap;
+  padding-right: 22px;
+  min-width: 96px;
+  font-variant-numeric: tabular-nums;
+}
 /* Pair matrix (regime × flow) */
 .cur-matrix th.cur-c, .cur-matrix td.cur-c { text-align: center; min-width: 132px; }
 /* The flow column headers carry the full official UN Comtrade name + code, which

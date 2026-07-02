@@ -74,11 +74,14 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
                 {
                     "codigo_commodity": "9999",
                     "banco": "comex",
-                    "agrupamento": "",  # falsy → bucketed under '—'
+                    # A NULL STRING cell reads back from BigQuery as float('nan') — the
+                    # worklist must coerce it to None (via _clean) or sorted(groups) chokes
+                    # comparing a float key with the string keys. Bucketed under '—'.
+                    "agrupamento": float("nan"),
                     "descricao_commodity": "Sem agrupamento",
-                    "ciclo_de_vida": "",
+                    "ciclo_de_vida": float("nan"),
                     "code_prefix": "9999",
-                    "commodity_id": "x",
+                    "commodity_id": float("nan"),
                 },
             ]
         )
@@ -101,6 +104,10 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     by_code = {(e["banco"], e["codigo_commodity"]): e for e in out["entries"]}
     assert by_code[("comex", "4407")]["descricao_fonte"] == "Madeira serrada (NCM)"
     assert by_code[("comex", "9999")]["descricao_fonte"] is None
+    # The NULL (NaN) fields on the 9999 row are normalized to None (not left as float nan).
+    e9999 = by_code[("comex", "9999")]
+    assert e9999["agrupamento"] is None
+    assert e9999["ciclo_de_vida"] is None and e9999["commodity_id"] is None
 
     groups = {g["agrupamento"]: g for g in out["by_agrupamento"]}
     assert set(groups) == {"Madeira", "—"}
