@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **"Saúde do sistema" is now properly adapted to phones.** On tablet the page was already
+  fine, but on a phone the 6-column per-banco operational table ("Estado atual de cada fonte")
+  had no mobile treatment: squeezed into ~290px it collapsed every cell to unreadable
+  vertical letter-columns (bank names wrapping "I-B-G-E-P-P-M") behind a horizontal scroll.
+  It now **reflows to one stacked label:value card per banco on phones (≤560px)** — the
+  app's established "two-column sheet → list" convention (`.pp-spec` / `.ab-banco-meta`) — via
+  `data-label` attributes read only by a phone-scoped `@media` block, so tablet (≥561px) and
+  desktop render byte-identical. Also stacked, on the narrowest phones (≤480px): the
+  "Arquitetura operacional" key/value rows, the shared `SectionHeader` title + caption
+  (was crushing into two columns), and a wrapped alert timestamp (no longer flung to the
+  right edge, orphaned from its title). Frontend-only; no dbt/Gold change.
+
 ## [1.9.2] - 2026-07-01
 
 Curadoria "Cadastro de commodities" editor overhaul — agrupamentos become a first-class,
