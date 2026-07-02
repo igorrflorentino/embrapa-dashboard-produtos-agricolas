@@ -256,6 +256,22 @@ def catalog_entries():
     return jsonify(serializers.serialize_catalog_worklist(seam.catalog_worklist(banco)))
 
 
+@api.get("/catalog/source-codes")
+def catalog_source_codes():
+    """The source's REAL product codes (+ names) for one banco (?banco=) — backs the add
+    form's code autocomplete + the client-side existence check. Empty when the banco is
+    unknown / its products table isn't built."""
+    return jsonify(seam.source_codes(request.args.get("banco") or ""))
+
+
+@api.get("/catalog/status")
+def catalog_status():
+    """Per-commodity Gold state (row count + reference-year span) for every cataloged
+    (banco, code) — backs the catalog's status columns. Cheap (one cached aggregate per
+    source with entries)."""
+    return jsonify(seam.catalog_status())
+
+
 @api.post("/catalog/entry")
 def catalog_entry_upsert():
     """Upsert one commodity-catalog entry (the editable successor to the

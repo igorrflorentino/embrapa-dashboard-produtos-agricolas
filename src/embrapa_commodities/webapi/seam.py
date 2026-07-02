@@ -838,6 +838,7 @@ from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, inten
 from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-exported)
     COMMODITY_CATALOG_RESOURCE,
     catalog_editor_emails,
+    catalog_status,
     catalog_worklist,
     group_worklist,
     orphan_worklist,
@@ -845,4 +846,5 @@ from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-ex
     record_group,
     remove_catalog_entry,
     remove_group,
+    source_codes,
 )

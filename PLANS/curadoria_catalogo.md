@@ -1,5 +1,15 @@
 # PLANS — Curadoria (catalog) + Engenharia de Atributos split, editable catalog, orphan lifecycle, seed consultation
 
+> **⚠ SUPERSEDED IN PART (v1.10.0, 2026-07): `code_prefix` was ELIMINATED.** Every commodity is now
+> registered by its **EXACT source code** (`codigo_commodity`), one at a time. This was
+> behavior-preserving: after the v1.9.5 catalog import every entry's `code_prefix` already equalled
+> its exact leaf code, so the `LIKE code_prefix||'%'` bridge and the exact `= code` join produce the
+> same rows. Consequently, wherever this doc says "keep `code_prefix`", "prefix-disjointness", or
+> "`LIKE code_prefix||'%'`", read **exact-code equality (`= code`)** instead. The physical
+> `research_inputs.commodity_catalog_log.code_prefix` column is dropped (operator DDL). The add form
+> now hard-blocks a code that doesn't exist in the source's Gold, and the catalog shows each
+> commodity's Gold state (linhas / período / tem-dados). Rationale below is otherwise unchanged.
+
 > Status: **COMPLETE** (2026-06) — P0–P5 all implemented, tested, and live-verified on prod
 > BigQuery (941 pytest / 273 vitest). Owner: Igor. Supersedes the rejected Google-Sheets
 > "Contrato de Dados" source-of-truth proposal — the editing surface is an **in-dashboard admin UI

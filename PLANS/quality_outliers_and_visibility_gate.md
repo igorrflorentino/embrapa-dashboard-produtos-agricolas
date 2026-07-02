@@ -40,8 +40,10 @@ sees it, but NEVER from the Curadoria admin editor / orphan / crosswalk. Today: 
 visible → the gate is a **data no-op** until a researcher hides something.
 
 **Single source of truth:** `dbt/models/core/dim_commodity_visibility.sql` (view) emits only HIDDEN
-`(source, code_prefix)` rows (latest-wins, active, indisponível). Gate predicate = `NOT EXISTS … LIKE
-code_prefix||'%'` over it. A code with no row stays visible (handles PPM=0, partial coverage).
+`(source, code)` rows — the EXACT commodity code (latest-wins, active, indisponível; `code_prefix` was
+eliminated in v1.10.0, so this is now `codigo_commodity`). Gate predicate = `NOT EXISTS … <code_column>
+= v.code` over it (was `LIKE code_prefix||'%'`; behavior-preserving since every entry's prefix already
+equalled its exact leaf code). A code with no row stays visible (handles PPM=0, partial coverage).
 `dim_commodity_catalog` is untouched (admin/crosswalk still see hidden-but-active rows).
 
 Files: `dim_commodity_visibility.sql` (new), `macros/hidden_code_predicate.sql` (new); predicate added to

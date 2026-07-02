@@ -1,7 +1,11 @@
 // ViewCadastroCommodities.test.jsx — render + write coverage for the Curadoria editor.
-// Agrupamentos are a FIRST-CLASS registry: the view fetches /api/catalog/entries +
-// /api/catalog/groups (GET), writes entries via /api/catalog/entry and groups via
-// /api/catalog/group (POST) — all mocked. Uses the GLOBAL React (main.jsx sets window.React).
+// Each commodity is registered by its EXACT source code (código+banco; no prefixes). The
+// add form fetches the source's REAL codes (/api/catalog/source-codes) for autocomplete +
+// a client-side existence check (the Salvar button stays DISABLED until the code exists AND
+// an agrupamento is chosen). The catalog table shows each commodity's Gold STATE
+// (/api/catalog/status → linhas, período, tem-dados). Agrupamentos are a FIRST-CLASS
+// registry: entries via /api/catalog/entry, groups via /api/catalog/group — all mocked.
+// Uses the GLOBAL React (main.jsx sets window.React).
 
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,12 +18,12 @@ let postUrl;
 const ENTRIES = {
   entries: [
     {
-      codigo_commodity: '4403', banco: 'comex', agrupamento: 'Madeira', code_prefix: '4403',
+      codigo_commodity: '4403', banco: 'comex', agrupamento: 'Madeira',
       ciclo_de_vida: 'Fazer Ingestão e deixar disponível', commodity_id: 'madeira',
       descricao_fonte: 'Madeira em toras (NCM)',
     },
     {
-      codigo_commodity: '4407', banco: 'comtrade', agrupamento: 'Madeira', code_prefix: '4407',
+      codigo_commodity: '4407', banco: 'comtrade', agrupamento: 'Madeira',
       ciclo_de_vida: 'Fazer Ingestão e deixar disponível', commodity_id: 'madeira',
       descricao_fonte: null,
     },
@@ -33,11 +37,30 @@ const GROUPS = {
   ],
   total: 2,
 };
+// Per-commodity Gold state (linhas na Gold + período + tem-dados), keyed "banco:code".
+const STATUS = {
+  status: {
+    'comex:4403': { n_rows: 1234, year_start: 1997, year_end: 2023, has_data: true },
+    'comtrade:4407': { n_rows: 0, year_start: null, year_end: null, has_data: false },
+  },
+};
+// The source's REAL codes for the add form (comex): includes 0801, so a valid add can fire.
+const SOURCE_CODES = {
+  banco: 'comex',
+  codes: [
+    { code: '0801', name: 'Castanhas (NCM)' },
+    { code: '4403', name: 'Madeira em toras (NCM)' },
+  ],
+};
 
-function mockFetch(entries = ENTRIES, groups = GROUPS, orphans = { orphans: [], total: 0 }) {
-  global.fetch = vi.fn((url, opts) => {
-    if (opts && opts.method === 'POST') {
-      postBody = JSON.parse(opts.body);
+function mockFetch(opts = {}) {
+  const {
+    entries = ENTRIES, groups = GROUPS, orphans = { orphans: [], total: 0 },
+    status = STATUS, sourceCodes = SOURCE_CODES,
+  } = opts;
+  global.fetch = vi.fn((url, init) => {
+    if (init && init.method === 'POST') {
+      postBody = JSON.parse(init.body);
       postUrl = String(url);
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
     }
@@ -46,7 +69,11 @@ function mockFetch(entries = ENTRIES, groups = GROUPS, orphans = { orphans: [], 
       ? orphans
       : u.includes('/api/catalog/groups')
         ? groups
-        : entries;
+        : u.includes('/api/catalog/status')
+          ? status
+          : u.includes('/api/catalog/source-codes')
+            ? sourceCodes
+            : entries;
     return Promise.resolve({ ok: true, json: () => Promise.resolve(body), text: () => Promise.resolve('') });
   });
 }
@@ -54,8 +81,8 @@ function mockFetch(entries = ENTRIES, groups = GROUPS, orphans = { orphans: [], 
 beforeEach(async () => {
   globalThis.React = React;
   window.React = React;
-  window.SectionHeader = ({ overline, title }) => (
-    <div className="sh"><span>{overline}</span><span>{title}</span></div>
+  window.SectionHeader = ({ overline, title, action }) => (
+    <div className="sh"><span>{overline}</span><span>{title}</span>{action}</div>
   );
   postBody = null;
   postUrl = null;
@@ -66,10 +93,20 @@ beforeEach(async () => {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+// Open the add form, wait for the source-codes to load (so the existence check is armed).
+async function openAddForm(container, getByText) {
+  fireEvent.click(getByText('+ Adicionar commodity'));
+  const codeInput = () => container.querySelector('input[list="cc-code-options"]');
+  await waitFor(() => expect(codeInput()).toBeTruthy());
+  return codeInput();
+}
+
 describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
-  it('renders each first-class agrupamento with its members, source description + friendly bancos', async () => {
+  it('renders each agrupamento with members, source description, and Gold-state columns', async () => {
     const { container } = render(<ViewCadastroCommodities />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    // Wait for the async status fetch to populate the linhas/período columns.
+    await waitFor(() => expect(container.textContent).toContain('1.234'));
     // The Madeira group header + member count, and the EMPTY Castanha group card too.
     expect(container.textContent).toContain('Madeira');
     expect(container.textContent).toContain('(2)');
@@ -79,9 +116,15 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     expect(container.textContent).toContain('MDIC COMEX');
     expect(container.textContent).toContain('UN COMTRADE');
     expect(container.textContent).toContain('Madeira em toras (NCM)');
+    // Gold-state columns: linhas (pt-BR grouped), período span, and the tem-dados markers.
+    expect(container.textContent).toContain('1997–2023');
+    expect(container.querySelector('.cc-has-data')).toBeTruthy(); // 4403 has data ✓
+    expect(container.querySelector('.cc-no-data')).toBeTruthy();  // 4407 is registered-but-empty
     const codes = [...container.querySelectorAll('.dt-table tbody td')].map((e) => e.textContent);
     expect(codes).toContain('4403');
     expect(codes).toContain('4407');
+    // The code_prefix column is GONE — no "Prefixo" header anywhere.
+    expect(container.textContent).not.toContain('Prefixo');
   });
 
   it('creates a new agrupamento via /api/catalog/group', async () => {
@@ -97,13 +140,17 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     expect(postBody.group_name).toBe('Açaí');
   });
 
-  it('adds a commodity into a chosen agrupamento (commodity_id + name threaded)', async () => {
+  it('adds a commodity by an EXISTING source code into a chosen agrupamento', async () => {
     const { container, getByText } = render(<ViewCadastroCommodities />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
-    fireEvent.click(getByText('+ Adicionar commodity'));
-    fireEvent.change(container.querySelector('.cc-form input[type="text"]'), { target: { value: '0801' } });
-    fireEvent.change(container.querySelector('.cc-form .cc-group-select'), { target: { value: 'castanha' } });
-    fireEvent.click(getByText('Salvar commodity'));
+    const codeInput = await openAddForm(container, getByText);
+    // Type a code the source really has (0801 ∈ SOURCE_CODES) — the existence check passes.
+    fireEvent.change(codeInput, { target: { value: '0801' } });
+    fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
+    // The Salvar button un-disables once the code is validated + a group is chosen.
+    const saveBtn = getByText('Salvar commodity');
+    await waitFor(() => expect(saveBtn.disabled).toBe(false));
+    fireEvent.click(saveBtn);
     await waitFor(() => expect(postBody).toBeTruthy());
     expect(postUrl).toContain('/api/catalog/entry');
     expect(postBody.codigo_commodity).toBe('0801');
@@ -112,13 +159,28 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     expect(postBody.banco).toBe('comex');
   });
 
-  it('requires an agrupamento when adding (no POST fired)', async () => {
+  it('blocks a NONEXISTENT code: bad-hint shown, Salvar disabled, no POST', async () => {
     const { container, getByText } = render(<ViewCadastroCommodities />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
-    fireEvent.click(getByText('+ Adicionar commodity'));
-    fireEvent.change(container.querySelector('.cc-form input[type="text"]'), { target: { value: '0801' } });
+    const codeInput = await openAddForm(container, getByText);
+    // 9999 is NOT in the source's real codes → hard-blocked client-side.
+    fireEvent.change(codeInput, { target: { value: '9999' } });
+    fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
+    await waitFor(() => expect(container.querySelector('.cc-hint-bad')).toBeTruthy());
+    expect(getByText('Salvar commodity').disabled).toBe(true);
     fireEvent.click(getByText('Salvar commodity'));
-    await waitFor(() => expect(container.textContent).toContain('Escolha um agrupamento'));
+    // A disabled button fires nothing; the invalid code never reaches the API.
+    expect(postBody).toBeNull();
+  });
+
+  it('requires an agrupamento: with a valid code but no group, Salvar stays disabled', async () => {
+    const { container, getByText } = render(<ViewCadastroCommodities />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    const codeInput = await openAddForm(container, getByText);
+    fireEvent.change(codeInput, { target: { value: '0801' } }); // valid code…
+    // …but no agrupamento chosen → the button stays disabled and nothing is posted.
+    await waitFor(() => expect(container.querySelector('.cc-hint-ok')).toBeTruthy());
+    expect(getByText('Salvar commodity').disabled).toBe(true);
     expect(postBody).toBeNull();
   });
 
@@ -145,13 +207,15 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
   });
 
   it('surfaces orphans as Descontinuados with the human-only deletion warning', async () => {
-    mockFetch(ENTRIES, GROUPS, {
-      orphans: [{
-        codigo_commodity: '20079926', banco: 'comex', agrupamento: 'Cupuaçu',
-        code_prefix: '20079926', status: 'descontinuado', flagged_at: null,
-        warning: 'será removida por um operador',
-      }],
-      total: 1,
+    mockFetch({
+      orphans: {
+        orphans: [{
+          codigo_commodity: '20079926', banco: 'comex', agrupamento: 'Cupuaçu',
+          status: 'descontinuado', flagged_at: null,
+          warning: 'será removida por um operador',
+        }],
+        total: 1,
+      },
     });
     const { container } = render(<ViewCadastroCommodities />);
     await waitFor(() => expect(container.textContent).toContain('Descontinuados'));

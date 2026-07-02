@@ -100,7 +100,7 @@ def _active_member_rows(bq: bigquery.Client, catalog_fqn: str, group_id: str) ->
     members), with the fields needed to re-upsert them on a rename. ``[]`` when the
     catalog log doesn't exist yet."""
     sql = f"""
-        select codigo_commodity, banco, descricao_commodity, ciclo_de_vida, code_prefix
+        select codigo_commodity, banco, descricao_commodity, ciclo_de_vida
         from (
           select *, row_number() over (
             partition by codigo_commodity, banco order by edited_at desc, change_id desc
@@ -174,7 +174,6 @@ def record_group(
                 agrupamento=group_name,
                 descricao_commodity=m.descricao_commodity,
                 ciclo_de_vida=m.ciclo_de_vida,
-                code_prefix=str(m.code_prefix),
                 commodity_id=group_id,
                 settings=cfg,
                 client=bq,

@@ -4,19 +4,18 @@
 -- dim_commodity_catalog — the CURRENT commodity catalog (Curadoria).
 --
 -- The editable successor to the version-controlled `commodity_crosswalk` seed: the
--- researcher-managed catalog of which commodities are in the dashboard, their
--- agrupamento (cross-source concept) and the code_prefix used for the cross-source
--- bridge. Written append-only by the dashboard's admin editor (the Python
--- data-access layer, never dbt) to research_inputs.commodity_catalog_log; this view
--- derives the CURRENT catalog = the latest row per (codigo_commodity, banco), keeping
--- only active rows (a row with active=false is a tombstone — the entry has LEFT the
--- catalog, so its Gold data becomes an orphan, handled non-destructively downstream).
+-- researcher-managed catalog of which commodities are in the dashboard and their
+-- agrupamento (cross-source concept). Each commodity is registered by its EXACT
+-- source code (`codigo_commodity`; no prefixes). Written append-only by the
+-- dashboard's admin editor (the Python data-access layer, never dbt) to
+-- research_inputs.commodity_catalog_log; this view derives the CURRENT catalog = the
+-- latest row per (codigo_commodity, banco), keeping only active rows (a row with
+-- active=false is a tombstone — the entry has LEFT the catalog, so its Gold data
+-- becomes an orphan, handled non-destructively downstream).
 --
--- Exposes the SAME columns the `commodity_crosswalk` seed did
--- (commodity_id, commodity_name, source, code_prefix) so the three consumers
--- (gold_commodity_crosswalk + serving_{pam,ppm}_annual) swap `ref('commodity_crosswalk')`
--- → `ref('dim_commodity_catalog')` with NO other change. The cutover was proven
--- row-identical on real data (191 = 191, 0 diffs) before the swap.
+-- Exposes (commodity_id, commodity_name, source, codigo_commodity) — the consumers
+-- (gold_commodity_crosswalk + serving_{pam,ppm}_annual) join on `code = codigo_commodity`
+-- (equality; no LIKE-prefix expansion).
 --
 -- Materialized as a VIEW on purpose: the log is small and a fresh admin edit is then
 -- visible to the next build / request immediately, with no rebuild.
@@ -26,10 +25,10 @@
 -- the first write / the cutover backfill; a fresh project must backfill it (fail loud
 -- if absent — never silently fall back to the retired seed).
 --
--- ⚠ Grain: one row per (codigo_commodity, banco). The prefix-disjointness invariant
--- (no code_prefix may be a prefix of another in the same banco) is enforced at WRITE
--- time by the catalog writer AND guarded at build time by the
--- unique_combination_of_columns(source, code) test on gold_commodity_crosswalk.
+-- ⚠ Grain: one row per (codigo_commodity, banco). Because every code is exact (no
+-- prefixes), a Gold code resolves to AT MOST one commodity, so the cross-source join
+-- cannot fan out — guarded at build time by the unique_combination_of_columns(source,
+-- code) test on gold_commodity_crosswalk.
 -- ────────────────────────────────────────────────────────────────────────────
 
 with log as (
@@ -40,7 +39,6 @@ with log as (
         agrupamento,
         descricao_commodity,
         ciclo_de_vida,
-        code_prefix,
         commodity_id,
         active,
         edited_by,
@@ -67,7 +65,6 @@ select
     agrupamento     as commodity_name,
     banco           as source,
     codigo_commodity,
-    code_prefix,
     descricao_commodity,
     ciclo_de_vida,
     edited_by,

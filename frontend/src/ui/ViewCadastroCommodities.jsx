@@ -1,14 +1,16 @@
 // ViewCadastroCommodities — the Curadoria (catalog) editor: what ENTERS and EXITS the
-// dashboard. AGRUPAMENTOS (groups) are now a FIRST-CLASS registry — create (incl. empty),
-// rename and delete (only when empty) — and each commodity (código+banco, code_prefix,
-// ciclo de vida = in/out) points at one group and can be MOVED between them. Each code
-// also shows its ORIGINAL source description. Writes go through /api/catalog/* (append-only,
-// IAP-attributed; removal is a non-destructive tombstone). Self-contained (own fetch+state).
+// dashboard. Each commodity is registered by its EXACT source code (código+banco; no
+// prefixes), points at one AGRUPAMENTO (first-class registry — create/rename/delete +
+// inline move) and carries a Ciclo de Vida (in/out). The add form validates that the code
+// REALLY EXISTS in the source (autocomplete from the source's product list; a code that
+// doesn't exist is rejected). The catalog table also shows each commodity's current STATE
+// in the dashboard (linhas na Gold, período coberto, se tem dados). Writes go through
+// /api/catalog/* (append-only, IAP-attributed; removal is a non-destructive tombstone).
 //
-// Authorization is enforced server-side (403); a 400 = bad key / overlapping prefix /
-// duplicate or non-empty group. We surface both honestly rather than hiding the failure.
+// Authorization is enforced server-side (403); a 400 = bad key / a code that doesn't exist
+// / duplicate or non-empty group. We surface both honestly rather than hiding the failure.
 
-const { useState: useCcState, useEffect: useCcEffect } = React;
+const { useState: useCcState, useEffect: useCcEffect, useMemo: useCcMemo } = React;
 
 const _CC_CICLO = [
   { v: 'Fazer Ingestão e deixar disponível', label: 'Ingerir e exibir' },
@@ -24,7 +26,7 @@ const _CC_BANCOS = [
 ];
 const _CC_BANCO_LABEL = Object.fromEntries(_CC_BANCOS.map((b) => [b.v, b.label]));
 const _CC_EMPTY_DRAFT = {
-  codigo_commodity: '', banco: 'comex', commodity_id: '', code_prefix: '',
+  codigo_commodity: '', banco: 'comex', commodity_id: '',
   descricao_commodity: '', ciclo_de_vida: _CC_CICLO[0].v,
 };
 
@@ -32,15 +34,19 @@ function _ccCicloShort(v) {
   const hit = _CC_CICLO.find((c) => c.v === v);
   return hit ? hit.label : (v || '—');
 }
+const _ccInt = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
 
 function ViewCadastroCommodities() {
   const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null });
+  const [statusMap, setStatusMap] = useCcState({}); // "banco:code" -> {n_rows, year_start, year_end, has_data}
   const [status, setStatus] = useCcState(null); // { kind: 'ok' | 'err', msg }
   const [busy, setBusy] = useCcState(false);
   const [draft, setDraft] = useCcState({ ..._CC_EMPTY_DRAFT });
   const [showAdd, setShowAdd] = useCcState(false);
   const [orphans, setOrphans] = useCcState([]);
   const [newGroup, setNewGroup] = useCcState('');
+  // The source's REAL codes for the add form's banco (autocomplete + existence check).
+  const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false });
 
   const load = () => {
     setData((d) => ({ ...d, loading: true, error: null }));
@@ -55,8 +61,25 @@ function ViewCadastroCommodities() {
       .then((r) => (r.ok ? r.json() : { orphans: [] }))
       .then((d) => setOrphans(d.orphans || []))
       .catch(() => setOrphans([]));
+    // Per-commodity Gold state (linhas + período) — a separate, cheap lazy read.
+    fetch('/api/catalog/status')
+      .then((r) => (r.ok ? r.json() : { status: {} }))
+      .then((d) => setStatusMap(d.status || {}))
+      .catch(() => setStatusMap({}));
   };
   useCcEffect(load, []);
+
+  // Fetch the source's real codes whenever the add form is open on a banco (backs the
+  // <datalist> autocomplete + the "código existe?" check). Skip if already loaded.
+  useCcEffect(() => {
+    if (!showAdd || !draft.banco) return;
+    if (srcCodes.banco === draft.banco) return;
+    setSrcCodes({ banco: draft.banco, codes: [], loading: true });
+    fetch('/api/catalog/source-codes?banco=' + encodeURIComponent(draft.banco))
+      .then((r) => (r.ok ? r.json() : { codes: [] }))
+      .then((d) => setSrcCodes({ banco: draft.banco, codes: d.codes || [], loading: false }))
+      .catch(() => setSrcCodes({ banco: draft.banco, codes: [], loading: false }));
+  }, [showAdd, draft.banco]);
 
   // POST a write; throw the server's pt-BR error on a non-2xx so callers can surface it.
   const post = async (path, body) => {
@@ -140,6 +163,17 @@ function ViewCadastroCommodities() {
     }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`);
   };
 
+  // ── Add form: derived validation state ────────────────────────────────────────
+  const codeIndex = useCcMemo(() => {
+    const m = new Map();
+    (srcCodes.codes || []).forEach((c) => m.set(c.code, c.name));
+    return m;
+  }, [srcCodes]);
+  const codeLoadedForBanco = srcCodes.banco === draft.banco && !srcCodes.loading;
+  const codeMatch = draft.codigo_commodity ? codeIndex.has(draft.codigo_commodity) : null;
+  const groupChosen = !!data.groups.find((x) => x.group_id === draft.commodity_id);
+  const canSubmit = !!draft.codigo_commodity && groupChosen && codeMatch === true && !busy;
+
   const submitAdd = () => {
     if (!draft.codigo_commodity || !draft.banco) {
       setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
@@ -148,6 +182,11 @@ function ViewCadastroCommodities() {
     const g = data.groups.find((x) => x.group_id === draft.commodity_id);
     if (!g) {
       setStatus({ kind: 'err', msg: 'Escolha um agrupamento (ou crie um novo acima).' });
+      return;
+    }
+    // Existence guard (the server enforces this too — belt and suspenders).
+    if (codeLoadedForBanco && !codeIndex.has(draft.codigo_commodity)) {
+      setStatus({ kind: 'err', msg: `O código ${draft.codigo_commodity} não existe em ${_CC_BANCO_LABEL[draft.banco]}. Use um código real da fonte.` });
       return;
     }
     saveEntry({ ...draft, agrupamento: g.group_name });
@@ -173,43 +212,53 @@ function ViewCadastroCommodities() {
 
   const memberRows = (members) => (
     <div className="dt-wrap">
-      <table className="dt-table">
+      <table className="dt-table cc-table">
         <thead>
           <tr>
-            <th>Banco</th><th>Código</th><th>Prefixo</th><th>Descrição (fonte)</th>
+            <th>Banco</th><th>Código</th><th>Descrição (fonte)</th>
+            <th className="num">Linhas</th><th>Período</th><th>Dados</th>
             <th>Agrupamento</th><th>Ciclo de vida</th><th aria-label="ações"></th>
           </tr>
         </thead>
         <tbody>
-          {members.map((e) => (
-            <tr key={e.banco + '|' + e.codigo_commodity}>
-              <td>{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
-              <td className="tnum">{e.codigo_commodity}</td>
-              <td className="tnum">{e.code_prefix}</td>
-              <td>{e.descricao_fonte || <span className="dt-null">—</span>}</td>
-              <td>
-                <GroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)} />
-              </td>
-              <td>
-                <select disabled={busy} value={e.ciclo_de_vida || ''}
-                        title={e.ciclo_de_vida || ''}
-                        onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
-                  {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
-                    <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
-                  )}
-                  {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
-                </select>
-              </td>
-              <td>
-                <button type="button" className="cc-remove" disabled={busy}
-                        title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
-                        onClick={() => removeEntry(e)}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
-                  🗑
-                </button>
-              </td>
-            </tr>
-          ))}
+          {members.map((e) => {
+            const st = statusMap[e.banco + ':' + e.codigo_commodity];
+            return (
+              <tr key={e.banco + '|' + e.codigo_commodity}>
+                <td>{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
+                <td className="tnum">{e.codigo_commodity}</td>
+                <td>{e.descricao_fonte || <span className="dt-null">—</span>}</td>
+                <td className="num tnum">{st ? _ccInt(st.n_rows) : '…'}</td>
+                <td className="tnum">{st && st.year_start != null ? `${st.year_start}–${st.year_end}` : '—'}</td>
+                <td>
+                  {!st ? <span className="dt-null">…</span>
+                    : st.has_data ? <span className="cc-has-data" title="Tem dados na Gold">✓</span>
+                    : <span className="cc-no-data" title="Cadastrada, mas sem dados na Gold">sem dados</span>}
+                </td>
+                <td>
+                  <GroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)} />
+                </td>
+                <td>
+                  <select disabled={busy} value={e.ciclo_de_vida || ''}
+                          title={e.ciclo_de_vida || ''}
+                          onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
+                    {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
+                      <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
+                    )}
+                    {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                  </select>
+                </td>
+                <td>
+                  <button type="button" className="cc-remove" disabled={busy}
+                          title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
+                          onClick={() => removeEntry(e)}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
+                    🗑
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -220,11 +269,12 @@ function ViewCadastroCommodities() {
       <div className="card subtle" style={{ marginBottom: 12 }}>
         <p className="caption" style={{ margin: 0 }}>
           Este é o <strong>cadastro de commodities</strong> — a fonte única de verdade do que entra
-          e sai do dashboard. Cada commodity é identificada por <code>(código, banco)</code> e pertence a
-          um <strong>agrupamento</strong> (o conceito que a unifica entre fontes). Agrupamentos são criados,
-          renomeados e excluídos aqui; o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> uma
-          commodity a marca como descontinuada (os dados já baixados ficam órfãos, apagados só por um humano).
-          Edições exigem autorização e ficam registradas com seu e-mail.
+          e sai do dashboard. Cada commodity é identificada por <code>(código, banco)</code> — o
+          <strong> código real da fonte</strong>, uma a uma — e pertence a um <strong>agrupamento</strong> (o
+          conceito que a unifica entre fontes). Agrupamentos são criados, renomeados e excluídos aqui;
+          o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> uma commodity a marca
+          como descontinuada (os dados já baixados ficam órfãos, apagados só por um humano). Edições
+          exigem autorização e ficam registradas com seu e-mail.
         </p>
       </div>
 
@@ -286,37 +336,75 @@ function ViewCadastroCommodities() {
       </div>
 
       {showAdd && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <window.SectionHeader overline="Cadastro" title="Adicionar commodity" />
-          <div className="cc-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-            <label className="cc-field">Código da commodity (ou prefixo)
-              <input type="text" value={draft.codigo_commodity}
-                     onChange={(e) => setDraft((d) => ({ ...d, codigo_commodity: e.target.value }))} />
-            </label>
-            <label className="cc-field">Banco (fonte)
+        <div className="card cc-add-card" style={{ marginBottom: 12 }}>
+          <window.SectionHeader overline="Cadastro" title="Adicionar commodity"
+            action={<span className="caption">informe o código real da fonte</span>} />
+          <div className="cc-add-grid">
+            <label className="cc-field">
+              <span className="cc-field-label">Banco (fonte)</span>
               <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value }))}>
                 {_CC_BANCOS.map((b) => <option key={b.v} value={b.v}>{b.label}</option>)}
               </select>
             </label>
-            <label className="cc-field">Agrupamento
+
+            <label className="cc-field">
+              <span className="cc-field-label">Código da commodity</span>
+              <input type="text" list="cc-code-options" value={draft.codigo_commodity}
+                     placeholder={srcCodes.loading && srcCodes.banco === draft.banco ? 'carregando códigos…' : 'digite ou escolha um código real'}
+                     autoComplete="off"
+                     onChange={(e) => setDraft((d) => ({ ...d, codigo_commodity: e.target.value.trim() }))} />
+              <datalist id="cc-code-options">
+                {(srcCodes.banco === draft.banco ? srcCodes.codes : []).slice(0, 3000).map((c) => (
+                  <option key={c.code} value={c.code}>{c.name}</option>
+                ))}
+              </datalist>
+              {draft.codigo_commodity ? (
+                codeMatch === true ? (
+                  <small className="cc-hint cc-hint-ok">✓ {codeIndex.get(draft.codigo_commodity) || 'código válido'}</small>
+                ) : codeLoadedForBanco ? (
+                  <small className="cc-hint cc-hint-bad">✗ este código não existe em {_CC_BANCO_LABEL[draft.banco]}</small>
+                ) : (
+                  <small className="cc-hint">verificando…</small>
+                )
+              ) : (
+                <small className="cc-hint">
+                  {srcCodes.banco === draft.banco && !srcCodes.loading
+                    ? `${srcCodes.codes.length.toLocaleString('pt-BR')} códigos reais nesta fonte`
+                    : ' '}
+                </small>
+              )}
+            </label>
+
+            <label className="cc-field">
+              <span className="cc-field-label">Agrupamento</span>
               <GroupSelect value={draft.commodity_id}
                            onChange={(gid) => setDraft((d) => ({ ...d, commodity_id: gid }))}
                            placeholder={data.groups.length ? 'Escolha um agrupamento…' : 'Crie um agrupamento primeiro'} />
             </label>
-            <label className="cc-field">Prefixo de código <small className="pc-cap">(vazio = o próprio código)</small>
-              <input type="text" value={draft.code_prefix} placeholder={draft.codigo_commodity}
-                     onChange={(e) => setDraft((d) => ({ ...d, code_prefix: e.target.value }))} />
-            </label>
-            <label className="cc-field">Ciclo de vida
+
+            <label className="cc-field">
+              <span className="cc-field-label">Ciclo de vida</span>
               <select value={draft.ciclo_de_vida} onChange={(e) => setDraft((d) => ({ ...d, ciclo_de_vida: e.target.value }))}>
                 {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
               </select>
             </label>
+
+            <label className="cc-field cc-field-wide">
+              <span className="cc-field-label">Descrição <small className="pc-cap">(opcional — anotação sua)</small></span>
+              <input type="text" value={draft.descricao_commodity} placeholder="ex.: Castanha-do-pará com casca"
+                     onChange={(e) => setDraft((d) => ({ ...d, descricao_commodity: e.target.value }))} />
+            </label>
           </div>
-          <div style={{ marginTop: 10 }}>
-            <button type="button" className="btn-primary" onClick={submitAdd} disabled={busy}>
+          <div className="cc-add-actions">
+            <button type="button" className="btn-primary" onClick={submitAdd} disabled={!canSubmit}>
               {busy ? 'Salvando…' : 'Salvar commodity'}
             </button>
+            <button type="button" className="btn-secondary" onClick={() => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); }} disabled={busy}>
+              Cancelar
+            </button>
+            {!canSubmit && draft.codigo_commodity && codeMatch !== true && codeLoadedForBanco && (
+              <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>código inexistente</span>
+            )}
           </div>
         </div>
       )}

@@ -8,6 +8,12 @@
       "port": 8000
     },
     {
+      "name": "webapi-prod-data",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--extra", "webapi", "python", "run_preview_local.py"],
+      "port": 8000
+    },
+    {
       "name": "frontend-react",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],

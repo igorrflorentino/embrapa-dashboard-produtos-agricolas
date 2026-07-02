@@ -947,7 +947,7 @@ def mark_orphans_cmd() -> None:
 def purge_orphan_cmd(
     banco: str = typer.Option(..., help="Source token / banco (pevs, comex, comtrade, pam, ppm)"),
     code: str = typer.Option(
-        ..., help="The codigo_commodity of the orphan (its real code_prefix is resolved for you)"
+        ..., help="The codigo_commodity of the orphan (the exact Gold code purged)"
     ),
     mark_purged: bool = typer.Option(
         False, "--mark-purged", help="Record a 'purged' event AFTER you ran the DELETEs."
@@ -977,8 +977,7 @@ def purge_orphan_cmd(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(1) from exc
 
-    prefix = plan.get("code_prefix", code)
-    console.print(f"[bold]Purge plan[/bold] — {banco}:{code} (prefix '{prefix}')")
+    console.print(f"[bold]Purge plan[/bold] — {banco}:{code} (exact code)")
     if plan["backup_ok"]:
         console.print(f"  [green]backup OK[/green] — {plan['backup_msg']}")
     else:

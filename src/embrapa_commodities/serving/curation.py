@@ -2,11 +2,11 @@
 
 This is the feature the project lead reserved the name "Curadoria" for: the
 researcher-managed catalog of which commodities are in the dashboard, their
-agrupamento (cross-source concept), industrialização, ciclo de vida (in/out) and
-the ``code_prefix`` used for the cross-source bridge. It is the editable successor
-to the version-controlled ``commodity_crosswalk`` seed (the seed and this catalog
-are redundant — confirmed on real data; the catalog becomes the single source of
-truth and ``gold_commodity_crosswalk`` reads it).
+agrupamento (cross-source concept) and ciclo de vida (in/out). Each commodity is
+registered by its EXACT source code (one code = one entry; no prefixes). It is the
+editable successor to the version-controlled ``commodity_crosswalk`` seed (the seed
+and this catalog are redundant — confirmed on real data; the catalog becomes the
+single source of truth and ``gold_commodity_crosswalk`` reads it).
 
 NOT to be confused with ``serving/attribute_engineering.py`` (the FROZEN feature
 that builds derived columns — per-code industrialization + market-nature). Both
@@ -20,11 +20,12 @@ Design (honouring the lead's decisions):
     becomes an orphan, handled non-destructively by the lifecycle, never auto-deleted).
   * **Composite key** ``(codigo_commodity, banco)``: both required — a blank either
     breaks the key, so the writer REJECTS it (fail loud) rather than ignoring it.
-  * **``code_prefix`` is KEPT** (the lead's decision): coarse prefixes auto-absorb
-    future sub-codes. Because overlapping prefixes within a banco silently DOUBLE
-    every downstream sum (today caught only by the dbt ``unique_combination`` test),
-    the writer validates **prefix-disjointness on write** — the one non-obvious gate
-    that makes this seed safe to hand to researchers.
+  * **Exact code only** (no prefixes): a NEW entry's ``codigo_commodity`` must be a
+    REAL product code in the source's Gold — the writer validates existence against
+    ``gateway.fetch_products`` and REJECTS a code that doesn't exist (an update to an
+    already-active entry is exempt). ``gold_commodity_crosswalk`` / the visibility gate
+    match on ``code = codigo_commodity`` (equality, not ``LIKE``), so there is no
+    prefix fan-out to double-count.
   * **Per-catalog allowlist** (``research_inputs.catalog_editors`` keyed by resource):
     each cadastro has its OWN authorized editors, distinct from the
     attribute-engineering ``curators`` table.
@@ -66,7 +67,6 @@ COMMODITY_CATALOG_LOG_SCHEMA = [
     bigquery.SchemaField("agrupamento", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("descricao_commodity", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("ciclo_de_vida", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("code_prefix", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("commodity_id", "STRING", mode="NULLABLE"),
     # active=false is a tombstone: the entry has left the catalog (→ Gold orphan).
     bigquery.SchemaField("active", "BOOL", mode="REQUIRED"),
@@ -155,41 +155,70 @@ def _validate_catalog_edit(codigo_commodity: str, banco: str, ciclo_de_vida: str
         )
 
 
-def _current_prefixes(bq: bigquery.Client, table_fqn: str, banco: str) -> list[tuple[str, str]]:
-    """Current active ``(codigo_commodity, code_prefix)`` for a banco (latest-wins).
-    ``[]`` when the log table doesn't exist yet (the first write has no conflicts)."""
+# Catalog banco token → the long source id ``fetch_products`` expects (Gold product list).
+_BANCO_TO_SOURCE = {
+    "pevs": "ibge_pevs",
+    "pam": "ibge_pam",
+    "ppm": "ibge_ppm",
+    "comex": "mdic_comex",
+    "comtrade": "un_comtrade",
+}
+
+
+def _is_active_entry(
+    bq: bigquery.Client, table_fqn: str, codigo_commodity: str, banco: str
+) -> bool:
+    """Whether (codigo_commodity, banco) is CURRENTLY an active catalog entry (latest-wins)
+    — i.e. this write is an UPDATE, not a new registration. ``False`` when the log table
+    doesn't exist yet."""
     sql = f"""
-        select codigo_commodity, code_prefix from (
-          select codigo_commodity, code_prefix, active, row_number() over (
+        select active from (
+          select active, row_number() over (
             partition by codigo_commodity, banco order by edited_at desc, change_id desc
           ) as _rn
-          from `{table_fqn}` where banco = @banco
-        ) where _rn = 1 and active
+          from `{table_fqn}`
+          where codigo_commodity = @codigo and banco = @banco
+        ) where _rn = 1
     """
-    params = [bigquery.ScalarQueryParameter("banco", "STRING", banco)]
+    params = [
+        bigquery.ScalarQueryParameter("codigo", "STRING", codigo_commodity),
+        bigquery.ScalarQueryParameter("banco", "STRING", banco),
+    ]
     try:
-        job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
-        return [(r.codigo_commodity, r.code_prefix) for r in job.result()]
+        rows = list(
+            bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+        )
     except NotFound:
-        return []
+        return False
+    return bool(rows) and bool(rows[0].active)
 
 
-def _assert_prefix_disjoint(
-    codigo_commodity: str, code_prefix: str, existing: list[tuple[str, str]]
+def _assert_code_exists(
+    bq: bigquery.Client, table_fqn: str, codigo_commodity: str, banco: str
 ) -> None:
-    """Reject a code_prefix that overlaps another active prefix in the SAME banco
-    (one is a prefix of the other) — overlapping prefixes fan out the cross-source
-    LEFT JOIN and SILENTLY DOUBLE every downstream sum. Updating the same key is fine.
-    """
-    for other_codigo, other_prefix in existing:
-        if other_codigo == codigo_commodity:
-            continue  # same entry being updated — not a conflict
-        if code_prefix.startswith(other_prefix) or other_prefix.startswith(code_prefix):
-            raise ValueError(
-                f"O prefixo {code_prefix!r} se sobrepõe ao prefixo {other_prefix!r} "
-                f"(commodity {other_codigo!r}) já cadastrado neste banco — prefixos "
-                "sobrepostos duplicam as somas. Use prefixos disjuntos."
-            )
+    """A NEW catalog entry's code MUST be a real product code in the source's Gold — you
+    can't register a commodity whose code doesn't exist in the data. An UPDATE to an
+    already-active entry is always allowed (validated on add; its Gold data may have since
+    changed, and you must still be able to edit its ciclo/agrupamento). Degrades to a no-op
+    when the source has no product list yet (table not built) rather than blocking. Fail
+    loud (400, pt-BR) with a hint."""
+    if _is_active_entry(bq, table_fqn, codigo_commodity, banco):
+        return  # update of an existing entry — not a new registration
+    source = _BANCO_TO_SOURCE.get(banco)
+    if source is None:
+        return  # unknown banco token — the key/route validation handles it
+    try:
+        products = gateway.fetch_products(source)
+    except NotFound:
+        return  # source products table not built yet — don't block the first catalog write
+    if products is None or products.empty:
+        return
+    codes = {str(p.code) for p in products.itertuples()}
+    if codigo_commodity not in codes:
+        raise ValueError(
+            f"O código {codigo_commodity!r} não existe no banco {banco} — cadastre apenas "
+            f"códigos reais da fonte (o banco tem {len(codes):,} códigos disponíveis)."
+        )
 
 
 def record_commodity_catalog(
@@ -200,7 +229,6 @@ def record_commodity_catalog(
     agrupamento: str | None = None,
     descricao_commodity: str | None = None,
     ciclo_de_vida: str | None = None,
-    code_prefix: str | None = None,
     commodity_id: str | None = None,
     change_id: str | None = None,
     settings: Settings | None = None,
@@ -209,24 +237,15 @@ def record_commodity_catalog(
 ) -> dict:
     """Append one commodity-catalog edit (upsert by latest-wins). IAP author capture +
     read-after-write + optional ``change_id`` idempotency, mirroring the
-    attribute-engineering writers. ``code_prefix`` defaults to ``codigo_commodity`` and
-    ``commodity_id`` to the agrupamento slug. Validates the key + prefix-disjointness;
-    raises ValueError on a bad key / over-length / overlapping prefix."""
+    attribute-engineering writers. Each commodity is registered by its EXACT source code
+    (no prefixes); ``commodity_id`` defaults to the agrupamento slug. Validates the key,
+    the agrupamento, and — for a NEW entry — that the code actually EXISTS in the source's
+    Gold; raises ValueError on a bad key / over-length / a code that doesn't exist."""
     cfg = settings or get_settings()
     codigo_commodity = (codigo_commodity or "").strip()
     banco = (banco or "").strip()
     ciclo_de_vida = ciclo_de_vida.strip() if ciclo_de_vida else ciclo_de_vida
     _validate_catalog_edit(codigo_commodity, banco, ciclo_de_vida)
-    # code_prefix backs the cross-source ``LIKE prefix||'%'`` bridge. A blank one
-    # (e.g. whitespace, which is truthy so the ``or codigo_commodity`` fallback is
-    # skipped before .strip()) collapses to ``''`` → ``LIKE '%'`` → one commodity
-    # absorbs EVERY code in the banco (silent fan-out). A LIKE wildcard ('%' or '_')
-    # in the prefix breaks the match the same way. Reject both at the write gate.
-    code_prefix = (code_prefix or codigo_commodity).strip()
-    if not code_prefix:
-        raise ValueError("code_prefix não pode ser vazio.")
-    if "%" in code_prefix or "_" in code_prefix:
-        raise ValueError("code_prefix não pode conter curingas LIKE ('%' ou '_').")
     agrupamento = agrupamento.strip() if agrupamento else agrupamento
     commodity_id = (commodity_id or _slug(agrupamento)).strip() or None
     # agrupamento names the commodity (commodity_name) AND seeds commodity_id; both
@@ -248,8 +267,9 @@ def record_commodity_catalog(
     table_fqn = _catalog_log_ref(cfg)
     ensure_commodity_catalog_log_table(cfg, bq)
 
-    # Prefix-disjointness guard (read current state AFTER ensure, so the table exists).
-    _assert_prefix_disjoint(codigo_commodity, code_prefix, _current_prefixes(bq, table_fqn, banco))
+    # A new entry's code must be a real product code in the source's Gold (an update to
+    # an already-active entry is exempt). Read current state AFTER ensure (table exists).
+    _assert_code_exists(bq, table_fqn, codigo_commodity, banco)
 
     if supplied and _change_id_seen(bq, table_fqn, change_id):
         logger.info(
@@ -261,7 +281,6 @@ def record_commodity_catalog(
             agrupamento,
             descricao_commodity,
             ciclo_de_vida,
-            code_prefix,
             commodity_id,
             True,
             edited_by,
@@ -276,7 +295,6 @@ def record_commodity_catalog(
         agrupamento,
         descricao_commodity,
         ciclo_de_vida,
-        code_prefix,
         commodity_id,
         True,
         edited_by,
@@ -291,7 +309,6 @@ def record_commodity_catalog(
         agrupamento,
         descricao_commodity,
         ciclo_de_vida,
-        code_prefix,
         commodity_id,
         True,
         edited_by,
@@ -331,20 +348,16 @@ def remove_commodity_catalog(
             None,
             None,
             None,
-            codigo_commodity,
             None,
             False,
             edited_by,
             change_id,
             deduped=True,
         )
-    # A tombstone must reference a currently-ACTIVE entry (removing a never-cataloged
-    # key would write a phantom tombstone → a false orphan), and must carry that entry's
-    # REAL code_prefix — orphan detection keys off the tombstone's prefix, so writing the
-    # codigo here would blind detection for any coarse-prefix entry (codigo != prefix).
-    active = _current_prefixes(bq, table_fqn, banco)
-    code_prefix = next((pfx for cod, pfx in active if cod == codigo_commodity), None)
-    if code_prefix is None:
+    # A tombstone must reference a currently-ACTIVE entry (removing a never-cataloged key
+    # would write a phantom tombstone → a false orphan). Orphan detection now keys off the
+    # exact codigo_commodity (no prefixes).
+    if not _is_active_entry(bq, table_fqn, codigo_commodity, banco):
         raise ValueError(
             f"{codigo_commodity!r} não está cadastrada (ativa) em {banco!r} — nada a remover."
         )
@@ -356,7 +369,6 @@ def remove_commodity_catalog(
         None,
         None,
         None,
-        code_prefix,
         None,
         False,
         edited_by,
@@ -371,7 +383,6 @@ def remove_commodity_catalog(
         None,
         None,
         None,
-        code_prefix,
         None,
         False,
         edited_by,
@@ -388,7 +399,6 @@ def _insert_catalog_row(
     agrupamento,
     descricao_commodity,
     ciclo_de_vida,
-    code_prefix,
     commodity_id,
     active,
     edited_by,
@@ -398,10 +408,10 @@ def _insert_catalog_row(
     sql = f"""
         insert into `{table_fqn}`
             (codigo_commodity, banco, agrupamento, descricao_commodity,
-             ciclo_de_vida, code_prefix, commodity_id, active, edited_by, edited_at, change_id)
+             ciclo_de_vida, commodity_id, active, edited_by, edited_at, change_id)
         values
             (@codigo_commodity, @banco, @agrupamento, @descricao_commodity,
-             @ciclo_de_vida, @code_prefix, @commodity_id, @active, @edited_by,
+             @ciclo_de_vida, @commodity_id, @active, @edited_by,
              current_timestamp(), @change_id)
     """
     p = bigquery.ScalarQueryParameter
@@ -411,7 +421,6 @@ def _insert_catalog_row(
         p("agrupamento", "STRING", agrupamento),
         p("descricao_commodity", "STRING", descricao_commodity),
         p("ciclo_de_vida", "STRING", ciclo_de_vida),
-        p("code_prefix", "STRING", code_prefix),
         p("commodity_id", "STRING", commodity_id),
         p("active", "BOOL", active),
         p("edited_by", "STRING", edited_by),
@@ -426,7 +435,6 @@ def _catalog_row(
     agrupamento,
     descricao_commodity,
     ciclo_de_vida,
-    code_prefix,
     commodity_id,
     active,
     edited_by,
@@ -441,7 +449,6 @@ def _catalog_row(
         "agrupamento": agrupamento,
         "descricao_commodity": descricao_commodity,
         "ciclo_de_vida": ciclo_de_vida,
-        "code_prefix": code_prefix,
         "commodity_id": commodity_id,
         "active": active,
         "edited_by": edited_by,

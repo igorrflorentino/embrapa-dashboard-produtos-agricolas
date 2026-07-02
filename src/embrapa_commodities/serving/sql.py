@@ -360,7 +360,7 @@ def visibility_clause(settings, source_short: str, code_column: str) -> str:
     vis = table_ref(settings, "bq_gold_dataset", "dim_commodity_visibility")
     return (
         f"not exists (select 1 from `{vis}` v "
-        f"where v.source = '{source_short}' and {code_column} like v.code_prefix || '%')"
+        f"where v.source = '{source_short}' and {code_column} = v.code)"
     )
 
 

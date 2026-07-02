@@ -78,7 +78,7 @@ pam_codes as (
 
 -- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
 -- source='pam' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE
--- facts, and its accepted_values tests reject 'pam' — so the prefix expansion is
+-- facts, and its accepted_values tests reject 'pam' — so the code linkage is
 -- replicated here, directly against the PAM codes in this mart. Cataloguing a 'pam'
 -- commodity in the editable Curadoria catalog (research_inputs.commodity_catalog_log →
 -- dim_commodity_catalog; the retired commodity_crosswalk seed's successor) is then enough
@@ -93,7 +93,7 @@ pam_xwalk as (
     from pam_codes c
     join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'pam'
-        and c.product_code like x.code_prefix || '%'
+        and c.product_code = x.codigo_commodity
 
 )
 

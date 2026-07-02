@@ -72,12 +72,11 @@ ppm_codes as (
 
 -- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
 -- source='ppm' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE facts,
--- and its accepted_values tests reject 'ppm' — so the seed's prefix expansion is
--- replicated here against the PPM codes in this mart. Seeding (source='ppm') rows in
--- commodity_crosswalk is then enough to light up commodity_id/commodity_name (the
--- seed's accepted_values test on `source` must learn 'ppm' alongside the first such
--- row). With no ppm rows seeded yet, both columns come out NULL (the dashboard
--- handles NULL commodity).
+-- and its accepted_values tests reject 'ppm' — so the exact-code linkage is replicated
+-- here against the PPM codes in this mart. Cataloguing a 'ppm' commodity (source='ppm')
+-- in dim_commodity_catalog is then enough to light up commodity_id/commodity_name. With
+-- no ppm commodity catalogued yet, both columns come out NULL (the dashboard handles
+-- NULL commodity).
 ppm_xwalk as (
 
     select distinct
@@ -87,7 +86,7 @@ ppm_xwalk as (
     from ppm_codes c
     join {{ ref('dim_commodity_catalog') }} x
         on x.source = 'ppm'
-        and c.product_code like x.code_prefix || '%'
+        and c.product_code = x.codigo_commodity
 
 )
 

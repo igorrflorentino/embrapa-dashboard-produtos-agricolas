@@ -162,6 +162,53 @@ def test_fetch_catalog_editors_filters_by_resource_param(monkeypatch):
     assert recorded["params"]["resource"].value == "commodity_catalog"
 
 
+# ── fetch_source_code_stats: per-code Gold aggregate (catalog status columns) ───
+
+
+def test_fetch_source_code_stats_unknown_source_raises(monkeypatch):
+    """An unknown banco token has no Gold fact table → NotFound (the seam skips it)."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import NotFound
+
+    from embrapa_commodities.serving import gateway
+
+    app, cache = _bind_simplecache()
+    with app.app_context(), pytest.raises(NotFound):
+        cache.clear()
+        gateway.fetch_source_code_stats("not_a_banco")
+
+
+def test_fetch_source_code_stats_aggregates_by_code(monkeypatch):
+    """A known banco drives ONE column-pruned aggregate over the Gold fact table:
+    count(*) + min/max(reference_year) grouped by the exact code, max_bytes-guarded."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query
+        recorded["max_bytes"] = kwargs.get("max_bytes")
+        return "STATS"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_source_code_stats("comtrade")
+
+    assert out == "STATS"
+    q = recorded["query"].lower()
+    assert "gold_comtrade_flows" in q  # the comtrade Gold fact table
+    assert "cast(cmd_code as string) as code" in q  # the comtrade code column
+    assert "count(*) as n_rows" in q
+    assert "min(reference_year) as year_start" in q and "max(reference_year) as year_end" in q
+    assert "group by code" in q
+    assert recorded["max_bytes"] == gateway.RAW_TABLE_MAX_BYTES  # cost guard applied
+
+
 # ── fetch_orphan_commodities: tombstone step + Gold-exists step (782-820) ───────
 
 
@@ -247,7 +294,7 @@ def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
     step2 = calls[1].lower()
     assert "gold_codes" in step2
     assert "gold_pevs_production" in step2
-    assert "g.code like t.code_prefix" in step2
+    assert "g.code = t.codigo_commodity" in step2
 
 
 # ── fetch_lifecycle_status: latest-wins status per element (828-842) ───────────

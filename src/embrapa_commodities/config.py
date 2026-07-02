@@ -418,8 +418,8 @@ class Settings(BaseSettings):
     bq_banco_metadata_table: str = Field(default="banco_metadata")
     # ─── Curadoria (catalog — what enters/exits the dashboard) ────────────────
     # Append-only log of the researcher-managed COMMODITY CATALOG: which commodities
-    # are in the dashboard, their agrupamento (cross-source concept), industrialização,
-    # ciclo de vida (in/out) and the code_prefix used for the cross-source bridge. The
+    # are in the dashboard, their agrupamento (cross-source concept) and ciclo de vida
+    # (in/out), keyed by the EXACT source code (one code = one entry; no prefixes). The
     # current catalog = latest row per (codigo_commodity, banco); a row with
     # active=false is a tombstone (removed → its Gold data becomes an orphan). Backs
     # dim_commodity_catalog (→ gold_commodity_crosswalk). Auto-created on first write.

@@ -1663,7 +1663,7 @@ def test_visibility_clause_and_builder_injection():
     clause = sql.visibility_clause(_isolated_settings(), "pevs", "product_code")
     assert "not exists" in clause.lower() and "dim_commodity_visibility" in clause
     assert "v.source = 'pevs'" in clause
-    assert "product_code like v.code_prefix || '%'" in clause
+    assert "product_code = v.code" in clause
     # default empty → no gate injected (back-compat)
     ts0, _ = sql.quality_timeseries("t")
     assert "not exists" not in ts0.lower()
@@ -1696,7 +1696,7 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
         gateway.fetch_quality_timeseries("mdic_comex")
         assert "dim_commodity_visibility" in recorded["query"]
         assert "v.source = 'comex'" in recorded["query"]
-        assert "ncm_code like v.code_prefix" in recorded["query"]
+        assert "ncm_code = v.code" in recorded["query"]
 
         cache.clear()
         gateway.fetch_quality_by_product("ibge_pevs")
@@ -1719,9 +1719,9 @@ def test_inspect_visibility_predicate_gates_gold_facts_only(monkeypatch):
     pred = gateway._inspect_visibility_predicate("ibge_pevs", "gold_pevs_production")
     assert "dim_commodity_visibility" in pred
     assert "v.source = 'pevs'" in pred
-    assert "product_code like v.code_prefix" in pred
+    assert "product_code = v.code" in pred
     cpred = gateway._inspect_visibility_predicate("mdic_comex", "gold_comex_flows")
-    assert "v.source = 'comex'" in cpred and "ncm_code like v.code_prefix" in cpred
+    assert "v.source = 'comex'" in cpred and "ncm_code = v.code" in cpred
     # serving marts already gated at build → no extra predicate; unknown → none either
     assert gateway._inspect_visibility_predicate("ibge_pevs", "serving_pevs_annual") == ""
     assert gateway._inspect_visibility_predicate("nope", "whatever") == ""
@@ -2492,26 +2492,15 @@ def test_slug_matches_seed_commodity_ids():
     assert curation._slug("") == ""
 
 
-def test_assert_prefix_disjoint_rejects_overlap_but_allows_same_key():
-    from embrapa_commodities.serving import curation
-
-    # A new prefix that is a prefix of (or prefixed by) an existing one in the banco fans
-    # out the cross-source join → reject.
-    with pytest.raises(ValueError):
-        curation._assert_prefix_disjoint("4403", "440", [("9999", "4403")])
-    # Updating the SAME entry (same codigo) is never a conflict with itself.
-    curation._assert_prefix_disjoint("4403", "4403", [("4403", "44")])
-    # Genuinely disjoint prefixes are fine.
-    curation._assert_prefix_disjoint("4407", "4407", [("4403", "4403")])
-
-
 def test_record_commodity_catalog_inserts_active_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    # The code-existence gate is exercised separately; skip it here (this asserts the INSERT).
+    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
     client = mock.Mock()
-    client.query.return_value.result.return_value = []  # empty disjoint-read + insert ok
+    client.query.return_value.result.return_value = []  # insert ok
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     rec = curation.record_commodity_catalog(
@@ -2528,10 +2517,11 @@ def test_record_commodity_catalog_inserts_active_row_with_author(monkeypatch):
     assert rec["edited_by"] == "alice@embrapa.br"
     assert rec["codigo_commodity"] == "4403" and rec["banco"] == "un_comtrade"
     assert rec["active"] is True
-    assert rec["code_prefix"] == "4403"  # defaults to codigo_commodity
+    assert "code_prefix" not in rec  # prefixes are gone; only the exact code
     assert rec["commodity_id"] == "madeira"  # slug of the agrupamento
     sql_text = client.query.call_args.args[0].lower()  # the LAST query is the INSERT
     assert "insert into" in sql_text and "current_timestamp()" in sql_text
+    assert "code_prefix" not in sql_text
     params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
     assert params["codigo_commodity"] == "4403" and params["active"] is True
 
@@ -2547,26 +2537,48 @@ def test_record_commodity_catalog_rejects_blank_key():
         )
 
 
-def test_record_commodity_catalog_rejects_overlapping_prefix(monkeypatch):
+def test_record_commodity_catalog_rejects_nonexistent_code(monkeypatch):
+    """A NEW entry whose code isn't a real product in the source's Gold is rejected — you
+    can't register a code that doesn't exist. An UPDATE to an already-active entry is exempt."""
     pytest.importorskip("flask_caching")
+    import pandas as pd
+
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    client = mock.Mock()
-    # the disjoint-read returns an existing ('9999','4403') in the banco
-    client.query.return_value.result.return_value = [_catalog_row_obj("9999", "4403")]
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
+    # The source only has code '4403' — registering '9999' must fail. 'comtrade' is the
+    # catalog banco TOKEN (maps to source 'un_comtrade' via _BANCO_TO_SOURCE).
+    monkeypatch.setattr(
+        curation.gateway,
+        "fetch_products",
+        lambda src: pd.DataFrame([{"code": "4403", "name": "x"}]),
+    )
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-
-    with pytest.raises(ValueError):  # new prefix '440' overlaps existing '4403'
+    with pytest.raises(ValueError, match="não existe"):
         curation.record_commodity_catalog(
-            "4403",
-            "un_comtrade",
+            "9999",
+            "comtrade",
             headers,
-            agrupamento="Madeira",  # required now (else the H-1 guard short-circuits first)
-            code_prefix="440",
+            agrupamento="Madeira",
             settings=_settings(),
-            client=client,
+            client=mock.Mock(),
+            invalidate_cache=False,
         )
+    # An UPDATE to an already-active entry is allowed even if the code is missing from Gold.
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = []
+    rec = curation.record_commodity_catalog(
+        "9999",
+        "comtrade",
+        headers,
+        agrupamento="Madeira",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+    assert rec["active"] is True and rec["codigo_commodity"] == "9999"
 
 
 def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):
@@ -2574,26 +2586,25 @@ def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    # The entry is currently active with a COARSE prefix (codigo 'madeira' != prefix '4403').
-    # The tombstone must carry the REAL prefix, not the codigo — orphan detection keys off it.
-    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [("madeira", "4403")])
+    # The entry is currently active → a tombstone may be written for its exact code.
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
     client = mock.Mock()
     client.query.return_value.result.return_value = []
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
     rec = curation.remove_commodity_catalog(
-        "madeira",
+        "4403",
         "un_comtrade",
         headers,
         settings=_settings(),
         client=client,
         invalidate_cache=False,
     )
-    assert rec["active"] is False
-    assert rec["code_prefix"] == "4403"  # M-2: the real active prefix, not the codigo
+    assert rec["active"] is False and rec["codigo_commodity"] == "4403"
+    assert "code_prefix" not in rec
     params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
     assert params["active"] is False  # the tombstone row is active=false
-    assert params["code_prefix"] == "4403"
+    assert params["codigo_commodity"] == "4403"
 
 
 def test_remove_commodity_catalog_rejects_uncataloged_key(monkeypatch):
@@ -2603,7 +2614,7 @@ def test_remove_commodity_catalog_rejects_uncataloged_key(monkeypatch):
     from embrapa_commodities.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_current_prefixes", lambda *a, **k: [])  # nothing active
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # nothing active
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError):
         curation.remove_commodity_catalog(
@@ -2639,36 +2650,6 @@ def test_record_commodity_catalog_rejects_blank_agrupamento(monkeypatch):
         )
 
 
-def test_record_commodity_catalog_rejects_blank_or_wildcard_prefix(monkeypatch):
-    """A whitespace code_prefix collapses to '' → LIKE '%' (every code absorbed); a LIKE
-    wildcard ('%'/'_') over-matches. Both rejected at the write gate (M-1)."""
-    pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-
-    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError):  # whitespace → '' after strip
-        curation.record_commodity_catalog(
-            "4403",
-            "un_comtrade",
-            headers,
-            agrupamento="Madeira",
-            code_prefix="   ",
-            settings=_settings(),
-            client=mock.Mock(),
-        )
-    with pytest.raises(ValueError):  # '_' is a LIKE single-char wildcard
-        curation.record_commodity_catalog(
-            "4403",
-            "un_comtrade",
-            headers,
-            agrupamento="Madeira",
-            code_prefix="44_3",
-            settings=_settings(),
-            client=mock.Mock(),
-        )
-
-
 def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_commodities.serving import curation
@@ -2679,14 +2660,15 @@ def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeyp
 
     assert fqn.endswith(".commodity_catalog_log")
     table_arg = client.create_table.call_args.args[0]
-    assert {f.name for f in table_arg.schema} >= {
+    schema_names = {f.name for f in table_arg.schema}
+    assert schema_names >= {
         "codigo_commodity",
         "banco",
-        "code_prefix",
         "active",
         "edited_by",
         "change_id",
     }
+    assert "code_prefix" not in schema_names  # prefixes removed from the schema
     assert table_arg.clustering_fields == ["banco", "codigo_commodity"]
 
 
@@ -2942,44 +2924,9 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
     monkeypatch.setattr(catalog_lifecycle, "_backup_status", lambda cfg: (True, "snapshot ok"))
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is True
-    assert any("gold_comex_flows" in s and "20079926%" in s for s in plan["statements"])
+    # The DELETE matches the EXACT code (equality, no prefix LIKE).
+    assert any("gold_comex_flows" in s and "= '20079926'" in s for s in plan["statements"])
     assert all(s.strip().startswith("DELETE FROM") for s in plan["statements"])
-
-
-def test_purge_plan_uses_coarse_code_prefix_not_codigo(monkeypatch):
-    """REGRESSION: when an entry's code_prefix is COARSER than its codigo_commodity, the
-    purge DELETE must match the PREFIX (what orphan detection flagged), not the codigo —
-    else it under-purges and leaves the lingering rows behind while the audit says 'purged'."""
-    pytest.importorskip("flask_caching")
-    import pandas as pd
-
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
-
-    # Coarse prefix '12' absorbing codigo '1203' (the case the catalog explicitly supports).
-    def _coarse_orphan_df():
-        return pd.DataFrame(
-            [
-                {
-                    "codigo_commodity": "1203",
-                    "banco": "comex",
-                    "code_prefix": "12",
-                    "agrupamento": "X",
-                }
-            ]
-        )
-
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _coarse_orphan_df)
-    monkeypatch.setattr(
-        catalog_lifecycle,
-        "_current_status",
-        lambda cfg: {("commodity", "comex", "1203"): "descontinuado"},
-    )
-    monkeypatch.setattr(catalog_lifecycle, "_backup_status", lambda cfg: (True, "ok"))
-    plan = catalog_lifecycle.purge_plan("comex", "1203", settings=_settings())
-    assert plan["code_prefix"] == "12"
-    # The DELETE matches the COARSE prefix, not the codigo.
-    assert any("LIKE '12%'" in s for s in plan["statements"])
-    assert not any("LIKE '1203%'" in s for s in plan["statements"])
 
 
 def test_purge_plan_rejects_injection_in_code():

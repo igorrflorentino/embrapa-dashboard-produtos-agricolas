@@ -42,6 +42,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from embrapa_commodities.config import get_credentials, get_settings
@@ -772,7 +773,7 @@ def fetch_commodity_catalog(banco: str | None = None):
     where = "where banco = @banco" if banco else ""
     sql = f"""
         select codigo_commodity, banco, agrupamento, descricao_commodity,
-               ciclo_de_vida, code_prefix, commodity_id
+               ciclo_de_vida, commodity_id
         from (
           select *, row_number() over (
             partition by codigo_commodity, banco order by edited_at desc, change_id desc
@@ -814,6 +815,29 @@ _GOLD_CODE_SOURCES = {
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_source_code_stats(source: str):
+    """Per-code Gold state for a source: row count + reference-year span, from ONE
+    aggregate over the Gold fact table (column-pruned to the code + reference_year, so a
+    cheap scan; cached + maximum_bytes_billed-guarded). Backs the catalog's per-commodity
+    status columns (linhas na Gold, período). ``source`` is the short banco token
+    (pevs/comex/comtrade/pam/ppm). Raises NotFound if the token is unknown."""
+    if source not in _GOLD_CODE_SOURCES:
+        raise NotFound(f"unknown source {source!r}")
+    table_name, code_col = _GOLD_CODE_SOURCES[source]
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
+    sql = f"""
+        select cast({code_col} as string) as code,
+               count(*) as n_rows,
+               min(reference_year) as year_start,
+               max(reference_year) as year_end
+        from `{table}`
+        group by code
+    """
+    return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_orphan_commodities():
     """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
     the catalog, was REMOVED (current state active=false), and whose Gold data STILL
@@ -827,7 +851,7 @@ def fetch_orphan_commodities():
         settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
     )
     tombstoned_sql = f"""
-        select codigo_commodity, banco, code_prefix, agrupamento, edited_at as removed_at from (
+        select codigo_commodity, banco, agrupamento, edited_at as removed_at from (
           select *, row_number() over (
             partition by codigo_commodity, banco order by edited_at desc, change_id desc
           ) as _rn
@@ -840,7 +864,7 @@ def fetch_orphan_commodities():
     tomb = run_query(tombstoned_sql, [])
     if tomb is None or tomb.empty:
         return tomb
-    # Step 2: keep only those whose prefix still matches Gold codes in the banco (data
+    # Step 2: keep only those whose EXACT code still exists in the banco's Gold (data
     # lingers) — scanning ONLY the Gold tables for the bancos that have a removal.
     bancos = {b for b in tomb["banco"].tolist() if b in _GOLD_CODE_SOURCES}
     if not bancos:
@@ -854,10 +878,10 @@ def fetch_orphan_commodities():
     sql = f"""
         with tombstoned as ({tombstoned_sql}),
         gold_codes as ({gold_union})
-        select distinct t.codigo_commodity, t.banco, t.code_prefix, t.agrupamento, t.removed_at
+        select distinct t.codigo_commodity, t.banco, t.agrupamento, t.removed_at
         from tombstoned t
         where exists (
-          select 1 from gold_codes g where g.src = t.banco and g.code like t.code_prefix || '%'
+          select 1 from gold_codes g where g.src = t.banco and g.code = t.codigo_commodity
         )
     """
     return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
