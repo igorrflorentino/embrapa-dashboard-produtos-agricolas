@@ -45,6 +45,7 @@ CUR_LEVELS = (
     "manufaturado_especializado",
 )
 
+
 @cache.memoize()
 def _code_to_commodity() -> dict:
     """{(source, code) -> commodity_id} reverse index of the crosswalk, for

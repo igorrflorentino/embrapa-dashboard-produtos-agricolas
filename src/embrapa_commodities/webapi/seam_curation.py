@@ -27,6 +27,7 @@ def _clean(x):
     agrupamento/descrição/ciclo)."""
     return None if (isinstance(x, float) and x != x) else x
 
+
 # Catalog banco token → the long source id ``fetch_products`` expects, so the editor can
 # show each code's ORIGINAL source description (IBGE product / NCM / HS6 name).
 _BANCO_TO_SOURCE = {
