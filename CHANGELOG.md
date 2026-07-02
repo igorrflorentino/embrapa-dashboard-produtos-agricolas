@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [Unreleased]
+## [1.9.2] - 2026-07-01
+
+Curadoria "Cadastro de commodities" editor overhaul — agrupamentos become a first-class,
+fully editable entity, each code now shows its original source description, and the vestigial
+"Industrialização" field is removed. `dim_commodity_catalog` drops one column (rebuilt on the
+next prod build); no other Gold change.
 
 ### Added
 - **First-class AGRUPAMENTOS (groups) in the "Cadastro de commodities" editor.** Groups were
