@@ -75,7 +75,6 @@ def test_record_group_rename_retags_members(monkeypatch):
         banco="comex",
         descricao_commodity=None,
         ciclo_de_vida="Fazer Ingestão e deixar disponível",
-        code_prefix="4403",
     )
     monkeypatch.setattr(cg, "_active_member_rows", lambda bq, t, gid: [member])
     retagged = []
@@ -220,7 +219,6 @@ def test_record_group_rename_runs_real_member_read(monkeypatch):
         banco="comex",
         descricao_commodity=None,
         ciclo_de_vida="Fazer Ingestão e deixar disponível",
-        code_prefix="4403",
     )
     client = mock.Mock()
     # 1) _current_groups → the group; 2) INSERT rename row; 3) _active_member_rows → member.

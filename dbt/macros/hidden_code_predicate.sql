@@ -4,7 +4,7 @@
     Returns a NOT EXISTS clause that EXCLUDES any Gold row whose code equals a hidden
     commodity's code (dim_commodity_visibility). Drop it into the WHERE of any model
     that enumerates commodities for a RESEARCHER (the serving marts, the quality union).
-    A code with no hidden-prefix row passes (visible) — so this is a no-op when nothing
+    A code with no hidden-code row passes (visible) — so this is a no-op when nothing
     is hidden. The Python gateway's direct-Gold readers use the equivalent
     serving/sql.visibility_clause() against the SAME view (one source of truth).
 

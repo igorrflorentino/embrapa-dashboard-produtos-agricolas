@@ -36,6 +36,23 @@ function _ccCicloShort(v) {
 }
 const _ccInt = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
 
+// Agrupamento <select>. MODULE-level (stable identity) so React reconciles it across the
+// parent's frequent re-renders (every keystroke in "Novo agrupamento", every busy toggle)
+// instead of unmounting/remounting the whole subtree. When `value` matches no known group
+// (a stray / unassigned entry, or the empty add-form draft) it shows an explicit empty
+// option instead of silently defaulting to whatever group sorts first.
+function CcGroupSelect({ value, onChange, placeholder, groups, busy }) {
+  const known = groups.some((g) => g.group_id === value);
+  const empty = placeholder || (known ? null : 'Sem agrupamento — reatribua…');
+  return (
+    <select value={known ? value : ''} disabled={busy}
+            onChange={(ev) => onChange(ev.target.value)} className="cc-group-select">
+      {empty != null && <option value="">{empty}</option>}
+      {groups.map((g) => <option key={g.group_id} value={g.group_id}>{g.group_name}</option>)}
+    </select>
+  );
+}
+
 function ViewCadastroCommodities() {
   const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null });
   const [statusMap, setStatusMap] = useCcState({}); // "banco:code" -> {n_rows, year_start, year_end, has_data}
@@ -95,8 +112,10 @@ function ViewCadastroCommodities() {
 
   const run = async (fn, okMsg) => {
     setBusy(true); setStatus(null);
+    let ok = false;
     try {
       await fn();
+      ok = true;
       setStatus({ kind: 'ok', msg: okMsg });
     } catch (e) {
       setStatus({ kind: 'err', msg: String(e.message || e) });
@@ -106,6 +125,7 @@ function ViewCadastroCommodities() {
       load();
       setBusy(false);
     }
+    return ok; // callers (e.g. the add form) reset/close only on success
   };
 
   const saveEntry = (entry) =>
@@ -170,11 +190,15 @@ function ViewCadastroCommodities() {
     return m;
   }, [srcCodes]);
   const codeLoadedForBanco = srcCodes.banco === draft.banco && !srcCodes.loading;
-  const codeMatch = draft.codigo_commodity ? codeIndex.has(draft.codigo_commodity) : null;
+  // Only judge the code against the CURRENTLY-loaded banco's codes — otherwise, in the
+  // paint right after a banco switch (before the codes reload), a code from the previous
+  // banco could flash a false ✓ / enable Salvar.
+  const codeMatch = (draft.codigo_commodity && codeLoadedForBanco)
+    ? codeIndex.has(draft.codigo_commodity) : null;
   const groupChosen = !!data.groups.find((x) => x.group_id === draft.commodity_id);
   const canSubmit = !!draft.codigo_commodity && groupChosen && codeMatch === true && !busy;
 
-  const submitAdd = () => {
+  const submitAdd = async () => {
     if (!draft.codigo_commodity || !draft.banco) {
       setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
       return;
@@ -189,9 +213,13 @@ function ViewCadastroCommodities() {
       setStatus({ kind: 'err', msg: `O código ${draft.codigo_commodity} não existe em ${_CC_BANCO_LABEL[draft.banco]}. Use um código real da fonte.` });
       return;
     }
-    saveEntry({ ...draft, agrupamento: g.group_name });
-    setDraft({ ..._CC_EMPTY_DRAFT });
-    setShowAdd(false);
+    // Reset + close ONLY on a successful write; a 400/403 keeps the form open with the
+    // user's input intact so they can correct it.
+    const ok = await saveEntry({ ...draft, agrupamento: g.group_name });
+    if (ok) {
+      setDraft({ ..._CC_EMPTY_DRAFT });
+      setShowAdd(false);
+    }
   };
 
   // Registry groups, sorted; each rendered as a card with its members.
@@ -201,14 +229,6 @@ function ViewCadastroCommodities() {
   // bucket so nothing is hidden. After the seed migration this is empty.
   const knownIds = new Set(data.groups.map((g) => g.group_id));
   const strayEntries = data.entries.filter((e) => !knownIds.has(e.commodity_id));
-
-  const GroupSelect = ({ value, onChange, placeholder }) => (
-    <select value={value || ''} disabled={busy}
-            onChange={(ev) => onChange(ev.target.value)} className="cc-group-select">
-      {placeholder && <option value="">{placeholder}</option>}
-      {groupsSorted.map((g) => <option key={g.group_id} value={g.group_id}>{g.group_name}</option>)}
-    </select>
-  );
 
   const memberRows = (members) => (
     <div className="dt-wrap">
@@ -236,7 +256,8 @@ function ViewCadastroCommodities() {
                     : <span className="cc-no-data" title="Cadastrada, mas sem dados na Gold">sem dados</span>}
                 </td>
                 <td>
-                  <GroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)} />
+                  <CcGroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)}
+                                 groups={groupsSorted} busy={busy} />
                 </td>
                 <td>
                   <select disabled={busy} value={e.ciclo_de_vida || ''}
@@ -342,7 +363,7 @@ function ViewCadastroCommodities() {
           <div className="cc-add-grid">
             <label className="cc-field">
               <span className="cc-field-label">Banco (fonte)</span>
-              <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value }))}>
+              <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value, codigo_commodity: '' }))}>
                 {_CC_BANCOS.map((b) => <option key={b.v} value={b.v}>{b.label}</option>)}
               </select>
             </label>
@@ -377,7 +398,7 @@ function ViewCadastroCommodities() {
 
             <label className="cc-field">
               <span className="cc-field-label">Agrupamento</span>
-              <GroupSelect value={draft.commodity_id}
+              <CcGroupSelect value={draft.commodity_id} groups={groupsSorted} busy={busy}
                            onChange={(gid) => setDraft((d) => ({ ...d, commodity_id: gid }))}
                            placeholder={data.groups.length ? 'Escolha um agrupamento…' : 'Crie um agrupamento primeiro'} />
             </label>

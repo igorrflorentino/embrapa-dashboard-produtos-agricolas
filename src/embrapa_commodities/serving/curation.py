@@ -206,7 +206,10 @@ def _assert_code_exists(
         return  # update of an existing entry — not a new registration
     source = _BANCO_TO_SOURCE.get(banco)
     if source is None:
-        return  # unknown banco token — the key/route validation handles it
+        # An unknown banco token would otherwise write a junk row that never joins in
+        # gold_commodity_crosswalk (source ∈ pevs/comex/comtrade) — silent orphaned data.
+        # No other layer validates the banco, so reject it loudly here.
+        raise ValueError(f"banco {banco!r} inválido — use um de {sorted(_BANCO_TO_SOURCE)}.")
     try:
         products = gateway.fetch_products(source)
     except NotFound:

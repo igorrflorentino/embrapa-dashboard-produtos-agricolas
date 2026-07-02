@@ -140,12 +140,14 @@ def catalog_status() -> dict:
         )
         for code in codes:
             s = stat.get(code)
+            # _clean(x) is None both for SQL NULL and a pandas float NaN (a plain
+            # ``is not None`` would let a NaN through to int() → ValueError).
+            year_start = _clean(s.year_start) if s is not None else None
+            year_end = _clean(s.year_end) if s is not None else None
             status[f"{banco}:{code}"] = {
                 "n_rows": int(s.n_rows) if s is not None else 0,
-                "year_start": int(s.year_start)
-                if s is not None and s.year_start is not None
-                else None,
-                "year_end": int(s.year_end) if s is not None and s.year_end is not None else None,
+                "year_start": int(year_start) if year_start is not None else None,
+                "year_end": int(year_end) if year_end is not None else None,
                 "has_data": bool(s is not None and s.n_rows),
             }
     return {"status": status}
@@ -285,7 +287,7 @@ def orphan_worklist() -> dict:
             {
                 "codigo_commodity": code,
                 "banco": o.banco,
-                "agrupamento": o.agrupamento,
+                "agrupamento": _clean(o.agrupamento),
                 # Honor the recorded status: a re-orphaned, already-purged code reads
                 # 'purged', not a hardcoded 'descontinuado'. None until the marker runs.
                 "status": (st.status if st is not None else "descontinuado"),

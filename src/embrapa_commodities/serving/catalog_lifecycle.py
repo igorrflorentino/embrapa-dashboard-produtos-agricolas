@@ -215,7 +215,7 @@ def invalidate_lifecycle_cache() -> None:
 
 # ── Human-gated purge (the LAST destructive step — never automatic) ───────────
 # The Gold fact table(s) whose rows an orphan's purge would delete (matched by the
-# code prefix). Gold is rebuilt from Bronze by dbt, so a true purge also needs the
+# exact code). Gold is rebuilt from Bronze by dbt, so a true purge also needs the
 # Bronze rows gone + the ingestion scope updated — the plan spells that out.
 _PURGE_TARGETS = {
     "pevs": [("bq_gold_dataset", "gold_pevs_production", "product_code")],

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.3] - 2026-07-02
+
+Post-migration audit follow-ups (v1.10.0→v1.10.2): a multi-agent audit found no
+high-severity bugs; this fixes the confirmed medium/low findings plus stale-doc and
+dead-code cleanup.
+
+### Fixed
+- **Cadastro rejects an invalid `banco` token.** A banco outside the 5 valid catalog
+  tokens (pevs/pam/ppm/comex/comtrade) silently bypassed the code-existence guard and
+  wrote a junk catalog row that never joined in `gold_commodity_crosswalk`. The writer
+  now rejects it loudly (400).
+- **Add form no longer loses your input on a failed write.** A 400 (duplicate/inexistent
+  code) or 403 (not on the editor allowlist) kept the red banner but wiped the form; it
+  now resets + closes **only on success**, preserving your input to correct.
+- **"Cadastro de commodities" no longer remounts every dropdown on each keystroke.** The
+  agrupamento `<select>` was defined inside the render (new identity per render); hoisted
+  to a stable module-level component — also fixes an unassigned "stray" entry showing the
+  first group instead of a blank placeholder.
+- **Descontinuados now shows the orphan's agrupamento.** It was sourced from the
+  removal tombstone (always NULL); now taken from the commodity's last *active* row.
+- Add form: the ✓/✗ code hint is now banco-aware (no brief false "✓" right after switching
+  banco); `catalog_status` uses a NaN-safe year guard.
+
+### Changed (docs / internal)
+- Corrected stale `code_prefix`/prefix wording to exact-code across the gateway/lifecycle
+  docstrings, the `hidden_code_predicate` macro, and the `gold_commodity_crosswalk`
+  BigQuery description; documented the quality taxonomy as **11-value** (9 emitted + 2
+  reserved) in README / CLAUDE.md / the quality PLAN.
+- Removed dead `code_prefix` test fixtures; retired the misleading `commodity_crosswalk`
+  mock in the Referências test; added the reverse (catalog→CSV) seed-bijection guard.
+
 ## [1.10.2] - 2026-07-02
 
 Make the data-quality tags self-explanatory in the dashboard, and reserve the
