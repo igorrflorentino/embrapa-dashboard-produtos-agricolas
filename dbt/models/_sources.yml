@@ -147,7 +147,7 @@ sources:
           Append-only Curadoria (catalog) source: one row per manual commodity-catalog
           edit. Columns: codigo_commodity, banco (source token pevs/comex/comtrade/
           pam/ppm), agrupamento (cross-source concept), descricao_commodity,
-          industrializacao, ciclo_de_vida, code_prefix, commodity_id, active
+          ciclo_de_vida, code_prefix, commodity_id, active
           (false = a tombstone: the entry left the catalog → its Gold data is an
           orphan), edited_by (IAP email), edited_at (TIMESTAMP), change_id.
           dim_commodity_catalog derives the current (latest-wins, active) catalog and

@@ -299,6 +299,41 @@ def catalog_orphans():
     return jsonify(serializers.serialize_orphan_worklist(seam.orphan_worklist()))
 
 
+@api.get("/catalog/groups")
+def catalog_groups():
+    """The first-class GROUPS (agrupamentos) registry — id, name and a live member count
+    (0 = an empty group). Backs the group-management UI. Read is open behind IAP."""
+    return jsonify(seam.group_worklist())
+
+
+@api.post("/catalog/group")
+def catalog_group_upsert():
+    """Create (group_id omitted) or RENAME (group_id given) a group. Author from the IAP
+    header; 401/403 via the per-catalog editor allowlist. A bad/duplicate name → 400."""
+    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    if not body.get("group_name"):
+        return jsonify(error="group_name is required"), 400
+    logger.info("catalog group upsert by %s: %s", author, body.get("group_name"))
+    return jsonify(seam.record_group(body))
+
+
+@api.post("/catalog/group/remove")
+def catalog_group_remove():
+    """Delete (tombstone) a group — rejected while it still has active members. Author
+    from the IAP header; 401/403 via the per-catalog editor allowlist; non-empty → 400."""
+    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    if not body.get("group_id"):
+        return jsonify(error="group_id is required"), 400
+    logger.info("catalog group remove by %s: %s", author, body.get("group_id"))
+    return jsonify(seam.remove_group(body))
+
+
 @api.get("/source-meta")
 def source_meta():
     """Provenance row for a banco (backs the page-hero meta); {} if absent.

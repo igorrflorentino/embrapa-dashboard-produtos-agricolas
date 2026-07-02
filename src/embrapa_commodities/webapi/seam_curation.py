@@ -19,6 +19,16 @@ from embrapa_commodities.serving import gateway
 
 COMMODITY_CATALOG_RESOURCE = "commodity_catalog"
 
+# Catalog banco token → the long source id ``fetch_products`` expects, so the editor can
+# show each code's ORIGINAL source description (IBGE product / NCM / HS6 name).
+_BANCO_TO_SOURCE = {
+    "pevs": "ibge_pevs",
+    "pam": "ibge_pam",
+    "ppm": "ibge_ppm",
+    "comex": "mdic_comex",
+    "comtrade": "un_comtrade",
+}
+
 
 def catalog_worklist(banco: str | None = None) -> dict:
     """The current commodity catalog (latest-wins, active) — backs the admin editor.
@@ -40,13 +50,29 @@ def catalog_worklist(banco: str | None = None) -> dict:
             "banco": r.banco,
             "agrupamento": r.agrupamento,
             "descricao_commodity": r.descricao_commodity,
-            "industrializacao": r.industrializacao,
             "ciclo_de_vida": r.ciclo_de_vida,
             "code_prefix": str(r.code_prefix),
             "commodity_id": r.commodity_id,
         }
         for r in df.itertuples()
     ]
+    # Attach the source's ORIGINAL product description per (banco, codigo) — the name the
+    # source (IBGE/COMEX/Comtrade) gives that code — so a bare numeric code isn't opaque.
+    # Read once per source (memoized). A code that isn't an EXACT source code (a coarse
+    # prefix registered for a group) has no single description → left None.
+    source_names: dict[str, dict] = {}
+    for b in {e["banco"] for e in entries}:
+        src = _BANCO_TO_SOURCE.get(b)
+        if not src:
+            continue
+        try:
+            pdf = gateway.fetch_products(src)
+        except NotFound:
+            continue
+        if pdf is not None and not pdf.empty:
+            source_names[b] = {str(p.code): p.name for p in pdf.itertuples()}
+    for e in entries:
+        e["descricao_fonte"] = source_names.get(e["banco"], {}).get(e["codigo_commodity"])
     groups: dict = {}
     for e in entries:
         groups.setdefault(e["agrupamento"] or "—", []).append(e)
@@ -72,7 +98,6 @@ def record_catalog_entry(payload: dict) -> dict:
         headers,
         agrupamento=payload.get("agrupamento"),
         descricao_commodity=payload.get("descricao_commodity"),
-        industrializacao=payload.get("industrializacao"),
         ciclo_de_vida=payload.get("ciclo_de_vida"),
         code_prefix=payload.get("code_prefix"),
         commodity_id=payload.get("commodity_id"),
@@ -92,6 +117,58 @@ def remove_catalog_entry(payload: dict) -> dict:
     return curation.remove_commodity_catalog(
         payload.get("codigo_commodity"),
         payload.get("banco"),
+        headers,
+        change_id=payload.get("change_id"),
+    )
+
+
+def group_worklist() -> dict:
+    """The current commodity GROUPS (agrupamentos) registry — id, name and a live count
+    of active catalog members (0 = an empty group; the UI blocks deleting a non-empty
+    one). Backs the group-management UI. Empty (not an error) before the registry exists."""
+    try:
+        df = gateway.fetch_commodity_groups()
+    except NotFound:
+        return {"groups": [], "total": 0}
+    if df is None or df.empty:
+        return {"groups": [], "total": 0}
+    groups = [
+        {
+            "group_id": r.group_id,
+            "group_name": r.group_name,
+            "n_members": int(r.n_members),
+        }
+        for r in df.itertuples()
+    ]
+    return {"groups": groups, "total": len(groups)}
+
+
+def record_group(payload: dict) -> dict:
+    """Create (group_id omitted) or RENAME (group_id given) a group. Author from the IAP
+    header. Raises ValueError on a bad/duplicate name (→ HTTP 400)."""
+    from flask import has_request_context, request
+
+    from embrapa_commodities.serving import commodity_groups
+
+    headers = dict(request.headers) if has_request_context() else {}
+    return commodity_groups.record_group(
+        payload.get("group_name"),
+        headers,
+        group_id=payload.get("group_id"),
+        change_id=payload.get("change_id"),
+    )
+
+
+def remove_group(payload: dict) -> dict:
+    """Tombstone (delete) a group — rejected while it still has active members. Author
+    from the IAP header. Raises ValueError (→ HTTP 400) when non-empty or absent."""
+    from flask import has_request_context, request
+
+    from embrapa_commodities.serving import commodity_groups
+
+    headers = dict(request.headers) if has_request_context() else {}
+    return commodity_groups.delete_group(
+        payload.get("group_id"),
         headers,
         change_id=payload.get("change_id"),
     )

@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [Unreleased]
+## [1.9.2] - 2026-07-01
+
+Curadoria "Cadastro de commodities" editor overhaul — agrupamentos become a first-class,
+fully editable entity, each code now shows its original source description, and the vestigial
+"Industrialização" field is removed. `dim_commodity_catalog` drops one column (rebuilt on the
+next prod build); no other Gold change.
+
+### Added
+- **First-class AGRUPAMENTOS (groups) in the "Cadastro de commodities" editor.** Groups were
+  previously *derived* (the distinct set of `agrupamento` names on catalog entries) — no empty
+  groups, no rename, no delete. They are now a real registry (`research_inputs.commodity_group_log`,
+  append-only, IAP-attributed, keyed by `group_id` == a catalog entry's `commodity_id`) with a full
+  lifecycle: **create** (incl. empty groups), **rename** (re-tags the group's member entries), and
+  **delete** (blocked while the group still has members — reassign first). A researcher can also
+  **move a commodity between groups** inline. Backend `serving/commodity_groups.py` +
+  `/api/catalog/groups` (GET) + `/api/catalog/group` / `/api/catalog/group/remove` (POST).
+- **The source's ORIGINAL description per code** in the editor — a read-only "Descrição (fonte)"
+  column showing the name the source (IBGE / NCM / HS6) gives each code, via `fetch_products`.
+
+### Removed
+- **The catalog's free-text "Industrialização" field, everywhere** (writer, `gateway` read,
+  `dim_commodity_catalog`, `_sources.yml`, the editor column + Add form). It was vestigial —
+  nothing downstream consumed it — and duplicated the concept owned by the separate **Engenharia de
+  Atributos · Nível de industrialização** feature (the versioned `dim_code_industrialization_scd2`),
+  which is now the single home for industrialization.
 
 ## [1.9.1] - 2026-07-01
 

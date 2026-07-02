@@ -424,6 +424,12 @@ class Settings(BaseSettings):
     # active=false is a tombstone (removed → its Gold data becomes an orphan). Backs
     # dim_commodity_catalog (→ gold_commodity_crosswalk). Auto-created on first write.
     bq_commodity_catalog_log_table: str = Field(default="commodity_catalog_log")
+    # Append-only GROUPS (agrupamentos) registry — the first-class commodity-concept
+    # registry keyed by group_id (== a catalog entry's commodity_id). Promotes groups
+    # from "derived from the distinct agrupamento names" to a real entity with its own
+    # lifecycle: create (incl. EMPTY groups), rename, delete (blocked while it has
+    # members). Latest-wins per group_id; active=false is a tombstone. Auto-created.
+    bq_commodity_group_log_table: str = Field(default="commodity_group_log")
     # Per-CATALOG authorization allowlist (research_inputs.<this>) — distinct from the
     # attribute-engineering `curators` table: each cadastro (resource) has its OWN list
     # of editors, keyed by (resource, email). Empty/absent → no allowlist (any

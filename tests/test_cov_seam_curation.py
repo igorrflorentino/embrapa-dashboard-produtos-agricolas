@@ -58,7 +58,6 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
                     "banco": "un_comtrade",
                     "agrupamento": "Madeira",
                     "descricao_commodity": "Madeira em toras",
-                    "industrializacao": "Bruto",
                     "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
                     "code_prefix": 4403,
                     "commodity_id": "madeira",
@@ -68,7 +67,6 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
                     "banco": "comex",
                     "agrupamento": "Madeira",
                     "descricao_commodity": "Madeira serrada",
-                    "industrializacao": "Processado",
                     "ciclo_de_vida": "Disponível",
                     "code_prefix": "4407",
                     "commodity_id": "madeira",
@@ -78,7 +76,6 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
                     "banco": "comex",
                     "agrupamento": "",  # falsy → bucketed under '—'
                     "descricao_commodity": "Sem agrupamento",
-                    "industrializacao": "",
                     "ciclo_de_vida": "",
                     "code_prefix": "9999",
                     "commodity_id": "x",
@@ -87,12 +84,23 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
         )
 
     monkeypatch.setattr(gateway, "fetch_commodity_catalog", _df)
+    # The worklist attaches the source's ORIGINAL description per (banco, codigo) via
+    # fetch_products(source). Mock it: comex code 4407 has a name; 9999 does not.
+    monkeypatch.setattr(
+        gateway,
+        "fetch_products",
+        lambda src: pd.DataFrame([{"code": "4407", "name": "Madeira serrada (NCM)"}]),
+    )
     out = seam_curation.catalog_worklist(banco="any")
 
     assert out["total"] == 3
     # str() coercion on a numeric codigo_commodity / code_prefix.
     first = out["entries"][0]
     assert first["codigo_commodity"] == "4403" and first["code_prefix"] == "4403"
+    # Source description: 4407 (comex) resolves; the un_comtrade 4403 + comex 9999 don't.
+    by_code = {(e["banco"], e["codigo_commodity"]): e for e in out["entries"]}
+    assert by_code[("comex", "4407")]["descricao_fonte"] == "Madeira serrada (NCM)"
+    assert by_code[("comex", "9999")]["descricao_fonte"] is None
 
     groups = {g["agrupamento"]: g for g in out["by_agrupamento"]}
     assert set(groups) == {"Madeira", "—"}
@@ -125,7 +133,6 @@ def test_record_catalog_entry_threads_payload_without_request_context(monkeypatc
         "banco": "un_comtrade",
         "agrupamento": "Madeira",
         "descricao_commodity": "Madeira em toras",
-        "industrializacao": "Bruto",
         "ciclo_de_vida": "Disponível",
         "code_prefix": "440",
         "commodity_id": "madeira",
@@ -287,3 +294,96 @@ def test_orphan_worklist_empty_when_no_orphans(monkeypatch):
     assert seam_curation.orphan_worklist() == {"orphans": [], "total": 0}
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: None)
     assert seam_curation.orphan_worklist() == {"orphans": [], "total": 0}
+
+
+# ── group_worklist + group write seams (first-class agrupamentos) ──────────────
+
+
+def test_group_worklist_shapes_groups(monkeypatch):
+    def _df():
+        return pd.DataFrame(
+            [
+                {"group_id": "madeira", "group_name": "Madeira", "n_members": 2},
+                {"group_id": "castanha", "group_name": "Castanha", "n_members": 0},
+            ]
+        )
+
+    monkeypatch.setattr(gateway, "fetch_commodity_groups", _df)
+    out = seam_curation.group_worklist()
+    assert out["total"] == 2
+    assert out["groups"][0] == {"group_id": "madeira", "group_name": "Madeira", "n_members": 2}
+
+
+def test_group_worklist_empty_on_not_found(monkeypatch):
+    def _raise():
+        raise NotFound("no registry")
+
+    monkeypatch.setattr(gateway, "fetch_commodity_groups", _raise)
+    assert seam_curation.group_worklist() == {"groups": [], "total": 0}
+    monkeypatch.setattr(gateway, "fetch_commodity_groups", lambda: pd.DataFrame())
+    assert seam_curation.group_worklist() == {"groups": [], "total": 0}
+
+
+def test_record_group_seam_threads_payload(monkeypatch):
+    from embrapa_commodities.serving import commodity_groups
+
+    captured = {}
+
+    def _rec(group_name, headers, **kw):
+        captured["name"] = group_name
+        captured["headers"] = headers
+        captured["kw"] = kw
+        return {"ok": True}
+
+    monkeypatch.setattr(commodity_groups, "record_group", _rec)
+    out = seam_curation.record_group(
+        {"group_name": "Madeira", "group_id": "madeira", "change_id": "k"}
+    )
+    assert out == {"ok": True}
+    assert captured["name"] == "Madeira" and captured["headers"] == {}  # no request context
+    assert captured["kw"]["group_id"] == "madeira" and captured["kw"]["change_id"] == "k"
+
+
+def test_remove_group_seam_threads_payload(monkeypatch):
+    from embrapa_commodities.serving import commodity_groups
+
+    captured = {}
+
+    def _del(group_id, headers, **kw):
+        captured["gid"] = group_id
+        captured["kw"] = kw
+        return {"ok": True}
+
+    monkeypatch.setattr(commodity_groups, "delete_group", _del)
+    out = seam_curation.remove_group({"group_id": "madeira", "change_id": "k"})
+    assert (
+        out == {"ok": True} and captured["gid"] == "madeira" and captured["kw"]["change_id"] == "k"
+    )
+
+
+def test_catalog_worklist_skips_source_desc_on_not_found(monkeypatch):
+    """A source whose products mart is absent (NotFound) leaves descricao_fonte None —
+    never masks the whole worklist as an error."""
+
+    def _df(banco=None):
+        return pd.DataFrame(
+            [
+                {
+                    "codigo_commodity": "4403",
+                    "banco": "comex",
+                    "agrupamento": "Madeira",
+                    "descricao_commodity": None,
+                    "ciclo_de_vida": "x",
+                    "code_prefix": "4403",
+                    "commodity_id": "madeira",
+                }
+            ]
+        )
+
+    def _raise(src):
+        raise NotFound("no mart")
+
+    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _df)
+    monkeypatch.setattr(gateway, "fetch_products", _raise)
+    out = seam_curation.catalog_worklist()
+    assert out["entries"][0]["descricao_fonte"] is None
