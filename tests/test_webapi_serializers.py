@@ -391,8 +391,9 @@ def test_quality_ts_pivots_to_per_year_shares():
     assert out[0]["ok"] == 0.9 and out[0]["missing_value"] == 0.1
     # every real contract key present (absent ones read 0). The outlier/problemático
     # tiers are part of the taxonomy (emitted by Gold when enable_quality_outliers is on),
-    # so they appear here too — as 0 when absent. The old SYNTHETIC ids (ESTIMATED/
-    # BOUNDARY_HISTORIC) are gone.
+    # so they appear here too — as 0 when absent. The inferred_* keys are RESERVED for a
+    # future auto-fill pipeline (accepted-but-absent, 0 today). The old SYNTHETIC ids
+    # (ESTIMATED/BOUNDARY_HISTORIC) are gone.
     assert set(out[0]) == {
         "y",
         "ok",
@@ -404,12 +405,14 @@ def test_quality_ts_pivots_to_per_year_shares():
         "problematic_quantity",
         "outlier_value",
         "problematic_value",
+        "inferred_quantity",
+        "inferred_value",
     }
     assert out[1]["ok"] == 0.5 and out[1]["incomplete"] == 0.3 and out[1]["missing_weight"] == 0.2
 
 
 def test_quality_flag_taxonomy_complete_and_ptbr():
-    """The 9-value taxonomy (incl. the outlier/problemático tiers) is fully wired: the
+    """The 11-value taxonomy (9 emitted + 2 reserved inferred tiers) is fully wired: the
     qualityTs-key map and the pt-BR label map cover the SAME ids, and every label is
     Portuguese — never the raw English id (the pt-BR rule; the documented past failure was
     a flag with no server label falling back to the English token)."""
@@ -421,10 +424,18 @@ def test_quality_flag_taxonomy_complete_and_ptbr():
         "PROBLEMATIC_QUANTITY",
         "OUTLIER_VALUE",
         "PROBLEMATIC_VALUE",
+        # Reserved for a future auto-fill pipeline (accepted-but-absent, 0 today).
+        "INFERRED_QUANTITY",
+        "INFERRED_VALUE",
     } <= set(s._FLAG_KEY)
     assert all(label != flag_id for flag_id, label in s._FLAG_LABEL_PT.items())
     assert "atípica" in s._FLAG_LABEL_PT["OUTLIER_QUANTITY"]
     assert "problemático" in s._FLAG_LABEL_PT["PROBLEMATIC_VALUE"]
+    # The reserved inferred tier carries its pt-BR labels + the qualityTs keys.
+    assert s._FLAG_KEY["INFERRED_QUANTITY"] == "inferred_quantity"
+    assert s._FLAG_KEY["INFERRED_VALUE"] == "inferred_value"
+    assert s._FLAG_LABEL_PT["INFERRED_QUANTITY"] == "Quantidade inferida"
+    assert s._FLAG_LABEL_PT["INFERRED_VALUE"] == "Valor financeiro inferido"
 
 
 def test_quality_ts_unmapped_flag_lowers_known_shares_not_dropped():

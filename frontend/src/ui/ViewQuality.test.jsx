@@ -89,6 +89,26 @@ describe('ViewQuality — renders the REAL Gold quality flags (H3 + P0 lock-in)'
     const { container } = render(<ViewQuality summary={{}} database="ibge_pevs" />);
     expect(container.textContent).toContain('Nenhuma flag selecionada');
   });
+
+  it('documents the FULL taxonomy (incl. the reserved inferred tiers) in the always-on legend', () => {
+    stubGlobals(FIXTURE);
+    const { container } = render(<ViewQuality summary={{}} database="ibge_pevs" />);
+    const legend = container.querySelector('.qa-flag-legend');
+    expect(legend).toBeTruthy();
+    // The panel iterates the FULL registry, so a reserved 0-count flag is still explained.
+    expect(legend.textContent).toContain('Quantidade inferida');
+    expect(legend.textContent).toContain('reservada');
+    expect(legend.textContent).toContain('preenchimento automático futuro'); // the desc text
+    // one legend item per registered flag (all documented, present or reserved)
+    expect(legend.querySelectorAll('.qa-flag-legend-item')).toHaveLength(window.QUALITY_FLAGS.length);
+  });
+
+  it('shows the flag descriptions as hover tooltips on the KPI cards', () => {
+    stubGlobals(FIXTURE);
+    const { container } = render(<ViewQuality summary={{}} database="ibge_pevs" />);
+    const card = container.querySelector('.qa-flag-card');
+    expect(card.getAttribute('title')).toBeTruthy(); // desc surfaced as native tooltip
+  });
 });
 
 // PPM carries measure_kind on its products → the per-product quality splits into

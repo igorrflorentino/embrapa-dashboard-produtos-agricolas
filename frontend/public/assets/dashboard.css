@@ -2514,6 +2514,51 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   letter-spacing: 0.02em;
 }
 
+/* Always-on "O que significa cada flag?" taxonomy legend (collapsible <details>). */
+.qa-flag-legend { padding: 0; margin-bottom: 12px; }
+.qa-flag-legend > summary.qa-flag-legend-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  font: 600 13px var(--font-body);
+  color: var(--fg-1);
+}
+.qa-flag-legend > summary::-webkit-details-marker { display: none; }
+.qa-flag-legend[open] > summary { border-bottom: 1px dashed var(--border-subtle); }
+.qa-flag-legend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  padding: 14px 16px;
+}
+.qa-flag-legend-item { display: flex; align-items: flex-start; gap: 8px; }
+.qa-flag-legend-item .qa-dot { margin-top: 5px; flex: none; }
+.qa-flag-legend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.qa-flag-legend-label {
+  font: 600 12px var(--font-body);
+  color: var(--fg-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.qa-flag-legend-badge {
+  font: 500 9.5px var(--font-body);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.qa-flag-legend-desc { line-height: 1.4; }
+@media (max-width: 720px) {
+  .qa-flag-legend-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 1180px) {
   .qa-flag-row { grid-template-columns: repeat(3, 1fr); }
 }

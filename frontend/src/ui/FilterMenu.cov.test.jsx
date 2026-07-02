@@ -17,8 +17,9 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 
-// ── REAL quality registry (the 9 Gold flags) — set BEFORE importing FilterMenu so the
-//    module-level QUALITY array is populated, matching data.js verbatim. ──────────────
+// ── REAL quality registry (the 11 flags: 9 Gold + 2 reserved inferred) — set BEFORE
+//    importing FilterMenu so the module-level QUALITY array is populated, matching
+//    data.js verbatim. ──────────────────────────────────────────────────────────────
 const QUALITY_FLAGS = [
   { id: 'OK', label: 'Normais', color: 'var(--ok)' },
   { id: 'MISSING_VALUE', label: 'Valor financeiro ausente', color: 'var(--warn)' },
@@ -29,6 +30,8 @@ const QUALITY_FLAGS = [
   { id: 'PROBLEMATIC_QUANTITY', label: 'Quantidade problemática (provável erro)', color: 'var(--viz-9)' },
   { id: 'OUTLIER_VALUE', label: 'Valor atípico (válido)', color: 'var(--viz-5)' },
   { id: 'PROBLEMATIC_VALUE', label: 'Valor problemático (provável erro)', color: 'var(--err)' },
+  { id: 'INFERRED_QUANTITY', label: 'Quantidade inferida', color: 'var(--viz-8)', reserved: true },
+  { id: 'INFERRED_VALUE', label: 'Valor financeiro inferido', color: 'var(--viz-10)', reserved: true },
 ];
 
 const PRODUCTS = [
@@ -195,14 +198,14 @@ describe('FilterMenu — live render (ibge_pevs: product + geo + quality)', () =
     expect(container.textContent).toContain('Malha IBGE: 2 municípios');
   });
 
-  it('renders the 9 quality flags with their pt-BR labels', () => {
+  it('renders the 11 quality flags with their pt-BR labels', () => {
     const { container } = render(
       <FilterMenu open banco="ibge_pevs" value={null} onClose={() => {}} onApply={() => {}} />
     );
     expect(container.textContent).toContain('Normais');
     expect(container.textContent).toContain('Incompleto');
     expect(container.textContent).toContain('Quantidade problemática (provável erro)');
-    expect(container.textContent).toContain('de 9 selecionadas');
+    expect(container.textContent).toContain('de 11 selecionadas');
   });
 });
 
@@ -252,7 +255,7 @@ describe('FilterMenu — checkbox toggles', () => {
     expect(box.checked).toBe(true);
     fireEvent.click(box);
     expect(box.checked).toBe(false);
-    expect(qualSection.textContent).toContain('de 9 selecionadas');
+    expect(qualSection.textContent).toContain('de 11 selecionadas');
   });
 });
 
@@ -319,7 +322,7 @@ describe('FilterMenu — footer actions', () => {
     const payload = onApply.mock.calls[0][0];
     // Display chips.
     expect(payload.products).toContain('Todos (3)');
-    expect(payload.quality).toContain('Todas (9)');
+    expect(payload.quality).toContain('Todas (11)');
     expect(payload.period).toBe('1997–2024');
     // Raw filter dims: a FULL selection now normalizes to null = "all" (no narrowing),
     // so the share URL/data layer treat it identically to "untouched" (L2).
@@ -393,7 +396,7 @@ describe('FilterMenu — seeding from an applied value (deep link / prior apply)
     // Only one product pre-selected.
     expect(container.textContent).toContain('1 de 3 selecionados');
     // Two flags pre-selected.
-    expect(container.textContent).toContain('2 de 9 selecionadas');
+    expect(container.textContent).toContain('2 de 11 selecionadas');
     // Custom date range restored.
     expect(container.querySelector('#fm-start').value).toBe('2010-01');
     expect(container.querySelector('#fm-end').value).toBe('2020-12');

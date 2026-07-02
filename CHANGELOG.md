@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.2] - 2026-07-02
+
+Make the data-quality tags self-explanatory in the dashboard, and reserve the
+structure for future auto-filled ("inferido") values.
+
+### Added
+- **Legenda de qualidade na perspectiva "Qualidade dos dados"** — um painel
+  *"O que significa cada flag?"* (recolhível) documenta **todas** as marcas de
+  qualidade com uma descrição em pt-BR clara (redação da aba "Qualidades" do Contrato
+  de Dados), independente das flags selecionadas. Além disso, cada card e legenda de
+  gráfico agora mostra a descrição como *tooltip* ao passar o mouse. O catálogo
+  (Glossário) aponta para essa legenda como referência canônica.
+- **Dois níveis reservados `inferido`** (`Quantidade inferida` / `Valor financeiro
+  inferido`) — marcados como *reservada* na legenda e plumbados por toda a stack
+  (registro de flags, mapas do backend, contrato `qualityTs`, filtro, `accepted_values`
+  do dbt) exatamente como os níveis outlier/problemático: **aceitos-mas-ausentes**
+  (sempre 0 hoje), prontos para quando um pipeline de preenchimento automático existir.
+  Nenhum modelo do Gold os emite ainda — a taxonomia apenas reserva os ids.
+
+### Notes
+- Deploy é image-only (a única mudança de dbt é `accepted_values`, um teste — sem
+  rebuild). Também leva a correção do seed "Tipos de mercado" (v1.10.1) ao prod.
+
 ## [1.10.1] - 2026-07-02
 
 ### Fixed

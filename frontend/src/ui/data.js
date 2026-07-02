@@ -209,18 +209,24 @@ window.UF_DATA = [
 // by Gold only when the dbt var enable_quality_outliers is on (implied-price detection,
 // data_quality_flag.sql + quality_outlier_ctes.sql) — off by default, so they're
 // accepted-but-absent until an operator validates per source. The Sheet's "inferidos"
-// tier maps to the deliberately-rejected auto-fill and is intentionally NOT implemented.
-// Keep in sync with serializers._FLAG_LABEL_PT.
+// (auto-preenchido) tier is RESERVED for a future auto-fill pipeline: the two INFERRED_*
+// flags below are accepted-but-absent (render 0 today, exactly like a Gold flag with no
+// rows), so the structure is ready when such a pipeline is built — nothing emits them yet.
+// `desc` is the plain-pt-BR legend shown in the Qualidade window ("O que significa cada flag?").
+// Keep labels + desc in sync with serializers._FLAG_LABEL_PT.
 window.QUALITY_FLAGS = [
-  { id: 'OK',                   label: 'Normais',                                color: 'var(--ok)'    },
-  { id: 'MISSING_VALUE',        label: 'Valor financeiro ausente',               color: 'var(--warn)'  },
-  { id: 'MISSING_QUANTITY',     label: 'Quantidade ausente',                     color: 'var(--info)'  },
-  { id: 'MISSING_WEIGHT',       label: 'Peso ausente',                           color: 'var(--viz-4)' },
-  { id: 'INCOMPLETE',           label: 'Incompleto',                             color: 'var(--viz-7)' },
-  { id: 'OUTLIER_QUANTITY',     label: 'Quantidade atípica (válida)',            color: 'var(--viz-3)' },
-  { id: 'PROBLEMATIC_QUANTITY', label: 'Quantidade problemática (provável erro)', color: 'var(--viz-9)' },
-  { id: 'OUTLIER_VALUE',        label: 'Valor atípico (válido)',                 color: 'var(--viz-5)' },
-  { id: 'PROBLEMATIC_VALUE',    label: 'Valor problemático (provável erro)',     color: 'var(--err)'   },
+  { id: 'OK',                   label: 'Normais',                                 color: 'var(--ok)',     desc: 'Todas as dimensões do registro (quantidade e valor) estão preenchidas e dentro do esperado.' },
+  { id: 'MISSING_VALUE',        label: 'Valor financeiro ausente',                color: 'var(--warn)',   desc: 'O valor financeiro do registro (FOB, vendas, faturamento, etc.) veio em branco na fonte; a quantidade existe.' },
+  { id: 'MISSING_QUANTITY',     label: 'Quantidade ausente',                      color: 'var(--info)',   desc: 'A quantidade do registro (m³, kg, saca, cabeças, etc.) veio em branco na fonte; o valor existe.' },
+  { id: 'MISSING_WEIGHT',       label: 'Peso ausente',                            color: 'var(--viz-4)',  desc: 'Registro de comércio exterior sem peso líquido — impede o cálculo de preço médio por quilo (US$/kg).' },
+  { id: 'INCOMPLETE',           label: 'Incompleto',                              color: 'var(--viz-7)',  desc: 'O registro veio sem quantidade e sem valor — não há grandeza mensurável para analisar.' },
+  { id: 'OUTLIER_QUANTITY',     label: 'Quantidade atípica (válida)',             color: 'var(--viz-3)',  desc: 'Quantidade bem acima do esperado, mas com preço implícito coerente — considerada válida, não um erro.' },
+  { id: 'PROBLEMATIC_QUANTITY', label: 'Quantidade problemática (provável erro)', color: 'var(--viz-9)',  desc: 'Quantidade bem acima do esperado e com preço implícito (valor÷quantidade) muito fora da mediana do produto — provável erro de digitação ou inserção.' },
+  { id: 'OUTLIER_VALUE',        label: 'Valor atípico (válido)',                  color: 'var(--viz-5)',  desc: 'Valor financeiro bem acima do esperado, mas com preço implícito coerente — considerado válido, não um erro.' },
+  { id: 'PROBLEMATIC_VALUE',    label: 'Valor problemático (provável erro)',      color: 'var(--err)',    desc: 'Valor financeiro bem acima do esperado e com preço implícito muito fora da mediana do produto — provável erro de digitação ou inserção.' },
+  // Reserved for a FUTURE auto-fill pipeline (accepted-but-absent — render 0 today).
+  { id: 'INFERRED_QUANTITY',    label: 'Quantidade inferida',                     color: 'var(--viz-8)',  reserved: true, desc: 'Quantidade que veio em branco e seria preenchida automaticamente por uma etapa do pipeline. Reservada para preenchimento automático futuro; ainda não utilizada (sempre 0 hoje).' },
+  { id: 'INFERRED_VALUE',       label: 'Valor financeiro inferido',               color: 'var(--viz-10)', reserved: true, desc: 'Valor financeiro que veio em branco e seria preenchido automaticamente por uma etapa do pipeline. Reservado para preenchimento automático futuro; ainda não utilizado (sempre 0 hoje).' },
 ];
 
 // ────────────────────────────────────────────────────────────────────

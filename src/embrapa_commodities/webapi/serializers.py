@@ -53,6 +53,10 @@ _FLAG_KEY = {
     "PROBLEMATIC_QUANTITY": "problematic_quantity",
     "OUTLIER_VALUE": "outlier_value",
     "PROBLEMATIC_VALUE": "problematic_value",
+    # Reserved for a FUTURE auto-fill pipeline (accepted-but-absent, 0 today — like the
+    # outlier tiers when the var is off). No Gold CASE emits them yet.
+    "INFERRED_QUANTITY": "inferred_quantity",
+    "INFERRED_VALUE": "inferred_value",
 }
 
 # data_quality_flag id → pt-BR display label (the end user reads the donut/legend).
@@ -73,6 +77,9 @@ _FLAG_LABEL_PT = {
     "PROBLEMATIC_QUANTITY": "Quantidade problemática (provável erro)",
     "OUTLIER_VALUE": "Valor atípico (válido)",
     "PROBLEMATIC_VALUE": "Valor problemático (provável erro)",
+    # Reserved tier for a future auto-fill pipeline (0 today).
+    "INFERRED_QUANTITY": "Quantidade inferida",
+    "INFERRED_VALUE": "Valor financeiro inferido",
 }
 
 

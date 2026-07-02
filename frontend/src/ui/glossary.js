@@ -23,7 +23,7 @@ const GLOSSARY = {
       { term: 'val_yearfx_*',          cat: 'Coluna', tag: 'gold',     short: 'Valor nominal em moeda corrente convertido pelo câmbio médio do ano. Auditoria histórica — não comparar entre anos.' },
       { term: 'val_real_ipca_*',       cat: 'Coluna', tag: 'gold',     short: 'Valor projetado para hoje pela cadeia IPCA. Padrão deste dashboard para comparações inter-anuais.' },
       { term: 'val_real_igpm_*',       cat: 'Coluna', tag: 'gold',     short: 'Idem usando o IGP-M (FGV). Alternativa ao IPCA, comum em séries de preços no atacado e de commodities.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais (com quantidade e valor), valor financeiro ausente, quantidade ausente, incompleta (sem quantidade nem valor), e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, mas com preço implícito coerente) e problemático/problemática (provável erro de digitação: preço implícito — valor÷quantidade — muito fora da mediana do produto).' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais (com quantidade e valor), valor financeiro ausente, quantidade ausente, incompleta (sem quantidade nem valor), e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, mas com preço implícito coerente) e problemático/problemática (provável erro de digitação: preço implícito — valor÷quantidade — muito fora da mediana do produto). Reserva ainda dois níveis para preenchimento automático futuro (quantidade / valor inferido), hoje sempre vazios; a legenda completa fica na perspectiva Qualidade dos dados.' },
     ],
   },
 
@@ -40,7 +40,7 @@ const GLOSSARY = {
       { term: 'Área colhida',  cat: 'Coluna', short: 'Área efetivamente colhida da lavoura, em hectares (ha). Base do denominador do rendimento.' },
       { term: 'Rendimento médio', cat: 'Coluna', short: 'Produtividade da lavoura = produção ÷ área colhida, em kg/ha. Média área-ponderada (nunca somada).' },
       { term: 'gold_pam_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e lavoura, com área, produção, rendimento e valor.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais (com quantidade e valor), valor financeiro ausente, quantidade ausente, incompleta (sem quantidade nem valor), e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, mas com preço implícito coerente) e problemático/problemática (provável erro de digitação: preço implícito — valor÷quantidade — muito fora da mediana do produto).' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais (com quantidade e valor), valor financeiro ausente, quantidade ausente, incompleta (sem quantidade nem valor), e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, mas com preço implícito coerente) e problemático/problemática (provável erro de digitação: preço implícito — valor÷quantidade — muito fora da mediana do produto). Reserva ainda dois níveis para preenchimento automático futuro (quantidade / valor inferido), hoje sempre vazios; a legenda completa fica na perspectiva Qualidade dos dados.' },
     ],
   },
 
@@ -57,7 +57,7 @@ const GLOSSARY = {
       { term: 'Cabeças',   cat: 'Unidade', short: 'Unidade de contagem do efetivo dos rebanhos — não é somável com litros de leite ou kg de mel (famílias diferentes).' },
       { term: 'valor_producao', cat: 'Coluna', short: 'Valor da produção animal (R$), deflacionável por IPCA/IGP-M/IGP-DI. O efetivo dos rebanhos NÃO tem valor.' },
       { term: 'gold_ppm_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e rebanho/produto, com quantidade (na unidade do produto) e — para a produção animal — valor.' },
-      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, quantidade ausente, incompleta, e — com a detecção de outliers ativa — atípica (válida) e problemática (provável erro). O rebanho (estoque) fica Normais só com a quantidade — não tem valor por definição.' },
+      { term: 'data_quality_flag',     cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, quantidade ausente, incompleta, e — com a detecção de outliers ativa — atípica (válida) e problemática (provável erro). O rebanho (estoque) fica Normais só com a quantidade — não tem valor por definição. Reserva ainda quantidade / valor inferido para preenchimento automático futuro, hoje sempre vazios; veja a legenda completa na perspectiva Qualidade dos dados.' },
     ],
   },
 
@@ -74,7 +74,7 @@ const GLOSSARY = {
       { term: 'Via',          cat: 'Coluna', short: 'Modalidade de transporte utilizada: marítima, aérea, rodoviária, ferroviária, fluvial, dutos.' },
       { term: 'Peso líquido', cat: 'Coluna', short: 'Peso da mercadoria sem embalagem, em quilogramas. Utilizado em cálculos de preço médio.' },
       { term: 'gold_comex_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano-mês, UF, NCM, país, via e fluxo.' },
-      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, peso ausente (sem peso líquido), incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, preço coerente) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana do produto, ex.: peso = 1 kg).' },
+      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, peso ausente (sem peso líquido), incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido: bem acima do esperado, preço coerente) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana do produto, ex.: peso = 1 kg). Reserva ainda peso / valor inferido para preenchimento automático futuro, hoje sempre vazios; a legenda completa fica na perspectiva Qualidade dos dados.' },
     ],
   },
 
@@ -90,7 +90,7 @@ const GLOSSARY = {
       { term: 'BEC',      cat: 'Classificação', tag: 'ONU', short: 'Broad Economic Categories — agrupamento por uso final (bens de consumo, capital, intermediários).' },
       { term: 'Mirror data', cat: 'Método',     short: 'Comparação entre o que um país declara exportar e o que o parceiro declara importar (e vice-versa). Útil para detectar sub-declaração.' },
       { term: 'gold_comtrade_flows', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, país reporter, país parceiro, HS6 e fluxo.' },
-      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, quantidade ausente, incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana, ex.: peso = 1 kg em chapas de madeira de alto valor).' },
+      { term: 'data_quality_flag', cat: 'Coluna', tag: 'qualidade', short: 'Marca de confiabilidade de cada linha: Normais, valor financeiro ausente, quantidade ausente, incompleta, e — com a detecção de outliers ativa — atípico/atípica (válido) e problemático/problemática (provável erro: preço implícito US$/kg muito fora da mediana, ex.: peso = 1 kg em chapas de madeira de alto valor). Reserva ainda quantidade / valor inferido para preenchimento automático futuro, hoje sempre vazios; veja a legenda completa na perspectiva Qualidade dos dados.' },
     ],
   },
 
