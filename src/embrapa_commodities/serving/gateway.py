@@ -735,8 +735,9 @@ def fetch_commodity_groups():
     catalog_table = sqlbuild.table_ref(
         settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
     )
+    # NB: ``groups`` is a BigQuery reserved keyword — the CTE is ``grps``.
     sql = f"""
-        with groups as (
+        with grps as (
           select group_id, group_name from (
             select group_id, group_name, active, row_number() over (
               partition by group_id order by edited_at desc, change_id desc
@@ -752,7 +753,7 @@ def fetch_commodity_groups():
           group by commodity_id
         )
         select g.group_id, g.group_name, coalesce(m.n_members, 0) as n_members
-        from groups g left join members m on g.group_id = m.commodity_id
+        from grps g left join members m on g.group_id = m.commodity_id
         order by lower(g.group_name)
     """
     return run_query(sql, [])
