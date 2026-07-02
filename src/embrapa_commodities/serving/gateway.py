@@ -1564,6 +1564,14 @@ _SEED_CATALOG: list[tuple[str, str, bool, str]] = [
         "Dimensão de unidade de quantidade do COMTRADE → família física.",
     ),
     (
+        "comtrade_market_nature",
+        "Tipos de mercado (COMTRADE)",
+        False,
+        "Natureza econômica do mercado (consumo ou processamento) para cada par "
+        "(regime aduaneiro × fluxo comercial) do COMTRADE. Calibração mantida pela "
+        "equipe; os pares ausentes correspondem a 'Não se aplica'.",
+    ),
+    (
         "ibge_municipio_mesh",
         "Malha municipal (IBGE)",
         False,

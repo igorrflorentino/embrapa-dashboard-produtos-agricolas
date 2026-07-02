@@ -2473,14 +2473,52 @@ def test_serialize_seed_page_reuses_grid_and_adds_editable():
     assert empty["editable"] is False and empty["rows"] == []
 
 
+def test_every_seed_csv_is_a_consultable_reference_table():
+    """Regression guard: every dbt seed CSV must be registered in the 'Referências'
+    seed catalog (``gateway._SEED_BY_ID``), unless it is on the explicit, documented
+    exclusion list. Prevents the class of bug where a new seed materializes to
+    ``silver`` but is never exposed as a consultable reference table — as happened with
+    ``comtrade_market_nature`` (the 'Tipos de mercado' seed), which shipped in v1.9.0 but
+    was only surfaced in Referências in v1.10.1.
+
+    The seeds dir is derived from the repo layout (``<repo>/dbt/seeds``) so the test
+    passes regardless of the pytest invocation cwd."""
+    from pathlib import Path
+
+    from embrapa_commodities.serving import gateway
+
+    seeds_dir = Path(__file__).resolve().parents[1] / "dbt" / "seeds"
+    assert seeds_dir.is_dir(), f"expected seeds dir at {seeds_dir}"
+
+    # INTENTIONAL exclusions — seeds deliberately NOT consultable references. Keep this
+    # set MINIMAL and documented; a genuine read-only calibration/dimension seed MUST be
+    # in _SEED_CATALOG, not here.
+    #   commodity_crosswalk — RETIRED: became the editable Curadoria catalog
+    #       (research_inputs.commodity_catalog_log → dim_commodity_catalog), edited via
+    #       the "Cadastro de commodities" admin view. Its CSV was removed, so this entry
+    #       is defensive (it should never re-appear on disk).
+    intentionally_unexposed = {"commodity_crosswalk"}
+
+    csv_ids = {p.stem for p in seeds_dir.glob("*.csv")}
+    assert csv_ids, f"no seed CSVs found under {seeds_dir}"
+
+    unexposed = csv_ids - set(gateway._SEED_BY_ID) - intentionally_unexposed
+    assert not unexposed, (
+        "seed CSV(s) exist in dbt/seeds but are not registered in gateway._SEED_CATALOG "
+        f"(nor intentionally excluded): {sorted(unexposed)}. Add an (id, label, editable, "
+        "description) tuple to _SEED_CATALOG, or, if the seed is deliberately not "
+        "consultable, add it to intentionally_unexposed with a comment explaining why."
+    )
+
+    # The exclusion list must not go stale: nothing in it should still be on disk.
+    stale_exclusions = intentionally_unexposed & csv_ids
+    assert not stale_exclusions, (
+        f"exclusion(s) {sorted(stale_exclusions)} still have a CSV on disk — decide "
+        "whether to expose them in _SEED_CATALOG or remove the retired seed file."
+    )
+
+
 # ── Curadoria (catalog): the editable commodity catalog writer ────────────────
-
-
-def _catalog_row_obj(codigo, prefix):
-    """A row stand-in for the prefix-disjointness read (has .codigo_commodity/.code_prefix)."""
-    import collections
-
-    return collections.namedtuple("R", ["codigo_commodity", "code_prefix"])(codigo, prefix)
 
 
 def test_slug_matches_seed_commodity_ids():
