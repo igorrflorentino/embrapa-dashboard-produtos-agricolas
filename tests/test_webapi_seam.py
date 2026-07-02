@@ -1717,35 +1717,67 @@ def test_current_code_levels_empty_on_notfound(monkeypatch):
     assert seam._current_code_levels() == {}
 
 
-def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
+def test_curation_worklist_joins_catalog_entries_to_levels(monkeypatch):
+    """The worklist reads the SAME live catalog the Curadoria editor uses
+    (seam_curation.catalog_worklist) ⟕ the current levels, so the two features share
+    banco+código+descrição+agrupamento and PAM/PPM are grouped by commodity."""
+    from embrapa_commodities.webapi import seam_curation
+
     seam = _seam()
     monkeypatch.setattr(
         _curation(),
         "_current_code_levels",
         lambda: {("mdic_comex", "0801"): "commodity_acondicionada"},
     )
+    # The catalog carries banco (short token), codigo_commodity, agrupamento, commodity_id
+    # and both descriptions — a PAM row is included to prove PAM/PPM group by commodity.
     monkeypatch.setattr(
-        _curation(), "_code_to_commodity", lambda: {("mdic_comex", "0801"): "castanha"}
+        seam_curation,
+        "catalog_worklist",
+        lambda: {
+            "entries": [
+                {
+                    "banco": "comex",
+                    "codigo_commodity": "0801",
+                    "agrupamento": "Castanha",
+                    "commodity_id": "castanha",
+                    "descricao_commodity": "Castanhas",
+                    "descricao_fonte": "Castanhas do Pará",
+                },
+                {
+                    "banco": "comex",
+                    "codigo_commodity": "0802",
+                    "agrupamento": "Castanha",
+                    "commodity_id": "castanha",
+                    "descricao_commodity": "Nozes",
+                    "descricao_fonte": None,
+                },
+                {
+                    "banco": "pam",
+                    "codigo_commodity": "40102",
+                    "agrupamento": "Arroz",
+                    "commodity_id": "arroz",
+                    "descricao_commodity": "Arroz (em casca)",
+                    "descricao_fonte": "Arroz",
+                },
+            ]
+        },
     )
-    monkeypatch.setattr(_base(), "commodity_catalog", lambda: {"castanha": {"name": "Castanha"}})
-
-    def fake_products(src):
-        if src == "mdic_comex":
-            return pd.DataFrame(
-                [{"code": "0801", "name": "Castanhas"}, {"code": "0802", "name": "Nozes"}]
-            )
-        return pd.DataFrame()
-
-    monkeypatch.setattr(seam.gateway, "fetch_products", fake_products)
     out = seam.curation_worklist()
-    assert out["total"] == 2 and out["classified"] == 1 and out["pending"] == 1
+    assert out["total"] == 3 and out["classified"] == 1 and out["pending"] == 2
     assert out["by_level"]["commodity_acondicionada"] == 1
     classified_row = next(r for r in out["rows"] if r["code"] == "0801")
     assert classified_row["level"] == "commodity_acondicionada"
+    assert classified_row["source"] == "mdic_comex"
     assert classified_row["commodity"] == "castanha"
     assert classified_row["commodity_name"] == "Castanha"
+    assert classified_row["name"] == "Castanhas do Pará"  # descricao_fonte preferred
     unclassified = next(r for r in out["rows"] if r["code"] == "0802")
-    assert unclassified["level"] is None and unclassified["commodity"] is None
+    assert unclassified["level"] is None
+    assert unclassified["name"] == "Nozes"  # falls back to descricao_commodity
+    # a PAM entry is present and grouped by its agrupamento (crosswalk lacks PAM/PPM)
+    pam_row = next(r for r in out["rows"] if r["source"] == "ibge_pam")
+    assert pam_row["commodity"] == "arroz" and pam_row["commodity_name"] == "Arroz"
 
 
 # ── value_added: empty until codes are classified ──────────────────────────────

@@ -19,6 +19,15 @@ from embrapa_commodities.serving import gateway
 
 COMMODITY_CATALOG_RESOURCE = "commodity_catalog"
 
+
+def _clean(x):
+    """A NULL STRING cell reads back from BigQuery as float('nan'); normalize it to
+    None so JSON serialization and the ``sorted(groups.items())`` grouping don't choke
+    on a float mixed with strings (a catalog entry may legitimately have no
+    agrupamento/descrição/ciclo)."""
+    return None if (isinstance(x, float) and x != x) else x
+
+
 # Catalog banco token → the long source id ``fetch_products`` expects, so the editor can
 # show each code's ORIGINAL source description (IBGE product / NCM / HS6 name).
 _BANCO_TO_SOURCE = {
@@ -48,11 +57,11 @@ def catalog_worklist(banco: str | None = None) -> dict:
         {
             "codigo_commodity": str(r.codigo_commodity),
             "banco": r.banco,
-            "agrupamento": r.agrupamento,
-            "descricao_commodity": r.descricao_commodity,
-            "ciclo_de_vida": r.ciclo_de_vida,
+            "agrupamento": _clean(r.agrupamento),
+            "descricao_commodity": _clean(r.descricao_commodity),
+            "ciclo_de_vida": _clean(r.ciclo_de_vida),
             "code_prefix": str(r.code_prefix),
-            "commodity_id": r.commodity_id,
+            "commodity_id": _clean(r.commodity_id),
         }
         for r in df.itertuples()
     ]

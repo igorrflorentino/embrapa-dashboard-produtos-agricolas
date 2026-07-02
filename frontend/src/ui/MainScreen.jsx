@@ -48,8 +48,8 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
             <div className="overline">Engenharia de atributos</div>
             <h1 className="page-title">Nível de industrialização</h1>
             <p className="page-sub">
-              Classifique cada código de produto por nível de industrialização
-              (bruta/processada). As edições exigem autorização e ficam registradas com o seu
+              Classifique cada código de produto na escala de industrialização, do bruto ao
+              manufaturado. As edições exigem autorização e ficam registradas com o seu
               e-mail; nada é salvo até você aplicar à base.
             </p>
           </div>
