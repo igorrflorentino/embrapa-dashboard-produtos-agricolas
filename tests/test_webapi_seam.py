@@ -762,11 +762,11 @@ def test_value_added_batches_codes_per_level(monkeypatch):
         _curation(),
         "_current_code_levels",
         lambda: {
-            ("mdic_comex", "A"): "bruta",
-            ("mdic_comex", "B"): "bruta",
-            ("mdic_comex", "C"): "processada",
-            ("ibge_pevs", "Z"): "bruta",  # other source — out of scope
-            ("mdic_comex", "D"): "misturado",  # not a value-added level
+            ("mdic_comex", "A"): "commodity_pura",
+            ("mdic_comex", "B"): "commodity_pura",
+            ("mdic_comex", "C"): "manufaturado_industrial",
+            ("ibge_pevs", "Z"): "commodity_pura",  # other source — out of scope
+            ("mdic_comex", "D"): "not_a_level",  # free-text value outside the 8-level scale
         },
     )
     calls = []
@@ -779,18 +779,21 @@ def test_value_added_batches_codes_per_level(monkeypatch):
 
     out = seam.value_added()
 
-    assert len(calls) == 4  # 2 per level — flat in the number of codes
+    assert len(calls) == 4  # 2 per present level — flat in the number of codes
     assert ("mdic_comex:exp_value", ("A", "B")) in calls
     assert ("mdic_comex:exp_weight", ("A", "B")) in calls
     assert ("mdic_comex:exp_value", ("C",)) in calls
     assert ("mdic_comex:exp_weight", ("C",)) in calls
     assert out["n_codes"] == 3
+    assert out["levels"] == ["commodity_pura", "manufaturado_industrial"]  # ordinal order
     row = out["series"][0]
-    assert row["y"] == 2020 and row["brutaV"] == 2.0 and row["procV"] == 2.0
-    # weight (mil t) + absolute unit price (US$/kg) are now surfaced, not just the ratio
-    assert row["brutaW"] == 1000.0 and row["procW"] == 1000.0  # 1e9 kg ÷1e6 → mil t
-    assert row["priceBruta"] == 2.0 and row["priceProc"] == 2.0  # (2 US$bi ÷ 1000 mil t)×1e3
-    assert row["procShareW"] == 50.0 and row["premium"] == 1.0
+    assert row["y"] == 2020
+    pura, ind = row["levels"]["commodity_pura"], row["levels"]["manufaturado_industrial"]
+    assert pura["v"] == 2.0 and ind["v"] == 2.0
+    # weight (mil t) + absolute unit price (US$/kg) surfaced per level
+    assert pura["w"] == 1000.0 and ind["w"] == 1000.0  # 1e9 kg ÷1e6 → mil t
+    assert pura["price"] == 2.0 and ind["price"] == 2.0  # (2 US$bi ÷ 1000 mil t)×1e3
+    assert out["premium"] == 1.0  # equal prices → most ÷ least = 1
 
 
 # ── catalog caching: flask-caching TTL (refreshable), not process-lifetime ─────
@@ -1719,7 +1722,7 @@ def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
     monkeypatch.setattr(
         _curation(),
         "_current_code_levels",
-        lambda: {("mdic_comex", "0801"): "processada"},
+        lambda: {("mdic_comex", "0801"): "commodity_acondicionada"},
     )
     monkeypatch.setattr(
         _curation(), "_code_to_commodity", lambda: {("mdic_comex", "0801"): "castanha"}
@@ -1736,9 +1739,9 @@ def test_curation_worklist_joins_codes_to_levels_and_commodities(monkeypatch):
     monkeypatch.setattr(seam.gateway, "fetch_products", fake_products)
     out = seam.curation_worklist()
     assert out["total"] == 2 and out["classified"] == 1 and out["pending"] == 1
-    assert out["by_level"]["processada"] == 1
+    assert out["by_level"]["commodity_acondicionada"] == 1
     classified_row = next(r for r in out["rows"] if r["code"] == "0801")
-    assert classified_row["level"] == "processada"
+    assert classified_row["level"] == "commodity_acondicionada"
     assert classified_row["commodity"] == "castanha"
     assert classified_row["commodity_name"] == "Castanha"
     unclassified = next(r for r in out["rows"] if r["code"] == "0802")
@@ -1752,7 +1755,13 @@ def test_value_added_empty_when_nothing_classified(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(_curation(), "_current_code_levels", lambda: {})
     out = seam.value_added()
-    assert out == {"series": [], "n_codes": 0}
+    assert out == {
+        "series": [],
+        "levels": [],
+        "premium": 0.0,
+        "predominant": None,
+        "n_codes": 0,
+    }
 
 
 # ── crosswalk-derived indices: _xyear, _code_to_commodity, family-by-commodity ─
@@ -1909,9 +1918,11 @@ def test_cross_series_threads_uf_to_uf_capable_readers(monkeypatch):
 
 
 def test_value_added_threads_uf_to_export_side(monkeypatch):
-    """value_added narrows the bruta/processada export split to the UF via _xyear."""
+    """value_added narrows the per-level export split to the UF via _xyear."""
     seam = _seam()
-    monkeypatch.setattr(_curation(), "_current_code_levels", lambda: {("mdic_comex", "A"): "bruta"})
+    monkeypatch.setattr(
+        _curation(), "_current_code_levels", lambda: {("mdic_comex", "A"): "commodity_pura"}
+    )
     seen = []
     monkeypatch.setattr(
         _base(),

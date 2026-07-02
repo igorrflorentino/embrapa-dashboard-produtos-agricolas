@@ -298,10 +298,9 @@ window.tradeMirror = crossAnalytic('mirror', 'mirror', {
   preview: false, unit: 'US$ bi', series: [], discrepancy: [],
 });
 window.valueAddedAnalysis = crossAnalytic('value-added', 'value-added', {
-  preview: false, years: [],
-  byLevel: { bruta: [], processada: [] },
-  byLevelWeight: { bruta: [], processada: [] },
-  series: [], nCodes: 0,
+  preview: false, years: [], levels: [],
+  byLevel: {}, byLevelWeight: {}, byLevelPrice: {},
+  series: [], premium: 0, predominant: null, nCodes: 0,
 });
 
 // ── data-blocked producers (no upstream source — honest preview shells) ───────

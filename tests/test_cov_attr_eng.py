@@ -91,13 +91,13 @@ def test_value_added_codes_by_level_drops_out_of_scope_code(monkeypatch):
     monkeypatch.setattr(
         seam,
         "_current_code_levels",
-        lambda: {("mdic_comex", "A"): "bruta", ("mdic_comex", "B"): "bruta"},
+        lambda: {("mdic_comex", "A"): "commodity_pura", ("mdic_comex", "B"): "commodity_pura"},
     )
     monkeypatch.setattr(seam_base, "_codes", lambda cid, src: ["A"])  # scope = {"A"}
 
     by_level = seam._value_added_codes_by_level("castanha")
-    assert by_level["bruta"] == ["A"]  # "B" excluded by the scope filter
-    assert by_level["processada"] == []
+    # Only present levels are returned; "B" is excluded by the scope filter.
+    assert by_level == {"commodity_pura": ["A"]}
 
 
 # ── seam line 196: _value_added_accumulate skips a level whose value is empty ────
@@ -117,7 +117,7 @@ def test_value_added_accumulate_skips_level_with_empty_value(monkeypatch):
 
     monkeypatch.setattr(seam_base, "_xyear", fake_xyear)
 
-    acc, n = seam._value_added_accumulate({"bruta": ["A"], "processada": []})
+    acc, n = seam._value_added_accumulate({"commodity_pura": ["A"]})
     assert acc == {} and n == 0
     # Only the value query ran; the `continue` short-circuited the weight query.
     assert calls == ["mdic_comex:exp_value"]
@@ -129,10 +129,18 @@ def test_value_added_returns_empty_when_value_query_empty(monkeypatch):
     seam = _curation()
     from embrapa_commodities.webapi import seam_base
 
-    monkeypatch.setattr(seam, "_current_code_levels", lambda: {("mdic_comex", "A"): "bruta"})
+    monkeypatch.setattr(
+        seam, "_current_code_levels", lambda: {("mdic_comex", "A"): "commodity_pura"}
+    )
     monkeypatch.setattr(seam_base, "_xyear", lambda metric, codes, uf_codes=(): {})
     out = seam.value_added()
-    assert out == {"series": [], "n_codes": 0}
+    assert out == {
+        "series": [],
+        "levels": [],
+        "premium": 0.0,
+        "predominant": None,
+        "n_codes": 0,
+    }
 
 
 # ── seam market_nature: seed-driven analysis over serving_comtrade_annual ────────

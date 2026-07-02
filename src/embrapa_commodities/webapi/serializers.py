@@ -790,26 +790,35 @@ def serialize_monthly(df: pd.DataFrame | None) -> dict:
 
 
 def serialize_value_added(d: dict) -> dict:
-    """seam.value_added() → ValueAddedAnalysis. Derive years + byLevel (value, US$ bi)
-    AND byLevelWeight (volume, mil t) from the flat series (the seam returns
-    brutaV/procV + brutaW/procW per year; the view's composition charts want
-    byLevel*.{bruta,processada} = [{y,v}]). The flat ``series`` also carries the
-    absolute per-level prices (priceBruta/priceProc, US$/kg) for the price bars."""
+    """seam.value_added() → ValueAddedAnalysis (per-level gradient).
+
+    The seam returns a per-year series where each point carries ``levels[<id>] =
+    {v (US$ bi), w (mil t), price (US$/kg)}`` for the levels present that year, plus
+    the ``levels`` present overall (ordinal order), the ``premium`` (most- ÷
+    least-processed price) and the ``predominant`` level. The view's stacked-area +
+    price charts want one continuous array per level, so pivot into
+    ``byLevel``/``byLevelWeight``/``byLevelPrice`` = {<id>: [{y, v}]} — every present
+    level gets a point for every year (0 where it has no export that year)."""
     series = d.get("series", [])
-    by_level = {
-        "bruta": [{"y": r["y"], "v": r["brutaV"]} for r in series],
-        "processada": [{"y": r["y"], "v": r["procV"]} for r in series],
-    }
-    by_level_weight = {
-        "bruta": [{"y": r["y"], "v": r.get("brutaW", 0)} for r in series],
-        "processada": [{"y": r["y"], "v": r.get("procW", 0)} for r in series],
-    }
+    years = [r["y"] for r in series]
+    levels = d.get("levels", [])
+
+    def _pivot(metric: str) -> dict:
+        return {
+            lvl: [{"y": r["y"], "v": r["levels"].get(lvl, {}).get(metric, 0)} for r in series]
+            for lvl in levels
+        }
+
     return {
         "preview": False,
-        "years": [r["y"] for r in series],
-        "byLevel": by_level,
-        "byLevelWeight": by_level_weight,
+        "years": years,
+        "levels": levels,
+        "byLevel": _pivot("v"),
+        "byLevelWeight": _pivot("w"),
+        "byLevelPrice": _pivot("price"),
         "series": series,
+        "premium": d.get("premium", 0.0),
+        "predominant": d.get("predominant"),
         "nCodes": d.get("n_codes", 0),
     }
 

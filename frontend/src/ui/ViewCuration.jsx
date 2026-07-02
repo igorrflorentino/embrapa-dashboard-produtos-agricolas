@@ -26,9 +26,10 @@ function EnrichmentCodeRow(c, nested) {
       <td>{c.desc}{todo && <span className="cur-todo-pill">a classificar</span>}</td>
       <td>
         <select className={'xs-select cur-level' + (todo ? ' cur-level-empty' : '')} value={c.level || ''}
+                title={c.level ? window.enrichment.levelDesc(c.level) : 'Selecione o nível de industrialização'}
                 onChange={(e) => window.enrichment.setCode(c.id, { level: e.target.value })}>
           <option value="">— a classificar —</option>
-          {window.ENRICH_LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          {window.ENRICH_LEVELS.map(l => <option key={l.id} value={l.id} title={l.description}>{l.label}</option>)}
         </select>
       </td>
     </tr>
@@ -93,6 +94,42 @@ function EnrichmentApplyBar({ note }) {
   );
 }
 
+// Reference legend of the 8 industrialization levels + their definitions (the researcher-
+// facing taxonomy, from window.ENRICH_LEVELS). Shown atop the classifier so the meaning of
+// each option is visible while classifying — the "Industrialização × Descrição" reference.
+function EnrichmentLevelLegend() {
+  const [open, setOpen] = React.useState(true);
+  return (
+    <div className="card">
+      <window.SectionHeader
+        overline="Escala de industrialização · do bruto ao manufaturado"
+        title="O que significa cada nível"
+        action={<button className="btn-secondary" onClick={() => setOpen(o => !o)}>{open ? 'Ocultar' : 'Mostrar'}</button>}
+      />
+      {open && (
+        <div className="pc-table-wrap">
+          <table className="pc-table">
+            <thead><tr><th style={{ width: 220 }}>Industrialização</th><th>Descrição</th></tr></thead>
+            <tbody>
+              {window.ENRICH_LEVELS.map(l => (
+                <tr key={l.id}>
+                  <td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: l.color, flexShrink: 0 }}></span>
+                      {l.label}
+                    </span>
+                  </td>
+                  <td style={{ color: 'var(--fg-2)', lineHeight: 1.5 }}>{l.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tool 1: Nível de industrialização ─────────────────────────────────────────
 function ViewEnrichmentIndustrialization() {
   useEnrichmentTick();
@@ -113,14 +150,16 @@ function ViewEnrichmentIndustrialization() {
       <div className="kpi-row">
         <window.KpiCardSpark label="Total de códigos" value={stats.codesTotal} sub="produtos reunidos das fontes" />
         <window.KpiCardSpark label="A classificar" value={stats.unclassified} sub="ainda sem nível definido" />
-        <window.KpiCardSpark label="Bruta" value={stats.byLevel.bruta} sub="códigos classificados" />
-        <window.KpiCardSpark label="Processada" value={stats.byLevel.processada} sub="códigos classificados" />
+        <window.KpiCardSpark label="Classificados" value={stats.codesTotal - stats.unclassified} sub="com nível definido" />
+        <window.KpiCardSpark label="Níveis usados" value={Object.values(stats.byLevel).filter(n => n > 0).length} sub={`de ${window.ENRICH_LEVELS.length} na escala`} />
       </div>
+
+      <EnrichmentLevelLegend />
 
       <div className="card">
         <window.SectionHeader
           overline="Códigos entre fontes · nível de industrialização"
-          title="Classifique cada código como bruto ou processado"
+          title="Classifique cada código pelo nível de industrialização"
           action={
             <div className="cur-group-by">
               <span className="cur-group-label">Agrupar por</span>

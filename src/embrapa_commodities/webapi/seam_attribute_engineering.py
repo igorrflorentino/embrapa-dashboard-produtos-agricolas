@@ -3,8 +3,9 @@
 dashboard).
 
 Two derived attributes:
-  • Per-code INDUSTRIALIZATION (bruta/processada) + the value-added analysis that splits
-    COMEX exports by that level — RESEARCHER-EDITABLE (an append-log SCD2 the researcher
+  • Per-code INDUSTRIALIZATION (an 8-level ordinal scale, Commodity Pura → Manufaturado
+    Especializado) + the value-added analysis that splits COMEX exports by that level over
+    time — RESEARCHER-EDITABLE (an append-log SCD2 the researcher
     curates in the UI; gated by the `enable_curation` dbt var). Writes go through the
     verified BFF writer (IAP author capture).
   • MARKET NATURE (consumo/processamento) — SEED-DRIVEN, NOT editable: the (customs
@@ -29,7 +30,33 @@ from embrapa_commodities.serving.cache import cache
 from . import seam_base
 from .seam_base import _LIVE_SOURCES
 
-CUR_LEVELS = ("bruta", "processada", "misturado")
+# The 8 industrialization levels, ORDERED least→most processed. Mirrors the frontend
+# window.ENRICH_LEVELS ids. The order is the ordinal the value-added analysis uses to draw
+# the gradient and to pick the most-vs-least "prêmio de processamento". Open-vocabulary in
+# the writer (a level outside this tuple is still stored) — this tuple only drives the
+# worklist counts + the value-added grouping/ordering.
+CUR_LEVELS = (
+    "commodity_pura",
+    "commodity_higienizada",
+    "commodity_acondicionada",
+    "commodity_consumivel",
+    "commodity_subproduto",
+    "manufaturado_artesanal",
+    "manufaturado_industrial",
+    "manufaturado_especializado",
+)
+
+# Sources whose Gold product codes appear in the industrialization worklist (the
+# researcher can classify them). Every live IBGE + trade source — PAM/PPM included, so
+# their commodities are classifiable too (the value-added analysis itself is COMEX-only,
+# but the per-code industrialization is a general attribute across sources).
+CLASSIFIABLE_SOURCES = (
+    "ibge_pevs",
+    "ibge_pam",
+    "ibge_ppm",
+    "mdic_comex",
+    "un_comtrade",
+)
 
 
 @cache.memoize()
@@ -110,7 +137,7 @@ def curation_worklist() -> dict:
     cmap = _code_to_commodity()
     catalog = seam_base.commodity_catalog()
     rows = []
-    for src in ("ibge_pevs", "mdic_comex", "un_comtrade"):
+    for src in CLASSIFIABLE_SOURCES:
         if src in _LIVE_SOURCES:
             rows.extend(_worklist_rows_for_source(src, levels, cmap, catalog))
     classified = sum(1 for r in rows if r["level"])
@@ -140,35 +167,53 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
 
 
 def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
-    """COMEX exports split by the curated industrialization level over the years.
+    """COMEX exports split by the curated industrialization LEVEL over the years.
 
-    For each mdic_comex code currently classified bruta/processada, sum its annual
-    export value (US$ bi) + weight (mil t) into that level. Real data, but empty
-    until codes are classified in Curadoria. ``commodity_id`` optionally scopes to
-    one crosswalk commodity. Composes existing readers — no new BFF SQL.
+    For each mdic_comex code currently classified into one of the 8 levels, sum its
+    annual export value (US$ bi) + weight (mil t) into that level. Real data, but
+    empty until codes are classified in Engenharia de Atributos. ``commodity_id``
+    optionally scopes to one crosswalk commodity. Composes existing readers — no new
+    BFF SQL.
 
-    Set-based: ONE value + ONE weight query per level (the reader's ``codes``
-    filter is an ``IN UNNEST`` over the whole level), so the request cost stays
-    flat as curators classify more codes — never 2 BigQuery round-trips per code.
+    Set-based: ONE value + ONE weight query per PRESENT level (the reader's ``codes``
+    filter is an ``IN UNNEST`` over the whole level), so the request cost stays flat
+    as curators classify more codes — never 2 BigQuery round-trips per code; levels
+    with no classified code are skipped entirely.
 
-    ``uf_codes`` optionally narrows the export side to one origin UF(s) — the
-    bruta×processada split for a single state (cross-source per-UF scoping)."""
+    ``uf_codes`` optionally narrows the export side to one origin UF(s) (cross-source
+    per-UF scoping). Returns the per-year per-level series, the levels present (in
+    ordinal order), the latest-year processing premium (price of the most-processed
+    present level ÷ the least-processed present level) and the predominant level.
+    """
     by_level = _value_added_codes_by_level(commodity_id)
     acc, n = _value_added_accumulate(by_level, uf_codes)
     series = [_value_added_series_point(y, acc[y]) for y in sorted(acc)]
-    return {"series": series, "n_codes": n}
+    present = [lvl for lvl in CUR_LEVELS if any(lvl in pt["levels"] for pt in series)]
+    last = series[-1] if series else None
+    return {
+        "series": series,
+        "levels": present,
+        "premium": _value_added_premium(last) if last else 0.0,
+        "predominant": _value_added_predominant(last) if last else None,
+        "n_codes": n,
+    }
 
 
 def _value_added_codes_by_level(commodity_id: str | None) -> dict[str, list[str]]:
-    """Group currently-classified COMEX codes into {bruta, processada} (scoped)."""
+    """Group currently-classified COMEX codes by industrialization level (scoped).
+
+    Only mdic_comex codes whose level is one of the 8 CUR_LEVELS are kept; a code
+    classified to some other free-text value is ignored by the analysis (but still
+    stored). Returns only the levels that actually have codes."""
     scope = set(seam_base._codes(commodity_id, "comex")) if commodity_id else None
-    by_level: dict[str, list[str]] = {"bruta": [], "processada": []}
+    valid = set(CUR_LEVELS)
+    by_level: dict[str, list[str]] = {}
     for (src, code), lvl in _current_code_levels().items():
-        if src != "mdic_comex" or lvl not in by_level:
+        if src != "mdic_comex" or lvl not in valid:
             continue
         if scope is not None and code not in scope:
             continue
-        by_level[lvl].append(code)
+        by_level.setdefault(lvl, []).append(code)
     return by_level
 
 
@@ -177,14 +222,16 @@ def _value_added_accumulate(
 ) -> tuple[dict, int]:
     """Sum export value (US$ bi) + weight (mil t) per year per level; (acc, n_codes).
 
-    ONE value + ONE weight query per level (the reader's ``codes`` filter is an
-    ``IN UNNEST`` over the whole level), so the cost stays flat as more codes are
-    classified — never 2 BigQuery round-trips per code. ``uf_codes`` narrows the
-    export side to one origin UF(s) (cross-source per-UF scoping).
+    ONE value + ONE weight query per present level (the reader's ``codes`` filter is
+    an ``IN UNNEST`` over the whole level), so the cost stays flat as more codes are
+    classified — never 2 BigQuery round-trips per code. Iterates in CUR_LEVELS order
+    so the accumulator's per-year slots are built deterministically. ``uf_codes``
+    narrows the export side to one origin UF(s) (cross-source per-UF scoping).
     """
     acc: dict = {}
     n = 0
-    for lvl, lvl_codes in by_level.items():
+    for lvl in CUR_LEVELS:
+        lvl_codes = by_level.get(lvl) or []
         if not lvl_codes:
             continue
         codes = tuple(sorted(lvl_codes))
@@ -194,42 +241,56 @@ def _value_added_accumulate(
         wt = seam_base._xyear("mdic_comex:exp_weight", codes, uf_codes)
         n += len(lvl_codes)
         for y, v in val.items():
-            slot = acc.setdefault(
-                y, {"bruta": {"v": 0.0, "w": 0.0}, "processada": {"v": 0.0, "w": 0.0}}
-            )
-            slot[lvl]["v"] += v / 1e9  # US$ bi
-            slot[lvl]["w"] += wt.get(y, 0.0) / 1e6  # mil t
+            cell = acc.setdefault(y, {}).setdefault(lvl, {"v": 0.0, "w": 0.0})
+            cell["v"] += v / 1e9  # US$ bi
+            cell["w"] += wt.get(y, 0.0) / 1e6  # mil t
     return acc, n
 
 
 def _value_added_series_point(y: int, slot: dict) -> dict:
-    """One year per level: value (US$ bi), weight (mil t), absolute unit price
-    (US$/kg), the processed shares (by value and by weight), and the price premium
-    (price_processada ÷ price_bruta).
+    """One year: per-level value (US$ bi), weight (mil t) and absolute unit price
+    (US$/kg), plus the year totals. Only levels present that year appear in ``levels``.
 
-    The absolute per-level prices and weights were always computed here but
-    previously collapsed into the single dimensionless ``premium`` ratio; the
-    "Processado vs Bruto" view needs them un-collapsed to draw the volume
-    composition and the side-by-side US$/kg bars.
+    price = value(US$ bi) ÷ weight(mil t); ×1e3 → US$/kg (the COMEX exp_price unit).
     """
-    b, p = slot["bruta"], slot["processada"]
-    total_v = (b["v"] + p["v"]) or 1
-    total_w = (b["w"] + p["w"]) or 1
-    # price = value(US$ bi) ÷ weight(mil t); ×1e3 → US$/kg (the COMEX exp_price unit).
-    price_b = (b["v"] / b["w"] * 1e3) if b["w"] else 0
-    price_p = (p["v"] / p["w"] * 1e3) if p["w"] else 0
+    levels = {
+        lvl: {
+            "v": d["v"],
+            "w": d["w"],
+            "price": (d["v"] / d["w"] * 1e3) if d["w"] else 0.0,
+        }
+        for lvl, d in slot.items()
+    }
     return {
         "y": y,
-        "brutaV": b["v"],
-        "procV": p["v"],
-        "brutaW": b["w"],
-        "procW": p["w"],
-        "procShare": p["v"] / total_v * 100,
-        "procShareW": p["w"] / total_w * 100,
-        "priceBruta": price_b,
-        "priceProc": price_p,
-        "premium": (price_p / price_b) if price_b else 0,
+        "levels": levels,
+        "totalV": sum(d["v"] for d in slot.values()),
+        "totalW": sum(d["w"] for d in slot.values()),
     }
+
+
+def _value_added_premium(point: dict) -> float:
+    """The processing premium at one year: unit price of the MOST-processed present
+    level ÷ the LEAST-processed present level (both with a positive price), ordered
+    by CUR_LEVELS. 0 when fewer than two priced levels are present."""
+    priced = [
+        point["levels"][lvl]["price"]
+        for lvl in CUR_LEVELS
+        if lvl in point["levels"] and point["levels"][lvl]["price"] > 0
+    ]
+    if len(priced) < 2:
+        return 0.0
+    least, most = priced[0], priced[-1]
+    return (most / least) if least else 0.0
+
+
+def _value_added_predominant(point: dict) -> dict | None:
+    """The level with the largest export value at one year → {level, shareV%}."""
+    if not point["levels"]:
+        return None
+    lvl, cell = max(point["levels"].items(), key=lambda kv: kv[1]["v"])
+    total = point["totalV"] or 1
+    return {"level": lvl, "shareV": cell["v"] / total * 100}
 
 
 # ── Market-nature — COMTRADE value by economic purpose (consumo/processamento) ──

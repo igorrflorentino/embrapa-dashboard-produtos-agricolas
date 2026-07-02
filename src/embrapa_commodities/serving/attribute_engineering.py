@@ -90,8 +90,8 @@ def ensure_code_industrialization_log_table(
 def _validate_code_edit(source: str, code: str, level: str, note: str | None) -> None:
     """Validate a per-code edit: required keys present and free text within caps.
 
-    ``industrialization_level`` is open-vocabulary (the UI offers
-    bruta/processada/misturado, but an allowlist would break a future finer
+    ``industrialization_level`` is open-vocabulary (the UI offers the 8-level
+    Commodity → Manufaturado scale, but an allowlist would break a future finer
     scheme); the cap is only a sanity bound on the immutable audit row.
     """
     if not source or not code or not level:
