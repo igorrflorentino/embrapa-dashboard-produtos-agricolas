@@ -722,6 +722,43 @@ def fetch_banco_metadata(banco_id: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_commodity_groups():
+    """The CURRENT active commodity GROUPS (agrupamentos) — the first-class registry
+    (latest row per group_id, active=true) with a live count of each group's active
+    catalog members (so the UI can block deleting a non-empty group). EMPTY groups
+    (member count 0) are included. Raises NotFound when the registry table doesn't
+    exist yet — the seam treats that as no groups."""
+    settings = get_settings()
+    group_table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_group_log_table
+    )
+    catalog_table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+    )
+    sql = f"""
+        with groups as (
+          select group_id, group_name from (
+            select group_id, group_name, active, row_number() over (
+              partition by group_id order by edited_at desc, change_id desc
+            ) as _rn from `{group_table}`
+          ) where _rn = 1 and active
+        ),
+        members as (
+          select commodity_id, count(*) as n_members from (
+            select codigo_commodity, banco, commodity_id, active, row_number() over (
+              partition by codigo_commodity, banco order by edited_at desc, change_id desc
+            ) as _rn from `{catalog_table}`
+          ) where _rn = 1 and active
+          group by commodity_id
+        )
+        select g.group_id, g.group_name, coalesce(m.n_members, 0) as n_members
+        from groups g left join members m on g.group_id = m.commodity_id
+        order by lower(g.group_name)
+    """
+    return run_query(sql, [])
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_commodity_catalog(banco: str | None = None):
     """The CURRENT active commodity catalog (latest row per (codigo_commodity, banco),
     active=true) from the append-only Curadoria log. Optionally scoped to one banco.
@@ -733,7 +770,7 @@ def fetch_commodity_catalog(banco: str | None = None):
     )
     where = "where banco = @banco" if banco else ""
     sql = f"""
-        select codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
+        select codigo_commodity, banco, agrupamento, descricao_commodity,
                ciclo_de_vida, code_prefix, commodity_id
         from (
           select *, row_number() over (

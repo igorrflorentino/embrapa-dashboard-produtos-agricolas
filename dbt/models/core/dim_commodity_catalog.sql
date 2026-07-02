@@ -39,7 +39,6 @@ with log as (
         banco,
         agrupamento,
         descricao_commodity,
-        industrializacao,
         ciclo_de_vida,
         code_prefix,
         commodity_id,
@@ -70,7 +69,6 @@ select
     codigo_commodity,
     code_prefix,
     descricao_commodity,
-    industrializacao,
     ciclo_de_vida,
     edited_by,
     edited_at

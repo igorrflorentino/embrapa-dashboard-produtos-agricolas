@@ -65,7 +65,6 @@ COMMODITY_CATALOG_LOG_SCHEMA = [
     bigquery.SchemaField("banco", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("agrupamento", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("descricao_commodity", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("industrializacao", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("ciclo_de_vida", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("code_prefix", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("commodity_id", "STRING", mode="NULLABLE"),
@@ -200,7 +199,6 @@ def record_commodity_catalog(
     *,
     agrupamento: str | None = None,
     descricao_commodity: str | None = None,
-    industrializacao: str | None = None,
     ciclo_de_vida: str | None = None,
     code_prefix: str | None = None,
     commodity_id: str | None = None,
@@ -262,7 +260,6 @@ def record_commodity_catalog(
             banco,
             agrupamento,
             descricao_commodity,
-            industrializacao,
             ciclo_de_vida,
             code_prefix,
             commodity_id,
@@ -278,7 +275,6 @@ def record_commodity_catalog(
         banco,
         agrupamento,
         descricao_commodity,
-        industrializacao,
         ciclo_de_vida,
         code_prefix,
         commodity_id,
@@ -294,7 +290,6 @@ def record_commodity_catalog(
         banco,
         agrupamento,
         descricao_commodity,
-        industrializacao,
         ciclo_de_vida,
         code_prefix,
         commodity_id,
@@ -336,7 +331,6 @@ def remove_commodity_catalog(
             None,
             None,
             None,
-            None,
             codigo_commodity,
             None,
             False,
@@ -362,7 +356,6 @@ def remove_commodity_catalog(
         None,
         None,
         None,
-        None,
         code_prefix,
         None,
         False,
@@ -375,7 +368,6 @@ def remove_commodity_catalog(
     return _catalog_row(
         codigo_commodity,
         banco,
-        None,
         None,
         None,
         None,
@@ -395,7 +387,6 @@ def _insert_catalog_row(
     banco,
     agrupamento,
     descricao_commodity,
-    industrializacao,
     ciclo_de_vida,
     code_prefix,
     commodity_id,
@@ -406,10 +397,10 @@ def _insert_catalog_row(
     """Append one catalog row with a server-side timestamp (parameterized DML)."""
     sql = f"""
         insert into `{table_fqn}`
-            (codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
+            (codigo_commodity, banco, agrupamento, descricao_commodity,
              ciclo_de_vida, code_prefix, commodity_id, active, edited_by, edited_at, change_id)
         values
-            (@codigo_commodity, @banco, @agrupamento, @descricao_commodity, @industrializacao,
+            (@codigo_commodity, @banco, @agrupamento, @descricao_commodity,
              @ciclo_de_vida, @code_prefix, @commodity_id, @active, @edited_by,
              current_timestamp(), @change_id)
     """
@@ -419,7 +410,6 @@ def _insert_catalog_row(
         p("banco", "STRING", banco),
         p("agrupamento", "STRING", agrupamento),
         p("descricao_commodity", "STRING", descricao_commodity),
-        p("industrializacao", "STRING", industrializacao),
         p("ciclo_de_vida", "STRING", ciclo_de_vida),
         p("code_prefix", "STRING", code_prefix),
         p("commodity_id", "STRING", commodity_id),
@@ -435,7 +425,6 @@ def _catalog_row(
     banco,
     agrupamento,
     descricao_commodity,
-    industrializacao,
     ciclo_de_vida,
     code_prefix,
     commodity_id,
@@ -451,7 +440,6 @@ def _catalog_row(
         "banco": banco,
         "agrupamento": agrupamento,
         "descricao_commodity": descricao_commodity,
-        "industrializacao": industrializacao,
         "ciclo_de_vida": ciclo_de_vida,
         "code_prefix": code_prefix,
         "commodity_id": commodity_id,

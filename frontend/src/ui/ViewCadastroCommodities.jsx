@@ -1,13 +1,12 @@
 // ViewCadastroCommodities — the Curadoria (catalog) editor: what ENTERS and EXITS the
-// dashboard. Lists the commodity catalog grouped by Agrupamento (the cross-source
-// concept), and lets an AUTHORIZED researcher edit the lifecycle (Ciclo de Vida = in/out)
-// + attributes, add a commodity, or remove one — through /api/catalog/* (the append-only,
-// IAP-attributed writer; removal is a non-destructive tombstone). The editable successor
-// to the commodity_crosswalk seed. Self-contained (its own fetch + state), like ViewDados.
+// dashboard. AGRUPAMENTOS (groups) are now a FIRST-CLASS registry — create (incl. empty),
+// rename and delete (only when empty) — and each commodity (código+banco, code_prefix,
+// ciclo de vida = in/out) points at one group and can be MOVED between them. Each code
+// also shows its ORIGINAL source description. Writes go through /api/catalog/* (append-only,
+// IAP-attributed; removal is a non-destructive tombstone). Self-contained (own fetch+state).
 //
-// Authorization is enforced server-side (the per-catalog allowlist → 403); a 400 means a
-// bad key / over-length / overlapping prefix. We surface both honestly rather than hiding
-// the failure.
+// Authorization is enforced server-side (403); a 400 = bad key / overlapping prefix /
+// duplicate or non-empty group. We surface both honestly rather than hiding the failure.
 
 const { useState: useCcState, useEffect: useCcEffect } = React;
 
@@ -24,16 +23,9 @@ const _CC_BANCOS = [
   { v: 'comtrade', label: 'UN COMTRADE' },
 ];
 const _CC_BANCO_LABEL = Object.fromEntries(_CC_BANCOS.map((b) => [b.v, b.label]));
-// The Níveis de Industrialização vocabulary (datalist suggestions; the field is free text).
-const _CC_INDUST = [
-  'Commodity Pura', 'Commodity Higienizada', 'Commodity Acondicionada',
-  'Commodity Consumivel', 'Commodity Subproduto', 'Manufaturado Artesanal',
-  'Manufaturado Industrial', 'Manufaturado Especializado',
-];
-
 const _CC_EMPTY_DRAFT = {
-  codigo_commodity: '', banco: 'comex', agrupamento: '', code_prefix: '',
-  industrializacao: '', descricao_commodity: '', ciclo_de_vida: _CC_CICLO[0].v,
+  codigo_commodity: '', banco: 'comex', commodity_id: '', code_prefix: '',
+  descricao_commodity: '', ciclo_de_vida: _CC_CICLO[0].v,
 };
 
 function _ccCicloShort(v) {
@@ -42,19 +34,22 @@ function _ccCicloShort(v) {
 }
 
 function ViewCadastroCommodities() {
-  const [data, setData] = useCcState({ entries: [], by_agrupamento: [], loading: true, error: null });
+  const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null });
   const [status, setStatus] = useCcState(null); // { kind: 'ok' | 'err', msg }
   const [busy, setBusy] = useCcState(false);
   const [draft, setDraft] = useCcState({ ..._CC_EMPTY_DRAFT });
   const [showAdd, setShowAdd] = useCcState(false);
   const [orphans, setOrphans] = useCcState([]);
+  const [newGroup, setNewGroup] = useCcState('');
 
   const load = () => {
     setData((d) => ({ ...d, loading: true, error: null }));
-    fetch('/api/catalog/entries')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setData({ entries: d.entries || [], by_agrupamento: d.by_agrupamento || [], loading: false, error: null }))
-      .catch((e) => setData({ entries: [], by_agrupamento: [], loading: false, error: String(e.message || e) }));
+    Promise.all([
+      fetch('/api/catalog/entries').then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))),
+      fetch('/api/catalog/groups').then((r) => (r.ok ? r.json() : { groups: [] })),
+    ])
+      .then(([e, g]) => setData({ entries: e.entries || [], groups: g.groups || [], loading: false, error: null }))
+      .catch((err) => setData({ entries: [], groups: [], loading: false, error: String(err.message || err) }));
     // Orphans (removed from the catalog, Gold data lingering) — shown as Descontinuados.
     fetch('/api/catalog/orphans')
       .then((r) => (r.ok ? r.json() : { orphans: [] }))
@@ -83,9 +78,8 @@ function ViewCadastroCommodities() {
     } catch (e) {
       setStatus({ kind: 'err', msg: String(e.message || e) });
     } finally {
-      // Always re-sync the grid to the PERSISTED state — a multi-write op (the per-
-      // Agrupamento loop) that fails midway has already committed some rows; reloading
-      // only on success would leave the grid showing the old values for all of them.
+      // Always re-sync to the PERSISTED state — a multi-write op that fails midway has
+      // already committed some rows; reloading only on success would show stale values.
       load();
       setBusy(false);
     }
@@ -100,9 +94,39 @@ function ViewCadastroCommodities() {
       `Commodity ${e.codigo_commodity} marcada como descontinuada.`);
   };
 
+  // Move a commodity to a DIFFERENT agrupamento (membership change) — re-upserts with the
+  // target group's id + name, so it re-groups on reload.
+  const moveEntry = (e, groupId) => {
+    const g = data.groups.find((x) => x.group_id === groupId);
+    if (!g || g.group_id === e.commodity_id) return;
+    saveEntry({ ...e, commodity_id: g.group_id, agrupamento: g.group_name });
+  };
+
+  // ── Agrupamento (group) management — the first-class registry ──────────────────
+  const createGroup = () => {
+    const name = newGroup.trim();
+    if (!name) { setStatus({ kind: 'err', msg: 'Informe o nome do novo agrupamento.' }); return; }
+    run(() => post('/api/catalog/group', { group_name: name }), `Agrupamento "${name}" criado.`);
+    setNewGroup('');
+  };
+  const renameGroup = (g) => {
+    const name = window.prompt(`Renomear o agrupamento "${g.group_name}":`, g.group_name);
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === g.group_name) return;
+    run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed }),
+      `Agrupamento renomeado para "${trimmed}".`);
+  };
+  const deleteGroup = (g) => {
+    if (g.n_members > 0) return; // the button is disabled; guard anyway
+    if (!window.confirm(`Excluir o agrupamento vazio "${g.group_name}"?`)) return;
+    run(() => post('/api/catalog/group/remove', { group_id: g.group_id }),
+      `Agrupamento "${g.group_name}" excluído.`);
+  };
+
   // Per-Agrupamento lifecycle (the lead's edit grain): set Ciclo de Vida for every member.
-  const setCicloForAgrupamento = (agrupamento, ciclo) => {
-    const members = data.entries.filter((e) => (e.agrupamento || '—') === agrupamento);
+  const setCicloForGroup = (g, ciclo) => {
+    const members = data.entries.filter((e) => e.commodity_id === g.group_id);
     run(async () => {
       let done = 0;
       try {
@@ -111,11 +135,9 @@ function ViewCadastroCommodities() {
           done += 1;
         }
       } catch (e) {
-        // Report how many members were applied before the failure — the grid reloads
-        // (run's finally) to the partially-applied state, so the message must match it.
         throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
       }
-    }, `Ciclo de vida de "${agrupamento}" atualizado (${members.length}).`);
+    }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`);
   };
 
   const submitAdd = () => {
@@ -123,33 +145,86 @@ function ViewCadastroCommodities() {
       setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
       return;
     }
-    // Agrupamento names the commodity and seeds its identifier — required downstream
-    // (the server also rejects a blank one). Validate here so the researcher gets an
-    // instant, specific message instead of a round-trip 400.
-    if (!draft.agrupamento || !draft.agrupamento.trim()) {
-      setStatus({ kind: 'err', msg: 'Agrupamento é obrigatório (nomeia a commodity e gera o identificador).' });
+    const g = data.groups.find((x) => x.group_id === draft.commodity_id);
+    if (!g) {
+      setStatus({ kind: 'err', msg: 'Escolha um agrupamento (ou crie um novo acima).' });
       return;
     }
-    saveEntry({ ...draft });
+    saveEntry({ ...draft, agrupamento: g.group_name });
     setDraft({ ..._CC_EMPTY_DRAFT });
     setShowAdd(false);
   };
 
-  // Group entries by agrupamento for the per-concept editing grain.
-  const groups = {};
-  for (const e of data.entries) (groups[e.agrupamento || '—'] = groups[e.agrupamento || '—'] || []).push(e);
-  const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  const agrupamentos = [...new Set(data.entries.map((e) => e.agrupamento).filter(Boolean))].sort();
+  // Registry groups, sorted; each rendered as a card with its members.
+  const groupsSorted = [...data.groups].sort((a, b) => a.group_name.localeCompare(b.group_name, 'pt-BR'));
+  const membersOf = (gid) => data.entries.filter((e) => e.commodity_id === gid);
+  // Entries pointing at a group not in the registry (legacy / pre-migration) → a fallback
+  // bucket so nothing is hidden. After the seed migration this is empty.
+  const knownIds = new Set(data.groups.map((g) => g.group_id));
+  const strayEntries = data.entries.filter((e) => !knownIds.has(e.commodity_id));
+
+  const GroupSelect = ({ value, onChange, placeholder }) => (
+    <select value={value || ''} disabled={busy}
+            onChange={(ev) => onChange(ev.target.value)} className="cc-group-select">
+      {placeholder && <option value="">{placeholder}</option>}
+      {groupsSorted.map((g) => <option key={g.group_id} value={g.group_id}>{g.group_name}</option>)}
+    </select>
+  );
+
+  const memberRows = (members) => (
+    <div className="dt-wrap">
+      <table className="dt-table">
+        <thead>
+          <tr>
+            <th>Banco</th><th>Código</th><th>Prefixo</th><th>Descrição (fonte)</th>
+            <th>Agrupamento</th><th>Ciclo de vida</th><th aria-label="ações"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((e) => (
+            <tr key={e.banco + '|' + e.codigo_commodity}>
+              <td>{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
+              <td className="tnum">{e.codigo_commodity}</td>
+              <td className="tnum">{e.code_prefix}</td>
+              <td>{e.descricao_fonte || <span className="dt-null">—</span>}</td>
+              <td>
+                <GroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)} />
+              </td>
+              <td>
+                <select disabled={busy} value={e.ciclo_de_vida || ''}
+                        title={e.ciclo_de_vida || ''}
+                        onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
+                  {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
+                    <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
+                  )}
+                  {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                </select>
+              </td>
+              <td>
+                <button type="button" className="cc-remove" disabled={busy}
+                        title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
+                        onClick={() => removeEntry(e)}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
+                  🗑
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <>
       <div className="card subtle" style={{ marginBottom: 12 }}>
         <p className="caption" style={{ margin: 0 }}>
           Este é o <strong>cadastro de commodities</strong> — a fonte única de verdade do que entra
-          e sai do dashboard. Cada commodity é identificada pelo par <code>(código, banco)</code>.
-          O <strong>Ciclo de Vida</strong> controla se a commodity é exibida; <strong>remover</strong> uma
-          commodity a marca como descontinuada (os dados já baixados ficam órfãos e só são apagados por
-          um humano, nunca automaticamente). Edições exigem autorização e ficam registradas com seu e-mail.
+          e sai do dashboard. Cada commodity é identificada por <code>(código, banco)</code> e pertence a
+          um <strong>agrupamento</strong> (o conceito que a unifica entre fontes). Agrupamentos são criados,
+          renomeados e excluídos aqui; o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> uma
+          commodity a marca como descontinuada (os dados já baixados ficam órfãos, apagados só por um humano).
+          Edições exigem autorização e ficam registradas com seu e-mail.
         </p>
       </div>
 
@@ -192,10 +267,19 @@ function ViewCadastroCommodities() {
         </div>
       )}
 
-      <div className="pp-selector" style={{ marginBottom: 8 }}>
+      <div className="pp-selector" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <span className="pp-selector-label">
-          {data.entries.length.toLocaleString('pt-BR')} commodities · {groupNames.length} agrupamentos
+          {data.entries.length.toLocaleString('pt-BR')} commodities · {data.groups.length} agrupamentos
         </span>
+        <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          Novo agrupamento:
+          <input type="text" value={newGroup} placeholder="Ex.: Castanha"
+                 onChange={(e) => setNewGroup(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === 'Enter') createGroup(); }} />
+          <button type="button" className="seg-opt" onClick={createGroup} disabled={busy || !newGroup.trim()}>
+            + Criar
+          </button>
+        </label>
         <button type="button" className="seg-opt" onClick={() => setShowAdd((v) => !v)} disabled={busy}>
           {showAdd ? 'Cancelar' : '+ Adicionar commodity'}
         </button>
@@ -214,19 +298,14 @@ function ViewCadastroCommodities() {
                 {_CC_BANCOS.map((b) => <option key={b.v} value={b.v}>{b.label}</option>)}
               </select>
             </label>
-            <label className="cc-field">Agrupamento (conceito)
-              <input type="text" list="cc-agrupamentos" value={draft.agrupamento}
-                     onChange={(e) => setDraft((d) => ({ ...d, agrupamento: e.target.value }))} />
-              <datalist id="cc-agrupamentos">{agrupamentos.map((a) => <option key={a} value={a} />)}</datalist>
+            <label className="cc-field">Agrupamento
+              <GroupSelect value={draft.commodity_id}
+                           onChange={(gid) => setDraft((d) => ({ ...d, commodity_id: gid }))}
+                           placeholder={data.groups.length ? 'Escolha um agrupamento…' : 'Crie um agrupamento primeiro'} />
             </label>
             <label className="cc-field">Prefixo de código <small className="pc-cap">(vazio = o próprio código)</small>
               <input type="text" value={draft.code_prefix} placeholder={draft.codigo_commodity}
                      onChange={(e) => setDraft((d) => ({ ...d, code_prefix: e.target.value }))} />
-            </label>
-            <label className="cc-field">Industrialização
-              <input type="text" list="cc-indust" value={draft.industrializacao}
-                     onChange={(e) => setDraft((d) => ({ ...d, industrializacao: e.target.value }))} />
-              <datalist id="cc-indust">{_CC_INDUST.map((i) => <option key={i} value={i} />)}</datalist>
             </label>
             <label className="cc-field">Ciclo de vida
               <select value={draft.ciclo_de_vida} onChange={(e) => setDraft((d) => ({ ...d, ciclo_de_vida: e.target.value }))}>
@@ -246,63 +325,55 @@ function ViewCadastroCommodities() {
         <p className="caption" style={{ padding: '20px 4px', color: 'var(--err)' }}>Erro ao carregar: {data.error}</p>
       ) : data.loading ? (
         <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>Carregando cadastro…</p>
-      ) : !data.entries.length ? (
+      ) : !data.groups.length && !data.entries.length ? (
         <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
-          Nenhuma commodity cadastrada ainda. Use “+ Adicionar commodity”.
+          Nenhum agrupamento ainda. Crie um em “Novo agrupamento”, depois use “+ Adicionar commodity”.
         </p>
       ) : (
-        groupNames.map((g) => (
-          <div className="card" key={g} style={{ marginBottom: 10 }}>
-            <div className="cc-group-head" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <strong style={{ flex: 1 }}>{g} <small className="pc-cap">({groups[g].length})</small></strong>
-              <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                Ciclo de vida do agrupamento:
-                <select disabled={busy} defaultValue=""
-                        onChange={(e) => { if (e.target.value) setCicloForAgrupamento(g, e.target.value); e.target.value = ''; }}>
-                  <option value="">aplicar a todos…</option>
-                  {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
-                </select>
-              </label>
+        <>
+          {groupsSorted.map((g) => {
+            const members = membersOf(g.group_id);
+            return (
+              <div className="card" key={g.group_id} style={{ marginBottom: 10 }}>
+                <div className="cc-group-head" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <strong style={{ flex: 1, minWidth: 160 }}>{g.group_name} <small className="pc-cap">({g.n_members})</small></strong>
+                  <button type="button" className="seg-opt" disabled={busy}
+                          onClick={() => renameGroup(g)} title="Renomear agrupamento">✎ Renomear</button>
+                  <button type="button" className="seg-opt" disabled={busy || g.n_members > 0}
+                          onClick={() => deleteGroup(g)}
+                          title={g.n_members > 0 ? 'Reatribua ou remova as commodities antes de excluir' : 'Excluir agrupamento vazio'}>
+                    🗑 Excluir
+                  </button>
+                  {g.n_members > 0 && (
+                    <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      Ciclo de vida:
+                      <select disabled={busy} defaultValue=""
+                              onChange={(e) => { if (e.target.value) setCicloForGroup(g, e.target.value); e.target.value = ''; }}>
+                        <option value="">aplicar a todos…</option>
+                        {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {members.length ? memberRows(members) : (
+                  <p className="caption" style={{ margin: '0 2px' }}>Agrupamento vazio — adicione commodities ou exclua-o.</p>
+                )}
+              </div>
+            );
+          })}
+
+          {strayEntries.length > 0 && (
+            <div className="card" style={{ marginBottom: 10, borderLeft: '4px solid var(--warn, #b8860b)' }}>
+              <div className="cc-group-head" style={{ marginBottom: 8 }}>
+                <strong>Sem agrupamento registrado <small className="pc-cap">({strayEntries.length})</small></strong>
+                <p className="caption" style={{ margin: '4px 0 0' }}>
+                  Reatribua cada uma a um agrupamento existente na coluna “Agrupamento”.
+                </p>
+              </div>
+              {memberRows(strayEntries)}
             </div>
-            <div className="dt-wrap">
-              <table className="dt-table">
-                <thead>
-                  <tr>
-                    <th>Banco</th><th>Código</th><th>Prefixo</th><th>Industrialização</th><th>Ciclo de vida</th><th aria-label="ações"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups[g].map((e) => (
-                    <tr key={e.banco + '|' + e.codigo_commodity}>
-                      <td>{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
-                      <td className="tnum">{e.codigo_commodity}</td>
-                      <td className="tnum">{e.code_prefix}</td>
-                      <td>{e.industrializacao || <span className="dt-null">—</span>}</td>
-                      <td>
-                        <select disabled={busy} value={e.ciclo_de_vida || ''}
-                                title={e.ciclo_de_vida || ''}
-                                onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
-                          {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
-                            <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
-                          )}
-                          {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
-                        </select>
-                      </td>
-                      <td>
-                        <button type="button" className="cc-remove" disabled={busy}
-                                title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
-                                onClick={() => removeEntry(e)}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
-                          🗑
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))
+          )}
+        </>
       )}
     </>
   );
