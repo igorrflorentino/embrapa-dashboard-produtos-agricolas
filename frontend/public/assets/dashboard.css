@@ -1564,6 +1564,67 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .hs-source { flex-direction: column; align-items: flex-start; gap: 6px; }
   .hs-source-r { text-align: left; }
 }
+
+/* Phone (≤560px): the 6-column operational table can't fit — a plain overflow-x
+   scroll collapses every cell to unreadable vertical letter-columns (the <code>
+   chip + two nowrap pills push it ~159px past a 375px viewport). Reflow each row
+   into a stacked label:value CARD instead (the app's .pp-spec / .ab-banco-meta
+   convention), using the data-label attrs on the <td>s. Scoped BELOW the 768px
+   tablet band where the table fits at 666px, so tablet + desktop are untouched. */
+@media (max-width: 560px) {
+  .hs-table-wrap { overflow-x: visible; border: none; border-radius: 0; margin: 0; }
+  .hs-table,
+  .hs-table thead,
+  .hs-table tbody,
+  .hs-table th,
+  .hs-table td,
+  .hs-table tr { display: block; width: 100%; }
+  /* Visually hide the header row (labels come from data-label ::before instead). */
+  .hs-table thead {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .hs-table tbody tr {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: var(--bg-surface);
+  }
+  .hs-table tbody tr:hover { background: var(--bg-surface); }
+  .hs-table tbody td {
+    border: none;
+    padding: 5px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    text-align: right;
+  }
+  .hs-table tbody tr:first-child td { border-top: none; }
+  .hs-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font: 600 10px var(--font-body);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    text-align: left;
+    flex-shrink: 0;
+  }
+  .hs-table tbody td.num { text-align: right; }
+  /* The Banco cell (no data-label) becomes the card TITLE: full width, name + chip inline. */
+  .hs-table tbody td:first-child {
+    display: block;
+    text-align: left;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px dashed var(--border-subtle);
+  }
+  .hs-table tbody td:first-child .hs-banco {
+    flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 8px;
+  }
+  .hs-status-pill { white-space: nowrap; }
+}
 /* ---------- Content ---------- */
 .content {
   padding: 28px 32px 48px;
@@ -3276,6 +3337,23 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   .topbar { overflow: hidden; }                /* belt-and-suspenders against any tear */
   .topnav-menu-grid { grid-template-columns: 1fr; }
   .topnav-menu { padding: 14px; }   /* position/scroll handled by the ≤768px sheet rule */
+
+  /* Section headers: on the narrowest phones the 22px title and its right-aligned
+     caption crush into two cramped columns. Stack the caption under the title
+     (the app's phone convention — .hs-source, .pp-spec). Shared atom → improves
+     every view's phone header; scoped ≤480px so tablet/desktop stay identical. */
+  .section-head { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .section-action { align-self: flex-start; }
+
+  /* "Arquitetura operacional" key/value rows: stack label above value so a long
+     label (e.g. "Telemetria de execuções da pipeline") doesn't crush the value. */
+  .hs-snap-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .hs-snap-row .meta-val { text-align: left; }
+
+  /* Alert header: drop margin-left:auto so a wrapped "desde <ts>" sits left-aligned
+     under the title it captions, instead of being flung orphaned to the right edge. */
+  .hs-alert-head { gap: 6px 10px; }
+  .hs-alert-since { margin-left: 0; flex-basis: 100%; }
 }
 
 /* ---- Constrained desktop/tablet (769–1500px): the 780px perspective dropdown is

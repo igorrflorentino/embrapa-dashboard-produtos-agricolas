@@ -231,18 +231,18 @@ function ViewHealth() {
                         <span className="hs-banco-table"><code>{window.bancoTable(b.id)}</code></span>
                       </div>
                     </td>
-                    <td>{s.source || b.source || '—'}</td>
-                    <td>
+                    <td data-label="Fonte">{s.source || b.source || '—'}</td>
+                    <td data-label="Maturidade">
                       <window.MaturityTag banco={b} size="sm" />
                     </td>
-                    <td>
+                    <td data-label="Operação">
                       <span className="hs-status-pill" style={{ '--st-color': meta.color }}>
                         <span className="hs-dot" style={{ background: meta.color }}></span>
                         {meta.label}
                       </span>
                     </td>
-                    <td className="tnum">{period}</td>
-                    <td className="num tnum">
+                    <td className="tnum" data-label="Período">{period}</td>
+                    <td className="num tnum" data-label="Linhas Gold">
                       {s.goldRows != null ? fmtRows(s.goldRows) : '—'}
                     </td>
                   </tr>
