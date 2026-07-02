@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [Unreleased]
+## [1.9.3] - 2026-07-01
+
+A mobile-responsiveness fix for the "Saúde do sistema" page — the per-banco operational
+table now reflows to readable cards on phones. Frontend-only (no dbt/Gold change).
 
 ### Changed
 - **"Saúde do sistema" is now properly adapted to phones.** On tablet the page was already
