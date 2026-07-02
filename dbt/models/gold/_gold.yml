@@ -78,7 +78,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
 
   - name: gold_pam_production
     description: |
@@ -157,7 +157,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
 
   - name: gold_ppm_production
     description: |
@@ -225,7 +225,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
 
   - name: gold_comex_flows
     description: |
@@ -326,7 +326,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_WEIGHT", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_WEIGHT", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
       - name: last_refresh
         description: "Max ingestion_timestamp across the source rows aggregated into this record."
         tests: [not_null]
@@ -434,7 +434,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
       - name: last_refresh
         description: "Max ingestion_timestamp across the source rows aggregated into this record."
         tests: [not_null]

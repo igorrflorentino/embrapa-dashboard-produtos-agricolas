@@ -1,6 +1,6 @@
 // ViewOverview.test.jsx — render coverage for the overview digest (H3). It also
 // locks two P0 details: the "X de N flags" denominator reads window.QUALITY_FLAGS
-// (now 9 flags — 5 base + 4 outlier/problemático tiers — not the 6 prototype ones),
+// (now 11 flags — 5 base + 4 outlier/problemático + 2 reserved inferred tiers — not the 6 prototype ones),
 // and the mass/volume quantity
 // KPIs render off q_mass/q_vol. We import the real data.js for the registry and
 // stub the composed window.* widgets/formatters (distinctive prefixes so the KPI
@@ -90,15 +90,15 @@ describe('ViewOverview — KPI strip + quality digest (H3 + P0 lock-in)', () => 
     expect(values).toContain('vol:20'); // latest q_vol via formatVolumeQty
   });
 
-  it('the quality digest denominator counts the REAL registry (9 flags)', () => {
+  it('the quality digest denominator counts the REAL registry (11 flags)', () => {
     stubGlobals(FIXTURE);
     const { container } = render(
       <ViewOverview families={['mass']} summary={{}} database="ibge_pevs" conventions={{}} />
     );
-    // "{qualityFlags.length} de {QUALITY_FLAGS.length} flags" → "2 de 9 flags". 9 = the 5
-    // base flags + the 4 outlier/problemático tiers (Q1; in the registry whether or not
-    // the dbt var enable_quality_outliers is on).
-    expect(container.textContent).toContain('de 9 flags');
+    // "{qualityFlags.length} de {QUALITY_FLAGS.length} flags" → "2 de 11 flags". 11 = the 5
+    // base flags + the 4 outlier/problemático tiers + the 2 reserved inferred tiers (all in
+    // the registry whether or not the dbt var enable_quality_outliers / an auto-fill pipeline is on).
+    expect(container.textContent).toContain('de 11 flags');
     expect(container.textContent).not.toContain('de 6 flags'); // the old prototype count
   });
 

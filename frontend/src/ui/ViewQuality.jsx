@@ -17,6 +17,9 @@ const QTS_KEY = {
   MISSING_WEIGHT: 'missing_weight', INCOMPLETE: 'incomplete',
   OUTLIER_VALUE: 'outlier_value', OUTLIER_QUANTITY: 'outlier_quantity',
   PROBLEMATIC_VALUE: 'problematic_value', PROBLEMATIC_QUANTITY: 'problematic_quantity',
+  // Reserved for a future auto-fill pipeline (0 today) — added deliberately so the
+  // temporal stack resolves their series-key when a pipeline finally emits them.
+  INFERRED_VALUE: 'inferred_value', INFERRED_QUANTITY: 'inferred_quantity',
 };
 
 function ViewQuality({ summary, database }) {
@@ -26,6 +29,10 @@ function ViewQuality({ summary, database }) {
   const total    = flags.reduce((s, f) => s + f.count, 0) || 1;
   const okFlag   = flags.find(f => f.id === 'OK');
   const okCount  = okFlag ? okFlag.count : 0;
+
+  // Plain-pt-BR description per flag (from the QUALITY_FLAGS registry) → hover tooltips
+  // + the always-on legend panel below. Empty string when a flag has no desc.
+  const flagDesc = (id) => (window.QUALITY_FLAGS.find(x => x.id === id) || {}).desc || '';
 
   const flagSet = new Set(flags.map(f => f.id));
   // Restrict per-product breakdown to selected products AND selected flags.
@@ -75,7 +82,7 @@ function ViewQuality({ summary, database }) {
             <span className="qa-flag-label">Nenhuma flag selecionada nos filtros.</span>
           </div>
         ) : flags.map(f => (
-          <div key={f.id} className="qa-flag-card">
+          <div key={f.id} className="qa-flag-card" title={flagDesc(f.id)}>
             <div className="qa-flag-head">
               <span className="qa-dot" style={{ background: f.color }}></span>
               <span className="qa-flag-label">{f.label}</span>
@@ -96,6 +103,31 @@ function ViewQuality({ summary, database }) {
           não recortam estes percentuais — a evolução temporal abaixo respeita a janela de anos.
         </p>
       )}
+
+      {/* Always-on taxonomy legend — documents EVERY flag (iterating the full registry,
+          not the present-only `flags`), so the reserved INFERRED_* tiers and any tier
+          with 0 linhas are still explained. This is the canonical "o que cada flag
+          significa" reference in the Qualidade window. */}
+      <details className="qa-flag-legend card">
+        <summary className="qa-flag-legend-summary">
+          <span>O que significa cada flag?</span>
+          <span className="caption">{window.QUALITY_FLAGS.length} marcas de qualidade</span>
+        </summary>
+        <div className="qa-flag-legend-grid">
+          {window.QUALITY_FLAGS.map(f => (
+            <div key={f.id} className="qa-flag-legend-item">
+              <span className="qa-dot" style={{ background: f.color }}></span>
+              <div className="qa-flag-legend-text">
+                <span className="qa-flag-legend-label">
+                  {f.label}
+                  {f.reserved && <span className="qa-flag-legend-badge">reservada</span>}
+                </span>
+                <span className="qa-flag-legend-desc caption">{f.desc}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
 
       {/* Quality over time */}
       <div className="card">
@@ -160,7 +192,7 @@ function ViewQuality({ summary, database }) {
         )}
         <div className="qa-legend">
           {flags.map(f => (
-            <span key={f.id} className="qa-legend-item">
+            <span key={f.id} className="qa-legend-item" title={flagDesc(f.id)}>
               <span className="qa-dot" style={{ background: f.color }}></span>
               {f.label}
             </span>
