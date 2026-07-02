@@ -841,7 +841,7 @@ def fetch_source_code_stats(source: str):
 def fetch_orphan_commodities():
     """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
     the catalog, was REMOVED (current state active=false), and whose Gold data STILL
-    lingers (a code matching its prefix exists in the banco's Gold table). This is NOT
+    lingers (the entry's EXACT code still exists in the banco's Gold table). This is NOT
     "every uncataloged Gold code" (the catalog is a cross-source bridge, not a full
     registry — that diff would false-flag ~111 legitimate products); only a removal
     leaves data behind. Raises NotFound when the catalog log is absent (→ no orphans).
@@ -851,10 +851,20 @@ def fetch_orphan_commodities():
         settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
     )
     tombstoned_sql = f"""
-        select codigo_commodity, banco, agrupamento, edited_at as removed_at from (
-          select *, row_number() over (
-            partition by codigo_commodity, banco order by edited_at desc, change_id desc
-          ) as _rn
+        select codigo_commodity, banco, agrupamento, removed_at from (
+          select
+            codigo_commodity, banco, active, change_id,
+            edited_at as removed_at,
+            -- The tombstone row (active=false) carries agrupamento=NULL, so surface the
+            -- LAST value the commodity had while still active (ignore the NULL tombstone),
+            -- otherwise the Descontinuados view could never show the orphan's agrupamento.
+            last_value(agrupamento ignore nulls) over (
+              partition by codigo_commodity, banco order by edited_at, change_id
+              rows between unbounded preceding and unbounded following
+            ) as agrupamento,
+            row_number() over (
+              partition by codigo_commodity, banco order by edited_at desc, change_id desc
+            ) as _rn
           from `{log}`
         ) where _rn = 1 and not active
     """

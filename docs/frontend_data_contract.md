@@ -241,8 +241,9 @@ WHERE c.flow='export'
 GROUP BY x.commodity_id
 ```
 A product code matching no commodity is simply absent from the crosswalk →
-**"não vinculado"** (graceful), never an error. Add a commodity / prefix in the
-`commodity_crosswalk` seed when the product scope grows.
+**"não vinculado"** (graceful), never an error. Register a new commodity by its exact
+source code via the **"Cadastro de commodities"** admin view (writes to `research_inputs`
+→ `core/dim_commodity_catalog` → `gold_commodity_crosswalk`) when the product scope grows.
 
 Verified (2023): the crosswalk links castanha and roundwood across all three
 sources, so e.g. the export coefficient (COMEX exports ÷ PEVS production) and the

@@ -1469,7 +1469,6 @@ def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
                     "codigo_commodity": "20079926",
                     "banco": "comex",
                     "agrupamento": "Cupuaçu",
-                    "code_prefix": "20079926",
                     "status": "descontinuado",
                     "flagged_at": None,
                     "warning": "será removida por um operador",

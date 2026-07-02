@@ -2510,6 +2510,15 @@ def test_every_seed_csv_is_a_consultable_reference_table():
         "consultable, add it to intentionally_unexposed with a comment explaining why."
     )
 
+    # Reverse direction: a _SEED_CATALOG id pointing at a nonexistent/renamed seed CSV would
+    # pass _resolve_seed_table's allowlist and only fail at READ time as a BigQuery 404. Guard
+    # the bijection so a bad id fails at test time instead.
+    dangling = set(gateway._SEED_BY_ID) - csv_ids
+    assert not dangling, (
+        f"_SEED_CATALOG id(s) with no backing seed CSV under dbt/seeds: {sorted(dangling)}. "
+        "Fix the id, or remove the catalog entry if the seed was retired."
+    )
+
     # The exclusion list must not go stale: nothing in it should still be on disk.
     stale_exclusions = intentionally_unexposed & csv_ids
     assert not stale_exclusions, (
@@ -2617,6 +2626,28 @@ def test_record_commodity_catalog_rejects_nonexistent_code(monkeypatch):
         invalidate_cache=False,
     )
     assert rec["active"] is True and rec["codigo_commodity"] == "9999"
+
+
+def test_record_commodity_catalog_rejects_unknown_banco(monkeypatch):
+    """A banco outside the 5 valid catalog tokens is rejected — otherwise a junk row is
+    written that never joins in gold_commodity_crosswalk (silent orphaned data). Note the
+    LONG source id 'un_comtrade' is NOT a valid catalog banco (the token is 'comtrade')."""
+    pytest.importorskip("flask_caching")
+    from embrapa_commodities.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError, match="inválido"):
+        curation.record_commodity_catalog(
+            "4403",
+            "un_comtrade",
+            headers,
+            agrupamento="Madeira",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
 
 
 def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):

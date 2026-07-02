@@ -144,7 +144,7 @@ The `discover` commands are **auxiliary and not part of the production pipeline*
 
 ## `data_quality_flag`
 
-A 9-value taxonomy. The first five are always emitted; the last four (the implied-price tiers) are produced only when the dbt var `enable_quality_outliers` is `true` (on in prod). The custom dashboard renders the pt-BR labels shown.
+An 11-value taxonomy: **9 emitted + 2 reserved**. The first five are always emitted; the four implied-price tiers are produced only when the dbt var `enable_quality_outliers` is `true` (on in prod); and two **reserved** auto-fill tiers (`INFERRED_QUANTITY` / `INFERRED_VALUE`) are accepted-but-absent — no Gold rule emits them yet (always 0), reserved for a future auto-fill pipeline. The custom dashboard renders the pt-BR labels shown (see its "O que significa cada flag?" legend).
 
 | Value | UI label (pt-BR) | Meaning |
 |---|---|---|
@@ -155,6 +155,7 @@ A 9-value taxonomy. The first five are always emitted; the last four (the implie
 | `INCOMPLETE` | Incompleto | both missing |
 | `OUTLIER_VALUE` / `OUTLIER_QUANTITY` | Valor / Quantidade atípica (válida) | high-magnitude but price-consistent — a genuinely large value, **not** an error |
 | `PROBLEMATIC_VALUE` / `PROBLEMATIC_QUANTITY` | Valor / Quantidade problemática (provável erro) | implied price (value ÷ quantity) >100× or <1/100× the product median ⇒ likely typo |
+| `INFERRED_QUANTITY` / `INFERRED_VALUE` | Quantidade / Valor financeiro inferido | **reserved** — a blank value that a future auto-fill pipeline would impute; no rule emits it yet (always 0) |
 
 IBGE placeholders (`-`, `...`, `..`, `*`, `X`) are converted to `NULL` in Silver by the `safe_numeric` macro.
 

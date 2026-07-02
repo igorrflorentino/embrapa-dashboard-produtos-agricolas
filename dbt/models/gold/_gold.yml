@@ -442,9 +442,10 @@ models:
   - name: gold_commodity_crosswalk
     description: |
       Cross-source product bridge (resolved): exact (source, code) → commodity,
-      expanded from the commodity_crosswalk seed's prefixes against the codes that
-      actually appear in the Gold fact tables. A consumer joins each fact's product
-      code on (source, code) to group the SAME commodity across PEVS / COMEX /
+      from an exact-code join between the editable Curadoria catalog
+      (core/dim_commodity_catalog, each commodity registered by its exact code) and the
+      codes that actually appear in the Gold fact tables. A consumer joins each fact's
+      product code on (source, code) to group the SAME commodity across PEVS / COMEX /
       COMTRADE. Codes matching no commodity are absent ("unlinked").
     tests:
       - dbt_utils.unique_combination_of_columns:

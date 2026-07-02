@@ -59,8 +59,12 @@ conservation test `assert_serving_conserved_gold.sql` gates BOTH the serving AND
 
 ## FEATURE B — Q1 outlier/problemático (detection ENABLED in prod via the magnitude floor)
 
-**9-value enum:** `OK, MISSING_VALUE, MISSING_QUANTITY, MISSING_WEIGHT, INCOMPLETE, OUTLIER_QUANTITY,
+**9-value emitted enum:** `OK, MISSING_VALUE, MISSING_QUANTITY, MISSING_WEIGHT, INCOMPLETE, OUTLIER_QUANTITY,
 PROBLEMATIC_QUANTITY, OUTLIER_VALUE, PROBLEMATIC_VALUE`. COMEX/COMTRADE weight reuses the QUANTITY ids.
+(**v1.10.2:** the accepted-value domain grew to **11** — two RESERVED tiers `INFERRED_QUANTITY`/`INFERRED_VALUE`
+were added to every `_gold.yml` accepted_values list + the frontend/backend taxonomy, for a future auto-fill
+pipeline. No Gold CASE emits them, so they're accepted-but-absent, 0 today; they do NOT participate in the
+precedence below.)
 
 **Precedence (donut stays a partition):** MISSING_*/INCOMPLETE > PROBLEMATIC_VALUE > PROBLEMATIC_QUANTITY
 > OUTLIER_VALUE > OUTLIER_QUANTITY > OK.

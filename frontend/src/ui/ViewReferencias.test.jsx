@@ -8,12 +8,17 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 
 let ViewReferencias;
 
+// NOTE: the first seed is a SYNTHETIC fixture (editable: true) that only exercises the
+// "editable" badge branch of the generic grid. No PRODUCTION seed is editable — every real
+// gateway._SEED_CATALOG entry is editable:false (locked by the backend tests). Do not read
+// this as a real consultable seed; it's a rendering fixture, deliberately not a retired
+// real table name.
 const SEEDS = [
   {
-    id: 'commodity_crosswalk',
-    label: 'Crosswalk de commodities',
+    id: 'demo_editable_seed',
+    label: 'Seed editável (demonstração)',
     editable: true,
-    description: 'Liga o mesmo produto entre as fontes pelo código real.',
+    description: 'Fixture sintética para exercitar o selo de editável.',
   },
   {
     id: 'historical_currency_factors',
@@ -30,9 +35,9 @@ const SEED_PAGE = {
   ],
   rows: [['acai', 'pevs', '3403'], ['acai', 'comex', null]],
   total: 46,
-  table: 'commodity_crosswalk',
-  label: 'Crosswalk de commodities',
-  grain: 'Liga o mesmo produto entre as fontes pelo código real.',
+  table: 'demo_editable_seed',
+  label: 'Seed editável (demonstração)',
+  grain: 'Fixture sintética para exercitar o selo de editável.',
   editable: true,
 };
 
@@ -71,7 +76,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     // seed picker chips appear once /api/seeds resolves
     await waitFor(() => expect(container.querySelectorAll('.pp-chip').length).toBe(2));
     const chips = [...container.querySelectorAll('.pp-chip')].map((e) => e.textContent);
-    expect(chips.some((t) => /Crosswalk/.test(t))).toBe(true);
+    expect(chips.some((t) => /Seed editável/.test(t))).toBe(true);
     expect(chips.some((t) => /reforma monetária/.test(t))).toBe(true);
     // grid headers + rows appear once /api/seed resolves
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
@@ -81,7 +86,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     expect(headers).toEqual(['commodity_id', 'source', 'codigo_commodity']);
     expect(container.querySelector('.dt-null')).toBeTruthy(); // the null cell renders ∅
     expect(container.textContent).toContain('46'); // total row count
-    // the first seed (commodity_crosswalk) is editable → the catalog badge says so
+    // the first (synthetic) seed is editable → the catalog badge says so
     expect(container.textContent).toContain('Editável pelo cadastro de commodities');
   });
 
@@ -97,7 +102,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     expect(arg.view).toBe('referencias');
     expect(arg.category).toBe('bug');
     // the prefilled message names the seed + carries the suspect row's values
-    expect(arg.message).toContain('Crosswalk de commodities (commodity_crosswalk)');
+    expect(arg.message).toContain('Seed editável (demonstração) (demo_editable_seed)');
     expect(arg.message).toContain('commodity_id: acai');
   });
 });
