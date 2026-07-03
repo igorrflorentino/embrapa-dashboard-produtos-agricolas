@@ -54,9 +54,24 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+    ignore:
+      # The project is hard-pinned to Python 3.12 (`requires-python == "3.12.*"`,
+      # `.python-version` 3.12.11, ruff `target-version = py312`), so a 3.13/3.14
+      # base image would break `uv sync` inside the container. Stay on 3.12 —
+      # patch/digest bumps still flow, and node base bumps are unaffected.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
   - package-ecosystem: docker
     directory: /deploy/ingestion
     schedule:
       interval: weekly
     commit-message:
       prefix: build
+    ignore:
+      # See the webapi updater above — pinned to Python 3.12.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
