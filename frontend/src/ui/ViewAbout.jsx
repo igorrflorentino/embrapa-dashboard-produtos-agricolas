@@ -16,7 +16,7 @@ const { useState: useAbState, useEffect: useAbEffect } = React;
 // Keyed by VIEW_GROUPS[].id (views.js). Onboarding tone — says what each family of
 // perspectives is FOR, so a new researcher knows where to look.
 const GROUP_DESCS = {
-  aggregate: 'Olhe a cesta de commodities como um todo: indicadores consolidados e séries históricas de valor e quantidade. É o ponto de partida antes de descer ao produto individual.',
+  aggregate: 'Olhe a cesta de produtos como um todo: indicadores consolidados e séries históricas de valor e quantidade. É o ponto de partida antes de descer ao produto individual.',
   product: 'Aprofunde-se em uma commodity específica ou compare algumas lado a lado: preço, participação na cesta, ranking de estados e — na produção agrícola — produtividade.',
   flows: 'Acompanhe o caminho da commodity da origem ao destino: a cadeia da extração à exportação e os parceiros (estados e países) que compram e vendem.',
   distribution: 'Veja onde a produção acontece e quão concentrada ela é: mapas e rankings por região, estado ou município, com índices de concentração e desigualdade (Gini, HHI, Lorenz).',
@@ -96,11 +96,11 @@ function ViewAbout() {
       <div className="card ab-purpose">
         <window.SectionHeader
           overline="Propósito"
-          title="Análise histórica das commodities brasileiras"
+          title="Análise histórica dos produtos agrícolas brasileiros"
         />
         <p className="ab-lead">
-          O <strong>Dashboard de Análise Histórica de Commodities</strong> reúne, num só lugar,
-          as principais bases públicas sobre as commodities brasileiras — produção extrativa e
+          O <strong>Dashboard de Análise Histórica de Produtos Agrícolas</strong> reúne, num só lugar,
+          as principais bases públicas sobre os produtos agrícolas brasileiros — produção extrativa e
           agrícola, comércio interno e comércio exterior — para que pesquisadores explorem como
           esses mercados evoluíram ao longo de décadas. Cada fonte oficial entra com o mesmo
           peso: você escolhe o banco de dados e a perspectiva, aplica filtros e compara séries.

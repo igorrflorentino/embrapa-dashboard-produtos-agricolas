@@ -9,24 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [1.10.8] - 2026-07-03
 
-Melhoria de UX de terminologia: distinguir **agrupamento** (a cesta) de
-**commodity** (o item individual) de forma consistente na UI.
+Terminologia precisa + renomeação do projeto para **"produtos agrícolas"**.
 
 ### Changed
-- **As perspectivas cruzadas (multi-fonte) passam a chamar a cesta de
-  "Agrupamento", não "Commodity".** No Cadastro as cestas já se chamavam
-  "agrupamentos"; nas perspectivas o mesmo conceito aparecia como "commodity",
-  o que confundia. Agora o vocabulário é consistente: **agrupamento** = a cesta
-  (o que o seletor cruzado escolhe, chaveado por `commodity_id`), **commodity** =
-  o item individual. Só textos de exibição mudaram: o rótulo do seletor das 4
-  perspectivas cruzadas ("Commodity" → "Agrupamento"); os avisos "indicador
-  indisponível" do Coeficiente de exportação e do Preço porteira vs. FOB
-  ("agrupamento de massa" no lugar de "commodity de massa"); o título
-  "Participação por agrupamento" (era "por commodity") em Brasil no mercado
-  mundial; e as descrições de perspectiva + glossário correspondentes ("quebra
-  por agrupamento", "exportação mundial do agrupamento"). Os itens individuais
-  seguem como "produto"/"commodity" nas telas de banco único, e a escala de
-  industrialização ("Commodity Pura/Manufaturado") fica intacta.
+- **Terminologia de 5 termos, consistente na UI:** **produto** = 1 item de um
+  banco; **agrupamento** = produtos de *vários* bancos (perspectivas multi-fonte);
+  **cesta** = produtos de *um único* banco (seleção por filtros); **commodity** =
+  produto *sem* diferenciação (eixo "nível de industrialização"); **manufaturado**
+  = produto *com* diferenciação. As perspectivas cruzadas passam a chamar a
+  seleção de "Agrupamento" (era "Commodity"), com "Todos os agrupamentos" no lugar
+  de "Cesta completa". "commodity" fica reservado ao eixo de industrialização;
+  os itens individuais seguem como "produto".
+- **Projeto renomeado de "commodities" para "produtos agrícolas"** — o dashboard
+  cobre produtos agrícolas como um todo, não só commodities. Renomeados: o título
+  da aba e do topo ("Análise histórica de produtos agrícolas"), a tela "Sobre o
+  dashboard", a descrição do pacote e o título nos docs (README, ARCHITECTURE,
+  CONTRIBUTING, CLAUDE.md). O **repositório GitHub** virou
+  `embrapa-dashboard-produtos-agricolas` (com o Workload Identity Federation do CI
+  repontado) e o **nome de exibição do projeto GCP** virou "Produtos Agricolas
+  Dashboard". O **ID do projeto GCP permanece `embrapa-dashboard-commodities`**
+  (imutável; embutido em BigQuery/Cloud Run/IAM) — só o nome de exibição mudou.
 
 Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
 seletor de commodity (Coeficiente de exportação, entre outras).

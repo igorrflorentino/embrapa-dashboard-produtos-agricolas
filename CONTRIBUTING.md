@@ -1,4 +1,4 @@
-# Contributing — Embrapa Commodities Dashboard
+# Contributing — Embrapa Produtos Agrícolas Dashboard
 
 Thank you for considering contributing to this project! This guide explains how to collaborate efficiently and consistently.
 

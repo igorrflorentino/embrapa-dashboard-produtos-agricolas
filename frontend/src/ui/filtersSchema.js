@@ -125,7 +125,7 @@ window.FILTER_SCHEMAS = {
       { id: 'produtos',  tier: 'shared',    type: 'products',
         requires: 'product', backed: true,
         label: 'Produtos · PEVS',          column: 'codigo_pevs',
-        hint: 'Commodities da extração vegetal e silvicultura.' },
+        hint: 'Produtos da extração vegetal e silvicultura.' },
       { id: 'periodo',   tier: 'universal', type: 'period-value',
         requires: null, backed: true,
         label: 'Período & faixa de valor', column: 'ano · val_real_ipca',

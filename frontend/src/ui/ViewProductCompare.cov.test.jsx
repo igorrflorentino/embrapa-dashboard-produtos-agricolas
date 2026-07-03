@@ -105,7 +105,7 @@ describe('ViewProductCompare — smoke + default top-3 selection', () => {
     // Selector chips for every available product.
     const chips = [...container.querySelectorAll('.pp-chip')];
     expect(chips.length).toBe(3);
-    expect(container.textContent).toContain('Comparar commodities');
+    expect(container.textContent).toContain('Comparar produtos');
     // Normalized series fed to MultiLineChart — base 100 at yearStart for each product.
     expect(multiLineProps).toBeTruthy();
     expect(multiLineProps.series.length).toBe(3);

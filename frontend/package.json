@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.10.8",
   "type": "module",
-  "description": "Embrapa Commodities dashboard — React SPA (design-system UI in src/ui/) over the Python BFF REST API; analytical charts in Plotly.js.",
+  "description": "Embrapa Produtos Agrícolas dashboard — React SPA (design-system UI in src/ui/) over the Python BFF REST API; analytical charts in Plotly.js.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

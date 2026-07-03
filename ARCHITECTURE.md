@@ -1,4 +1,4 @@
-# Architecture — Embrapa Commodities Dashboard
+# Architecture — Embrapa Produtos Agrícolas Dashboard
 
 > "Under the hood" technical document: folder structure, stack decisions, data flow, and diagrams.
 

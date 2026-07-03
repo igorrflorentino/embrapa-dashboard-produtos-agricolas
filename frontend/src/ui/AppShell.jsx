@@ -238,16 +238,16 @@ function AppShell({
   const citation = isCrossView
     ? (isPickerCite
         ? `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 Cruzamento entre fontes \u2014 ` +
+          `Dashboard de An\u00e1lise Hist\u00f3rica de Produtos Agr\u00edcolas \u2014 Cruzamento entre fontes \u2014 ` +
           `${crossLabel()}. Recorte: ${period}. Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
           `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`
         : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-          `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 An\u00e1lise cruzada \u2014 ` +
+          `Dashboard de An\u00e1lise Hist\u00f3rica de Produtos Agr\u00edcolas \u2014 An\u00e1lise cruzada \u2014 ` +
           `${VIEW_LABEL[view] || view}${crossSourcesLabel ? ` (fontes: ${crossSourcesLabel})` : ''}. ` +
           `Recorte: ${period}. Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
           `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`)
     : `EMPRESA BRASILEIRA DE PESQUISA AGROPECU\u00c1RIA (EMBRAPA). ` +
-      `Dashboard de An\u00e1lise Hist\u00f3rica de Commodities \u2014 ` +
+      `Dashboard de An\u00e1lise Hist\u00f3rica de Produtos Agr\u00edcolas \u2014 ` +
       `${bancoCiteLabel} \u2014 ${VIEW_LABEL[view] || view}. ` +
       `Recorte: ${period}. ${scopeStr}Conven\u00e7\u00f5es m\u00e9tricas: ${convLabel}. ` +
       `Bras\u00edlia, DF: Embrapa, ${editoraYear}. ${dispoStr}Acesso em: ${accessedOn}.`;
@@ -321,7 +321,7 @@ function AppShell({
           <img src="assets/logo-embrapa-white-cropped.png" alt="Embrapa" className="brand-logo"/>
         </button>
         <div className="sep"></div>
-        <div className="product-name">Análise histórica de commodities</div>
+        <div className="product-name">Análise histórica de produtos agrícolas</div>
 
         <div className="mode-switch" role="tablist" aria-label="Modo de análise">{modeButtons}</div>
 
