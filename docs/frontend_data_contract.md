@@ -27,7 +27,7 @@ cross-source layer. Everything here feeds those; no view/chart/router changes.
 | `gold.gold_pam_production` | year × UF × city × product | IBGE PAM (production), with area/yield columns `area_planted_ha`, `area_harvested_ha`, `yield_kg_ha`, served via the `/api/productivity` seam |
 | `gold.gold_comex_flows` | flow × year × **month** × NCM × country × UF × **via** | MDIC COMEX (Brazil trade) |
 | `gold.gold_comtrade_flows` | flow × year × reporter × partner × cmd(HS6) | UN Comtrade (global trade) |
-| `gold.gold_produto_agrupamento` | (source, code) → commodity | cross-source product bridge |
+| `gold.gold_produto_agrupamento` | (source, code) → agrupamento_id | cross-source product bridge |
 | `gold.gold_source_metadata` | one row per source | provenance for `dataStore.meta(id)` (§9) |
 
 **Capabilities** (drive the brief's view gating; match `bancos.js`):
@@ -232,7 +232,7 @@ spread, trade mirror, harvest→shipment lag). Resolved table, grain `(source, c
 | `source` | `pevs` \| `comex` \| `comtrade` |
 | `code` | exact code in that source (PEVS code / NCM8 / HS6) |
 
-**Usage** — join each fact's product code to get a comparable commodity:
+**Usage** — join each fact's product code to get a comparable agrupamento:
 ```sql
 SELECT x.agrupamento_id, SUM(c.val_yearfx_usd) AS comex_exp_usd
 FROM gold.gold_comex_flows c
@@ -240,14 +240,14 @@ JOIN gold.gold_produto_agrupamento x ON x.source='comex' AND x.code = c.ncm_code
 WHERE c.flow='export'
 GROUP BY x.agrupamento_id
 ```
-A product code matching no commodity is simply absent from the crosswalk →
-**"não vinculado"** (graceful), never an error. Register a new commodity by its exact
+A product code matching no agrupamento is simply absent from the crosswalk →
+**"não vinculado"** (graceful), never an error. Register a new produto by its exact
 source code via the **"Cadastro de produtos agrícolas"** admin view (writes to `research_inputs`
 → `core/dim_produto_catalog` → `gold_produto_agrupamento`) when the product scope grows.
 
 Verified (2023): the crosswalk links castanha and roundwood across all three
 sources, so e.g. the export coefficient (COMEX exports ÷ PEVS production) and the
-trade mirror (COMEX vs COMTRADE Brazil) compute on a common commodity.
+trade mirror (COMEX vs COMTRADE Brazil) compute on a common agrupamento.
 
 ---
 

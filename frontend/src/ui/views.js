@@ -10,7 +10,7 @@ window.VIEW_GROUPS = [
   {
     id: 'aggregate',
     label: 'Análise agregada',
-    hint: 'cesta de commodities',
+    hint: 'cesta de produtos',
     views: [
       { id: 'overview', label: 'Visão geral',   status: 'live', exportable: true, requires: [],
         desc: 'Resumo consolidado: KPIs, série de valor, composição e distribuição geográfica resumida.' },
@@ -24,14 +24,14 @@ window.VIEW_GROUPS = [
   {
     id: 'product',
     label: 'Análise por produto',
-    hint: 'commodity individual',
+    hint: 'produto individual',
     views: [
       { id: 'product_profile', label: 'Perfil do produto', status: 'live', exportable: true, requires: ['product'],
-        desc: 'Mergulho em uma única commodity: série de valor e quantidade, preço médio implícito (valor ÷ quantidade), evolução da participação na cesta e ranking histórico de UFs produtoras.',
-        planned: ['Preço médio implícito por ano', 'Participação da commodity na cesta', 'Ranking de UFs produtoras ao longo do tempo', 'Ficha técnica (código, unidade, espécie, cobertura)'] },
+        desc: 'Mergulho em um único produto: série de valor e quantidade, preço médio implícito (valor ÷ quantidade), evolução da participação na cesta e ranking histórico de UFs produtoras.',
+        planned: ['Preço médio implícito por ano', 'Participação do produto na cesta', 'Ranking de UFs produtoras ao longo do tempo', 'Ficha técnica (código, unidade, espécie, cobertura)'] },
       { id: 'product_compare', label: 'Comparativo entre produtos', status: 'live', exportable: true, requires: ['product'],
-        desc: 'Selecione 2 a 4 commodities e compare lado a lado: séries normalizadas (base 100), variação acumulada, CAGR e correlação cruzada.',
-        planned: ['Séries normalizadas base 100', 'CAGR por produto', 'Correlação cruzada entre commodities', 'Tabela comparativa de métricas'] },
+        desc: 'Selecione 2 a 4 produtos e compare lado a lado: séries normalizadas (base 100), variação acumulada, CAGR e correlação cruzada.',
+        planned: ['Séries normalizadas base 100', 'CAGR por produto', 'Correlação cruzada entre produtos', 'Tabela comparativa de métricas'] },
       { id: 'productivity', label: 'Produtividade', status: 'live', exportable: true, requires: ['yield'], selfData: true,
         desc: 'Rendimento (kg/ha) e área colhida por lavoura: trajetória nacional de produtividade e a geografia do rendimento por UF. Disponível para bancos de produção agrícola (IBGE PAM).',
         planned: ['Série de rendimento médio (kg/ha)', 'Série de área colhida', 'Mapa de produtividade por UF', 'Ranking de UFs mais produtivas'] },

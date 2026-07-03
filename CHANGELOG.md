@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.9] - 2026-07-03
+
+Conclusão da renomeação de terminologia na interface — o v1.10.8 renomeou os
+identificadores e o schema do BigQuery, mas deixou várias strings visíveis ainda
+como "commodity".
+
+### Fixed
+- **Rótulos da interface acertados para "produto" (item individual) ou
+  "agrupamento" (cesta cruzada de fontes):** o seletor das perspectivas cruzadas
+  agora mostra de fato **"Todos os agrupamentos"** (era "Cesta completa" —
+  anunciado no v1.10.8, mas não aplicado no código); os seletores de "Valor
+  agregado", "Finalidade econômica" e "Nível de industrialização" passaram a
+  exibir **"Agrupamento"**; e as telas "Perfil do produto", "Comparativo entre
+  produtos", "Cadastro de produtos", "Sobre o dashboard" e os textos do topo
+  deixaram de chamar o item de "commodity". O termo "commodity" segue reservado
+  ao eixo de industrialização ("Commodity Pura").
+
+### Changed
+- **Documentação e scripts alinhados ao novo nome:** `docs/setup.md`, os
+  cabeçalhos dos skills, comentários de `ci.yml`/`dbt-build-prod.yml` e a prosa de
+  `ARCHITECTURE.md` / `docs/frontend_data_contract.md` / `docs/gold_data_model.md`
+  / `docs/operations_runbook.md` deixaram de descrever o sistema atual com o nome
+  antigo; os scripts de exportação passaram a rotular o CSV com "Produto"/
+  "Agrupamento".
+- **`docs/migration_history.md`** recebeu o registro (que faltava) do cutover de
+  schema do v1.10.8: renomes de tabela/coluna, remoção de `code_prefix` e o drop
+  das 5 tabelas antigas.
+
 ## [1.10.8] - 2026-07-03
 
 Terminologia precisa + renomeação do projeto para **"produtos agrícolas"**.

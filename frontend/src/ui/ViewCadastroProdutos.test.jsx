@@ -95,7 +95,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 // Open the add form, wait for the source-codes to load (so the existence check is armed).
 async function openAddForm(container, getByText) {
-  fireEvent.click(getByText('+ Adicionar commodity'));
+  fireEvent.click(getByText('+ Adicionar produto'));
   const codeInput = () => container.querySelector('input[list="cc-code-options"]');
   await waitFor(() => expect(codeInput()).toBeTruthy());
   return codeInput();
@@ -148,7 +148,7 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     fireEvent.change(codeInput, { target: { value: '0801' } });
     fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
     // The Salvar button un-disables once the code is validated + a group is chosen.
-    const saveBtn = getByText('Salvar commodity');
+    const saveBtn = getByText('Salvar produto');
     await waitFor(() => expect(saveBtn.disabled).toBe(false));
     fireEvent.click(saveBtn);
     await waitFor(() => expect(postBody).toBeTruthy());
@@ -167,8 +167,8 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     fireEvent.change(codeInput, { target: { value: '9999' } });
     fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
     await waitFor(() => expect(container.querySelector('.cc-hint-bad')).toBeTruthy());
-    expect(getByText('Salvar commodity').disabled).toBe(true);
-    fireEvent.click(getByText('Salvar commodity'));
+    expect(getByText('Salvar produto').disabled).toBe(true);
+    fireEvent.click(getByText('Salvar produto'));
     // A disabled button fires nothing; the invalid code never reaches the API.
     expect(postBody).toBeNull();
   });
@@ -180,7 +180,7 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     fireEvent.change(codeInput, { target: { value: '0801' } }); // valid code…
     // …but no agrupamento chosen → the button stays disabled and nothing is posted.
     await waitFor(() => expect(container.querySelector('.cc-hint-ok')).toBeTruthy());
-    expect(getByText('Salvar commodity').disabled).toBe(true);
+    expect(getByText('Salvar produto').disabled).toBe(true);
     expect(postBody).toBeNull();
   });
 

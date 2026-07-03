@@ -202,7 +202,7 @@ describe('ViewProductProfile — flow product render', () => {
     );
 
     // Default code = largest by latest value (P1, v=8). Selector renders both chips.
-    expect(container.textContent).toContain('Commodity em análise');
+    expect(container.textContent).toContain('Produto em análise');
     const chips = [...container.querySelectorAll('.pp-chip')].map((e) => e.textContent.trim());
     expect(chips.some((t) => t.includes('Açaí'))).toBe(true);
     expect(chips.some((t) => t.includes('Castanha'))).toBe(true);

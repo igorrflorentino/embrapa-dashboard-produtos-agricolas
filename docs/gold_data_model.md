@@ -127,10 +127,10 @@ erDiagram
 
 ## Join cheat-sheet
 
-- **Same commodity across sources** → join each fact's product code to
+- **Same agrupamento across sources** → join each fact's product code to
   `gold_produto_agrupamento` on `(source, code)` where `code` is `product_code`
   (PEVS) / `ncm_code` (COMEX) / `cmd_code` (COMTRADE), then group by
-  `agrupamento_id`. Codes matching no commodity are simply absent ("unlinked").
+  `agrupamento_id`. Codes matching no agrupamento are simply absent ("unlinked").
 - **Brazilian geography** → join `state_acronym` to `dim_geo_br` for
   `state_name` / `region` / `region_abbrev`. (COMTRADE is country↔country — no UF.)
 - **Curated industrialization level** (bruta/processada) → `dim_code_industrialization_scd2`

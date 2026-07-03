@@ -129,12 +129,12 @@ function ViewCadastroProdutos() {
   };
 
   const saveEntry = (entry) =>
-    run(() => post('/api/catalog/entry', entry), `Commodity ${entry.codigo_produto} salva.`);
+    run(() => post('/api/catalog/entry', entry), `Produto ${entry.codigo_produto} salvo.`);
 
   const removeEntry = (e) => {
     if (!window.confirm(`Remover ${e.codigo_produto} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro? Os dados já baixados ficam órfãos (não são apagados automaticamente).`)) return;
     run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco }),
-      `Commodity ${e.codigo_produto} marcada como descontinuada.`);
+      `Produto ${e.codigo_produto} marcado como descontinuado.`);
   };
 
   // Move a commodity to a DIFFERENT agrupamento (membership change) — re-upserts with the
@@ -200,7 +200,7 @@ function ViewCadastroProdutos() {
 
   const submitAdd = async () => {
     if (!draft.codigo_produto || !draft.banco) {
-      setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
+      setStatus({ kind: 'err', msg: 'Código do produto e banco são obrigatórios (formam a chave).' });
       return;
     }
     const g = data.groups.find((x) => x.group_id === draft.agrupamento_id);
@@ -293,8 +293,8 @@ function ViewCadastroProdutos() {
           e sai do dashboard. Cada produto é identificado por <code>(código, banco)</code> — o
           <strong> código real da fonte</strong>, uma a uma — e pertence a um <strong>agrupamento</strong> (o
           conceito que a unifica entre fontes). Agrupamentos são criados, renomeados e excluídos aqui;
-          o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> uma commodity a marca
-          como descontinuada (os dados já baixados ficam órfãos, apagados só por um humano). Edições
+          o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> um produto o marca
+          como descontinuado (os dados já baixados ficam órfãos, apagados só por um humano). Edições
           exigem autorização e ficam registradas com seu e-mail.
         </p>
       </div>
@@ -352,13 +352,13 @@ function ViewCadastroProdutos() {
           </button>
         </label>
         <button type="button" className="seg-opt" onClick={() => setShowAdd((v) => !v)} disabled={busy}>
-          {showAdd ? 'Cancelar' : '+ Adicionar commodity'}
+          {showAdd ? 'Cancelar' : '+ Adicionar produto'}
         </button>
       </div>
 
       {showAdd && (
         <div className="card cc-add-card" style={{ marginBottom: 12 }}>
-          <window.SectionHeader overline="Cadastro" title="Adicionar commodity"
+          <window.SectionHeader overline="Cadastro" title="Adicionar produto"
             action={<span className="caption">informe o código real da fonte</span>} />
           <div className="cc-add-grid">
             <label className="cc-field">
@@ -369,7 +369,7 @@ function ViewCadastroProdutos() {
             </label>
 
             <label className="cc-field">
-              <span className="cc-field-label">Código da commodity</span>
+              <span className="cc-field-label">Código do produto</span>
               <input type="text" list="cc-code-options" value={draft.codigo_produto}
                      placeholder={srcCodes.loading && srcCodes.banco === draft.banco ? 'carregando códigos…' : 'digite ou escolha um código real'}
                      autoComplete="off"
@@ -418,7 +418,7 @@ function ViewCadastroProdutos() {
           </div>
           <div className="cc-add-actions">
             <button type="button" className="btn-primary" onClick={submitAdd} disabled={!canSubmit}>
-              {busy ? 'Salvando…' : 'Salvar commodity'}
+              {busy ? 'Salvando…' : 'Salvar produto'}
             </button>
             <button type="button" className="btn-secondary" onClick={() => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); }} disabled={busy}>
               Cancelar
@@ -436,7 +436,7 @@ function ViewCadastroProdutos() {
         <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>Carregando cadastro…</p>
       ) : !data.groups.length && !data.entries.length ? (
         <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
-          Nenhum agrupamento ainda. Crie um em “Novo agrupamento”, depois use “+ Adicionar commodity”.
+          Nenhum agrupamento ainda. Crie um em “Novo agrupamento”, depois use “+ Adicionar produto”.
         </p>
       ) : (
         <>

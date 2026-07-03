@@ -57,3 +57,44 @@ seed path (`extfx_cny_brl` → `silver_extfx_currency` → `silver_currency` UNI
 removed. The Gold tables physically shed the columns only after
 `dbt build --full-refresh`; until then the dropped columns linger harmlessly
 (nothing reads them). The currency selector now offers BRL/USD/EUR only.
+
+## Rename cutover: `commodities` → `produtos agrícolas` (2026-07-03, v1.10.8)
+
+The v1.10.8 release renamed the project's domain vocabulary and its BigQuery
+schema. The objects were migrated non-destructively
+(`CREATE TABLE new AS SELECT … FROM old`) and then a prod `dbt build` rebuilt the
+graph under the new names:
+
+| Old | New |
+|-----|-----|
+| `gold.gold_commodity_crosswalk` (table) | `gold.gold_produto_agrupamento` |
+| `gold.dim_commodity_catalog` (view) | `gold.dim_produto_catalog` |
+| `gold.dim_commodity_visibility` (view) | `gold.dim_produto_visibility` |
+| `research_inputs.commodity_catalog_log` (table) | `research_inputs.produto_catalog_log` |
+| `research_inputs.commodity_group_log` (table) | `research_inputs.agrupamento_log` |
+
+Column renames: `commodity_id` → `agrupamento_id`, `codigo_commodity` →
+`codigo_produto`; the `code_prefix` column was **removed** (products are now
+registered by their exact code — see the v1.10.0 cadastro change). The Python
+package was renamed `embrapa_commodities` → `embrapa_dashboard`, the gunicorn
+entrypoint became `embrapa_dashboard.webapi.app:app`, and the GitHub repo became
+`embrapa-dashboard-produtos-agricolas` (CI Workload Identity Federation
+re-pointed). The **GCP project id stays `embrapa-dashboard-commodities`**
+(immutable — only the GCP display name changed).
+
+The 5 old BigQuery objects were **dropped** on 2026-07-03, after a pre-drop
+safety audit (no live reader in code/dbt; no scheduled queries; and an
+`INFORMATION_SCHEMA.JOBS_BY_PROJECT` 30-day scan found no Looker/external reader)
+and a post-drop functional check (`/api/catalog`, the cross-source views, and
+`/api/snapshot` all returned 200 against the migrated tables). No rollback net
+remains.
+
+Two manual cleanups outside this repo:
+
+1. **Looker Studio** — repoint any report bound to `gold.gold_commodity_crosswalk`
+   or the `dim_commodity_*` views to the `*_produto_*` names. (The job-history
+   audit found no Looker reader of these internal tables, but verify.)
+
+2. **Local dbt profile** — rename the `~/.dbt/profiles.yml` top-level key
+   `embrapa_commodities:` → `embrapa_dashboard:` to match `dbt_project.yml`'s
+   `profile:` (CI is already updated).

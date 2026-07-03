@@ -7,7 +7,7 @@ description: >-
   transforms, or understand the schema separation.
 ---
 
-# dbt Workflow — Embrapa Commodities
+# dbt Workflow — Embrapa Produtos Agrícolas
 
 ## Quick Commands
 

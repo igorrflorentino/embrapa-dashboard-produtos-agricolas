@@ -159,7 +159,7 @@ embrapa-dashboard-produtos agrícolas/
 │   │   │   ├── gold_ppm_production.sql   # Gold IBGE PPM (form: production; herd stock + animal flow)
 │   │   │   ├── gold_comex_flows.sql      # Gold COMEX (form: flows, Brazil)
 │   │   │   ├── gold_comtrade_flows.sql   # Gold COMTRADE (form: flows, global bilateral)
-│   │   │   ├── gold_produto_agrupamento.sql  # Cross-source bridge (source,code)→commodity
+│   │   │   ├── gold_produto_agrupamento.sql  # Cross-source bridge (source,code)→agrupamento_id
 │   │   │   └── gold_source_metadata.sql  # Per-source provenance (view; dataStore.meta seam)
 │   │   │                                 # New sources: gold_<source>_<form>
 │   │   ├── core/                     # ⭐ Conformed dimensions (Pushdown Computing)
@@ -412,7 +412,7 @@ universe, cached) and the city-scoped `POST /api/municipio-yearly` cube (read st
 from Gold — basket + `city_codes` scoped, `maximum_bytes_billed`-guarded), since the
 sub-UF levels are too fine to pre-aggregate as a mart. The marts
 carry `agrupamento_id` (via `gold_produto_agrupamento`) so a row can be linked to
-its cross-source commodity.
+its cross-source agrupamento.
 
 **Own dataset + least privilege.** The marts live in the `serving` dataset
 (`BQ_SERVING_DATASET`), separate from Gold, so that the dashboard's SA
@@ -488,7 +488,7 @@ uv run python scripts/setup_dev_env.py      # generate .env + ~/.dbt/profiles.ym
 > **FROZEN / Versão Futura.** This per-code feature (historically called "Curadoria") was renamed
 > **Engenharia de Atributos**, deferred, and HIDDEN from the UI; it is gated by
 > `--vars 'enable_curation: true'` (default false) and is NOT activatable today. The name *Curadoria*
-> now means the LIVE editable commodity catalog — see [`PLANS/curadoria_catalogo.md`](PLANS/curadoria_catalogo.md)
+> now means the LIVE editable catálogo de produtos — see [`PLANS/curadoria_catalogo.md`](PLANS/curadoria_catalogo.md)
 > and the F7 visibility gate + Q1 quality flags in [`PLANS/quality_outliers_and_visibility_gate.md`](PLANS/quality_outliers_and_visibility_gate.md).
 > Kept here as the design-of-record for the future implementation.
 

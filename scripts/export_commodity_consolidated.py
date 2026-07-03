@@ -7,8 +7,8 @@ deep COMTRADE wood-derivatives) fall into a clearly-marked "(não vinculado)"
 bucket instead of being silently dropped.
 
 Writes two files:
-  - inventario_commodities_consolidado.csv  (detail: concept | banco | code | desc)
-  - inventario_commodities_por_conceito_resumo.csv  (summary: concept x banco counts)
+  - inventario_produtos_agricolas_consolidado.csv  (detail: concept | banco | code | desc)
+  - inventario_produtos_agricolas_por_conceito_resumo.csv  (summary: concept x banco counts)
 
 Run with owner ADC (no impersonation):
     GCP_IMPERSONATION_SA= uv run python scripts/export_commodity_consolidated.py
@@ -22,8 +22,8 @@ from pathlib import Path
 from google.cloud import bigquery
 
 PROJECT = "embrapa-dashboard-commodities"
-OUT_DETAIL = Path("inventario_commodities_consolidado.csv")
-OUT_SUMMARY = Path("inventario_commodities_por_conceito_resumo.csv")
+OUT_DETAIL = Path("inventario_produtos_agricolas_consolidado.csv")
+OUT_SUMMARY = Path("inventario_produtos_agricolas_por_conceito_resumo.csv")
 UNLINKED = "(não vinculado)"
 
 # (banco label, crosswalk source key, gold table, code column, description column)
@@ -79,14 +79,14 @@ def main() -> None:
     detail = list(client.query(detail_query).result())
     with OUT_DETAIL.open("w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh)
-        w.writerow(["Conceito Commodity", "Banco", "Codigo Commodity", "Descricao Commodity"])
+        w.writerow(["Conceito Agrupamento", "Banco", "Codigo Produto", "Descricao Produto"])
         for r in detail:
             w.writerow([r["conceito"], r["banco"], r["codigo"], r["descricao"] or ""])
 
     summary = list(client.query(summary_query).result())
     with OUT_SUMMARY.open("w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh)
-        w.writerow(["Conceito Commodity", "PEVS", "COMEX", "COMTRADE", "Total de codigos"])
+        w.writerow(["Conceito Agrupamento", "PEVS", "COMEX", "COMTRADE", "Total de codigos"])
         for r in summary:
             w.writerow([r["conceito"], r["pevs"], r["comex"], r["comtrade"], r["total_codigos"]])
 

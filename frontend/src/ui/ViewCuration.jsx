@@ -165,7 +165,7 @@ function ViewEnrichmentIndustrialization() {
               <span className="cur-group-label">Agrupar por</span>
               <div className="seg cur-codes-seg">
                 <button className={'seg-opt ' + (codesView === 'commodity' ? 'on' : '')} onClick={() => setCodesView('commodity')}>
-                  <window.Icon name="eco" size={14} /> Commodity
+                  <window.Icon name="eco" size={14} /> Agrupamento
                 </button>
                 <button className={'seg-opt ' + (codesView === 'banco' ? 'on' : '')} onClick={() => setCodesView('banco')}>
                   <window.Icon name="database" size={14} /> Banco

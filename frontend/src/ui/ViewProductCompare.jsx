@@ -97,7 +97,7 @@ function ViewProductCompare({ summary, conventions, database }) {
                       className={'pp-chip ' + (on ? 'on' : '') + (atCap ? ' disabled' : '')}
                       onClick={() => !atCap && toggle(c)}
                       style={on ? { background: COLORS[idx % COLORS.length], borderColor: COLORS[idx % COLORS.length], color: '#fff' } : null}
-                      title={atCap ? `Máximo de ${MAX} commodities` : p.name}>
+                      title={atCap ? `Máximo de ${MAX} produtos` : p.name}>
                 <span className={'pp-chip-fam ' + p.family}></span>
                 {p.name}
               </button>
@@ -111,7 +111,7 @@ function ViewProductCompare({ summary, conventions, database }) {
         <window.SectionHeader
           overline={`Séries normalizadas · base 100 em ${yearStart}`}
           title={`Evolução relativa ${indexBasis}`}
-          action={<span className="caption">{items.length} commodities</span>}
+          action={<span className="caption">{items.length} produtos</span>}
         />
         <window.MultiLineChart series={normSeries} label={`índice (${yearStart}=100)`} valueKey="v" height={300} />
         <div className="pc-legend">
@@ -140,7 +140,7 @@ function ViewProductCompare({ summary, conventions, database }) {
           <table className="pc-table">
             <thead>
               <tr>
-                <th>Commodity</th>
+                <th>Produto</th>
                 <th className="num">Magnitude ({yearEnd})</th>
                 <th className="num">Variação acumulada</th>
                 <th className="num">CAGR (a.a.)</th>
@@ -178,7 +178,7 @@ function ViewProductCompare({ summary, conventions, database }) {
         />
         {items.length < 2 ? (
           <p className="caption" style={{ padding: '20px 4px', textAlign: 'center' }}>
-            Selecione ao menos 2 commodities para calcular correlação.
+            Selecione ao menos 2 produtos para calcular correlação.
           </p>
         ) : (
           <div className="pc-corr-wrap">

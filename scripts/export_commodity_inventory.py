@@ -1,4 +1,4 @@
-"""Export the per-banco commodity inventory (code + description) to CSV.
+"""Export the per-banco produto inventory (code + description) to CSV.
 
 One-off reporting helper: pulls every DISTINCT (banco, product code, description)
 from the five live Gold tables and writes a flat CSV for a supervisor report.
@@ -15,7 +15,7 @@ from pathlib import Path
 from google.cloud import bigquery
 
 PROJECT = "embrapa-dashboard-commodities"
-OUT = Path("inventario_commodities.csv")
+OUT = Path("inventario_produtos_agricolas.csv")
 
 # (banco label, gold table, code column, description column)
 SOURCES = [
@@ -51,7 +51,7 @@ def main() -> None:
 
     with OUT.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["Banco", "Codigo Commodity", "Descricao Commodity"])
+        writer.writerow(["Banco", "Codigo Produto", "Descricao Produto"])
         for r in rows:
             writer.writerow([r["banco"], r["codigo"], r["descricao"] or ""])
 
@@ -61,7 +61,7 @@ def main() -> None:
 
     print(f"Wrote {len(rows)} rows to {OUT.resolve()}")
     for label, *_ in SOURCES:
-        print(f"  {label:<12} {by_banco.get(label, 0):>4} commodities")
+        print(f"  {label:<12} {by_banco.get(label, 0):>4} produtos")
 
 
 if __name__ == "__main__":

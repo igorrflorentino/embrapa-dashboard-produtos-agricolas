@@ -49,7 +49,7 @@ function stubWidgets() {
 }
 
 // The crosswalk commodity catalog the pickers offer. Açaí is mass; Madeira is volume —
-// so the family-gated (mass-only) pickers drop Madeira and the "Cesta completa" option.
+// so the family-gated (mass-only) pickers drop Madeira and the "Todos os agrupamentos" option.
 const CATALOG = [
   { code: 'acai', name: 'Açaí', family: 'mass' },
   { code: 'madeira', name: 'Madeira em tora', family: 'volume' },
@@ -78,15 +78,15 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 // ── CrossProductPicker ────────────────────────────────────────────────────────
 describe('CrossProductPicker', () => {
-  it('offers "Cesta completa" + every commodity when no family gate', () => {
+  it('offers "Todos os agrupamentos" + every commodity when no family gate', () => {
     const onChange = vi.fn();
     const { container } = render(<CrossProductPicker value={null} onChange={onChange} />);
     const chips = [...container.querySelectorAll('.pp-chip')].map((c) => c.textContent);
-    expect(chips).toContain('Cesta completa');
+    expect(chips).toContain('Todos os agrupamentos');
     expect(chips).toContain('Açaí');
     expect(chips).toContain('Madeira em tora');
     // The basket chip is "on" when value is null.
-    expect(container.querySelector('.pp-chip.on').textContent).toBe('Cesta completa');
+    expect(container.querySelector('.pp-chip.on').textContent).toBe('Todos os agrupamentos');
   });
 
   it('a mass-only gate drops the volume commodity AND the mixed basket', () => {
@@ -94,7 +94,7 @@ describe('CrossProductPicker', () => {
     const chips = [...container.querySelectorAll('.pp-chip')].map((c) => c.textContent);
     expect(chips).toContain('Açaí');
     expect(chips).not.toContain('Madeira em tora'); // volume → gated out
-    expect(chips).not.toContain('Cesta completa');  // mixed → incompatible
+    expect(chips).not.toContain('Todos os agrupamentos');  // mixed → incompatible
   });
 
   it('clicking a commodity chip emits its code; the basket chip emits null', () => {
@@ -103,7 +103,7 @@ describe('CrossProductPicker', () => {
     const acai = [...container.querySelectorAll('.pp-chip')].find((c) => c.textContent === 'Açaí');
     fireEvent.click(acai);
     expect(onChange).toHaveBeenCalledWith('acai');
-    const basket = [...container.querySelectorAll('.pp-chip')].find((c) => c.textContent === 'Cesta completa');
+    const basket = [...container.querySelectorAll('.pp-chip')].find((c) => c.textContent === 'Todos os agrupamentos');
     fireEvent.click(basket);
     expect(onChange).toHaveBeenCalledWith(null);
   });
@@ -188,7 +188,7 @@ describe('ViewMarketShare', () => {
     expect(container.textContent).toContain('Pico histórico');
     // Non-mass-gated picker → includes the basket + both commodities.
     const chips = [...container.querySelectorAll('.pp-chip')].map((c) => c.textContent);
-    expect(chips).toContain('Cesta completa');
+    expect(chips).toContain('Todos os agrupamentos');
     expect(chips).toContain('Madeira em tora');
   });
 

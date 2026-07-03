@@ -52,7 +52,7 @@ window.UNIT_FAMILIES = {
       { id: 'kg', label: 'kg',  long: 'quilograma', toBase: 0.001 },
       { id: 't',  label: 't',   long: 'tonelada',   toBase: 1 },
       { id: '@',  label: '@',   long: 'arroba (15 kg)', toBase: 0.015 },
-      { id: 'sc', label: 'sc',  long: 'saca (60 kg)',   toBase: 0.06, note: 'Saca de 60 kg (convenção; varia por commodity).' },
+      { id: 'sc', label: 'sc',  long: 'saca (60 kg)',   toBase: 0.06, note: 'Saca de 60 kg (convenção; varia por produto).' },
     ],
   },
   volume: {
@@ -101,7 +101,7 @@ window.UNIT_FAMILIES = {
     units: [
       { id: 'kg/ha', label: 'kg/ha', long: 'quilograma por hectare', toBase: 1 },
       { id: 't/ha',  label: 't/ha',  long: 'tonelada por hectare',   toBase: 1000 },
-      { id: 'sc/ha', label: 'sc/ha', long: 'saca (60 kg) por hectare', toBase: 60, note: 'Saca de 60 kg/ha (convenção; varia por commodity).' },
+      { id: 'sc/ha', label: 'sc/ha', long: 'saca (60 kg) por hectare', toBase: 60, note: 'Saca de 60 kg/ha (convenção; varia por produto).' },
     ],
   },
 };

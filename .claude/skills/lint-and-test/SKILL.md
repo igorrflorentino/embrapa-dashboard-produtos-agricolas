@@ -6,7 +6,7 @@ description: >-
   or when you need to verify code changes before committing.
 ---
 
-# Lint & Test — Embrapa Commodities
+# Lint & Test — Embrapa Produtos Agrícolas
 
 ## Quick Commands
 

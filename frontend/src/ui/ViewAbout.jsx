@@ -17,8 +17,8 @@ const { useState: useAbState, useEffect: useAbEffect } = React;
 // perspectives is FOR, so a new researcher knows where to look.
 const GROUP_DESCS = {
   aggregate: 'Olhe a cesta de produtos como um todo: indicadores consolidados e séries históricas de valor e quantidade. É o ponto de partida antes de descer ao produto individual.',
-  product: 'Aprofunde-se em uma commodity específica ou compare algumas lado a lado: preço, participação na cesta, ranking de estados e — na produção agrícola — produtividade.',
-  flows: 'Acompanhe o caminho da commodity da origem ao destino: a cadeia da extração à exportação e os parceiros (estados e países) que compram e vendem.',
+  product: 'Aprofunde-se em um produto específico ou compare alguns lado a lado: preço, participação na cesta, ranking de estados e — na produção agrícola — produtividade.',
+  flows: 'Acompanhe o caminho do produto da origem ao destino: a cadeia da extração à exportação e os parceiros (estados e países) que compram e vendem.',
   distribution: 'Veja onde a produção acontece e quão concentrada ela é: mapas e rankings por região, estado ou município, com índices de concentração e desigualdade (Gini, HHI, Lorenz).',
   temporal: 'Investigue os padrões no tempo além da tendência: sazonalidade, decomposição da série e quebras estruturais. Mais reveladora com dados mensais.',
   crosssource: 'Cruze séries de bancos diferentes no mesmo eixo — produção (IBGE) × exportação (MDIC) × mercado mundial (Comtrade) — para medir coeficiente de exportação, participação global, spread de preço e o balanço da cadeia.',
