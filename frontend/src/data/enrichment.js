@@ -90,7 +90,7 @@ function worklist() {
     const id = rowId(r);
     const apiLevel = r.level || null;
     const level = draft.has(id) ? draft.get(id) : apiLevel;
-    if (r.commodity) groupLabels[r.commodity] = r.commodity_name || r.commodity;
+    if (r.commodity) groupLabels[r.commodity] = r.agrupamento_nome || r.commodity;
     return {
       id,
       group: r.commodity || '_sem_grupo',

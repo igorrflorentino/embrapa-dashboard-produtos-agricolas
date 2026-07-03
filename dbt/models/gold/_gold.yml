@@ -439,11 +439,11 @@ models:
         description: "Max ingestion_timestamp across the source rows aggregated into this record."
         tests: [not_null]
 
-  - name: gold_commodity_crosswalk
+  - name: gold_produto_agrupamento
     description: |
       Cross-source product bridge (resolved): exact (source, code) → commodity,
       from an exact-code join between the editable Curadoria catalog
-      (core/dim_commodity_catalog, each commodity registered by its exact code) and the
+      (core/dim_produto_catalog, each commodity registered by its exact code) and the
       codes that actually appear in the Gold fact tables. A consumer joins each fact's
       product code on (source, code) to group the SAME commodity across PEVS / COMEX /
       COMTRADE. Codes matching no commodity are absent ("unlinked").
@@ -454,10 +454,10 @@ models:
               - source
               - code
     columns:
-      - name: commodity_id
+      - name: agrupamento_id
         description: "Stable commodity slug (e.g. castanha_do_para, madeira, soja)."
         tests: [not_null]
-      - name: commodity_name
+      - name: agrupamento_nome
         tests: [not_null]
       - name: source
         tests:

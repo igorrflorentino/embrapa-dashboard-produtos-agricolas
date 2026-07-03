@@ -15,15 +15,15 @@ deflated value matrix — see [§ Value columns](#value-columns)).
 
 ```mermaid
 erDiagram
-    gold_commodity_crosswalk ||--o{ gold_pevs_production : "source=pevs · code=product_code"
-    gold_commodity_crosswalk ||--o{ gold_pam_production  : "source=pam · code=product_code"
-    gold_commodity_crosswalk ||--o{ gold_comex_flows     : "source=comex · code=ncm_code"
-    gold_commodity_crosswalk ||--o{ gold_comtrade_flows  : "source=comtrade · code=cmd_code"
+    gold_produto_agrupamento ||--o{ gold_pevs_production : "source=pevs · code=product_code"
+    gold_produto_agrupamento ||--o{ gold_pam_production  : "source=pam · code=product_code"
+    gold_produto_agrupamento ||--o{ gold_comex_flows     : "source=comex · code=ncm_code"
+    gold_produto_agrupamento ||--o{ gold_comtrade_flows  : "source=comtrade · code=cmd_code"
     dim_geo_br               ||--o{ gold_pevs_production : "state_acronym"
     dim_geo_br               ||--o{ gold_pam_production  : "state_acronym"
     dim_geo_br               ||--o{ gold_comex_flows     : "state_acronym (UF of NCM)"
     dim_geo_municipio        ||--o{ gold_pevs_production : "city_code (sub-UF geo cube)"
-    dim_code_industrialization_scd2  |o--o| gold_commodity_crosswalk : "(source, code) · is_current (gated)"
+    dim_code_industrialization_scd2  |o--o| gold_produto_agrupamento : "(source, code) · is_current (gated)"
 
     gold_pevs_production {
         int      reference_year     PK
@@ -80,11 +80,11 @@ erDiagram
         string   data_quality_flag
         timestamp last_refresh
     }
-    gold_commodity_crosswalk {
+    gold_produto_agrupamento {
         string   source             PK "pevs / comex / comtrade"
         string   code               PK "PEVS code / NCM8 / HS6"
-        string   commodity_id           "stable slug (castanha_do_para, …)"
-        string   commodity_name
+        string   agrupamento_id           "stable slug (castanha_do_para, …)"
+        string   agrupamento_nome
     }
     dim_geo_br {
         string   state_acronym      PK "27 UFs"
@@ -128,9 +128,9 @@ erDiagram
 ## Join cheat-sheet
 
 - **Same commodity across sources** → join each fact's product code to
-  `gold_commodity_crosswalk` on `(source, code)` where `code` is `product_code`
+  `gold_produto_agrupamento` on `(source, code)` where `code` is `product_code`
   (PEVS) / `ncm_code` (COMEX) / `cmd_code` (COMTRADE), then group by
-  `commodity_id`. Codes matching no commodity are simply absent ("unlinked").
+  `agrupamento_id`. Codes matching no commodity are simply absent ("unlinked").
 - **Brazilian geography** → join `state_acronym` to `dim_geo_br` for
   `state_name` / `region` / `region_abbrev`. (COMTRADE is country↔country — no UF.)
 - **Curated industrialization level** (bruta/processada) → `dim_code_industrialization_scd2`

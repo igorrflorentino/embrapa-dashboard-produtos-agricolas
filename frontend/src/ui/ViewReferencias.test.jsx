@@ -29,9 +29,9 @@ const SEEDS = [
 ];
 const SEED_PAGE = {
   columns: [
-    { name: 'commodity_id', type: 'STRING' },
+    { name: 'agrupamento_id', type: 'STRING' },
     { name: 'source', type: 'STRING' },
-    { name: 'codigo_commodity', type: 'STRING' },
+    { name: 'codigo_produto', type: 'STRING' },
   ],
   rows: [['acai', 'pevs', '3403'], ['acai', 'comex', null]],
   total: 46,
@@ -83,7 +83,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     const headers = [...container.querySelectorAll('.dt-table thead th')]
       .map((e) => e.textContent.replace(/[▲▼\s]/g, ''))
       .filter(Boolean); // drop the empty leading "report" column header
-    expect(headers).toEqual(['commodity_id', 'source', 'codigo_commodity']);
+    expect(headers).toEqual(['agrupamento_id', 'source', 'codigo_produto']);
     expect(container.querySelector('.dt-null')).toBeTruthy(); // the null cell renders ∅
     expect(container.textContent).toContain('46'); // total row count
     // the first (synthetic) seed is editable → the catalog badge says so
@@ -103,6 +103,6 @@ describe('ViewReferencias — read-only seed consultation', () => {
     expect(arg.category).toBe('bug');
     // the prefilled message names the seed + carries the suspect row's values
     expect(arg.message).toContain('Seed editável (demonstração) (demo_editable_seed)');
-    expect(arg.message).toContain('commodity_id: acai');
+    expect(arg.message).toContain('agrupamento_id: acai');
   });
 });

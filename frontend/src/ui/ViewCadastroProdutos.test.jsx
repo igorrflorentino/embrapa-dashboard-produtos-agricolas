@@ -1,4 +1,4 @@
-// ViewCadastroCommodities.test.jsx — render + write coverage for the Curadoria editor.
+// ViewCadastroProdutos.test.jsx — render + write coverage for the Curadoria editor.
 // Each commodity is registered by its EXACT source code (código+banco; no prefixes). The
 // add form fetches the source's REAL codes (/api/catalog/source-codes) for autocomplete +
 // a client-side existence check (the Salvar button stays DISABLED until the code exists AND
@@ -11,20 +11,20 @@ import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 
-let ViewCadastroCommodities;
+let ViewCadastroProdutos;
 let postBody;
 let postUrl;
 
 const ENTRIES = {
   entries: [
     {
-      codigo_commodity: '4403', banco: 'comex', agrupamento: 'Madeira',
-      ciclo_de_vida: 'Fazer Ingestão e deixar disponível', commodity_id: 'madeira',
+      codigo_produto: '4403', banco: 'comex', agrupamento: 'Madeira',
+      ciclo_de_vida: 'Fazer Ingestão e deixar disponível', agrupamento_id: 'madeira',
       descricao_fonte: 'Madeira em toras (NCM)',
     },
     {
-      codigo_commodity: '4407', banco: 'comtrade', agrupamento: 'Madeira',
-      ciclo_de_vida: 'Fazer Ingestão e deixar disponível', commodity_id: 'madeira',
+      codigo_produto: '4407', banco: 'comtrade', agrupamento: 'Madeira',
+      ciclo_de_vida: 'Fazer Ingestão e deixar disponível', agrupamento_id: 'madeira',
       descricao_fonte: null,
     },
   ],
@@ -87,8 +87,8 @@ beforeEach(async () => {
   postBody = null;
   postUrl = null;
   mockFetch();
-  await import('./ViewCadastroCommodities.jsx');
-  ViewCadastroCommodities = window.ViewCadastroCommodities;
+  await import('./ViewCadastroProdutos.jsx');
+  ViewCadastroProdutos = window.ViewCadastroProdutos;
 });
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -101,9 +101,9 @@ async function openAddForm(container, getByText) {
   return codeInput();
 }
 
-describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
+describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
   it('renders each agrupamento with members, source description, and Gold-state columns', async () => {
-    const { container } = render(<ViewCadastroCommodities />);
+    const { container } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     // Wait for the async status fetch to populate the linhas/período columns.
     await waitFor(() => expect(container.textContent).toContain('1.234'));
@@ -128,7 +128,7 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
   });
 
   it('creates a new agrupamento via /api/catalog/group', async () => {
-    const { container, getByText } = render(<ViewCadastroCommodities />);
+    const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const newGroupInput = [...container.querySelectorAll('input[type="text"]')].find(
       (i) => i.getAttribute('placeholder') === 'Ex.: Castanha',
@@ -141,7 +141,7 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
   });
 
   it('adds a commodity by an EXISTING source code into a chosen agrupamento', async () => {
-    const { container, getByText } = render(<ViewCadastroCommodities />);
+    const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const codeInput = await openAddForm(container, getByText);
     // Type a code the source really has (0801 ∈ SOURCE_CODES) — the existence check passes.
@@ -153,14 +153,14 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     fireEvent.click(saveBtn);
     await waitFor(() => expect(postBody).toBeTruthy());
     expect(postUrl).toContain('/api/catalog/entry');
-    expect(postBody.codigo_commodity).toBe('0801');
-    expect(postBody.commodity_id).toBe('castanha');
+    expect(postBody.codigo_produto).toBe('0801');
+    expect(postBody.agrupamento_id).toBe('castanha');
     expect(postBody.agrupamento).toBe('Castanha');
     expect(postBody.banco).toBe('comex');
   });
 
   it('blocks a NONEXISTENT code: bad-hint shown, Salvar disabled, no POST', async () => {
-    const { container, getByText } = render(<ViewCadastroCommodities />);
+    const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const codeInput = await openAddForm(container, getByText);
     // 9999 is NOT in the source's real codes → hard-blocked client-side.
@@ -174,7 +174,7 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
   });
 
   it('requires an agrupamento: with a valid code but no group, Salvar stays disabled', async () => {
-    const { container, getByText } = render(<ViewCadastroCommodities />);
+    const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const codeInput = await openAddForm(container, getByText);
     fireEvent.change(codeInput, { target: { value: '0801' } }); // valid code…
@@ -185,24 +185,24 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
   });
 
   it('moves a commodity to another agrupamento via the row group dropdown', async () => {
-    const { container } = render(<ViewCadastroCommodities />);
+    const { container } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     // The first member row's Agrupamento <select> (a .cc-group-select inside the table).
     fireEvent.change(container.querySelector('.dt-table .cc-group-select'), { target: { value: 'castanha' } });
     await waitFor(() => expect(postBody).toBeTruthy());
     expect(postUrl).toContain('/api/catalog/entry');
-    expect(postBody.commodity_id).toBe('castanha');
+    expect(postBody.agrupamento_id).toBe('castanha');
     expect(postBody.agrupamento).toBe('Castanha');
   });
 
   it('removes a commodity via the tombstone endpoint (after confirm)', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const { container } = render(<ViewCadastroCommodities />);
+    const { container } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.cc-remove')).toBeTruthy());
     fireEvent.click(container.querySelector('.cc-remove'));
     await waitFor(() => expect(postBody).toBeTruthy());
     expect(postUrl).toContain('/api/catalog/entry/remove');
-    expect(postBody.codigo_commodity).toBe('4403');
+    expect(postBody.codigo_produto).toBe('4403');
     confirmSpy.mockRestore();
   });
 
@@ -210,14 +210,14 @@ describe('ViewCadastroCommodities — the Curadoria catalog editor', () => {
     mockFetch({
       orphans: {
         orphans: [{
-          codigo_commodity: '20079926', banco: 'comex', agrupamento: 'Cupuaçu',
+          codigo_produto: '20079926', banco: 'comex', agrupamento: 'Cupuaçu',
           status: 'descontinuado', flagged_at: null,
           warning: 'será removida por um operador',
         }],
         total: 1,
       },
     });
-    const { container } = render(<ViewCadastroCommodities />);
+    const { container } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.textContent).toContain('Descontinuados'));
     expect(container.textContent).toContain('Cupuaçu');
     expect(container.textContent).toContain('20079926');

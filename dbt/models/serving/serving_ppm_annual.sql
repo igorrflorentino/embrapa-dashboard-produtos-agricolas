@@ -70,23 +70,23 @@ ppm_codes as (
 
 ),
 
--- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
+-- Cross-source commodity linkage. gold_produto_agrupamento can NEVER emit
 -- source='ppm' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE facts,
 -- and its accepted_values tests reject 'ppm' — so the exact-code linkage is replicated
 -- here against the PPM codes in this mart. Cataloguing a 'ppm' commodity (source='ppm')
--- in dim_commodity_catalog is then enough to light up commodity_id/commodity_name. With
+-- in dim_produto_catalog is then enough to light up agrupamento_id/agrupamento_nome. With
 -- no ppm commodity catalogued yet, both columns come out NULL (the dashboard handles
 -- NULL commodity).
 ppm_xwalk as (
 
     select distinct
-        x.commodity_id,
-        x.commodity_name,
+        x.agrupamento_id,
+        x.agrupamento_nome,
         c.product_code as code
     from ppm_codes c
-    join {{ ref('dim_commodity_catalog') }} x
+    join {{ ref('dim_produto_catalog') }} x
         on x.source = 'ppm'
-        and c.product_code = x.codigo_commodity
+        and c.product_code = x.codigo_produto
 
 )
 
@@ -97,8 +97,8 @@ select
     g.state_name,
     g.region,
     g.region_abbrev,
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     p.product_code,
     p.product_description,
     p.measure_kind,

@@ -63,7 +63,7 @@ contracts.js shape. `preview:false` on all live producers (real data).
 
 | Endpoint | Params | seam fn | Response (contracts.js typedef) |
 |---|---|---|---|
-| `/catalog` | — | `commodity_catalog()` | `{cid:{id,name,pevs[],comex[],comtrade[]}}` ✅ done |
+| `/catalog` | — | `produto_catalog()` | `{cid:{id,name,pevs[],comex[],comtrade[]}}` ✅ done |
 | `/source-meta` | `banco` | `source_meta(banco)` | provenance row dict ✅ done |
 | `/snapshot` | `banco,currency,correction` | `snapshot(banco,conv)` *(summary=None → full)* | `BancoSnapshot` (§2) |
 | `/product-uf` | `banco,code,currency,correction,startDate?,endDate?` | `product_uf_ranking(banco,code,conv,summary)` | `{uf:[{uf,name,region,value}]}` |

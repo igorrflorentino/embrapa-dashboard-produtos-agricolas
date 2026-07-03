@@ -32,7 +32,7 @@ def test_catalog_editor_invalid_iap_assertion_is_403(monkeypatch):
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
     assert "error" in resp.get_json()
@@ -47,7 +47,7 @@ def test_catalog_editor_without_identity_is_401(monkeypatch):
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     resp = client.post(
         "/api/catalog/entry/remove",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 401
     assert "error" in resp.get_json()
@@ -69,7 +69,7 @@ def test_catalog_entry_upsert_auth_failure_returns_err(monkeypatch):
     monkeypatch.setattr(seam, "record_catalog_entry", must_not_run)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
 
@@ -103,7 +103,7 @@ def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):
     monkeypatch.setattr(seam, "remove_catalog_entry", must_not_run)
     resp = client.post(
         "/api/catalog/entry/remove",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
 

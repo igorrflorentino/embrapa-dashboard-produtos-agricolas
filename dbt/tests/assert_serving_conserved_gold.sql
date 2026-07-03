@@ -2,7 +2,7 @@
 --
 -- Each serving_*_annual mart rolls its Gold fact up to a coarser grain with plain
 -- SUM(...) and then LEFT JOINs the conformed dims (dim_geo_br) + the
--- gold_commodity_crosswalk. A clean roll-up + 1:1 joins must leave the grand total
+-- gold_produto_agrupamento. A clean roll-up + 1:1 joins must leave the grand total
 -- unchanged. The likeliest way it WOULDN'T: a duplicate (source, code) row in the
 -- crosswalk (or a dim) fans the LEFT JOIN out and silently INFLATES the served
 -- total — exactly the failure the per-mart uniqueness tests are meant to prevent.
@@ -28,12 +28,12 @@
 -- keeps fan-out-free), so reconcile it too — making the conservation guarantee explicit
 -- rather than delegated solely to the dim_date + grain-uniqueness tests (DBT-6).
 -- F7 visibility-gate SYMMETRY (added 2026-06-27). Each serving mart applies
--- hidden_code_predicate, so a commodity marked "indisponível" (dim_commodity_visibility)
+-- hidden_code_predicate, so a commodity marked "indisponível" (dim_produto_visibility)
 -- drops from the mart. The Gold side of this reconciliation MUST apply the SAME gate, or the
 -- test would FALSE-FAIL the daily prod build the instant a researcher hides anything (serving
 -- drops those rows while un-gated Gold keeps them, inflating drift past 1e-6). Both sides now
 -- exclude identically, so conservation stays exact under hiding. The (source_token, code_column)
--- per pair mirror each mart's own hidden_code_predicate call; while dim_commodity_visibility is
+-- per pair mirror each mart's own hidden_code_predicate call; while dim_produto_visibility is
 -- empty the predicate is a no-op and the totals are unchanged.
 {% set pairs = [
     ('pevs',              'serving_pevs_annual',       'gold_pevs_production',  'pevs',     'product_code'),

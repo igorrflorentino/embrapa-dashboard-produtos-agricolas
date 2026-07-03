@@ -237,11 +237,11 @@ def _authorize_catalog_editor(resource: str):
 
 @api.get("/catalog")
 def catalog():
-    """Crosswalk commodity catalog (commodity_id → {name, family, pevs[], comex[], comtrade[]}).
+    """Crosswalk commodity catalog (agrupamento_id → {name, family, pevs[], comex[], comtrade[]}).
 
     ``family`` (PEVS physical-unit family) lets the frontend family-gate the cross
     pickers so the export-coefficient / price-spread views offer only mass commodities."""
-    return jsonify(seam.commodity_catalog_with_family())
+    return jsonify(seam.produto_catalog_with_family())
 
 
 # ── Curadoria (catalog — what enters/exits the dashboard) ──────────────────────
@@ -277,14 +277,14 @@ def catalog_entry_upsert():
     """Upsert one commodity-catalog entry (the editable successor to the
     commodity_crosswalk seed). Author captured from the IAP header; 401/403 via the
     per-catalog editor allowlist. A bad key / over-length / overlapping prefix → 400."""
-    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
     body = request.get_json(silent=True) or {}
-    if not (body.get("codigo_commodity") and body.get("banco")):
-        return jsonify(error="codigo_commodity and banco are required"), 400
+    if not (body.get("codigo_produto") and body.get("banco")):
+        return jsonify(error="codigo_produto and banco are required"), 400
     logger.info(
-        "catalog upsert by %s: %s/%s", author, body.get("banco"), body.get("codigo_commodity")
+        "catalog upsert by %s: %s/%s", author, body.get("banco"), body.get("codigo_produto")
     )
     return jsonify(seam.record_catalog_entry(body))
 
@@ -294,14 +294,14 @@ def catalog_entry_remove():
     """Remove one commodity-catalog entry — appends an active=false TOMBSTONE
     (NON-destructive: the Gold data becomes an orphan, handled by the lifecycle, never
     auto-deleted). 401/403 via the per-catalog editor allowlist."""
-    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
     body = request.get_json(silent=True) or {}
-    if not (body.get("codigo_commodity") and body.get("banco")):
-        return jsonify(error="codigo_commodity and banco are required"), 400
+    if not (body.get("codigo_produto") and body.get("banco")):
+        return jsonify(error="codigo_produto and banco are required"), 400
     logger.info(
-        "catalog remove by %s: %s/%s", author, body.get("banco"), body.get("codigo_commodity")
+        "catalog remove by %s: %s/%s", author, body.get("banco"), body.get("codigo_produto")
     )
     return jsonify(seam.remove_catalog_entry(body))
 
@@ -326,7 +326,7 @@ def catalog_groups():
 def catalog_group_upsert():
     """Create (group_id omitted) or RENAME (group_id given) a group. Author from the IAP
     header; 401/403 via the per-catalog editor allowlist. A bad/duplicate name → 400."""
-    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -340,7 +340,7 @@ def catalog_group_upsert():
 def catalog_group_remove():
     """Delete (tombstone) a group — rejected while it still has active members. Author
     from the IAP header; 401/403 via the per-catalog editor allowlist; non-empty → 400."""
-    author, err = _authorize_catalog_editor(seam.COMMODITY_CATALOG_RESOURCE)
+    author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
     body = request.get_json(silent=True) or {}

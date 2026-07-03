@@ -7,7 +7,7 @@ but it NEVER deletes anything. The actual purge is a separate, human-gated, back
 operator action (the lead's decision #2): auto-detect + auto-mark + warn is automatic;
 the delete waits for a person.
 
-Detection is precise (see ``gateway.fetch_orphan_commodities``): only a REMOVAL that
+Detection is precise (see ``gateway.fetch_orphan_produtos``): only a REMOVAL that
 leaves Gold data behind counts — not every uncataloged Gold code (the catalog is a
 cross-source bridge, not a full registry; that diff would false-flag legitimate products).
 
@@ -44,7 +44,7 @@ PURGE_WARNING = (
 CATALOG_LIFECYCLE_LOG_SCHEMA = [
     bigquery.SchemaField("element_kind", "STRING", mode="REQUIRED"),  # 'commodity' | 'banco'
     bigquery.SchemaField("banco", "STRING", mode="REQUIRED"),
-    bigquery.SchemaField("code", "STRING", mode="NULLABLE"),  # codigo_commodity; NULL for a banco
+    bigquery.SchemaField("code", "STRING", mode="NULLABLE"),  # codigo_produto; NULL for a banco
     bigquery.SchemaField("status", "STRING", mode="REQUIRED"),  # 'descontinuado' | 'purged'
     bigquery.SchemaField("reason", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("scheduled_purge_note", "STRING", mode="NULLABLE"),
@@ -141,7 +141,7 @@ def auto_mark_orphans(
     ``{detected, newly_marked, already_marked}``."""
     cfg = settings or get_settings()
     try:
-        orphans = gateway.fetch_orphan_commodities()
+        orphans = gateway.fetch_orphan_produtos()
     except NotFound:
         return {"detected": 0, "newly_marked": 0, "already_marked": 0}
     if orphans is None or orphans.empty:
@@ -154,7 +154,7 @@ def auto_mark_orphans(
 
     newly = 0
     for o in orphans.itertuples():
-        code = str(o.codigo_commodity)
+        code = str(o.codigo_produto)
         banco = o.banco
         removed_at = getattr(o, "removed_at", None)
         prev = already.get(("commodity", banco, code))
@@ -206,7 +206,7 @@ def auto_mark_orphans(
 
 def invalidate_lifecycle_cache() -> None:
     """Drop the cached lifecycle-status + orphan reads (best-effort)."""
-    for fn in (gateway.fetch_lifecycle_status, gateway.fetch_orphan_commodities):
+    for fn in (gateway.fetch_lifecycle_status, gateway.fetch_orphan_produtos):
         try:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down
@@ -269,7 +269,7 @@ def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
     statements (the project hands destructive deletes to a human). Raises ValueError if
     the element is not currently Descontinuado, or the banco/code is malformed.
 
-    ``code`` is the codigo_commodity — the orphan worklist identity AND the exact Gold
+    ``code`` is the codigo_produto — the orphan worklist identity AND the exact Gold
     code (commodities are registered by exact code now; no prefixes), so the DELETE is a
     plain equality that matches exactly what orphan detection flagged — never over-purging."""
     cfg = settings or get_settings()

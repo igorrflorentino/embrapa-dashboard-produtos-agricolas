@@ -587,13 +587,13 @@ def test_convention_route_accepts_valid_non_default_pair(monkeypatch):
 
 
 def test_catalog_get_returns_seam_payload_as_json(monkeypatch):
-    """/catalog jsonifies seam.commodity_catalog_with_family() verbatim (no serializer)."""
+    """/catalog jsonifies seam.produto_catalog_with_family() verbatim (no serializer)."""
     from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
         seam,
-        "commodity_catalog_with_family",
+        "produto_catalog_with_family",
         lambda: {"castanha": {"name": "Castanha", "family": "massa"}},
     )
     resp = client.get("/api/catalog")
@@ -1005,7 +1005,7 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     def boom():
         raise RuntimeError("BigQuery exploded")
 
-    monkeypatch.setattr(seam, "commodity_catalog_with_family", boom)
+    monkeypatch.setattr(seam, "produto_catalog_with_family", boom)
     resp = client.get("/api/catalog")
     assert resp.status_code == 500
     assert resp.content_type.startswith("application/json")
@@ -1131,7 +1131,7 @@ def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypa
     client = _client(monkeypatch)
     monkeypatch.setattr(
         seam,
-        "commodity_catalog_with_family",
+        "produto_catalog_with_family",
         lambda: {
             "count": np.int64(7),
             "ratio": np.float64(1.5),
@@ -1309,7 +1309,7 @@ def test_catalog_entries_route_returns_worklist(monkeypatch):
         "catalog_worklist",
         lambda banco=None: {
             "entries": [
-                {"codigo_commodity": "4403", "banco": "un_comtrade", "agrupamento": "Madeira"}
+                {"codigo_produto": "4403", "banco": "un_comtrade", "agrupamento": "Madeira"}
             ],
             "total": 1,
             "by_agrupamento": [{"agrupamento": "Madeira", "n": 1, "bancos": ["un_comtrade"]}],
@@ -1318,7 +1318,7 @@ def test_catalog_entries_route_returns_worklist(monkeypatch):
     resp = client.get("/api/catalog/entries")
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["total"] == 1 and body["entries"][0]["codigo_commodity"] == "4403"
+    assert body["total"] == 1 and body["entries"][0]["codigo_produto"] == "4403"
 
 
 def test_catalog_source_codes_route_forwards_banco(monkeypatch):
@@ -1380,7 +1380,7 @@ def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
     resp = client.post(
         "/api/catalog/entry",
         json={
-            "codigo_commodity": "4403",
+            "codigo_produto": "4403",
             "banco": "un_comtrade",
             "agrupamento": "Madeira",
             "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
@@ -1388,7 +1388,7 @@ def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
         },
     )
     assert resp.status_code == 200
-    assert captured["codigo_commodity"] == "4403" and captured["banco"] == "un_comtrade"
+    assert captured["codigo_produto"] == "4403" and captured["banco"] == "un_comtrade"
     assert captured["change_id"] == "k1"
 
 
@@ -1397,7 +1397,7 @@ def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
-    resp = client.post("/api/catalog/entry", json={"banco": "un_comtrade"})  # no codigo_commodity
+    resp = client.post("/api/catalog/entry", json={"banco": "un_comtrade"})  # no codigo_produto
     assert resp.status_code == 400
 
 
@@ -1411,7 +1411,7 @@ def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
         seam, "catalog_editor_emails", lambda resource=None: {"someone.else@embrapa.br"}
     )
     resp = client.post(
-        "/api/catalog/entry", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+        "/api/catalog/entry", json={"codigo_produto": "4403", "banco": "un_comtrade"}
     )
     assert resp.status_code == 403
 
@@ -1430,7 +1430,7 @@ def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
     monkeypatch.setattr(seam, "record_catalog_entry", raise_missing)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "9999", "banco": "comtrade"},
+        json={"codigo_produto": "9999", "banco": "comtrade"},
     )
     assert resp.status_code == 400
     # The rejection REASON must reach the UI so the researcher knows the code isn't real.
@@ -1448,10 +1448,10 @@ def test_catalog_entry_remove_threads_to_seam(monkeypatch):
         seam, "remove_catalog_entry", lambda body: captured.update(body) or {"active": False}
     )
     resp = client.post(
-        "/api/catalog/entry/remove", json={"codigo_commodity": "4403", "banco": "un_comtrade"}
+        "/api/catalog/entry/remove", json={"codigo_produto": "4403", "banco": "un_comtrade"}
     )
     assert resp.status_code == 200
-    assert captured["codigo_commodity"] == "4403" and resp.get_json()["active"] is False
+    assert captured["codigo_produto"] == "4403" and resp.get_json()["active"] is False
 
 
 def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
@@ -1466,7 +1466,7 @@ def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
         lambda: {
             "orphans": [
                 {
-                    "codigo_commodity": "20079926",
+                    "codigo_produto": "20079926",
                     "banco": "comex",
                     "agrupamento": "Cupuaçu",
                     "status": "descontinuado",

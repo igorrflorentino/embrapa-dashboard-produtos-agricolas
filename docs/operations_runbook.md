@@ -56,21 +56,21 @@ write routes) are gated by a **per-catalog** allowlist, separate from the curati
 above: the Console-managed table `<dataset>.catalog_editors` (`<dataset>` =
 `BQ_RESEARCH_INPUTS_DATASET`, default `research_inputs`; table = `BQ_CATALOG_EDITORS_TABLE`,
 default `catalog_editors`), keyed by `(resource, email)` where `resource` is the catalog id
-(`commodity_catalog`). If **no** rows exist for a resource, any IAP-authenticated caller may
+(`produto_catalog`). If **no** rows exist for a resource, any IAP-authenticated caller may
 edit that catalog (open mode); add a row to lock it down.
 
 ```sql
 -- add an editor for the commodity catalog
 INSERT INTO `<project>.research_inputs.catalog_editors` (resource, email, added_by, added_at)
-VALUES ('commodity_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
+VALUES ('produto_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
 
 -- remove
 DELETE FROM `<project>.research_inputs.catalog_editors`
-WHERE resource = 'commodity_catalog' AND email = 'old@embrapa.br';
+WHERE resource = 'produto_catalog' AND email = 'old@embrapa.br';
 
 -- list current
 SELECT email FROM `<project>.research_inputs.catalog_editors`
-WHERE resource = 'commodity_catalog' ORDER BY email;
+WHERE resource = 'produto_catalog' ORDER BY email;
 ```
 
 Like the curators table: changes take effect within the ~30s classification cache TTL, emails are

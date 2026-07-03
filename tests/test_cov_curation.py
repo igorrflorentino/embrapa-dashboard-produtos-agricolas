@@ -2,7 +2,7 @@
 
 Targets the currently-uncovered branches: the catalog-editors ensure helper, the
 ciclo_de_vida over-length + invalid-enum ValueErrors, the agrupamento /
-descricao_commodity over-length ValueErrors, the ``_current_prefixes`` NotFound
+descricao_produto over-length ValueErrors, the ``_current_prefixes`` NotFound
 fall-through, the change_id dedup short-circuits on both record + remove, and the
 cache-invalidation paths.
 
@@ -80,17 +80,17 @@ def test_is_active_entry_false_when_table_absent():
     assert curation._is_active_entry(client, "proj.ds.tbl", "4403", "un_comtrade") is False
 
 
-# ── record_commodity_catalog: over-length text guards (lines 241, 243) ────────
+# ── record_produto_catalog: over-length text guards (lines 241, 243) ────────
 
 
-def test_record_commodity_catalog_rejects_overlong_agrupamento(monkeypatch):
+def test_record_produto_catalog_rejects_overlong_agrupamento(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
     from embrapa_dashboard.serving.research_inputs import MAX_NOTE_LEN
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     with pytest.raises(ValueError, match="agrupamento excede"):
-        curation.record_commodity_catalog(
+        curation.record_produto_catalog(
             "4403",
             "un_comtrade",
             _HEADERS,
@@ -101,29 +101,29 @@ def test_record_commodity_catalog_rejects_overlong_agrupamento(monkeypatch):
         )
 
 
-def test_record_commodity_catalog_rejects_overlong_descricao(monkeypatch):
+def test_record_produto_catalog_rejects_overlong_descricao(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
     from embrapa_dashboard.serving.research_inputs import MAX_NOTE_LEN
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    with pytest.raises(ValueError, match="descricao_commodity excede"):
-        curation.record_commodity_catalog(
+    with pytest.raises(ValueError, match="descricao_produto excede"):
+        curation.record_produto_catalog(
             "4403",
             "un_comtrade",
             _HEADERS,
             agrupamento="Madeira",
-            descricao_commodity="d" * (MAX_NOTE_LEN + 1),
+            descricao_produto="d" * (MAX_NOTE_LEN + 1),
             settings=_settings(),
             client=mock.Mock(),
             invalidate_cache=False,
         )
 
 
-# ── record_commodity_catalog: change_id dedup short-circuit (lines 257-260) ───
+# ── record_produto_catalog: change_id dedup short-circuit (lines 257-260) ───
 
 
-def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
+def test_record_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
 
@@ -134,7 +134,7 @@ def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     client = mock.Mock()
     client.query.return_value.result.return_value = []
 
-    rec = curation.record_commodity_catalog(
+    rec = curation.record_produto_catalog(
         "4403",
         "un_comtrade",
         _HEADERS,
@@ -155,10 +155,10 @@ def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     assert insert_calls == []
 
 
-# ── record_commodity_catalog: cache invalidation on save (line 291) ───────────
+# ── record_produto_catalog: cache invalidation on save (line 291) ───────────
 
 
-def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
+def test_record_produto_catalog_invalidates_cache_on_save(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
 
@@ -172,9 +172,9 @@ def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
     def _spy():
         seen["called"] = True
 
-    monkeypatch.setattr(curation, "invalidate_commodity_catalog_cache", _spy)
+    monkeypatch.setattr(curation, "invalidate_produto_catalog_cache", _spy)
 
-    rec = curation.record_commodity_catalog(
+    rec = curation.record_produto_catalog(
         "4403",
         "un_comtrade",
         _HEADERS,
@@ -187,10 +187,10 @@ def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
     assert seen["called"] is True
 
 
-# ── remove_commodity_catalog: change_id dedup short-circuit (line 333) ────────
+# ── remove_produto_catalog: change_id dedup short-circuit (line 333) ────────
 
 
-def test_remove_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
+def test_remove_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
 
@@ -199,7 +199,7 @@ def test_remove_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     client = mock.Mock()
     client.query.return_value.result.return_value = []
 
-    rec = curation.remove_commodity_catalog(
+    rec = curation.remove_produto_catalog(
         "4403",
         "un_comtrade",
         _HEADERS,
@@ -217,10 +217,10 @@ def test_remove_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     assert insert_calls == []
 
 
-# ── remove_commodity_catalog: cache invalidation on tombstone (line 374) ──────
+# ── remove_produto_catalog: cache invalidation on tombstone (line 374) ──────
 
 
-def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
+def test_remove_produto_catalog_invalidates_cache_on_tombstone(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
 
@@ -232,11 +232,11 @@ def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
     seen = {"called": False}
     monkeypatch.setattr(
         curation,
-        "invalidate_commodity_catalog_cache",
+        "invalidate_produto_catalog_cache",
         lambda: seen.__setitem__("called", True),
     )
 
-    rec = curation.remove_commodity_catalog(
+    rec = curation.remove_produto_catalog(
         "4403",
         "un_comtrade",
         _HEADERS,
@@ -248,10 +248,10 @@ def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
     assert seen["called"] is True
 
 
-# ── invalidate_commodity_catalog_cache: the real body (lines 467-468) ─────────
+# ── invalidate_produto_catalog_cache: the real body (lines 467-468) ─────────
 
 
-def test_invalidate_commodity_catalog_cache_drops_memoized():
+def test_invalidate_produto_catalog_cache_drops_memoized():
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
 
@@ -259,10 +259,10 @@ def test_invalidate_commodity_catalog_cache_drops_memoized():
     with app.app_context():
         # cache is bound to a live SimpleCache backend → delete_memoized succeeds,
         # exercising the happy path (not the except branch).
-        curation.invalidate_commodity_catalog_cache()
+        curation.invalidate_produto_catalog_cache()
 
 
-def test_invalidate_commodity_catalog_cache_swallows_unbound_backend(monkeypatch):
+def test_invalidate_produto_catalog_cache_swallows_unbound_backend(monkeypatch):
     """When the cache is unbound / backend down, ``delete_memoized`` raises and the
     helper logs a warning instead of propagating (best-effort invalidation)."""
     pytest.importorskip("flask_caching")
@@ -273,4 +273,4 @@ def test_invalidate_commodity_catalog_cache_swallows_unbound_backend(monkeypatch
 
     monkeypatch.setattr(curation.cache, "delete_memoized", _boom)
     # Must not raise.
-    curation.invalidate_commodity_catalog_cache()
+    curation.invalidate_produto_catalog_cache()

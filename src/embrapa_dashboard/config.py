@@ -420,16 +420,16 @@ class Settings(BaseSettings):
     # Append-only log of the researcher-managed COMMODITY CATALOG: which commodities
     # are in the dashboard, their agrupamento (cross-source concept) and ciclo de vida
     # (in/out), keyed by the EXACT source code (one code = one entry; no prefixes). The
-    # current catalog = latest row per (codigo_commodity, banco); a row with
+    # current catalog = latest row per (codigo_produto, banco); a row with
     # active=false is a tombstone (removed → its Gold data becomes an orphan). Backs
-    # dim_commodity_catalog (→ gold_commodity_crosswalk). Auto-created on first write.
-    bq_commodity_catalog_log_table: str = Field(default="commodity_catalog_log")
+    # dim_produto_catalog (→ gold_produto_agrupamento). Auto-created on first write.
+    bq_produto_catalog_log_table: str = Field(default="produto_catalog_log")
     # Append-only GROUPS (agrupamentos) registry — the first-class commodity-concept
-    # registry keyed by group_id (== a catalog entry's commodity_id). Promotes groups
+    # registry keyed by group_id (== a catalog entry's agrupamento_id). Promotes groups
     # from "derived from the distinct agrupamento names" to a real entity with its own
     # lifecycle: create (incl. EMPTY groups), rename, delete (blocked while it has
     # members). Latest-wins per group_id; active=false is a tombstone. Auto-created.
-    bq_commodity_group_log_table: str = Field(default="commodity_group_log")
+    bq_agrupamento_log_table: str = Field(default="agrupamento_log")
     # Per-CATALOG authorization allowlist (research_inputs.<this>) — distinct from the
     # attribute-engineering `curators` table: each cadastro (resource) has its OWN list
     # of editors, keyed by (resource, email). Empty/absent → no allowlist (any

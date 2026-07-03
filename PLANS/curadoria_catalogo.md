@@ -1,12 +1,12 @@
 # PLANS — Curadoria (catalog) + Engenharia de Atributos split, editable catalog, orphan lifecycle, seed consultation
 
 > **⚠ SUPERSEDED IN PART (v1.10.0, 2026-07): `code_prefix` was ELIMINATED.** Every commodity is now
-> registered by its **EXACT source code** (`codigo_commodity`), one at a time. This was
+> registered by its **EXACT source code** (`codigo_produto`), one at a time. This was
 > behavior-preserving: after the v1.9.5 catalog import every entry's `code_prefix` already equalled
 > its exact leaf code, so the `LIKE code_prefix||'%'` bridge and the exact `= code` join produce the
 > same rows. Consequently, wherever this doc says "keep `code_prefix`", "prefix-disjointness", or
 > "`LIKE code_prefix||'%'`", read **exact-code equality (`= code`)** instead. The physical
-> `research_inputs.commodity_catalog_log.code_prefix` column is dropped (operator DDL). The add form
+> `research_inputs.produto_catalog_log.code_prefix` column is dropped (operator DDL). The add form
 > now hard-blocks a code that doesn't exist in the source's Gold, and the catalog shows each
 > commodity's Gold state (linhas / período / tem-dados). Rationale below is otherwise unchanged.
 
@@ -19,11 +19,11 @@
 > destructively or are deploy-time): (1) drop the now-unreferenced `silver.commodity_crosswalk`
 > table (the retired seed — kept inert; `DROP TABLE` is an operator call); (2) deploy the webapi
 > so the new "Cadastro de commodities" / "Referências" views go live; (3) populate
-> `research_inputs.catalog_editors` (resource `commodity_catalog`) with the authorized researcher
+> `research_inputs.catalog_editors` (resource `produto_catalog`) with the authorized researcher
 > emails (empty = open to any IAP user); (4) set the `DBT_BUILD` repo vars so the workflow's new
 > `mark-orphans` step runs. The deferred BQ-table renames (#5) were evaluated and **declined** —
 > the table names (`code_industrialization_log`, `flow_market_log`, `curators`, `banco_metadata`,
-> `commodity_catalog_log`, `catalog_editors`, `catalog_lifecycle_log`) are already accurate, and
+> `produto_catalog_log`, `catalog_editors`, `catalog_lifecycle_log`) are already accurate, and
 > cross-dataset renames of append-only audit tables are pure churn/risk.
 
 ## Guiding decisions (from the project lead)
@@ -36,13 +36,13 @@
    (operator CLI, backup-first). Auto-detect + auto-mark + warn = automatic; delete = human-gated.
 3. **Orphan definition (lead's words):** an element (banco or commodity) **available for
    consultation in the dashboard** (present in Gold) but **absent from the cadastro seed**
-   (`cadastro_bancos` / `cadastro_commodities`). Each cadastro seed has its **own authorization
+   (`cadastro_bancos` / `cadastro_produtos`). Each cadastro seed has its **own authorization
    list**. Authorized editors of a cadastro define what enters/exits. → orphan = `Gold − catalog`.
 4. **Not all seeds are editable.** High-precision **calibration** seeds stay version-controlled and
    engineer-only. Read-only seeds are **displayed in the dashboard** so researchers can consult +
    confirm values and **report errors** via the existing feedback channel (no edit rights).
 5. **`commodity_crosswalk` redundancy: CONFIRMED.** It is derivable from the catalog
-   (`commodity_name ≡ Agrupamento`, `source ≡ Banco`, `code_prefix` is a prefix of the code).
+   (`agrupamento_nome ≡ Agrupamento`, `source ≡ Banco`, `code_prefix` is a prefix of the code).
    It becomes the editable catalog, **prioritizing the "Cadastro de Commodities" column structure**.
 6. **No backward-compat / no fallback to the old way.** Project is beta, no users. Prefer maximum
    cleanliness. A clean cutover: if the new path errors it must **fail loud**, never silently fall
@@ -63,18 +63,18 @@ final cleanup phase. The reorg is otherwise **code-only, zero data migration**.
 
 ## commodity_crosswalk → editable catalog
 
-- Target: `research_inputs.commodity_catalog`, key `(codigo_commodity, banco)`, columns prioritizing
-  Cadastro: `codigo_commodity, banco, agrupamento, descricao_commodity, industrializacao,
-  ciclo_de_vida` + stored `commodity_id` slug + explicit **`code_prefix`** (kept — coarse prefixes
+- Target: `research_inputs.produto_catalog`, key `(codigo_produto, banco)`, columns prioritizing
+  Cadastro: `codigo_produto, banco, agrupamento, descricao_produto, industrializacao,
+  ciclo_de_vida` + stored `agrupamento_id` slug + explicit **`code_prefix`** (kept — coarse prefixes
   are deliberate auto-absorb, NOT lossy). Edit grain for the in/out flag = **per Agrupamento**
   (store rows per `(banco, code)` underneath).
 - **Two correctness properties to preserve:** keep `code_prefix` (don't switch the join to `=`);
   **validate prefix-disjointness on write** (overlapping prefixes silently double sums — today only
   `unique_combination_of_columns(source, code)` catches it at build).
-- `gold_commodity_crosswalk.sql` rebuilt to read the catalog (filtered to the "available" Ciclo de
+- `gold_produto_agrupamento.sql` rebuilt to read the catalog (filtered to the "available" Ciclo de
   Vida) keeping the `LIKE code_prefix||'%'` expansion. The PAM/PPM inline path in
-  `serving_{pam,ppm}_annual.sql` migrates **together**. 3 consumers traced: gold_commodity_crosswalk;
-  serving_pam/ppm_annual inline; `seam_base.commodity_catalog()`→`/api/catalog` + `seam_cross._codes`.
+  `serving_{pam,ppm}_annual.sql` migrates **together**. 3 consumers traced: gold_produto_agrupamento;
+  serving_pam/ppm_annual inline; `seam_base.produto_catalog()`→`/api/catalog` + `seam_cross._codes`.
 
 ## Orphan / Descontinuado lifecycle
 
@@ -90,7 +90,7 @@ final cleanup phase. The reorg is otherwise **code-only, zero data migration**.
 
 ## Seed editability + read-only viewer
 
-- **Editable (authorized researcher):** the catalog (`commodity_catalog`, `cadastro_bancos`),
+- **Editable (authorized researcher):** the catalog (`produto_catalog`, `cadastro_bancos`),
   `banco_metadata`. **Read-only (engineer-only):** `historical_currency_factors`,
   `unit_family_conversions`, `product_unit_factors`, `comex_*`/`comtrade_*` dims + succession maps,
   `ibge_municipio_mesh` (calibration / source-faithful / script-regenerated).
@@ -110,8 +110,8 @@ final cleanup phase. The reorg is otherwise **code-only, zero data migration**.
   cutover, #6). Verify: ruff + pytest + vitest.
 - **P1 — Read-only seed viewer + feedback prefill** (MVP, zero write risk). `_SEED_CATALOG` + 2
   endpoints + "Referências" view + per-row "Reportar valor incorreto".
-- **P2 — Editable commodity catalog** (core). `research_inputs.commodity_catalog` (+ log) via
-  `ensure_*_table`; backfill + diff-gated cutover; rebuild `gold_commodity_crosswalk`; migrate
+- **P2 — Editable commodity catalog** (core). `research_inputs.produto_catalog` (+ log) via
+  `ensure_*_table`; backfill + diff-gated cutover; rebuild `gold_produto_agrupamento`; migrate
   PAM/PPM; admin write endpoints + per-catalog allowlist + on-write prefix-disjointness validation.
 - **P3 — Orphan / Descontinuado lifecycle** (builds on P2 catalog). `catalog_lifecycle_log` +
   `fetch_orphans()` + `auto_mark_orphans()` on the build boundary + `doctor` check + orphan API +

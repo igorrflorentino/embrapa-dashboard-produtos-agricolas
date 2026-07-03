@@ -6,7 +6,7 @@ and the commodity crosswalk toolkit (catalog, per-source code lookup, per-metric
 yearly points). Kept in their own module so the two analytic modules depend only on
 this base — never on each other or on ``seam`` — which keeps the import graph a clean
 DAG (base ← {cross, attributes} ← seam) with no cycles. ``seam`` re-exports these so
-``seam.commodity_catalog`` / ``seam._xyear`` etc. stay available to callers + tests.
+``seam.produto_catalog`` / ``seam._xyear`` etc. stay available to callers + tests.
 
 The crosswalk/catalog reads are memoized with the SAME flask-caching TTL the
 gateway mart reads use (CACHE_DEFAULT_TIMEOUT) — NOT functools.lru_cache: the
@@ -36,15 +36,15 @@ _LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "ibge_ppm", "mdic_comex", "un_comtrade
 def _crosswalk_df() -> pd.DataFrame:
     # F7 visibility gate: exclude commodities a researcher marked "indisponível" so the
     # cross-source picker AGREES with the (gated) per-banco pickers. Same single source of
-    # truth as the dbt marts + gateway readers — dim_commodity_visibility — never re-derived
-    # in Python. gold_commodity_crosswalk.source is already the short token (pevs/comex/
+    # truth as the dbt marts + gateway readers — dim_produto_visibility — never re-derived
+    # in Python. gold_produto_agrupamento.source is already the short token (pevs/comex/
     # comtrade), matching the view. A no-op today (nothing hidden); the admin/orphan readers
     # are intentionally NOT gated (they must still see hidden-but-active rows).
     s = get_settings()
-    fqn = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
-    vis = sqlbuild.table_ref(s, "bq_gold_dataset", "dim_commodity_visibility")
+    fqn = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_produto_agrupamento")
+    vis = sqlbuild.table_ref(s, "bq_gold_dataset", "dim_produto_visibility")
     sql = (
-        f"select x.commodity_id, x.commodity_name, x.source, x.code from `{fqn}` x "
+        f"select x.agrupamento_id, x.agrupamento_nome, x.source, x.code from `{fqn}` x "
         f"where not exists (select 1 from `{vis}` v "
         f"where v.source = x.source and x.code = v.code)"
     )
@@ -52,10 +52,10 @@ def _crosswalk_df() -> pd.DataFrame:
 
 
 @cache.memoize()
-def commodity_catalog() -> dict:
-    """commodity_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk.
+def produto_catalog() -> dict:
+    """agrupamento_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk.
 
-    A crosswalk row whose commodity_id is NULL (a catalog entry saved without an
+    A crosswalk row whose agrupamento_id is NULL (a catalog entry saved without an
     agrupamento) is SKIPPED: it has no cross-source identity to key on, and a NaN
     id would become a float dict key that 500s the WHOLE /api/catalog response —
     the JSON provider's sort_keys can't order float against str keys, so one
@@ -65,14 +65,14 @@ def commodity_catalog() -> dict:
     cat: dict = {}
     skipped: list[str] = []
     for r in _crosswalk_df().itertuples():
-        if pd.isna(r.commodity_id):
+        if pd.isna(r.agrupamento_id):
             skipped.append(f"{r.source}:{r.code}")
             continue
         c = cat.setdefault(
-            r.commodity_id,
+            r.agrupamento_id,
             {
-                "id": r.commodity_id,
-                "name": r.commodity_name,
+                "id": r.agrupamento_id,
+                "name": r.agrupamento_nome,
                 "pevs": [],
                 "comex": [],
                 "comtrade": [],
@@ -81,7 +81,7 @@ def commodity_catalog() -> dict:
         c[r.source].append(str(r.code))
     if skipped:
         logger.warning(
-            "commodity_catalog: skipped %d crosswalk row(s) with NULL commodity_id "
+            "produto_catalog: skipped %d crosswalk row(s) with NULL agrupamento_id "
             "(catalog entry saved without an agrupamento): %s",
             len(skipped),
             ", ".join(sorted(skipped)),
@@ -89,8 +89,8 @@ def commodity_catalog() -> dict:
     return cat
 
 
-def _codes(commodity_id: str | None, source: str) -> tuple:
-    c = commodity_catalog().get(commodity_id) if commodity_id else None
+def _codes(agrupamento_id: str | None, source: str) -> tuple:
+    c = produto_catalog().get(agrupamento_id) if agrupamento_id else None
     return tuple(c[source]) if c else ()
 
 

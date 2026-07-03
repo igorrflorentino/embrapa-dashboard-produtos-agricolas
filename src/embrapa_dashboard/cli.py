@@ -947,7 +947,7 @@ def mark_orphans_cmd() -> None:
 def purge_orphan_cmd(
     banco: str = typer.Option(..., help="Source token / banco (pevs, comex, comtrade, pam, ppm)"),
     code: str = typer.Option(
-        ..., help="The codigo_commodity of the orphan (the exact Gold code purged)"
+        ..., help="The codigo_produto of the orphan (the exact Gold code purged)"
     ),
     mark_purged: bool = typer.Option(
         False, "--mark-purged", help="Record a 'purged' event AFTER you ran the DELETEs."

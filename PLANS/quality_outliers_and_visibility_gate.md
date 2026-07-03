@@ -39,20 +39,20 @@ it is **true for all 5 sources**, validated on a live build (rates above).
 sees it, but NEVER from the Curadoria admin editor / orphan / crosswalk. Today: 46 active prefixes, all
 visible → the gate is a **data no-op** until a researcher hides something.
 
-**Single source of truth:** `dbt/models/core/dim_commodity_visibility.sql` (view) emits only HIDDEN
+**Single source of truth:** `dbt/models/core/dim_produto_visibility.sql` (view) emits only HIDDEN
 `(source, code)` rows — the EXACT commodity code (latest-wins, active, indisponível; `code_prefix` was
-eliminated in v1.10.0, so this is now `codigo_commodity`). Gate predicate = `NOT EXISTS … <code_column>
+eliminated in v1.10.0, so this is now `codigo_produto`). Gate predicate = `NOT EXISTS … <code_column>
 = v.code` over it (was `LIKE code_prefix||'%'`; behavior-preserving since every entry's prefix already
 equalled its exact leaf code). A code with no row stays visible (handles PPM=0, partial coverage).
-`dim_commodity_catalog` is untouched (admin/crosswalk still see hidden-but-active rows).
+`dim_produto_catalog` is untouched (admin/crosswalk still see hidden-but-active rows).
 
-Files: `dim_commodity_visibility.sql` (new), `macros/hidden_code_predicate.sql` (new); predicate added to
+Files: `dim_produto_visibility.sql` (new), `macros/hidden_code_predicate.sql` (new); predicate added to
 serving marts (pevs/pam/ppm/comex+seasonality/comtrade annual) + `serving_quality_by_source.sql`;
 `serving/sql.py` `visibility_clause()` for direct-Gold readers (quality_timeseries, quality_by_product,
 production_by_municipio_yearly, Dados raw on `gold_*` facts); `seam_base._crosswalk_df()` anti-joins it.
-Admin readers (`fetch_commodity_catalog`, orphan, lifecycle, crosswalk) are EXEMPT by design.
+Admin readers (`fetch_produto_catalog`, orphan, lifecycle, crosswalk) are EXEMPT by design.
 
-Tests: a `dim_commodity_visibility` unit_test (disponível/indisponível/tombstone fixture, latest-wins);
+Tests: a `dim_produto_visibility` unit_test (disponível/indisponível/tombstone fixture, latest-wins);
 pytest gate tests + admin-exemption regression + `visibility_clause` / direct-reader string tests. The
 conservation test `assert_serving_conserved_gold.sql` gates BOTH the serving AND the Gold side with
 `hidden_code_predicate`, so hiding a commodity can never false-fail it; no vitest (rows-only change).
@@ -133,7 +133,7 @@ US$80M for 1 kg of plywood). `enable_quality_outliers` is therefore **true for a
 ## Operator runbook (prod)
 
 1. `make dbt-build-prod-with-backup` (rewrites `data_quality_flag` on every gold fact — backup-first).
-2. F7 check: `SELECT * FROM gold.dim_commodity_visibility` → expect **0 rows today** (no-op confirmed).
+2. F7 check: `SELECT * FROM gold.dim_produto_visibility` → expect **0 rows today** (no-op confirmed).
 3. Q1 check: `SELECT source, data_quality_flag, COUNT(*) FROM serving_quality_by_source GROUP BY 1,2` → the
    `OUTLIER_*` / `PROBLEMATIC_*` tiers appear; sanity-check the per-source rates against the table above.
 4. Revert (if ever needed): set `enable_quality_outliers: false` in `dbt_project.yml` + rebuild → the gold

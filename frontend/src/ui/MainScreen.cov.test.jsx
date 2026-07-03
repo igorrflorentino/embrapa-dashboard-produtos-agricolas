@@ -35,7 +35,7 @@ function stubChildren() {
   window.Glossary = ({ scope }) => <div className="child-glossary" data-scope={scope} />;
   window.ViewAbout = marker('about');
   window.ViewReferencias = marker('referencias');
-  window.ViewCadastroCommodities = marker('cadastro');
+  window.ViewCadastroProdutos = marker('cadastro');
   window.ViewHealth = marker('health');
   window.ViewCrossSource = marker('crosssource');
   window.ViewNotApplicable = marker('notapplicable');
@@ -115,13 +115,13 @@ describe('MainScreen — info pages (sidebar)', () => {
     expect(container.textContent).toContain('Sobre o dashboard');
   });
 
-  it('routes referencias / cadastro_commodities / health to their views', () => {
+  it('routes referencias / cadastro_produtos / health to their views', () => {
     const ref = render(<MainScreen infoPage="referencias" />);
     expect(ref.container.querySelector('.child-referencias')).toBeTruthy();
     expect(ref.container.textContent).toContain('Tabelas de referência');
     ref.unmount();
 
-    const cad = render(<MainScreen infoPage="cadastro_commodities" />);
+    const cad = render(<MainScreen infoPage="cadastro_produtos" />);
     expect(cad.container.querySelector('.child-cadastro')).toBeTruthy();
     expect(cad.container.textContent).toContain('Curadoria'); // overline
     cad.unmount();

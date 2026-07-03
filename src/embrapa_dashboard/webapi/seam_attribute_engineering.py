@@ -47,11 +47,11 @@ CUR_LEVELS = (
 
 
 @cache.memoize()
-def _code_to_commodity() -> dict:
-    """{(source, code) -> commodity_id} reverse index of the crosswalk, for
+def _code_to_agrupamento() -> dict:
+    """{(source, code) -> agrupamento_id} reverse index of the crosswalk, for
     grouping the worklist by commodity."""
     idx: dict = {}
-    for cid, c in seam_base.commodity_catalog().items():
+    for cid, c in seam_base.produto_catalog().items():
         for src_key, source in (
             ("pevs", "ibge_pevs"),
             ("comex", "mdic_comex"),
@@ -95,7 +95,7 @@ def curation_worklist() -> dict:
     """The classification worklist = the CURADORIA CATALOG entries ⟕ current levels.
 
     Reads the SAME live commodity catalog the "Cadastro de commodities" editor uses
-    (``seam_curation.catalog_worklist`` → the append-only ``commodity_catalog_log``,
+    (``seam_curation.catalog_worklist`` → the append-only ``produto_catalog_log``,
     latest-wins active), so the two features stay in lock-step: identical
     banco+código+descrição+agrupamento, and any catalog edit (a new/renamed/moved/removed
     commodity or group) propagates here automatically. Each catalog entry carries its
@@ -110,16 +110,16 @@ def curation_worklist() -> dict:
         src = seam_curation._BANCO_TO_SOURCE.get(e.get("banco"))
         if src is None:
             continue
-        code = str(e["codigo_commodity"])
+        code = str(e["codigo_produto"])
         rows.append(
             {
                 "source": src,
                 "code": code,
                 # Source's original product name (parity with the catalog's "Descrição
                 # (fonte)" column); fall back to the researcher description, then the code.
-                "name": e.get("descricao_fonte") or e.get("descricao_commodity") or code,
-                "commodity": e.get("commodity_id"),
-                "commodity_name": e.get("agrupamento"),
+                "name": e.get("descricao_fonte") or e.get("descricao_produto") or code,
+                "commodity": e.get("agrupamento_id"),
+                "agrupamento_nome": e.get("agrupamento"),
                 "level": levels.get((src, code)),
             }
         )
@@ -149,12 +149,12 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
     )
 
 
-def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
+def value_added(agrupamento_id: str | None = None, uf_codes: tuple = ()) -> dict:
     """COMEX exports split by the curated industrialization LEVEL over the years.
 
     For each mdic_comex code currently classified into one of the 8 levels, sum its
     annual export value (US$ bi) + weight (mil t) into that level. Real data, but
-    empty until codes are classified in Engenharia de Atributos. ``commodity_id``
+    empty until codes are classified in Engenharia de Atributos. ``agrupamento_id``
     optionally scopes to one crosswalk commodity. Composes existing readers — no new
     BFF SQL.
 
@@ -168,7 +168,7 @@ def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
     ordinal order), the latest-year processing premium (price of the most-processed
     present level ÷ the least-processed present level) and the predominant level.
     """
-    by_level = _value_added_codes_by_level(commodity_id)
+    by_level = _value_added_codes_by_level(agrupamento_id)
     acc, n = _value_added_accumulate(by_level, uf_codes)
     series = [_value_added_series_point(y, acc[y]) for y in sorted(acc)]
     present = [lvl for lvl in CUR_LEVELS if any(lvl in pt["levels"] for pt in series)]
@@ -182,13 +182,13 @@ def value_added(commodity_id: str | None = None, uf_codes: tuple = ()) -> dict:
     }
 
 
-def _value_added_codes_by_level(commodity_id: str | None) -> dict[str, list[str]]:
+def _value_added_codes_by_level(agrupamento_id: str | None) -> dict[str, list[str]]:
     """Group currently-classified COMEX codes by industrialization level (scoped).
 
     Only mdic_comex codes whose level is one of the 8 CUR_LEVELS are kept; a code
     classified to some other free-text value is ignored by the analysis (but still
     stored). Returns only the levels that actually have codes."""
-    scope = set(seam_base._codes(commodity_id, "comex")) if commodity_id else None
+    scope = set(seam_base._codes(agrupamento_id, "comex")) if agrupamento_id else None
     valid = set(CUR_LEVELS)
     by_level: dict[str, list[str]] = {}
     for (src, code), lvl in _current_code_levels().items():
@@ -281,12 +281,12 @@ def _value_added_predominant(point: dict) -> dict | None:
 # comtrade_market_nature seed (Contrato de Dados), carried into serving_comtrade_annual as
 # the market_nature column. The analysis just sums the serving mart by that column, scoped
 # to a commodity's HS codes — pairs with no economic-purpose mapping are simply absent.
-def market_nature(commodity_id: str | None = None) -> dict:
+def market_nature(agrupamento_id: str | None = None) -> dict:
     """COMTRADE trade value (US$ bi) by economic purpose (consumo/processamento) over the
     years, optionally scoped to ONE commodity's HS codes. Seed-classified per
     (customs procedure × flow); the serving mart pre-carries the market_nature column."""
-    if commodity_id:
-        codes = tuple(seam_base._codes(commodity_id, "comtrade"))
+    if agrupamento_id:
+        codes = tuple(seam_base._codes(agrupamento_id, "comtrade"))
         if not codes:
             # The commodity exists but has no COMTRADE (HS) codes → no global trade to
             # split. Return empty rather than the unscoped all-commodities total.

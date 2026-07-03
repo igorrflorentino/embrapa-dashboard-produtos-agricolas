@@ -2,7 +2,7 @@
 
 The comparable cross-metric series + the four crosswalk-joined analytical
 perspectives (market share, export coefficient, price spread, trade mirror). They
-map the SAME commodity across PEVS / NCM / HS6 via gold_commodity_crosswalk, then
+map the SAME commodity across PEVS / NCM / HS6 via gold_produto_agrupamento, then
 compose existing ``serving.gateway`` readers filtered to that commodity's codes —
 pure composition, no new BFF SQL beyond the crosswalk read (in ``seam_base``).
 
@@ -164,8 +164,8 @@ def _pevs_mass_by_year(pevs_codes: tuple) -> dict:
 
 
 @cache.memoize()
-def _pevs_family_by_commodity() -> dict:
-    """commodity_id -> set of PEVS physical-unit families (massa/volume/...).
+def _pevs_family_by_agrupamento() -> dict:
+    """agrupamento_id -> set of PEVS physical-unit families (massa/volume/...).
 
     Sourced from ``gold_pevs_production.family``. The ``'*'`` key holds every
     family present in PEVS — the basis of the "Cesta completa" / no-filter
@@ -175,9 +175,9 @@ def _pevs_family_by_commodity() -> dict:
     """
     s = get_settings()
     pevs = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_pevs_production")
-    xwalk = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_commodity_crosswalk")
+    xwalk = sqlbuild.table_ref(s, "bq_gold_dataset", "gold_produto_agrupamento")
     q = f"""
-        select x.commodity_id as cid, p.family as family
+        select x.agrupamento_id as cid, p.family as family
         from `{xwalk}` x
         join `{pevs}` p on x.source = 'pevs' and p.product_code = x.code
         group by cid, family
@@ -190,15 +190,15 @@ def _pevs_family_by_commodity() -> dict:
     return idx
 
 
-def _is_mass_basis(commodity_id: str | None) -> bool:
+def _is_mass_basis(agrupamento_id: str | None) -> bool:
     """True iff the PEVS side of this selection is purely mass (t) — the
     precondition for comparing PEVS production against COMEX shipment weight (kg).
     Volume commodities (madeira, m³) and the mixed "Cesta completa" return False."""
-    fams = _pevs_family_by_commodity().get(commodity_id or "*", set())
+    fams = _pevs_family_by_agrupamento().get(agrupamento_id or "*", set())
     return fams == {"massa"}
 
 
-def commodity_catalog_with_family() -> dict:
+def produto_catalog_with_family() -> dict:
     """The commodity catalog, each commodity TAGGED with its PEVS physical-unit
     family ('massa'/'volume'/… pt-BR, or None when it has no single PEVS family).
 
@@ -210,9 +210,9 @@ def commodity_catalog_with_family() -> dict:
     Composes two cached reads (catalog + family index); kept un-memoized so a warm
     instance always reflects their own TTL refresh instead of pinning a stale merge.
     """
-    fams = _pevs_family_by_commodity()
+    fams = _pevs_family_by_agrupamento()
     out: dict = {}
-    for cid, c in seam_base.commodity_catalog().items():
+    for cid, c in seam_base.produto_catalog().items():
         fset = fams.get(cid, set())
         out[cid] = {**c, "family": next(iter(fset)) if len(fset) == 1 else None}
     return out
@@ -244,18 +244,18 @@ def _market_share_latest(comex_codes: tuple, comtrade_codes: tuple) -> float | N
     return (b[ly] / w[ly] * 100) if w[ly] else 0
 
 
-def market_share(commodity_id: str | None) -> dict:
+def market_share(agrupamento_id: str | None) -> dict:
     """BR exports (COMEX) / world exports (COMTRADE), per year + per commodity."""
-    comex_codes = seam_base._codes(commodity_id, "comex")
-    comtrade_codes = seam_base._codes(commodity_id, "comtrade")
+    comex_codes = seam_base._codes(agrupamento_id, "comex")
+    comtrade_codes = seam_base._codes(agrupamento_id, "comtrade")
     series = []
     # Guard (mirrors market_nature): a scoped commodity missing codes for either
     # source must yield an EMPTY series — an empty tuple means "no filter" to the
     # readers, which would silently serve the ALL-commodities totals as if scoped.
-    if not commodity_id or (comex_codes and comtrade_codes):
+    if not agrupamento_id or (comex_codes and comtrade_codes):
         series = _market_share_series(comex_codes, comtrade_codes)
     by_product = []
-    for cid, c in seam_base.commodity_catalog().items():
+    for cid, c in seam_base.produto_catalog().items():
         if not (c["comex"] and c["comtrade"]):
             continue  # same guard per commodity — never the unscoped totals
         share = _market_share_latest(tuple(c["comex"]), tuple(c["comtrade"]))
@@ -265,9 +265,9 @@ def market_share(commodity_id: str | None) -> dict:
     return {"unit": "US$ bi", "series": series, "by_product": by_product}
 
 
-def export_coefficient(commodity_id: str | None) -> dict:
+def export_coefficient(agrupamento_id: str | None) -> dict:
     """Share of each UF's production (PEVS, mass) that is exported (COMEX weight)."""
-    if not _is_mass_basis(commodity_id):
+    if not _is_mass_basis(agrupamento_id):
         # Volume commodity (m³) or mixed basket: exported-kg ÷ produced-m³ is not a
         # share. Refuse rather than print a dimensionless-nonsense percentage.
         return {
@@ -277,9 +277,9 @@ def export_coefficient(commodity_id: str | None) -> dict:
             "national": {},
             "timeseries": [],
         }
-    pevs_codes = seam_base._codes(commodity_id, "pevs")
-    ncms = seam_base._codes(commodity_id, "comex")
-    if commodity_id and not (pevs_codes and ncms):
+    pevs_codes = seam_base._codes(agrupamento_id, "pevs")
+    ncms = seam_base._codes(agrupamento_id, "comex")
+    if agrupamento_id and not (pevs_codes and ncms):
         # Commodity has no codes for a needed source: empty payload, never the
         # unscoped ALL-commodities totals (empty codes mean "no filter").
         return {"unit": "mil t", "by_uf": [], "national": {}, "timeseries": []}
@@ -382,22 +382,22 @@ def _gate_price_by_year(pevs_codes: tuple, uf_codes: tuple = ()) -> dict:
     return {int(y): (row.v / (row.q * 1000)) if row.q else 0 for y, row in g.iterrows()}
 
 
-def price_spread(commodity_id: str | None, uf_codes: tuple = ()) -> dict:
+def price_spread(agrupamento_id: str | None, uf_codes: tuple = ()) -> dict:
     """Farm-gate implied price (PEVS, US$/kg) vs FOB export price (COMEX, US$/kg).
 
     ``uf_codes`` optionally narrows BOTH sides to the same origin UF(s) — the
     porteira-vs-FOB spread for a single state (cross-source per-UF scoping)."""
-    if not _is_mass_basis(commodity_id):
+    if not _is_mass_basis(agrupamento_id):
         # Gate price = PEVS value ÷ PEVS quantity; for a volume commodity that is
         # US$/m³, not the US$/kg the FOB price uses — markup/spread would be invalid.
         return {"unit": "US$/kg", "incompatible": True, "series": []}
-    ncms = seam_base._codes(commodity_id, "comex")
-    if commodity_id and not ncms:
+    ncms = seam_base._codes(agrupamento_id, "comex")
+    if agrupamento_id and not ncms:
         # No NCM codes for this commodity: empty payload, never the unscoped
         # ALL-commodities FOB price (empty codes mean "no filter" to the reader).
         return {"unit": "US$/kg", "series": []}
     fob = _fob_price_by_year(ncms, uf_codes)
-    gate = _gate_price_by_year(seam_base._codes(commodity_id, "pevs"), uf_codes)
+    gate = _gate_price_by_year(seam_base._codes(agrupamento_id, "pevs"), uf_codes)
     series = [
         {
             "y": y,
@@ -411,11 +411,11 @@ def price_spread(commodity_id: str | None, uf_codes: tuple = ()) -> dict:
     return {"unit": "US$/kg", "series": series}
 
 
-def trade_mirror(commodity_id: str | None) -> dict:
+def trade_mirror(agrupamento_id: str | None) -> dict:
     """The same BR exports seen by MDIC (COMEX) vs UN Comtrade (reporter = Brazil)."""
-    comex_codes = seam_base._codes(commodity_id, "comex")
-    comtrade_codes = seam_base._codes(commodity_id, "comtrade")
-    if commodity_id and not (comex_codes and comtrade_codes):
+    comex_codes = seam_base._codes(agrupamento_id, "comex")
+    comtrade_codes = seam_base._codes(agrupamento_id, "comtrade")
+    if agrupamento_id and not (comex_codes and comtrade_codes):
         # Missing codes for one side: empty payload, never a "mirror" of the
         # unscoped ALL-commodities totals (empty codes mean "no filter").
         return {"unit": "US$ bi", "series": [], "discrepancy": []}

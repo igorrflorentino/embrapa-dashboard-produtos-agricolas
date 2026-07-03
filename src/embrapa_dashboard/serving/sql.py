@@ -351,13 +351,13 @@ def visibility_clause(settings, source_short: str, code_column: str) -> str:
     """The F7 Ciclo-de-Vida visibility gate, as a NOT EXISTS predicate — for the
     gateway's DIRECT-Gold readers (município drill-down, quality timeseries/by-product),
     which bypass the gated serving marts. Excludes any Gold row whose code matches a
-    commodity a researcher marked "indisponível" (``dim_commodity_visibility``) — the SAME
+    commodity a researcher marked "indisponível" (``dim_produto_visibility``) — the SAME
     single source of truth as the dbt ``hidden_code_predicate`` macro, never re-derived.
     ``source_short`` is the short banco token (pevs/pam/ppm/comex/comtrade); ``code_column``
     is this Gold table's product/NCM/HS code. A no-op while the view is empty (nothing
     hidden). Identifiers come from fixed gateway maps (never user input) → injection-safe.
     """
-    vis = table_ref(settings, "bq_gold_dataset", "dim_commodity_visibility")
+    vis = table_ref(settings, "bq_gold_dataset", "dim_produto_visibility")
     return (
         f"not exists (select 1 from `{vis}` v "
         f"where v.source = '{source_short}' and {code_column} = v.code)"
@@ -1264,7 +1264,7 @@ def raw_table_rows(
     (gateway.fetch_table_rows). ``columns_types`` is the table's live schema ``{name: bq_type}``;
     order-by + filter columns are validated against it (the schema IS the allowlist) and filter
     values stay bound. ``visibility_predicate`` is the F7 gate (a NOT EXISTS over
-    dim_commodity_visibility built by visibility_clause from fixed maps — injection-safe); when
+    dim_produto_visibility built by visibility_clause from fixed maps — injection-safe); when
     given it is ANDed in so a commodity marked indisponível never appears in the raw browse."""
     conditions: list[str] = []
     params: list = []

@@ -17,7 +17,7 @@ from google.api_core.exceptions import NotFound
 
 from embrapa_dashboard.serving import gateway
 
-COMMODITY_CATALOG_RESOURCE = "commodity_catalog"
+PRODUTO_CATALOG_RESOURCE = "produto_catalog"
 
 
 def _clean(x):
@@ -46,7 +46,7 @@ def catalog_worklist(banco: str | None = None) -> dict:
     the lead's per-Agrupamento edit grain. Empty (not an error) before the catalog
     exists, so the editor renders before the first write."""
     try:
-        df = gateway.fetch_commodity_catalog(banco)
+        df = gateway.fetch_produto_catalog(banco)
     except NotFound:
         # Log table genuinely absent (no catalog yet) — render empty. Any OTHER error
         # propagates instead of being masked as "not configured".
@@ -55,12 +55,12 @@ def catalog_worklist(banco: str | None = None) -> dict:
         return {"entries": [], "total": 0, "by_agrupamento": []}
     entries = [
         {
-            "codigo_commodity": str(r.codigo_commodity),
+            "codigo_produto": str(r.codigo_produto),
             "banco": r.banco,
             "agrupamento": _clean(r.agrupamento),
-            "descricao_commodity": _clean(r.descricao_commodity),
+            "descricao_produto": _clean(r.descricao_produto),
             "ciclo_de_vida": _clean(r.ciclo_de_vida),
-            "commodity_id": _clean(r.commodity_id),
+            "agrupamento_id": _clean(r.agrupamento_id),
         }
         for r in df.itertuples()
     ]
@@ -80,7 +80,7 @@ def catalog_worklist(banco: str | None = None) -> dict:
         if pdf is not None and not pdf.empty:
             source_names[b] = {str(p.code): p.name for p in pdf.itertuples()}
     for e in entries:
-        e["descricao_fonte"] = source_names.get(e["banco"], {}).get(e["codigo_commodity"])
+        e["descricao_fonte"] = source_names.get(e["banco"], {}).get(e["codigo_produto"])
     groups: dict = {}
     for e in entries:
         groups.setdefault(e["agrupamento"] or "—", []).append(e)
@@ -121,14 +121,14 @@ def catalog_status() -> dict:
     import collections
 
     try:
-        df = gateway.fetch_commodity_catalog(None)
+        df = gateway.fetch_produto_catalog(None)
     except NotFound:
         return {"status": {}}
     if df is None or df.empty:
         return {"status": {}}
     by_banco: dict[str, set] = collections.defaultdict(set)
     for r in df.itertuples():
-        by_banco[r.banco].add(str(r.codigo_commodity))
+        by_banco[r.banco].add(str(r.codigo_produto))
     status: dict[str, dict] = {}
     for banco, codes in by_banco.items():
         try:
@@ -162,20 +162,20 @@ def record_catalog_entry(payload: dict) -> dict:
     from embrapa_dashboard.serving import curation
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.record_commodity_catalog(
-        payload.get("codigo_commodity"),
+    return curation.record_produto_catalog(
+        payload.get("codigo_produto"),
         payload.get("banco"),
         headers,
         agrupamento=payload.get("agrupamento"),
-        descricao_commodity=payload.get("descricao_commodity"),
+        descricao_produto=payload.get("descricao_produto"),
         ciclo_de_vida=payload.get("ciclo_de_vida"),
-        commodity_id=payload.get("commodity_id"),
+        agrupamento_id=payload.get("agrupamento_id"),
         change_id=payload.get("change_id"),
     )
 
 
 def remove_catalog_entry(payload: dict) -> dict:
-    """Append an active=false tombstone for one (codigo_commodity, banco) — the entry
+    """Append an active=false tombstone for one (codigo_produto, banco) — the entry
     leaves the catalog (NON-destructive: the Gold data becomes an orphan, never
     auto-deleted). Author from the IAP header."""
     from flask import has_request_context, request
@@ -183,8 +183,8 @@ def remove_catalog_entry(payload: dict) -> dict:
     from embrapa_dashboard.serving import curation
 
     headers = dict(request.headers) if has_request_context() else {}
-    return curation.remove_commodity_catalog(
-        payload.get("codigo_commodity"),
+    return curation.remove_produto_catalog(
+        payload.get("codigo_produto"),
         payload.get("banco"),
         headers,
         change_id=payload.get("change_id"),
@@ -196,7 +196,7 @@ def group_worklist() -> dict:
     of active catalog members (0 = an empty group; the UI blocks deleting a non-empty
     one). Backs the group-management UI. Empty (not an error) before the registry exists."""
     try:
-        df = gateway.fetch_commodity_groups()
+        df = gateway.fetch_agrupamentos()
     except NotFound:
         return {"groups": [], "total": 0}
     if df is None or df.empty:
@@ -217,10 +217,10 @@ def record_group(payload: dict) -> dict:
     header. Raises ValueError on a bad/duplicate name (→ HTTP 400)."""
     from flask import has_request_context, request
 
-    from embrapa_dashboard.serving import commodity_groups
+    from embrapa_dashboard.serving import agrupamentos
 
     headers = dict(request.headers) if has_request_context() else {}
-    return commodity_groups.record_group(
+    return agrupamentos.record_group(
         payload.get("group_name"),
         headers,
         group_id=payload.get("group_id"),
@@ -233,17 +233,17 @@ def remove_group(payload: dict) -> dict:
     from the IAP header. Raises ValueError (→ HTTP 400) when non-empty or absent."""
     from flask import has_request_context, request
 
-    from embrapa_dashboard.serving import commodity_groups
+    from embrapa_dashboard.serving import agrupamentos
 
     headers = dict(request.headers) if has_request_context() else {}
-    return commodity_groups.delete_group(
+    return agrupamentos.delete_group(
         payload.get("group_id"),
         headers,
         change_id=payload.get("change_id"),
     )
 
 
-def catalog_editor_emails(resource: str = COMMODITY_CATALOG_RESOURCE) -> set[str]:
+def catalog_editor_emails(resource: str = PRODUTO_CATALOG_RESOURCE) -> set[str]:
     """Lowercased editor emails authorized for a catalog resource; empty set when the
     allowlist table is absent (open by default). Any OTHER error propagates — a
     transient BQ/permission fault must NOT silently widen the gate to everyone."""
@@ -265,7 +265,7 @@ def orphan_worklist() -> dict:
     from embrapa_dashboard.serving.catalog_lifecycle import PURGE_WARNING
 
     try:
-        orphans = gateway.fetch_orphan_commodities()
+        orphans = gateway.fetch_orphan_produtos()
     except NotFound:
         orphans = None
     if orphans is None or orphans.empty:
@@ -281,11 +281,11 @@ def orphan_worklist() -> dict:
         status = {}
     rows = []
     for o in orphans.itertuples():
-        code = str(o.codigo_commodity)
+        code = str(o.codigo_produto)
         st = status.get(("commodity", o.banco, code))
         rows.append(
             {
-                "codigo_commodity": code,
+                "codigo_produto": code,
                 "banco": o.banco,
                 "agrupamento": _clean(o.agrupamento),
                 # Honor the recorded status: a re-orphaned, already-purged code reads

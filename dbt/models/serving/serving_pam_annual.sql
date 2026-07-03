@@ -76,24 +76,24 @@ pam_codes as (
 
 ),
 
--- Cross-source commodity linkage. gold_commodity_crosswalk can NEVER emit
+-- Cross-source commodity linkage. gold_produto_agrupamento can NEVER emit
 -- source='pam' rows — its source_codes CTE only scans the PEVS/COMEX/COMTRADE
 -- facts, and its accepted_values tests reject 'pam' — so the code linkage is
 -- replicated here, directly against the PAM codes in this mart. Cataloguing a 'pam'
--- commodity in the editable Curadoria catalog (research_inputs.commodity_catalog_log →
--- dim_commodity_catalog; the retired commodity_crosswalk seed's successor) is then enough
--- to light up commodity_id/commodity_name. With no pam commodity catalogued yet, both
+-- commodity in the editable Curadoria catalog (research_inputs.produto_catalog_log →
+-- dim_produto_catalog; the retired commodity_crosswalk seed's successor) is then enough
+-- to light up agrupamento_id/agrupamento_nome. With no pam commodity catalogued yet, both
 -- columns come out NULL (the dashboard handles NULL commodity).
 pam_xwalk as (
 
     select distinct
-        x.commodity_id,
-        x.commodity_name,
+        x.agrupamento_id,
+        x.agrupamento_nome,
         c.product_code as code
     from pam_codes c
-    join {{ ref('dim_commodity_catalog') }} x
+    join {{ ref('dim_produto_catalog') }} x
         on x.source = 'pam'
-        and c.product_code = x.codigo_commodity
+        and c.product_code = x.codigo_produto
 
 )
 
@@ -104,8 +104,8 @@ select
     g.state_name,
     g.region,
     g.region_abbrev,
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     p.product_code,
     p.product_description,
     p.family,

@@ -1,7 +1,7 @@
 {{ config(materialized='table') }}
 
 -- ────────────────────────────────────────────────────────────────────────────
--- gold_commodity_crosswalk — cross-source product bridge (RESOLVED to exact codes).
+-- gold_produto_agrupamento — cross-source product bridge (RESOLVED to exact codes).
 --
 -- The same physical commodity wears a different code in each source: PEVS uses
 -- an extractive-product code, COMEX an 8-digit NCM, COMTRADE a 6-digit HS. Every
@@ -10,16 +10,16 @@
 -- and that link is domain knowledge, not a SELECT DISTINCT.
 --
 -- The editable Curadoria catalog registers each commodity by its EXACT source code
--- (`codigo_commodity`; no prefixes). This model joins those codes to the codes that
+-- (`codigo_produto`; no prefixes). This model joins those codes to the codes that
 -- actually appear in each Gold fact table, emitting exact (source, code) → commodity
 -- rows so a consumer joins on equality. A Gold code not in the catalog is simply
 -- absent here → "unlinked" (graceful degradation), never an error.
 --
 -- Grain: one row per (source, code). source ∈ {pevs, comex, comtrade}.
 --
--- ⚠ INVARIANT (load-bearing): (codigo_commodity, source) is unique in the catalog, and
--- the join below is a plain equality `code = codigo_commodity`, so a Gold code resolves
--- to AT MOST one commodity_id — the cross-source LEFT JOIN in the serving marts cannot
+-- ⚠ INVARIANT (load-bearing): (codigo_produto, source) is unique in the catalog, and
+-- the join below is a plain equality `code = codigo_produto`, so a Gold code resolves
+-- to AT MOST one agrupamento_id — the cross-source LEFT JOIN in the serving marts cannot
 -- FAN OUT and double any qty_base/val_* sum. The `dbt_utils.unique_combination_of_columns`
 -- test on (source, code) in _gold.yml is the build-time guard that trips if this is ever
 -- broken (e.g. the same code cataloged under two commodities).
@@ -27,10 +27,10 @@
 
 with xwalk as (
 
-    -- The editable Curadoria catalog (dim_commodity_catalog), the SOT that replaced
-    -- the commodity_crosswalk seed. Each row is one exact (source, codigo_commodity).
-    select commodity_id, commodity_name, source, codigo_commodity
-    from {{ ref('dim_commodity_catalog') }}
+    -- The editable Curadoria catalog (dim_produto_catalog), the SOT that replaced
+    -- the commodity_crosswalk seed. Each row is one exact (source, codigo_produto).
+    select agrupamento_id, agrupamento_nome, source, codigo_produto
+    from {{ ref('dim_produto_catalog') }}
 
 ),
 
@@ -41,7 +41,7 @@ source_codes as (
     -- nothing (they are RESERVED for when PAM cross-source linkage is wired in,
     -- not a bug). Enabling it is a coordinated change: union gold_pam_production
     -- below, add 'pam' to the accepted_values test in _gold.yml, AND add a 'pam'
-    -- bucket to commodity_catalog in webapi/seam_base.py (which would KeyError on
+    -- bucket to produto_catalog in webapi/seam_base.py (which would KeyError on
     -- an unexpected source). Until then PAM does not participate in the
     -- market-share / export-coefficient / price-spread cross-source views.
     select distinct 'pevs' as source, product_code as code
@@ -56,11 +56,11 @@ source_codes as (
 )
 
 select distinct
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     c.source,
     c.code
 from source_codes c
 join xwalk x
     on c.source = x.source
-    and c.code = x.codigo_commodity
+    and c.code = x.codigo_produto

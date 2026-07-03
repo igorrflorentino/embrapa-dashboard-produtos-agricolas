@@ -529,8 +529,8 @@ function AppShell({
               orphan→Descontinuado lifecycle + human-gated purge live server-side. This is the only
               UI entry point for the live catalog editor, so keep it OUT of the FROZEN block below. */}
           <div className="side-section">Curadoria</div>
-          <div className={'side-item ' + (infoPage === 'cadastro_commodities' ? 'active' : '')}
-               {...clickable(() => onInfo('cadastro_commodities'))}>
+          <div className={'side-item ' + (infoPage === 'cadastro_produtos' ? 'active' : '')}
+               {...clickable(() => onInfo('cadastro_produtos'))}>
             <window.Icon name="inventory_2"/>Cadastro de produtos
           </div>
 

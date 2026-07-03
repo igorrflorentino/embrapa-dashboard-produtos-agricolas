@@ -6,7 +6,7 @@ models:
       Pre-aggregated PEVS mart (Pushdown Computing serving layer). Gold rolled
       from year×UF×city×product up to year×UF×product×family — the municipality
       grain dropped — so the dashboard scans MB, not GB. Backs overviewTS /
-      productTS / ufData. Carries the cross-source commodity_id (from the crosswalk).
+      productTS / ufData. Carries the cross-source agrupamento_id (from the crosswalk).
       Monetary measures: nominal + real IPCA in all three currencies (BRL/USD/EUR);
       real IGP-M / IGP-DI in BRL and EUR only. The IGP-M/IGP-DI × USD combos are
       deliberately NOT materialized — the serving allowlist (sql.ALLOWED_VALUE_COLUMNS)
@@ -29,7 +29,7 @@ models:
       - name: family
         description: "Physical-unit family. qty_base is summed WITHIN a family — never across."
         tests: [not_null]
-      - name: commodity_id
+      - name: agrupamento_id
         description: "Cross-source commodity slug (NULL when the product is unlinked)."
 
   - name: serving_pam_annual

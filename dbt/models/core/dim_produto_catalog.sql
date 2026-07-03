@@ -1,20 +1,20 @@
 {{ config(materialized='view') }}
 
 -- ────────────────────────────────────────────────────────────────────────────
--- dim_commodity_catalog — the CURRENT commodity catalog (Curadoria).
+-- dim_produto_catalog — the CURRENT commodity catalog (Curadoria).
 --
 -- The editable successor to the version-controlled `commodity_crosswalk` seed: the
 -- researcher-managed catalog of which commodities are in the dashboard and their
 -- agrupamento (cross-source concept). Each commodity is registered by its EXACT
--- source code (`codigo_commodity`; no prefixes). Written append-only by the
+-- source code (`codigo_produto`; no prefixes). Written append-only by the
 -- dashboard's admin editor (the Python data-access layer, never dbt) to
--- research_inputs.commodity_catalog_log; this view derives the CURRENT catalog = the
--- latest row per (codigo_commodity, banco), keeping only active rows (a row with
+-- research_inputs.produto_catalog_log; this view derives the CURRENT catalog = the
+-- latest row per (codigo_produto, banco), keeping only active rows (a row with
 -- active=false is a tombstone — the entry has LEFT the catalog, so its Gold data
 -- becomes an orphan, handled non-destructively downstream).
 --
--- Exposes (commodity_id, commodity_name, source, codigo_commodity) — the consumers
--- (gold_commodity_crosswalk + serving_{pam,ppm}_annual) join on `code = codigo_commodity`
+-- Exposes (agrupamento_id, agrupamento_nome, source, codigo_produto) — the consumers
+-- (gold_produto_agrupamento + serving_{pam,ppm}_annual) join on `code = codigo_produto`
 -- (equality; no LIKE-prefix expansion).
 --
 -- Materialized as a VIEW on purpose: the log is small and a fresh admin edit is then
@@ -25,26 +25,26 @@
 -- the first write / the cutover backfill; a fresh project must backfill it (fail loud
 -- if absent — never silently fall back to the retired seed).
 --
--- ⚠ Grain: one row per (codigo_commodity, banco). Because every code is exact (no
+-- ⚠ Grain: one row per (codigo_produto, banco). Because every code is exact (no
 -- prefixes), a Gold code resolves to AT MOST one commodity, so the cross-source join
 -- cannot fan out — guarded at build time by the unique_combination_of_columns(source,
--- code) test on gold_commodity_crosswalk.
+-- code) test on gold_produto_agrupamento.
 -- ────────────────────────────────────────────────────────────────────────────
 
 with log as (
 
     select
-        codigo_commodity,
+        codigo_produto,
         banco,
         agrupamento,
-        descricao_commodity,
+        descricao_produto,
         ciclo_de_vida,
-        commodity_id,
+        agrupamento_id,
         active,
         edited_by,
         edited_at,
         change_id
-    from {{ source('research_inputs', 'commodity_catalog_log') }}
+    from {{ source('research_inputs', 'produto_catalog_log') }}
 
 ),
 
@@ -53,7 +53,7 @@ current_catalog as (
     select
         *,
         row_number() over (
-            partition by codigo_commodity, banco
+            partition by codigo_produto, banco
             order by edited_at desc, change_id desc
         ) as _rn
     from log
@@ -61,11 +61,11 @@ current_catalog as (
 )
 
 select
-    commodity_id,
-    agrupamento     as commodity_name,
+    agrupamento_id,
+    agrupamento     as agrupamento_nome,
     banco           as source,
-    codigo_commodity,
-    descricao_commodity,
+    codigo_produto,
+    descricao_produto,
     ciclo_de_vida,
     edited_by,
     edited_at

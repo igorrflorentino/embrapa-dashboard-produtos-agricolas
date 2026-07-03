@@ -1,4 +1,4 @@
-// ViewCadastroCommodities — the Curadoria (catalog) editor: what ENTERS and EXITS the
+// ViewCadastroProdutos — the Curadoria (catalog) editor: what ENTERS and EXITS the
 // dashboard. Each commodity is registered by its EXACT source code (código+banco; no
 // prefixes), points at one AGRUPAMENTO (first-class registry — create/rename/delete +
 // inline move) and carries a Ciclo de Vida (in/out). The add form validates that the code
@@ -26,8 +26,8 @@ const _CC_BANCOS = [
 ];
 const _CC_BANCO_LABEL = Object.fromEntries(_CC_BANCOS.map((b) => [b.v, b.label]));
 const _CC_EMPTY_DRAFT = {
-  codigo_commodity: '', banco: 'comex', commodity_id: '',
-  descricao_commodity: '', ciclo_de_vida: _CC_CICLO[0].v,
+  codigo_produto: '', banco: 'comex', agrupamento_id: '',
+  descricao_produto: '', ciclo_de_vida: _CC_CICLO[0].v,
 };
 
 function _ccCicloShort(v) {
@@ -53,7 +53,7 @@ function CcGroupSelect({ value, onChange, placeholder, groups, busy }) {
   );
 }
 
-function ViewCadastroCommodities() {
+function ViewCadastroProdutos() {
   const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null });
   const [statusMap, setStatusMap] = useCcState({}); // "banco:code" -> {n_rows, year_start, year_end, has_data}
   const [status, setStatus] = useCcState(null); // { kind: 'ok' | 'err', msg }
@@ -129,20 +129,20 @@ function ViewCadastroCommodities() {
   };
 
   const saveEntry = (entry) =>
-    run(() => post('/api/catalog/entry', entry), `Commodity ${entry.codigo_commodity} salva.`);
+    run(() => post('/api/catalog/entry', entry), `Commodity ${entry.codigo_produto} salva.`);
 
   const removeEntry = (e) => {
-    if (!window.confirm(`Remover ${e.codigo_commodity} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro? Os dados já baixados ficam órfãos (não são apagados automaticamente).`)) return;
-    run(() => post('/api/catalog/entry/remove', { codigo_commodity: e.codigo_commodity, banco: e.banco }),
-      `Commodity ${e.codigo_commodity} marcada como descontinuada.`);
+    if (!window.confirm(`Remover ${e.codigo_produto} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro? Os dados já baixados ficam órfãos (não são apagados automaticamente).`)) return;
+    run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco }),
+      `Commodity ${e.codigo_produto} marcada como descontinuada.`);
   };
 
   // Move a commodity to a DIFFERENT agrupamento (membership change) — re-upserts with the
   // target group's id + name, so it re-groups on reload.
   const moveEntry = (e, groupId) => {
     const g = data.groups.find((x) => x.group_id === groupId);
-    if (!g || g.group_id === e.commodity_id) return;
-    saveEntry({ ...e, commodity_id: g.group_id, agrupamento: g.group_name });
+    if (!g || g.group_id === e.agrupamento_id) return;
+    saveEntry({ ...e, agrupamento_id: g.group_id, agrupamento: g.group_name });
   };
 
   // ── Agrupamento (group) management — the first-class registry ──────────────────
@@ -169,7 +169,7 @@ function ViewCadastroCommodities() {
 
   // Per-Agrupamento lifecycle (the lead's edit grain): set Ciclo de Vida for every member.
   const setCicloForGroup = (g, ciclo) => {
-    const members = data.entries.filter((e) => e.commodity_id === g.group_id);
+    const members = data.entries.filter((e) => e.agrupamento_id === g.group_id);
     run(async () => {
       let done = 0;
       try {
@@ -193,24 +193,24 @@ function ViewCadastroCommodities() {
   // Only judge the code against the CURRENTLY-loaded banco's codes — otherwise, in the
   // paint right after a banco switch (before the codes reload), a code from the previous
   // banco could flash a false ✓ / enable Salvar.
-  const codeMatch = (draft.codigo_commodity && codeLoadedForBanco)
-    ? codeIndex.has(draft.codigo_commodity) : null;
-  const groupChosen = !!data.groups.find((x) => x.group_id === draft.commodity_id);
-  const canSubmit = !!draft.codigo_commodity && groupChosen && codeMatch === true && !busy;
+  const codeMatch = (draft.codigo_produto && codeLoadedForBanco)
+    ? codeIndex.has(draft.codigo_produto) : null;
+  const groupChosen = !!data.groups.find((x) => x.group_id === draft.agrupamento_id);
+  const canSubmit = !!draft.codigo_produto && groupChosen && codeMatch === true && !busy;
 
   const submitAdd = async () => {
-    if (!draft.codigo_commodity || !draft.banco) {
+    if (!draft.codigo_produto || !draft.banco) {
       setStatus({ kind: 'err', msg: 'Código da commodity e banco são obrigatórios (formam a chave).' });
       return;
     }
-    const g = data.groups.find((x) => x.group_id === draft.commodity_id);
+    const g = data.groups.find((x) => x.group_id === draft.agrupamento_id);
     if (!g) {
       setStatus({ kind: 'err', msg: 'Escolha um agrupamento (ou crie um novo acima).' });
       return;
     }
     // Existence guard (the server enforces this too — belt and suspenders).
-    if (codeLoadedForBanco && !codeIndex.has(draft.codigo_commodity)) {
-      setStatus({ kind: 'err', msg: `O código ${draft.codigo_commodity} não existe em ${_CC_BANCO_LABEL[draft.banco]}. Use um código real da fonte.` });
+    if (codeLoadedForBanco && !codeIndex.has(draft.codigo_produto)) {
+      setStatus({ kind: 'err', msg: `O código ${draft.codigo_produto} não existe em ${_CC_BANCO_LABEL[draft.banco]}. Use um código real da fonte.` });
       return;
     }
     // Reset + close ONLY on a successful write; a 400/403 keeps the form open with the
@@ -224,11 +224,11 @@ function ViewCadastroCommodities() {
 
   // Registry groups, sorted; each rendered as a card with its members.
   const groupsSorted = [...data.groups].sort((a, b) => a.group_name.localeCompare(b.group_name, 'pt-BR'));
-  const membersOf = (gid) => data.entries.filter((e) => e.commodity_id === gid);
+  const membersOf = (gid) => data.entries.filter((e) => e.agrupamento_id === gid);
   // Entries pointing at a group not in the registry (legacy / pre-migration) → a fallback
   // bucket so nothing is hidden. After the seed migration this is empty.
   const knownIds = new Set(data.groups.map((g) => g.group_id));
-  const strayEntries = data.entries.filter((e) => !knownIds.has(e.commodity_id));
+  const strayEntries = data.entries.filter((e) => !knownIds.has(e.agrupamento_id));
 
   const memberRows = (members) => (
     <div className="dt-wrap cc-dt-wrap">
@@ -242,11 +242,11 @@ function ViewCadastroCommodities() {
         </thead>
         <tbody>
           {members.map((e) => {
-            const st = statusMap[e.banco + ':' + e.codigo_commodity];
+            const st = statusMap[e.banco + ':' + e.codigo_produto];
             return (
-              <tr key={e.banco + '|' + e.codigo_commodity}>
+              <tr key={e.banco + '|' + e.codigo_produto}>
                 <td className="cc-cell-title">{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
-                <td className="tnum" data-label="Código">{e.codigo_commodity}</td>
+                <td className="tnum" data-label="Código">{e.codigo_produto}</td>
                 <td data-label="Descrição">{e.descricao_fonte || <span className="dt-null">—</span>}</td>
                 <td className="num tnum" data-label="Linhas">{st ? _ccInt(st.n_rows) : '…'}</td>
                 <td className="tnum" data-label="Período">{st && st.year_start != null ? `${st.year_start}–${st.year_end}` : '—'}</td>
@@ -256,7 +256,7 @@ function ViewCadastroCommodities() {
                     : <span className="cc-no-data" title="Cadastrada, mas sem dados na Gold">sem dados</span>}
                 </td>
                 <td data-label="Agrupamento">
-                  <CcGroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)}
+                  <CcGroupSelect value={e.agrupamento_id} onChange={(gid) => moveEntry(e, gid)}
                                  groups={groupsSorted} busy={busy} />
                 </td>
                 <td data-label="Ciclo de vida">
@@ -271,7 +271,7 @@ function ViewCadastroCommodities() {
                 </td>
                 <td className="cc-cell-actions" data-label="Ações">
                   <button type="button" className="cc-remove" disabled={busy}
-                          title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
+                          title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_produto}`}
                           onClick={() => removeEntry(e)}
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
                     🗑
@@ -325,10 +325,10 @@ function ViewCadastroCommodities() {
               </thead>
               <tbody>
                 {orphans.map((o) => (
-                  <tr key={o.banco + '|' + o.codigo_commodity}>
+                  <tr key={o.banco + '|' + o.codigo_produto}>
                     <td>{o.agrupamento || '—'}</td>
                     <td>{_CC_BANCO_LABEL[o.banco] || o.banco}</td>
-                    <td className="tnum">{o.codigo_commodity}</td>
+                    <td className="tnum">{o.codigo_produto}</td>
                     <td className="caption">{o.flagged_at ? String(o.flagged_at).slice(0, 10) : 'detectado agora'}</td>
                   </tr>
                 ))}
@@ -363,25 +363,25 @@ function ViewCadastroCommodities() {
           <div className="cc-add-grid">
             <label className="cc-field">
               <span className="cc-field-label">Banco (fonte)</span>
-              <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value, codigo_commodity: '' }))}>
+              <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value, codigo_produto: '' }))}>
                 {_CC_BANCOS.map((b) => <option key={b.v} value={b.v}>{b.label}</option>)}
               </select>
             </label>
 
             <label className="cc-field">
               <span className="cc-field-label">Código da commodity</span>
-              <input type="text" list="cc-code-options" value={draft.codigo_commodity}
+              <input type="text" list="cc-code-options" value={draft.codigo_produto}
                      placeholder={srcCodes.loading && srcCodes.banco === draft.banco ? 'carregando códigos…' : 'digite ou escolha um código real'}
                      autoComplete="off"
-                     onChange={(e) => setDraft((d) => ({ ...d, codigo_commodity: e.target.value.trim() }))} />
+                     onChange={(e) => setDraft((d) => ({ ...d, codigo_produto: e.target.value.trim() }))} />
               <datalist id="cc-code-options">
                 {(srcCodes.banco === draft.banco ? srcCodes.codes : []).slice(0, 3000).map((c) => (
                   <option key={c.code} value={c.code}>{c.name}</option>
                 ))}
               </datalist>
-              {draft.codigo_commodity ? (
+              {draft.codigo_produto ? (
                 codeMatch === true ? (
-                  <small className="cc-hint cc-hint-ok">✓ {codeIndex.get(draft.codigo_commodity) || 'código válido'}</small>
+                  <small className="cc-hint cc-hint-ok">✓ {codeIndex.get(draft.codigo_produto) || 'código válido'}</small>
                 ) : codeLoadedForBanco ? (
                   <small className="cc-hint cc-hint-bad">✗ este código não existe em {_CC_BANCO_LABEL[draft.banco]}</small>
                 ) : (
@@ -398,8 +398,8 @@ function ViewCadastroCommodities() {
 
             <label className="cc-field">
               <span className="cc-field-label">Agrupamento</span>
-              <CcGroupSelect value={draft.commodity_id} groups={groupsSorted} busy={busy}
-                           onChange={(gid) => setDraft((d) => ({ ...d, commodity_id: gid }))}
+              <CcGroupSelect value={draft.agrupamento_id} groups={groupsSorted} busy={busy}
+                           onChange={(gid) => setDraft((d) => ({ ...d, agrupamento_id: gid }))}
                            placeholder={data.groups.length ? 'Escolha um agrupamento…' : 'Crie um agrupamento primeiro'} />
             </label>
 
@@ -412,8 +412,8 @@ function ViewCadastroCommodities() {
 
             <label className="cc-field cc-field-wide">
               <span className="cc-field-label">Descrição <small className="pc-cap">(opcional — anotação sua)</small></span>
-              <input type="text" value={draft.descricao_commodity} placeholder="ex.: Castanha-do-pará com casca"
-                     onChange={(e) => setDraft((d) => ({ ...d, descricao_commodity: e.target.value }))} />
+              <input type="text" value={draft.descricao_produto} placeholder="ex.: Castanha-do-pará com casca"
+                     onChange={(e) => setDraft((d) => ({ ...d, descricao_produto: e.target.value }))} />
             </label>
           </div>
           <div className="cc-add-actions">
@@ -423,7 +423,7 @@ function ViewCadastroCommodities() {
             <button type="button" className="btn-secondary" onClick={() => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); }} disabled={busy}>
               Cancelar
             </button>
-            {!canSubmit && draft.codigo_commodity && codeMatch !== true && codeLoadedForBanco && (
+            {!canSubmit && draft.codigo_produto && codeMatch !== true && codeLoadedForBanco && (
               <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>código inexistente</span>
             )}
           </div>
@@ -488,4 +488,4 @@ function ViewCadastroCommodities() {
   );
 }
 
-window.ViewCadastroCommodities = ViewCadastroCommodities;
+window.ViewCadastroProdutos = ViewCadastroProdutos;

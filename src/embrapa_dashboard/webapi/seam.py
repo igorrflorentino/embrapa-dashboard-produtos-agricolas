@@ -29,7 +29,7 @@ from .seam_base import (  # noqa: F401  (commodity toolkit re-exported via seam)
     _codes,
     _crosswalk_df,
     _xyear,
-    commodity_catalog,
+    produto_catalog,
 )
 
 # Trade bancos are USD-NATIVE (customs values declared in US$ — FOB exports, CIF
@@ -801,7 +801,7 @@ def seed_page(
 from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at module end)
     CUR_LEVELS,
     ENRICH_MARKETS,
-    _code_to_commodity,
+    _code_to_agrupamento,
     _current_code_levels,
     _value_added_accumulate,
     _value_added_codes_by_level,
@@ -825,18 +825,18 @@ from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, inten
     _market_share_series,
     _metric_meta,
     _pevs_cross_points,
-    _pevs_family_by_commodity,
+    _pevs_family_by_agrupamento,
     _pevs_mass_by_year,
-    commodity_catalog_with_family,
     cross_metric_refs,
     cross_series,
     export_coefficient,
     market_share,
     price_spread,
+    produto_catalog_with_family,
     trade_mirror,
 )
 from .seam_curation import (  # noqa: E402, F401  (catalog/Curadoria seam, re-exported)
-    COMMODITY_CATALOG_RESOURCE,
+    PRODUTO_CATALOG_RESOURCE,
     catalog_editor_emails,
     catalog_status,
     catalog_worklist,

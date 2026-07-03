@@ -95,7 +95,7 @@ def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {"manicoba": {"comtrade": [], "comex": ["1"], "pevs": ["2"]}},
     )
     # Data exists in the mart; the no-codes guard must still short-circuit to empty
@@ -642,11 +642,11 @@ def test_cross_points_exp_price_emits_none_when_weight_missing(monkeypatch):
 
 def _no_codes_catalog(mod, monkeypatch):
     # `mod` is the seam_base module (the shared toolkit the cross/curation readers
-    # resolve commodity_catalog/_codes/_xyear through), so a single patch reaches
-    # both the direct calls and the indirect _codes -> commodity_catalog chain.
+    # resolve produto_catalog/_codes/_xyear through), so a single patch reaches
+    # both the direct calls and the indirect _codes -> produto_catalog chain.
     monkeypatch.setattr(
         mod,
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {"manicoba": {"name": "Maniçoba", "pevs": ["9"], "comex": [], "comtrade": []}},
     )
     monkeypatch.setattr(
@@ -702,7 +702,7 @@ def test_export_coefficient_aligns_by_uf_window_to_common_years(monkeypatch):
     monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -801,23 +801,23 @@ def test_value_added_batches_codes_per_level(monkeypatch):
 # ── catalog caching: flask-caching TTL (refreshable), not process-lifetime ─────
 
 
-def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
+def test_produto_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
     """The crosswalk/catalog reads honor the serving cache policy: memoized via
     flask-caching (CACHE_DEFAULT_TIMEOUT), so a warm instance converges to the
     nightly dbt rebuild — unlike functools.lru_cache, which never expires."""
     seam = _seam()
     # flask-caching memoize marker (lru_cache has cache_clear, not uncached)
-    assert hasattr(seam.commodity_catalog, "uncached")
+    assert hasattr(seam.produto_catalog, "uncached")
     assert hasattr(seam._crosswalk_df, "uncached")
-    assert hasattr(seam._pevs_family_by_commodity, "uncached")
-    assert hasattr(seam._code_to_commodity, "uncached")
+    assert hasattr(seam._pevs_family_by_agrupamento, "uncached")
+    assert hasattr(seam._code_to_agrupamento, "uncached")
 
     calls = {"n": 0}
 
     def fake_run(query, params):
         calls["n"] += 1
         return pd.DataFrame(
-            [{"commodity_id": "x", "commodity_name": "X", "source": "pevs", "code": "1"}]
+            [{"agrupamento_id": "x", "agrupamento_nome": "X", "source": "pevs", "code": "1"}]
         )
 
     monkeypatch.setattr(seam.gateway, "run_query", fake_run)
@@ -826,16 +826,16 @@ def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        assert seam.commodity_catalog()["x"]["pevs"] == ["1"]
-        seam.commodity_catalog()  # served from cache
+        assert seam.produto_catalog()["x"]["pevs"] == ["1"]
+        seam.produto_catalog()  # served from cache
         assert calls["n"] == 1
         cache.clear()  # cache expiry/invalidation → re-queries (lru never would)
-        seam.commodity_catalog()
+        seam.produto_catalog()
         assert calls["n"] == 2
 
 
-def test_commodity_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
-    """A crosswalk row with a NULL commodity_id (a catalog entry saved without an
+def test_produto_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
+    """A crosswalk row with a NULL agrupamento_id (a catalog entry saved without an
     agrupamento — prod codes pevs:3433/3434) must be SKIPPED, not turned into a
     NaN float dict key. Such a key 500s the WHOLE /api/catalog: the JSON provider's
     sort_keys can't order float(NaN) against the str ids, taking down every
@@ -847,8 +847,8 @@ def test_commodity_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
         # one NaN-float and one None so both missing-value flavors are covered).
         return pd.DataFrame(
             {
-                "commodity_id": ["acai", float("nan"), None],
-                "commodity_name": ["Açaí", None, None],
+                "agrupamento_id": ["acai", float("nan"), None],
+                "agrupamento_nome": ["Açaí", None, None],
                 "source": ["pevs", "pevs", "pevs"],
                 "code": ["3403", "3433", "3434"],
             }
@@ -860,7 +860,7 @@ def test_commodity_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        cat = seam.commodity_catalog()
+        cat = seam.produto_catalog()
 
     # only the valid row survives; the id-less rows are dropped, never a key
     assert set(cat) == {"acai"}
@@ -896,10 +896,10 @@ def test_unknown_api_path_returns_json_404(monkeypatch):
         assert resp.get_json()["error"] == "endpoint de API não encontrado"
 
     # Registered routes still win over the catch-all.
-    # routes.py calls seam.commodity_catalog_with_family (the facade's re-exported
+    # routes.py calls seam.produto_catalog_with_family (the facade's re-exported
     # binding — the family-tagged catalog), so this route test patches the facade.
     monkeypatch.setattr(
-        seam, "commodity_catalog_with_family", lambda: {"x": {"name": "X", "family": "massa"}}
+        seam, "produto_catalog_with_family", lambda: {"x": {"name": "X", "family": "massa"}}
     )
     resp = client.get("/api/catalog")
     assert resp.status_code == 200 and resp.get_json() == {"x": {"name": "X", "family": "massa"}}
@@ -1539,7 +1539,7 @@ def test_is_mass_basis_true_only_for_pure_massa(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _cross(),
-        "_pevs_family_by_commodity",
+        "_pevs_family_by_agrupamento",
         lambda: {"castanha": {"massa"}, "madeira": {"volume"}, "*": {"massa", "volume"}},
     )
     assert seam._is_mass_basis("castanha") is True
@@ -1554,7 +1554,7 @@ def test_market_share_happy_path_with_by_product(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -1583,7 +1583,7 @@ def test_price_spread_happy_path_markup(monkeypatch):
     monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -1638,7 +1638,7 @@ def test_export_coefficient_empty_timeseries_when_no_year_overlap(monkeypatch):
     monkeypatch.setattr(_cross(), "_is_mass_basis", lambda cid: True)
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {"c": {"name": "C", "pevs": ["1"], "comex": ["0801"], "comtrade": ["080121"]}},
     )
     monkeypatch.setattr(_cross(), "_pevs_mass_by_year", lambda codes: {1986: 5.0})
@@ -1651,7 +1651,7 @@ def test_trade_mirror_happy_path_discrepancy(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -1684,7 +1684,7 @@ def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -1768,7 +1768,7 @@ def test_curation_worklist_joins_catalog_entries_to_levels(monkeypatch):
         "_current_code_levels",
         lambda: {("mdic_comex", "0801"): "commodity_acondicionada"},
     )
-    # The catalog carries banco (short token), codigo_commodity, agrupamento, commodity_id
+    # The catalog carries banco (short token), codigo_produto, agrupamento, agrupamento_id
     # and both descriptions — a PAM row is included to prove PAM/PPM group by commodity.
     monkeypatch.setattr(
         seam_curation,
@@ -1777,26 +1777,26 @@ def test_curation_worklist_joins_catalog_entries_to_levels(monkeypatch):
             "entries": [
                 {
                     "banco": "comex",
-                    "codigo_commodity": "0801",
+                    "codigo_produto": "0801",
                     "agrupamento": "Castanha",
-                    "commodity_id": "castanha",
-                    "descricao_commodity": "Castanhas",
+                    "agrupamento_id": "castanha",
+                    "descricao_produto": "Castanhas",
                     "descricao_fonte": "Castanhas do Pará",
                 },
                 {
                     "banco": "comex",
-                    "codigo_commodity": "0802",
+                    "codigo_produto": "0802",
                     "agrupamento": "Castanha",
-                    "commodity_id": "castanha",
-                    "descricao_commodity": "Nozes",
+                    "agrupamento_id": "castanha",
+                    "descricao_produto": "Nozes",
                     "descricao_fonte": None,
                 },
                 {
                     "banco": "pam",
-                    "codigo_commodity": "40102",
+                    "codigo_produto": "40102",
                     "agrupamento": "Arroz",
-                    "commodity_id": "arroz",
-                    "descricao_commodity": "Arroz (em casca)",
+                    "agrupamento_id": "arroz",
+                    "descricao_produto": "Arroz (em casca)",
                     "descricao_fonte": "Arroz",
                 },
             ]
@@ -1809,14 +1809,14 @@ def test_curation_worklist_joins_catalog_entries_to_levels(monkeypatch):
     assert classified_row["level"] == "commodity_acondicionada"
     assert classified_row["source"] == "mdic_comex"
     assert classified_row["commodity"] == "castanha"
-    assert classified_row["commodity_name"] == "Castanha"
+    assert classified_row["agrupamento_nome"] == "Castanha"
     assert classified_row["name"] == "Castanhas do Pará"  # descricao_fonte preferred
     unclassified = next(r for r in out["rows"] if r["code"] == "0802")
     assert unclassified["level"] is None
-    assert unclassified["name"] == "Nozes"  # falls back to descricao_commodity
+    assert unclassified["name"] == "Nozes"  # falls back to descricao_produto
     # a PAM entry is present and grouped by its agrupamento (crosswalk lacks PAM/PPM)
     pam_row = next(r for r in out["rows"] if r["source"] == "ibge_pam")
-    assert pam_row["commodity"] == "arroz" and pam_row["commodity_name"] == "Arroz"
+    assert pam_row["commodity"] == "arroz" and pam_row["agrupamento_nome"] == "Arroz"
 
 
 # ── value_added: empty until codes are classified ──────────────────────────────
@@ -1835,7 +1835,7 @@ def test_value_added_empty_when_nothing_classified(monkeypatch):
     }
 
 
-# ── crosswalk-derived indices: _xyear, _code_to_commodity, family-by-commodity ─
+# ── crosswalk-derived indices: _xyear, _code_to_agrupamento, family-by-commodity ─
 
 
 def test_xyear_maps_year_to_value(monkeypatch):
@@ -1850,11 +1850,11 @@ def test_xyear_maps_year_to_value(monkeypatch):
     assert seam._xyear("mdic_comex:exp_value", ("0801",)) == {2021: 3.0, 2022: 5.0}
 
 
-def test_code_to_commodity_reverse_indexes_every_source(monkeypatch):
+def test_code_to_agrupamento_reverse_indexes_every_source(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "name": "Castanha",
@@ -1864,13 +1864,13 @@ def test_code_to_commodity_reverse_indexes_every_source(monkeypatch):
             }
         },
     )
-    idx = seam._code_to_commodity()
+    idx = seam._code_to_agrupamento()
     assert idx[("ibge_pevs", "1")] == "castanha"
     assert idx[("mdic_comex", "0801")] == "castanha"
     assert idx[("un_comtrade", "080121")] == "castanha"
 
 
-def test_pevs_family_by_commodity_indexes_run_query(monkeypatch):
+def test_pevs_family_by_agrupamento_indexes_run_query(monkeypatch):
     seam = _seam()
     monkeypatch.setattr(_cross(), "get_settings", lambda: Settings(gcp_project_id="p"))
     monkeypatch.setattr(
@@ -1888,20 +1888,20 @@ def test_pevs_family_by_commodity_indexes_run_query(monkeypatch):
     app, cache = _bind_simplecache()
     with app.app_context():
         cache.clear()
-        idx = seam._pevs_family_by_commodity()
+        idx = seam._pevs_family_by_agrupamento()
     assert idx["castanha"] == {"massa"}
     assert idx["madeira"] == {"volume"}
     assert idx["*"] == {"massa", "volume"}
 
 
-def test_commodity_catalog_with_family_tags_each_commodity(monkeypatch):
+def test_produto_catalog_with_family_tags_each_commodity(monkeypatch):
     """The catalog is tagged with each commodity's single PEVS family; a commodity
     with no PEVS side (or a mixed family set) collapses to None, so the family-gated
     export-coefficient / price-spread pickers drop it."""
     seam = _seam()
     monkeypatch.setattr(
         _base(),
-        "commodity_catalog",
+        "produto_catalog",
         lambda: {
             "castanha": {
                 "id": "castanha",
@@ -1928,10 +1928,10 @@ def test_commodity_catalog_with_family_tags_each_commodity(monkeypatch):
     )
     monkeypatch.setattr(
         _cross(),
-        "_pevs_family_by_commodity",
+        "_pevs_family_by_agrupamento",
         lambda: {"castanha": {"massa"}, "madeira": {"volume"}},
     )
-    cat = seam.commodity_catalog_with_family()
+    cat = seam.produto_catalog_with_family()
     assert cat["castanha"]["family"] == "massa"  # single mass family
     assert cat["madeira"]["family"] == "volume"  # single volume family
     assert cat["soja"]["family"] is None  # no PEVS side → no family

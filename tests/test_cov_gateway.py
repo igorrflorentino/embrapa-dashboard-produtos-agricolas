@@ -79,10 +79,10 @@ def test_fetch_geo_municipio_mesh_reads_dim_geo_municipio(monkeypatch):
     assert "p.gold.dim_geo_municipio" in recorded["query"]
 
 
-# ── fetch_commodity_catalog: latest-active row per (codigo, banco) (725-742) ───
+# ── fetch_produto_catalog: latest-active row per (codigo, banco) (725-742) ───
 
 
-def test_fetch_commodity_catalog_unscoped_has_no_where_and_no_params(monkeypatch):
+def test_fetch_produto_catalog_unscoped_has_no_where_and_no_params(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import gateway
 
@@ -99,17 +99,17 @@ def test_fetch_commodity_catalog_unscoped_has_no_where_and_no_params(monkeypatch
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_commodity_catalog()
+        out = gateway.fetch_produto_catalog()
 
     assert out == "CATALOG"
     q = recorded["query"].lower()
-    assert "p.research_inputs.commodity_catalog_log" in q
+    assert "p.research_inputs.produto_catalog_log" in q
     assert "where banco = @banco" not in q  # unscoped → no WHERE
     assert "_rn = 1 and active" in q
     assert recorded["params"] == []  # no banco → no bound params
 
 
-def test_fetch_commodity_catalog_scoped_binds_banco_param(monkeypatch):
+def test_fetch_produto_catalog_scoped_binds_banco_param(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import gateway
 
@@ -126,7 +126,7 @@ def test_fetch_commodity_catalog_scoped_binds_banco_param(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        gateway.fetch_commodity_catalog(banco="ibge_pevs")
+        gateway.fetch_produto_catalog(banco="ibge_pevs")
 
     assert "where banco = @banco" in recorded["query"]
     assert recorded["params"]["banco"].value == "ibge_pevs"
@@ -152,14 +152,14 @@ def test_fetch_catalog_editors_filters_by_resource_param(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_catalog_editors("commodity_catalog")
+        out = gateway.fetch_catalog_editors("produto_catalog")
 
     assert out == "EDITORS"
     q = recorded["query"].lower()
     assert "p.research_inputs.catalog_editors" in q
     assert "distinct lower(trim(email))" in q
     assert "resource = @resource" in q
-    assert recorded["params"]["resource"].value == "commodity_catalog"
+    assert recorded["params"]["resource"].value == "produto_catalog"
 
 
 # ── fetch_source_code_stats: per-code Gold aggregate (catalog status columns) ───
@@ -209,10 +209,10 @@ def test_fetch_source_code_stats_aggregates_by_code(monkeypatch):
     assert recorded["max_bytes"] == gateway.RAW_TABLE_MAX_BYTES  # cost guard applied
 
 
-# ── fetch_orphan_commodities: tombstone step + Gold-exists step (782-820) ───────
+# ── fetch_orphan_produtos: tombstone step + Gold-exists step (782-820) ───────
 
 
-def test_fetch_orphan_commodities_returns_early_when_no_tombstones(monkeypatch):
+def test_fetch_orphan_produtos_returns_early_when_no_tombstones(monkeypatch):
     """Step 1 returns an empty frame (nothing removed) → the function returns it
     WITHOUT scanning any Gold table (the common, cheap path)."""
     pytest.importorskip("flask_caching")
@@ -232,14 +232,14 @@ def test_fetch_orphan_commodities_returns_early_when_no_tombstones(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_orphan_commodities()
+        out = gateway.fetch_orphan_produtos()
 
     assert out is not None and out.empty
     assert len(calls) == 1  # only the cheap tombstone scan ran, no Gold union
     assert "not active" in calls[0].lower()
 
 
-def test_fetch_orphan_commodities_returns_empty_when_banco_unknown(monkeypatch):
+def test_fetch_orphan_produtos_returns_empty_when_banco_unknown(monkeypatch):
     """A tombstoned row whose banco is NOT a known Gold source → the second-step
     set is empty, so an empty slice is returned without a Gold scan (line 804)."""
     pytest.importorskip("flask_caching")
@@ -251,7 +251,7 @@ def test_fetch_orphan_commodities_returns_empty_when_banco_unknown(monkeypatch):
 
     def recorder(query, params, **kwargs):
         calls.append(query)
-        return pd.DataFrame({"banco": ["unknown_banco"], "codigo_commodity": ["X"]})
+        return pd.DataFrame({"banco": ["unknown_banco"], "codigo_produto": ["X"]})
 
     monkeypatch.setattr(gateway, "run_query", recorder)
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
@@ -259,13 +259,13 @@ def test_fetch_orphan_commodities_returns_empty_when_banco_unknown(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_orphan_commodities()
+        out = gateway.fetch_orphan_produtos()
 
     assert out is not None and out.empty
     assert len(calls) == 1  # no Gold-union query when no known banco
 
 
-def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
+def test_fetch_orphan_produtos_scans_gold_for_known_banco(monkeypatch):
     """A tombstoned row for a KNOWN banco (pevs) drives the Step-2 Gold-union scan:
     the second run_query carries the gold_codes CTE + the LIKE-prefix EXISTS."""
     pytest.importorskip("flask_caching")
@@ -278,7 +278,7 @@ def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
     def recorder(query, params, **kwargs):
         calls.append(query)
         if len(calls) == 1:
-            return pd.DataFrame({"banco": ["pevs"], "codigo_commodity": ["X"]})
+            return pd.DataFrame({"banco": ["pevs"], "codigo_produto": ["X"]})
         return "ORPHANS"  # the Step-2 union query result
 
     monkeypatch.setattr(gateway, "run_query", recorder)
@@ -287,14 +287,14 @@ def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_orphan_commodities()
+        out = gateway.fetch_orphan_produtos()
 
     assert out == "ORPHANS"
     assert len(calls) == 2
     step2 = calls[1].lower()
     assert "gold_codes" in step2
     assert "gold_pevs_production" in step2
-    assert "g.code = t.codigo_commodity" in step2
+    assert "g.code = t.codigo_produto" in step2
 
 
 # ── fetch_lifecycle_status: latest-wins status per element (828-842) ───────────

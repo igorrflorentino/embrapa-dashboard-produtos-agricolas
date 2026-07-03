@@ -109,8 +109,8 @@ select
     ct.partner_code,
     ct.partner_name,
     ct.partner_iso_a3,
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     ct.family,
     ct.unit_native,
     ct.base_unit,
@@ -130,5 +130,5 @@ select
     ct.source_rows,
     ct.last_refresh
 from comtrade ct
-left join {{ ref('gold_commodity_crosswalk') }} x
+left join {{ ref('gold_produto_agrupamento') }} x
     on x.source = 'comtrade' and x.code = ct.cmd_code

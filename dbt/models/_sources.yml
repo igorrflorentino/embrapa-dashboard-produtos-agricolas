@@ -141,17 +141,17 @@ sources:
           value-added analysis splits COMEX exports by the current level.
         config:
           loaded_at_field: edited_at
-      - name: commodity_catalog_log
-        identifier: "{{ env_var('BQ_COMMODITY_CATALOG_LOG_TABLE', 'commodity_catalog_log') }}"
+      - name: produto_catalog_log
+        identifier: "{{ env_var('BQ_PRODUTO_CATALOG_LOG_TABLE', 'produto_catalog_log') }}"
         description: >
           Append-only Curadoria (catalog) source: one row per manual commodity-catalog
-          edit. Columns: codigo_commodity (the EXACT source code — no prefixes), banco
+          edit. Columns: codigo_produto (the EXACT source code — no prefixes), banco
           (source token pevs/comex/comtrade/pam/ppm), agrupamento (cross-source concept),
-          descricao_commodity, ciclo_de_vida, commodity_id, active
+          descricao_produto, ciclo_de_vida, agrupamento_id, active
           (false = a tombstone: the entry left the catalog → its Gold data is an
           orphan), edited_by (IAP email), edited_at (TIMESTAMP), change_id.
-          dim_commodity_catalog derives the current (latest-wins, active) catalog and
-          gold_commodity_crosswalk reads it — the editable successor to the
+          dim_produto_catalog derives the current (latest-wins, active) catalog and
+          gold_produto_agrupamento reads it — the editable successor to the
           commodity_crosswalk seed (backfilled from the seed on cutover). Unlike the
           frozen code_industrialization_log it is NOT gated — it is the live catalog
           source, so it must exist for the build (created on first write / backfill).

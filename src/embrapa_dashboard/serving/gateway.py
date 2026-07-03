@@ -638,7 +638,7 @@ _GOLD_TABLE = {
     "un_comtrade": "gold_comtrade_flows",
 }
 
-# Banco id (long) → the short source token the catalog / dim_commodity_visibility use.
+# Banco id (long) → the short source token the catalog / dim_produto_visibility use.
 # Threads the F7 visibility gate into the direct-Gold readers (which bypass the marts).
 _SHORT_SOURCE = {
     "ibge_pevs": "pevs",
@@ -723,7 +723,7 @@ def fetch_banco_metadata(banco_id: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_commodity_groups():
+def fetch_agrupamentos():
     """The CURRENT active commodity GROUPS (agrupamentos) — the first-class registry
     (latest row per group_id, active=true) with a live count of each group's active
     catalog members (so the UI can block deleting a non-empty group). EMPTY groups
@@ -731,10 +731,10 @@ def fetch_commodity_groups():
     exist yet — the seam treats that as no groups."""
     settings = get_settings()
     group_table = sqlbuild.table_ref(
-        settings, "bq_research_inputs_dataset", settings.bq_commodity_group_log_table
+        settings, "bq_research_inputs_dataset", settings.bq_agrupamento_log_table
     )
     catalog_table = sqlbuild.table_ref(
-        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+        settings, "bq_research_inputs_dataset", settings.bq_produto_catalog_log_table
     )
     # NB: ``groups`` is a BigQuery reserved keyword — the CTE is ``grps``.
     sql = f"""
@@ -746,37 +746,37 @@ def fetch_commodity_groups():
           ) where _rn = 1 and active
         ),
         members as (
-          select commodity_id, count(*) as n_members from (
-            select codigo_commodity, banco, commodity_id, active, row_number() over (
-              partition by codigo_commodity, banco order by edited_at desc, change_id desc
+          select agrupamento_id, count(*) as n_members from (
+            select codigo_produto, banco, agrupamento_id, active, row_number() over (
+              partition by codigo_produto, banco order by edited_at desc, change_id desc
             ) as _rn from `{catalog_table}`
           ) where _rn = 1 and active
-          group by commodity_id
+          group by agrupamento_id
         )
         select g.group_id, g.group_name, coalesce(m.n_members, 0) as n_members
-        from grps g left join members m on g.group_id = m.commodity_id
+        from grps g left join members m on g.group_id = m.agrupamento_id
         order by lower(g.group_name)
     """
     return run_query(sql, [])
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_commodity_catalog(banco: str | None = None):
-    """The CURRENT active commodity catalog (latest row per (codigo_commodity, banco),
+def fetch_produto_catalog(banco: str | None = None):
+    """The CURRENT active commodity catalog (latest row per (codigo_produto, banco),
     active=true) from the append-only Curadoria log. Optionally scoped to one banco.
     Raises NotFound when the log table doesn't exist yet (no catalog configured) — the
     seam treats that as an empty catalog. Short TTL + bounded by maximum_bytes_billed."""
     settings = get_settings()
     table = sqlbuild.table_ref(
-        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+        settings, "bq_research_inputs_dataset", settings.bq_produto_catalog_log_table
     )
     where = "where banco = @banco" if banco else ""
     sql = f"""
-        select codigo_commodity, banco, agrupamento, descricao_commodity,
-               ciclo_de_vida, commodity_id
+        select codigo_produto, banco, agrupamento, descricao_produto,
+               ciclo_de_vida, agrupamento_id
         from (
           select *, row_number() over (
-            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+            partition by codigo_produto, banco order by edited_at desc, change_id desc
           ) as _rn
           from `{table}` {where}
         )
@@ -838,7 +838,7 @@ def fetch_source_code_stats(source: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_orphan_commodities():
+def fetch_orphan_produtos():
     """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
     the catalog, was REMOVED (current state active=false), and whose Gold data STILL
     lingers (the entry's EXACT code still exists in the banco's Gold table). This is NOT
@@ -848,22 +848,22 @@ def fetch_orphan_commodities():
     Bounded by maximum_bytes_billed."""
     settings = get_settings()
     log = sqlbuild.table_ref(
-        settings, "bq_research_inputs_dataset", settings.bq_commodity_catalog_log_table
+        settings, "bq_research_inputs_dataset", settings.bq_produto_catalog_log_table
     )
     tombstoned_sql = f"""
-        select codigo_commodity, banco, agrupamento, removed_at from (
+        select codigo_produto, banco, agrupamento, removed_at from (
           select
-            codigo_commodity, banco, active, change_id,
+            codigo_produto, banco, active, change_id,
             edited_at as removed_at,
             -- The tombstone row (active=false) carries agrupamento=NULL, so surface the
             -- LAST value the commodity had while still active (ignore the NULL tombstone),
             -- otherwise the Descontinuados view could never show the orphan's agrupamento.
             last_value(agrupamento ignore nulls) over (
-              partition by codigo_commodity, banco order by edited_at, change_id
+              partition by codigo_produto, banco order by edited_at, change_id
               rows between unbounded preceding and unbounded following
             ) as agrupamento,
             row_number() over (
-              partition by codigo_commodity, banco order by edited_at desc, change_id desc
+              partition by codigo_produto, banco order by edited_at desc, change_id desc
             ) as _rn
           from `{log}`
         ) where _rn = 1 and not active
@@ -888,10 +888,10 @@ def fetch_orphan_commodities():
     sql = f"""
         with tombstoned as ({tombstoned_sql}),
         gold_codes as ({gold_union})
-        select distinct t.codigo_commodity, t.banco, t.agrupamento, t.removed_at
+        select distinct t.codigo_produto, t.banco, t.agrupamento, t.removed_at
         from tombstoned t
         where exists (
-          select 1 from gold_codes g where g.src = t.banco and g.code = t.codigo_commodity
+          select 1 from gold_codes g where g.src = t.banco and g.code = t.codigo_produto
         )
     """
     return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
@@ -1389,7 +1389,7 @@ def _inspect_visibility_predicate(banco_id: str, table_id: str) -> str:
     matching every other researcher-facing Gold read. The serving marts are already gated at
     build time (hidden_code_predicate), so they get no extra predicate; returns '' for them and
     for any source without a known short token / code column. Identifiers come from fixed maps
-    (never user input) → injection-safe. No-op while dim_commodity_visibility is empty."""
+    (never user input) → injection-safe. No-op while dim_produto_visibility is empty."""
     if _GOLD_TABLE.get(banco_id) != table_id:
         return ""
     short = _SHORT_SOURCE.get(banco_id)
@@ -1493,7 +1493,7 @@ def fetch_table_count(banco_id: str, table_id: str, filters: tuple = ()) -> int:
 # Labels/descriptions are pt-BR (the end user reads them — project language rule).
 _SEED_CATALOG: list[tuple[str, str, bool, str]] = [
     # NOTE: commodity_crosswalk is NOT here — it became the editable Curadoria catalog
-    # (research_inputs.commodity_catalog_log → dim_commodity_catalog), edited via the
+    # (research_inputs.produto_catalog_log → dim_produto_catalog), edited via the
     # "Cadastro de commodities" admin view, not consulted as a read-only seed. The seeds
     # below are all read-only CALIBRATION / source-faithful dimensions (engineer-owned).
     (

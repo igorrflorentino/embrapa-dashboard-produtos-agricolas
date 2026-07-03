@@ -29,20 +29,20 @@ def test_catalog_worklist_empty_when_log_table_absent(monkeypatch):
     def _raise(banco=None):
         raise NotFound("commodity catalog log table not found")
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _raise)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _raise)
     out = seam_curation.catalog_worklist()
     assert out == {"entries": [], "total": 0, "by_agrupamento": []}
 
 
 def test_catalog_worklist_empty_when_dataframe_empty(monkeypatch):
     """An empty (or None) DataFrame is also the empty-catalog shape (line 35-36)."""
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", lambda banco=None: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", lambda banco=None: pd.DataFrame())
     assert seam_curation.catalog_worklist() == {
         "entries": [],
         "total": 0,
         "by_agrupamento": [],
     }
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", lambda banco=None: None)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", lambda banco=None: None)
     assert seam_curation.catalog_worklist()["total"] == 0
 
 
@@ -54,39 +54,39 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
         return pd.DataFrame(
             [
                 {
-                    "codigo_commodity": 4403,  # int → str() coercion exercised
+                    "codigo_produto": 4403,  # int → str() coercion exercised
                     "banco": "un_comtrade",
                     "agrupamento": "Madeira",
-                    "descricao_commodity": "Madeira em toras",
+                    "descricao_produto": "Madeira em toras",
                     "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
                     "code_prefix": 4403,
-                    "commodity_id": "madeira",
+                    "agrupamento_id": "madeira",
                 },
                 {
-                    "codigo_commodity": "4407",
+                    "codigo_produto": "4407",
                     "banco": "comex",
                     "agrupamento": "Madeira",
-                    "descricao_commodity": "Madeira serrada",
+                    "descricao_produto": "Madeira serrada",
                     "ciclo_de_vida": "Disponível",
                     "code_prefix": "4407",
-                    "commodity_id": "madeira",
+                    "agrupamento_id": "madeira",
                 },
                 {
-                    "codigo_commodity": "9999",
+                    "codigo_produto": "9999",
                     "banco": "comex",
                     # A NULL STRING cell reads back from BigQuery as float('nan') — the
                     # worklist must coerce it to None (via _clean) or sorted(groups) chokes
                     # comparing a float key with the string keys. Bucketed under '—'.
                     "agrupamento": float("nan"),
-                    "descricao_commodity": "Sem agrupamento",
+                    "descricao_produto": "Sem agrupamento",
                     "ciclo_de_vida": float("nan"),
                     "code_prefix": "9999",
-                    "commodity_id": float("nan"),
+                    "agrupamento_id": float("nan"),
                 },
             ]
         )
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _df)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _df)
     # The worklist attaches the source's ORIGINAL description per (banco, codigo) via
     # fetch_products(source). Mock it: comex code 4407 has a name; 9999 does not.
     monkeypatch.setattr(
@@ -97,17 +97,17 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     out = seam_curation.catalog_worklist(banco="any")
 
     assert out["total"] == 3
-    # str() coercion on a numeric codigo_commodity; code_prefix is gone entirely.
+    # str() coercion on a numeric codigo_produto; code_prefix is gone entirely.
     first = out["entries"][0]
-    assert first["codigo_commodity"] == "4403" and "code_prefix" not in first
+    assert first["codigo_produto"] == "4403" and "code_prefix" not in first
     # Source description: 4407 (comex) resolves; the un_comtrade 4403 + comex 9999 don't.
-    by_code = {(e["banco"], e["codigo_commodity"]): e for e in out["entries"]}
+    by_code = {(e["banco"], e["codigo_produto"]): e for e in out["entries"]}
     assert by_code[("comex", "4407")]["descricao_fonte"] == "Madeira serrada (NCM)"
     assert by_code[("comex", "9999")]["descricao_fonte"] is None
     # The NULL (NaN) fields on the 9999 row are normalized to None (not left as float nan).
     e9999 = by_code[("comex", "9999")]
     assert e9999["agrupamento"] is None
-    assert e9999["ciclo_de_vida"] is None and e9999["commodity_id"] is None
+    assert e9999["ciclo_de_vida"] is None and e9999["agrupamento_id"] is None
 
     groups = {g["agrupamento"]: g for g in out["by_agrupamento"]}
     assert set(groups) == {"Madeira", "—"}
@@ -172,13 +172,13 @@ def test_catalog_status_empty_when_catalog_absent(monkeypatch):
     def _raise(banco=None):
         raise NotFound("catalog log absent")
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _raise)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _raise)
     assert seam_curation.catalog_status() == {"status": {}}
 
 
 def test_catalog_status_empty_when_catalog_df_empty(monkeypatch):
     """An empty catalog DataFrame → an empty status map (no Gold scans)."""
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", lambda banco=None: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", lambda banco=None: pd.DataFrame())
     assert seam_curation.catalog_status() == {"status": {}}
 
 
@@ -190,8 +190,8 @@ def test_catalog_status_joins_gold_stats_per_code(monkeypatch):
     def _catalog(banco=None):
         return pd.DataFrame(
             [
-                {"codigo_commodity": "4403", "banco": "comtrade"},
-                {"codigo_commodity": "9999", "banco": "comtrade"},  # cataloged, no Gold rows
+                {"codigo_produto": "4403", "banco": "comtrade"},
+                {"codigo_produto": "9999", "banco": "comtrade"},  # cataloged, no Gold rows
             ]
         )
 
@@ -199,7 +199,7 @@ def test_catalog_status_joins_gold_stats_per_code(monkeypatch):
         # Only 4403 has Gold rows; 9999 is absent from the aggregate.
         return pd.DataFrame([{"code": "4403", "n_rows": 12, "year_start": 2000, "year_end": 2024}])
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _catalog)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _catalog)
     monkeypatch.setattr(gateway, "fetch_source_code_stats", _stats)
 
     status = seam_curation.catalog_status()["status"]
@@ -222,12 +222,12 @@ def test_catalog_status_skips_banco_when_stats_absent(monkeypatch):
     skipped entirely rather than aborting the whole status map."""
 
     def _catalog(banco=None):
-        return pd.DataFrame([{"codigo_commodity": "1", "banco": "not_a_banco"}])
+        return pd.DataFrame([{"codigo_produto": "1", "banco": "not_a_banco"}])
 
     def _raise(banco):
         raise NotFound("no Gold table for that banco")
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _catalog)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _catalog)
     monkeypatch.setattr(gateway, "fetch_source_code_stats", _raise)
     assert seam_curation.catalog_status() == {"status": {}}
 
@@ -242,21 +242,21 @@ def test_record_catalog_entry_threads_payload_without_request_context(monkeypatc
 
     captured = {}
 
-    def _record(codigo_commodity, banco, headers, **kw):
-        captured["args"] = (codigo_commodity, banco)
+    def _record(codigo_produto, banco, headers, **kw):
+        captured["args"] = (codigo_produto, banco)
         captured["headers"] = headers
         captured["kw"] = kw
         return {"ok": True}
 
-    monkeypatch.setattr(curation, "record_commodity_catalog", _record)
+    monkeypatch.setattr(curation, "record_produto_catalog", _record)
 
     payload = {
-        "codigo_commodity": "4403",
+        "codigo_produto": "4403",
         "banco": "un_comtrade",
         "agrupamento": "Madeira",
-        "descricao_commodity": "Madeira em toras",
+        "descricao_produto": "Madeira em toras",
         "ciclo_de_vida": "Disponível",
-        "commodity_id": "madeira",
+        "agrupamento_id": "madeira",
         "change_id": "k1",
     }
     out = seam_curation.record_catalog_entry(payload)
@@ -279,18 +279,18 @@ def test_record_catalog_entry_captures_iap_headers_in_request_context(monkeypatc
 
     captured = {}
 
-    def _record(codigo_commodity, banco, headers, **kw):
+    def _record(codigo_produto, banco, headers, **kw):
         captured["headers"] = headers
         return {"ok": True}
 
-    monkeypatch.setattr(curation, "record_commodity_catalog", _record)
+    monkeypatch.setattr(curation, "record_produto_catalog", _record)
 
     app = Flask(__name__)
     with app.test_request_context(
         "/api/catalog/entry", headers={"X-Goog-Authenticated-User-Email": "a@embrapa.br"}
     ):
         out = seam_curation.record_catalog_entry(
-            {"codigo_commodity": "4403", "banco": "un_comtrade"}
+            {"codigo_produto": "4403", "banco": "un_comtrade"}
         )
 
     assert out == {"ok": True}
@@ -307,14 +307,14 @@ def test_remove_catalog_entry_threads_tombstone_without_request_context(monkeypa
 
     captured = {}
 
-    def _remove(codigo_commodity, banco, headers, *, change_id=None):
-        captured.update(codigo=codigo_commodity, banco=banco, headers=headers, change_id=change_id)
+    def _remove(codigo_produto, banco, headers, *, change_id=None):
+        captured.update(codigo=codigo_produto, banco=banco, headers=headers, change_id=change_id)
         return {"active": False}
 
-    monkeypatch.setattr(curation, "remove_commodity_catalog", _remove)
+    monkeypatch.setattr(curation, "remove_produto_catalog", _remove)
 
     out = seam_curation.remove_catalog_entry(
-        {"codigo_commodity": "4403", "banco": "un_comtrade", "change_id": "rm1"}
+        {"codigo_produto": "4403", "banco": "un_comtrade", "change_id": "rm1"}
     )
     assert out == {"active": False}
     assert captured["codigo"] == "4403" and captured["banco"] == "un_comtrade"
@@ -331,18 +331,18 @@ def test_remove_catalog_entry_captures_headers_in_request_context(monkeypatch):
 
     captured = {}
 
-    def _remove(codigo_commodity, banco, headers, *, change_id=None):
+    def _remove(codigo_produto, banco, headers, *, change_id=None):
         captured["headers"] = headers
         return {"active": False}
 
-    monkeypatch.setattr(curation, "remove_commodity_catalog", _remove)
+    monkeypatch.setattr(curation, "remove_produto_catalog", _remove)
 
     app = Flask(__name__)
     with app.test_request_context(
         "/api/catalog/entry/remove",
         headers={"X-Goog-Authenticated-User-Email": "b@embrapa.br"},
     ):
-        seam_curation.remove_catalog_entry({"codigo_commodity": "4403", "banco": "un_comtrade"})
+        seam_curation.remove_catalog_entry({"codigo_produto": "4403", "banco": "un_comtrade"})
     assert captured["headers"]["X-Goog-Authenticated-User-Email"] == "b@embrapa.br"
 
 
@@ -366,7 +366,7 @@ def test_catalog_editor_emails_empty_when_dataframe_empty(monkeypatch):
     monkeypatch.setattr(
         gateway, "fetch_catalog_editors", lambda resource: pd.DataFrame({"email": []})
     )
-    assert seam_curation.catalog_editor_emails("commodity_catalog") == set()
+    assert seam_curation.catalog_editor_emails("produto_catalog") == set()
     monkeypatch.setattr(gateway, "fetch_catalog_editors", lambda resource: None)
     assert seam_curation.catalog_editor_emails() == set()
 
@@ -380,7 +380,7 @@ def test_catalog_editor_emails_normalizes_emails(monkeypatch):
         return pd.DataFrame({"email": ["  Researcher@Embrapa.BR ", "OTHER@embrapa.br", ""]})
 
     monkeypatch.setattr(gateway, "fetch_catalog_editors", _df)
-    out = seam_curation.catalog_editor_emails("commodity_catalog")
+    out = seam_curation.catalog_editor_emails("produto_catalog")
     assert out == {"researcher@embrapa.br", "other@embrapa.br"}
 
 
@@ -398,7 +398,7 @@ def test_orphan_worklist_empty_when_orphan_table_absent(monkeypatch):
     def _boom():
         raise AssertionError("lifecycle status must not be queried on the empty path")
 
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _raise)
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", _raise)
     monkeypatch.setattr(gateway, "fetch_lifecycle_status", _boom)
     assert seam_curation.orphan_worklist() == {"orphans": [], "total": 0}
 
@@ -411,9 +411,9 @@ def test_orphan_worklist_empty_when_no_orphans(monkeypatch):
         raise AssertionError("lifecycle status must not be queried on the empty path")
 
     monkeypatch.setattr(gateway, "fetch_lifecycle_status", _boom)
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", lambda: pd.DataFrame())
     assert seam_curation.orphan_worklist() == {"orphans": [], "total": 0}
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: None)
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", lambda: None)
     assert seam_curation.orphan_worklist() == {"orphans": [], "total": 0}
 
 
@@ -429,7 +429,7 @@ def test_group_worklist_shapes_groups(monkeypatch):
             ]
         )
 
-    monkeypatch.setattr(gateway, "fetch_commodity_groups", _df)
+    monkeypatch.setattr(gateway, "fetch_agrupamentos", _df)
     out = seam_curation.group_worklist()
     assert out["total"] == 2
     assert out["groups"][0] == {"group_id": "madeira", "group_name": "Madeira", "n_members": 2}
@@ -439,14 +439,14 @@ def test_group_worklist_empty_on_not_found(monkeypatch):
     def _raise():
         raise NotFound("no registry")
 
-    monkeypatch.setattr(gateway, "fetch_commodity_groups", _raise)
+    monkeypatch.setattr(gateway, "fetch_agrupamentos", _raise)
     assert seam_curation.group_worklist() == {"groups": [], "total": 0}
-    monkeypatch.setattr(gateway, "fetch_commodity_groups", lambda: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_agrupamentos", lambda: pd.DataFrame())
     assert seam_curation.group_worklist() == {"groups": [], "total": 0}
 
 
 def test_record_group_seam_threads_payload(monkeypatch):
-    from embrapa_dashboard.serving import commodity_groups
+    from embrapa_dashboard.serving import agrupamentos
 
     captured = {}
 
@@ -456,7 +456,7 @@ def test_record_group_seam_threads_payload(monkeypatch):
         captured["kw"] = kw
         return {"ok": True}
 
-    monkeypatch.setattr(commodity_groups, "record_group", _rec)
+    monkeypatch.setattr(agrupamentos, "record_group", _rec)
     out = seam_curation.record_group(
         {"group_name": "Madeira", "group_id": "madeira", "change_id": "k"}
     )
@@ -466,7 +466,7 @@ def test_record_group_seam_threads_payload(monkeypatch):
 
 
 def test_remove_group_seam_threads_payload(monkeypatch):
-    from embrapa_dashboard.serving import commodity_groups
+    from embrapa_dashboard.serving import agrupamentos
 
     captured = {}
 
@@ -475,7 +475,7 @@ def test_remove_group_seam_threads_payload(monkeypatch):
         captured["kw"] = kw
         return {"ok": True}
 
-    monkeypatch.setattr(commodity_groups, "delete_group", _del)
+    monkeypatch.setattr(agrupamentos, "delete_group", _del)
     out = seam_curation.remove_group({"group_id": "madeira", "change_id": "k"})
     assert (
         out == {"ok": True} and captured["gid"] == "madeira" and captured["kw"]["change_id"] == "k"
@@ -490,13 +490,13 @@ def test_catalog_worklist_skips_source_desc_on_not_found(monkeypatch):
         return pd.DataFrame(
             [
                 {
-                    "codigo_commodity": "4403",
+                    "codigo_produto": "4403",
                     "banco": "comex",
                     "agrupamento": "Madeira",
-                    "descricao_commodity": None,
+                    "descricao_produto": None,
                     "ciclo_de_vida": "x",
                     "code_prefix": "4403",
-                    "commodity_id": "madeira",
+                    "agrupamento_id": "madeira",
                 }
             ]
         )
@@ -504,7 +504,7 @@ def test_catalog_worklist_skips_source_desc_on_not_found(monkeypatch):
     def _raise(src):
         raise NotFound("no mart")
 
-    monkeypatch.setattr(gateway, "fetch_commodity_catalog", _df)
+    monkeypatch.setattr(gateway, "fetch_produto_catalog", _df)
     monkeypatch.setattr(gateway, "fetch_products", _raise)
     out = seam_curation.catalog_worklist()
     assert out["entries"][0]["descricao_fonte"] is None

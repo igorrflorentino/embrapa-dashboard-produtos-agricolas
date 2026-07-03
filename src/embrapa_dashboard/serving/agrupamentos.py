@@ -5,13 +5,13 @@ across bancos (e.g. "Madeira", "Castanha"). Historically a group was DERIVED —
 distinct set of ``agrupamento`` names carried on catalog entries — so it had no
 independent lifecycle: no empty groups, no rename, no delete. This module promotes
 groups to a FIRST-CLASS entity with their own append-only registry, keyed by
-``group_id`` (== a catalog entry's ``commodity_id``): create (incl. EMPTY groups),
+``group_id`` (== a catalog entry's ``agrupamento_id``): create (incl. EMPTY groups),
 rename and delete (blocked while the group still has active members).
 
 Reuses the shared append-log primitives in ``serving/research_inputs.py`` (IAP author
 capture + latest-wins current state + optional change_id idempotency), exactly like
 ``serving/curation.py``. A RENAME re-stamps the denormalized ``agrupamento`` name on
-the group's member catalog entries (so ``dim_commodity_catalog`` and the crosswalk,
+the group's member catalog entries (so ``dim_produto_catalog`` and the crosswalk,
 which read the entry's ``agrupamento``, need NO schema change). A DELETE is a tombstone
 and is REJECTED while the group has active members — the researcher reassigns/removes
 them first (never a silent cascade).
@@ -41,7 +41,7 @@ from embrapa_dashboard.serving.research_inputs import (
 logger = logging.getLogger(__name__)
 
 # Append-only groups registry. Explicit schema (autodetect drifts silently).
-COMMODITY_GROUP_LOG_SCHEMA = [
+AGRUPAMENTO_LOG_SCHEMA = [
     bigquery.SchemaField("group_id", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("group_name", "STRING", mode="REQUIRED"),
     # active=false is a tombstone: the group was deleted (only ever when it had no
@@ -54,14 +54,14 @@ COMMODITY_GROUP_LOG_SCHEMA = [
 
 
 def _group_log_ref(cfg: Settings) -> str:
-    return sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_commodity_group_log_table)
+    return sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_agrupamento_log_table)
 
 
 def _catalog_log_ref(cfg: Settings) -> str:
-    return sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_commodity_catalog_log_table)
+    return sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_produto_catalog_log_table)
 
 
-def ensure_commodity_group_log_table(
+def ensure_agrupamento_log_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> str:
@@ -71,7 +71,7 @@ def ensure_commodity_group_log_table(
     bq = client or _bq_client(cfg)
     table_fqn = _group_log_ref(cfg)
     ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    table = bigquery.Table(table_fqn, schema=COMMODITY_GROUP_LOG_SCHEMA)
+    table = bigquery.Table(table_fqn, schema=AGRUPAMENTO_LOG_SCHEMA)
     table.clustering_fields = ["group_id"]
     bq.create_table(table, exists_ok=True)
     logger.info("Commodity-group registry ready at %s", table_fqn)
@@ -96,16 +96,16 @@ def _current_groups(bq: bigquery.Client, table_fqn: str) -> dict[str, str]:
 
 
 def _active_member_rows(bq: bigquery.Client, catalog_fqn: str, group_id: str) -> list:
-    """Current ACTIVE catalog entries whose commodity_id == group_id (the group's
+    """Current ACTIVE catalog entries whose agrupamento_id == group_id (the group's
     members), with the fields needed to re-upsert them on a rename. ``[]`` when the
     catalog log doesn't exist yet."""
     sql = f"""
-        select codigo_commodity, banco, descricao_commodity, ciclo_de_vida
+        select codigo_produto, banco, descricao_produto, ciclo_de_vida
         from (
           select *, row_number() over (
-            partition by codigo_commodity, banco order by edited_at desc, change_id desc
+            partition by codigo_produto, banco order by edited_at desc, change_id desc
           ) as _rn
-          from `{catalog_fqn}` where commodity_id = @group_id
+          from `{catalog_fqn}` where agrupamento_id = @group_id
         ) where _rn = 1 and active
     """
     params = [bigquery.ScalarQueryParameter("group_id", "STRING", group_id)]
@@ -144,7 +144,7 @@ def record_group(
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
     table_fqn = _group_log_ref(cfg)
-    ensure_commodity_group_log_table(cfg, bq)
+    ensure_agrupamento_log_table(cfg, bq)
 
     current = _current_groups(bq, table_fqn)
     renaming = group_id is not None
@@ -163,18 +163,18 @@ def record_group(
     logger.info("Group: %s -> %r by %s", group_id, group_name, edited_by)
 
     # RENAME: re-stamp the new name onto the group's member catalog entries (the entry's
-    # denormalized agrupamento is what dim_commodity_catalog / the crosswalk read).
+    # denormalized agrupamento is what dim_produto_catalog / the crosswalk read).
     if renaming:
         members = _active_member_rows(bq, _catalog_log_ref(cfg), group_id)
         for m in members:
-            curation.record_commodity_catalog(
-                str(m.codigo_commodity),
+            curation.record_produto_catalog(
+                str(m.codigo_produto),
                 m.banco,
                 headers,
                 agrupamento=group_name,
-                descricao_commodity=m.descricao_commodity,
+                descricao_produto=m.descricao_produto,
                 ciclo_de_vida=m.ciclo_de_vida,
-                commodity_id=group_id,
+                agrupamento_id=group_id,
                 settings=cfg,
                 client=bq,
                 invalidate_cache=False,
@@ -209,7 +209,7 @@ def delete_group(
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
     table_fqn = _group_log_ref(cfg)
-    ensure_commodity_group_log_table(cfg, bq)
+    ensure_agrupamento_log_table(cfg, bq)
 
     current = _current_groups(bq, table_fqn)
     if group_id not in current:
@@ -264,7 +264,7 @@ def _group_row(group_id, group_name, active, edited_by, change_id, *, deduped) -
 
 def invalidate_group_cache() -> None:
     """Drop the cached group + catalog reads (a rename changes member names) — best-effort."""
-    for fn in (gateway.fetch_commodity_groups, gateway.fetch_commodity_catalog):
+    for fn in (gateway.fetch_agrupamentos, gateway.fetch_produto_catalog):
         try:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down

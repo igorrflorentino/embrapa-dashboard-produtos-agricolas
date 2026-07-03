@@ -9,7 +9,7 @@ const { useState: useMSState } = React;
 
 // Shared commodity selector (single-select; null = whole basket).
 // Options come from the CROSSWALK catalog (/api/catalog) — each chip's `code` is
-// the commodity_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
+// the agrupamento_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
 // (Sourcing from window.PRODUCTS shipped PEVS codes, which the backend can't
 // crosswalk, so every specific-commodity analysis came back empty.)
 // `families` (optional) restricts the offered commodities to those PEVS unit
@@ -17,7 +17,7 @@ const { useState: useMSState } = React;
 // only a pure-mass commodity is interpretable there. When set, the mixed "Cesta
 // completa" option is dropped too (it spans families, so it is incompatible).
 function CrossProductPicker({ value, onChange, families }) {
-  const all = window.crossCatalog();
+  const all = window.agrupamentoCatalog();
   const prods = families && families.length ? all.filter(p => families.includes(p.family)) : all;
   const allowBasket = !(families && families.length);
   return (
@@ -56,7 +56,7 @@ function ViewExportCoef() {
   // This view compares PEVS MASS to COMEX weight, so only a pure-mass commodity works.
   // Offer just those and default to the first (the mixed "Cesta completa" is always
   // incompatible here) — the user lands on a working indicator, not a fallback note.
-  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const massProds = window.agrupamentoCatalog().filter(p => p.family === 'mass');
   const effProduct = product || (massProds[0] && massProds[0].code) || null;
   const data = window.exportCoefficient(effProduct);
   const ranked = data.byUf.filter(u => u.production > 0).sort((a, b) => b.coefPct - a.coefPct);
@@ -179,7 +179,7 @@ function ViewPriceSpread() {
   const [product, setProduct] = useMSState(null);
   // Same mass-basis requirement as the export coefficient — offer only pure-mass
   // commodities and default to the first, so the user opens on a real spread.
-  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const massProds = window.agrupamentoCatalog().filter(p => p.family === 'mass');
   const effProduct = product || (massProds[0] && massProds[0].code) || null;
   // Per-UF scoping ('' = Brasil). Both sides (PEVS farm-gate + COMEX FOB) honour it.
   const [uf, setUf] = useMSState('');

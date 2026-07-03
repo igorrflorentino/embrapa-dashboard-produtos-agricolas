@@ -199,7 +199,7 @@ def test_auto_mark_orphans_notfound_short_circuits(monkeypatch):
     def _raise():
         raise NotFound("no orphan view")
 
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _raise)
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", _raise)
     res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
     assert res == {"detected": 0, "newly_marked": 0, "already_marked": 0}
 
@@ -211,11 +211,11 @@ def test_auto_mark_orphans_empty_orphans_short_circuits(monkeypatch):
 
     from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", lambda: pd.DataFrame())
     res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
     assert res == {"detected": 0, "newly_marked": 0, "already_marked": 0}
 
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: None)
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", lambda: None)
     res2 = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
     assert res2 == {"detected": 0, "newly_marked": 0, "already_marked": 0}
 
@@ -228,7 +228,7 @@ def test_auto_mark_orphans_skips_already_marked_no_timestamps(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     # _one_orphan_df has NO removed_at column → removed_at is None.
-    monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(gateway, "fetch_orphan_produtos", _one_orphan_df)
     # A prior lifecycle entry for the SAME (commodity, comex, 20079926), flagged_at None.
     monkeypatch.setattr(
         gateway,
@@ -270,7 +270,7 @@ def test_invalidate_lifecycle_cache_calls_delete_memoized(monkeypatch):
     monkeypatch.setattr(cache, "delete_memoized", lambda fn: deleted.append(fn))
     catalog_lifecycle.invalidate_lifecycle_cache()
     assert gateway.fetch_lifecycle_status in deleted
-    assert gateway.fetch_orphan_commodities in deleted
+    assert gateway.fetch_orphan_produtos in deleted
 
 
 def test_invalidate_lifecycle_cache_swallows_backend_error(monkeypatch):
@@ -294,7 +294,7 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     from embrapa_dashboard import doctor
     from embrapa_dashboard.serving import catalog_lifecycle
 
-    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -322,7 +322,7 @@ def test_purge_plan_backup_no_runs(monkeypatch):
     from embrapa_dashboard import doctor
     from embrapa_dashboard.serving import catalog_lifecycle
 
-    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -345,7 +345,7 @@ def test_purge_plan_backup_only_partial(monkeypatch):
     from embrapa_dashboard import doctor
     from embrapa_dashboard.serving import catalog_lifecycle
 
-    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -372,7 +372,7 @@ def test_purge_plan_backup_stale(monkeypatch):
     from embrapa_dashboard import doctor
     from embrapa_dashboard.serving import catalog_lifecycle
 
-    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -397,7 +397,7 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import catalog_lifecycle
 
-    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
+    monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
