@@ -23,7 +23,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: python dependency closure (webapi extra — flask + gunicorn) ──────
-FROM python:3.12-slim AS pybuild
+FROM python:3.14-slim AS pybuild
 RUN pip install --no-cache-dir "uv>=0.5,<1.0"
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -39,7 +39,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --extra webapi
 
 # ── Stage 3: runtime ──────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 COPY --from=pybuild --chown=appuser:appuser /app /app
