@@ -52,6 +52,14 @@
   min-height: 0;
   overflow-y: auto;
 }
+/* Section cards must NOT shrink. The body is the single scroll region (see the
+   .fm-modal note), so its children keep their natural height and let the body
+   overflow + scroll. Without this, the flexbox default (flex-shrink:1) squeezes
+   the shorter sections (Produtos/Período/Qualidade) down to slivers whenever
+   Geografia is tall, and the body never overflows — so it can't scroll at all.
+   That collapse (NOT the nested scrollers) is what made the modal look broken and
+   unusable on short viewports: every phone, and desktop windows under ~950px. */
+.fm-body > .fm-section { flex-shrink: 0; }
 .fm-modal.wide { max-width: 1180px; }
 @keyframes fm-rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -967,27 +975,22 @@
   .fm-section-head { padding: 10px 14px; }
   .fm-backdrop {
     padding: 16px 10px;
-    /* keep momentum scrolling on the outer scroller and stop drags from
-       rubber-banding the page behind the modal (iOS) */
+    /* stop a drag that reaches the backdrop from rubber-banding the page behind it */
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
   }
-  /* ---- iOS nested-scroll fix -------------------------------------------
-     iOS Safari (unlike Chrome / the Chrome device emulator) does NOT chain a
-     nested overflow scroller's leftover delta to its ancestor. .fm-grid-scroll
-     (products + the 9 quality flags) and .fm-geo-list (one per geo column) are
-     inner scrollers inside .fm-body — so a touch-drag that starts on a product
-     row or a geo column gets trapped and the whole modal appears frozen. On
-     phones, collapse to a SINGLE scroll region: make the inner lists layout-only
-     (no max-height, no overflow) so ONLY .fm-body scrolls. The município DOM is
-     already bounded by GEO_RENDER_CAP=300 (FilterMenu.jsx), so expanding the geo
-     list inline can't render thousands of rows. */
-  .fm-grid-scroll { max-height: none; overflow: visible; }
-  .fm-geo-list    { max-height: none; overflow: visible; }
-  .fm-body {
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-  }
+  /* Keep the inner lists as COMPACT capped scrollers (their base CSS) — do NOT
+     flatten them: the geografia município column can hold up to GEO_RENDER_CAP=300
+     rows, which rendered inline would make Geografia ~48000px tall. The modal
+     scrolls as ONE region via .fm-body (the global `.fm-body > .fm-section {
+     flex-shrink: 0 }` is what lets the body actually overflow + scroll). Contain
+     each inner scroll so it can't leak/chain into the body scroll. */
+  .fm-body { overscroll-behavior: contain; }
+  .fm-grid-scroll, .fm-geo-list { overscroll-behavior: contain; }
+  /* The cascade hint is a border-radius:999px pill; on a narrow phone its long
+     text ("Seleção em cascata · nação ▸ região ▸ …") can wrap and balloon into a
+     faint circular blob behind the summary. A normal rounded rect + top-aligned
+     icon reads cleanly whether it wraps or not. */
+  .fm-cascade-hint { border-radius: var(--radius-md); align-items: flex-start; }
   /* roomier tap targets for the geo checkboxes (was 5px padding — below iOS comfort) */
   .fm-check.geo { padding: 9px 8px; }
   .fm-bulk button { min-height: 36px; padding: 8px 4px; }

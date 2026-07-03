@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.6] - 2026-07-02
+
+Correção **real** do menu de filtros no celular e no desktop — a v1.10.5 não
+resolveu (e piorou no iPhone). O diagnóstico desta vez foi feito reproduzindo o
+bug num navegador real na largura de iPhone, não às cegas.
+
+### Fixed
+- **Seções do menu de filtros "achatadas" e modal sem rolagem (celular E desktop).**
+  A causa real não era a rolagem aninhada do iOS (hipótese da v1.10.5), e sim um
+  colapso de layout: o corpo do modal (`.fm-body`) é uma coluna flex e suas seções
+  ficavam com o `flex-shrink` padrão (1) — então, quando a seção Geografia ficava
+  alta, o flexbox **encolhia** Produtos/Período/Qualidade até virarem tiras de ~5px
+  e o corpo nunca transbordava, logo **não rolava** e não dava para ver nem editar
+  as opções. Afetava todo celular e janelas de desktop com menos de ~950px de
+  altura. Corrigido com `.fm-body > .fm-section { flex-shrink: 0 }`: as seções
+  mantêm a altura natural e o corpo rola como uma única região (como o próprio
+  design já pretendia). A v1.10.5 havia "achatado" as listas internas no celular,
+  o que inflava a Geografia para ~48000px e agravava o colapso — isso foi
+  **revertido**; as listas voltam a ser roladores internos compactos (a coluna de
+  municípios pode ter até 300 linhas).
+- **"Círculo" cinza atrás do resumo da Geografia no celular.** Era o *pill* de dica
+  em cascata (`.fm-cascade-hint`, `border-radius:999px`): com o texto longo
+  quebrando em várias linhas num telefone estreito, ele inchava num borrão quase
+  circular. Agora usa cantos normais e alinha o ícone ao topo.
+
+### Changed (internal)
+- `index.html` passa a ser servido com `Cache-Control: no-cache`, para que o
+  `?v=<versão>` dos CSS estáticos (nomes sem hash) sempre chegue ao navegador em
+  vez de uma casca antiga em cache prender a versão velha do CSS/JS. Teste
+  adicionado (`test_webapi_app`). `?v=` dos CSS → 1.10.6.
+- Removido `-webkit-overflow-scrolling: touch` (obsoleto no iOS moderno) e mantido
+  `overscroll-behavior: contain` para conter a rolagem interna. Sem mudança visual
+  no desktop além da correção do colapso.
+
 ## [1.10.5] - 2026-07-02
 
 Correção do menu de filtros travado no iPhone/iOS Safari — funcionava no emulador do
