@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.10] - 2026-07-03
+
+Melhoria de UI: o alternador de modo foi para a barra lateral.
+
+### Changed
+- **O alternador "Banco único · Multi-fonte" saiu do menu superior e passou para o
+  topo da barra lateral**, junto da seleção de dados — é ele que decide se a lista
+  abaixo é de um único banco ou do conjunto multi-fonte —, deixando a barra superior
+  mais limpa. No celular ele já ficava no topo do menu lateral; agora o desktop segue
+  o mesmo lugar. Em larguras de barra lateral bem estreitas, os dois segmentos
+  empilham em duas linhas de largura total, sem cortar os rótulos.
+
 ## [1.10.9] - 2026-07-03
 
 Conclusão da renomeação de terminologia na interface — o v1.10.8 renomeou os
