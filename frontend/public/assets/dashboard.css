@@ -329,18 +329,24 @@
 .util-overflow { display: none; }
 
 /* The single/multi mode toggle lives in the sidebar at EVERY width (moved out of the
-   topbar). Light-surface segmented control, aligned with the sidebar sections (18px).
-   The ≤768px block near the bottom keeps the mobile drawer edge-to-edge (margin 0). */
+   topbar). Light-surface segmented control. The desktop sidebar (default ~260px,
+   resizable down to 200px) is narrower than the mobile drawer, so the two labelled
+   buttons can't always sit side by side: min-width:0 lets them share the track, and
+   flex-wrap drops them to two stacked full-width rows when the sidebar is too narrow —
+   the labels never truncate or overflow. The ≤768px block near the bottom keeps the
+   mobile drawer edge-to-edge. */
 .side-mode-switch {
-  display: flex; gap: 4px; margin: 4px 18px 14px; padding: 3px;
+  display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 12px 14px; padding: 3px;
   background: var(--bg-surface-2); border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
 }
 .side-mode-switch .mode-opt {
-  flex: 1; justify-content: center; height: auto; min-height: 40px;
+  flex: 1 1 90px; min-width: 0;
+  justify-content: center; gap: 6px;
+  height: auto; min-height: 40px; padding: 0 8px;
   color: var(--fg-2);
 }
-.side-mode-switch .mode-opt span { display: inline; }   /* full labels at all widths (override the ≤1080px icon-only rule) */
+.side-mode-switch .mode-opt span { display: inline; }   /* full labels (override the ≤1080px icon-only rule) */
 .side-mode-switch .mode-opt:hover { background: var(--bg-surface); color: var(--fg-1); }
 .side-mode-switch .mode-opt.on { background: var(--embrapa-green); color: #fff; }
 
