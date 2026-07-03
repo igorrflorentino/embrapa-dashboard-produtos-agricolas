@@ -30,6 +30,11 @@
      predictable body scroll and "Aplicar filtros" stays pinned in view. Short content
      (few products/sections) never hits the cap, so the modal still sizes to its content. */
   max-height: min(900px, calc(100vh - 80px));
+  /* iOS Safari: 100vh measures the LARGE viewport (URL bar retracted), so the modal
+     paints taller than what's visible and the pinned footer drops below the fold.
+     dvh tracks the DYNAMIC/visible viewport. The vh line stays first as the fallback
+     for engines without dvh; where dvh is supported it wins (later declaration). */
+  max-height: min(900px, calc(100dvh - 80px));
   display: flex;
   flex-direction: column;
 }
@@ -252,6 +257,7 @@
   left: 0; top: 0; bottom: 0;
   width: 3px;
   background: var(--embrapa-green);
+  pointer-events: none; /* decorative rail must never intercept a tap */
 }
 .fm-section-head-l {
   display: flex;
@@ -959,7 +965,31 @@
   .fm-row-2 { padding: 16px; }
   .fm-section-inner { padding: 14px; }
   .fm-section-head { padding: 10px 14px; }
-  .fm-backdrop { padding: 16px 10px; }
+  .fm-backdrop {
+    padding: 16px 10px;
+    /* keep momentum scrolling on the outer scroller and stop drags from
+       rubber-banding the page behind the modal (iOS) */
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* ---- iOS nested-scroll fix -------------------------------------------
+     iOS Safari (unlike Chrome / the Chrome device emulator) does NOT chain a
+     nested overflow scroller's leftover delta to its ancestor. .fm-grid-scroll
+     (products + the 9 quality flags) and .fm-geo-list (one per geo column) are
+     inner scrollers inside .fm-body — so a touch-drag that starts on a product
+     row or a geo column gets trapped and the whole modal appears frozen. On
+     phones, collapse to a SINGLE scroll region: make the inner lists layout-only
+     (no max-height, no overflow) so ONLY .fm-body scrolls. The município DOM is
+     already bounded by GEO_RENDER_CAP=300 (FilterMenu.jsx), so expanding the geo
+     list inline can't render thousands of rows. */
+  .fm-grid-scroll { max-height: none; overflow: visible; }
+  .fm-geo-list    { max-height: none; overflow: visible; }
+  .fm-body {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* roomier tap targets for the geo checkboxes (was 5px padding — below iOS comfort) */
+  .fm-check.geo { padding: 9px 8px; }
   .fm-bulk button { min-height: 36px; padding: 8px 4px; }
   .fm-quick button { height: 36px; }
   /* The geo footer meta ("Malha IBGE: 5571 municípios · mesorregião/microrregião …")
