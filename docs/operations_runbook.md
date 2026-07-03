@@ -49,28 +49,28 @@ Notes:
   a retried/double-clicked save reusing the same key is a no-op, not a duplicate
   audit row.
 
-## Managing catalog editors (the "Cadastro de commodities" admin view)
+## Managing catalog editors (the "Cadastro de produtos agrícolas" admin view)
 
-The **live Curadoria catalog** edits (the "Cadastro de commodities" admin view → the catalog
+The **live Curadoria catalog** edits (the "Cadastro de produtos agrícolas" admin view → the catalog
 write routes) are gated by a **per-catalog** allowlist, separate from the curation curators
 above: the Console-managed table `<dataset>.catalog_editors` (`<dataset>` =
 `BQ_RESEARCH_INPUTS_DATASET`, default `research_inputs`; table = `BQ_CATALOG_EDITORS_TABLE`,
 default `catalog_editors`), keyed by `(resource, email)` where `resource` is the catalog id
-(`commodity_catalog`). If **no** rows exist for a resource, any IAP-authenticated caller may
+(`produto_catalog`). If **no** rows exist for a resource, any IAP-authenticated caller may
 edit that catalog (open mode); add a row to lock it down.
 
 ```sql
 -- add an editor for the commodity catalog
 INSERT INTO `<project>.research_inputs.catalog_editors` (resource, email, added_by, added_at)
-VALUES ('commodity_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
+VALUES ('produto_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
 
 -- remove
 DELETE FROM `<project>.research_inputs.catalog_editors`
-WHERE resource = 'commodity_catalog' AND email = 'old@embrapa.br';
+WHERE resource = 'produto_catalog' AND email = 'old@embrapa.br';
 
 -- list current
 SELECT email FROM `<project>.research_inputs.catalog_editors`
-WHERE resource = 'commodity_catalog' ORDER BY email;
+WHERE resource = 'produto_catalog' ORDER BY email;
 ```
 
 Like the curators table: changes take effect within the ~30s classification cache TTL, emails are
@@ -182,7 +182,7 @@ Operator steps (one-time per deployment):
 3. Verify: a curation save in prod records the IAP identity; with a wrong
    audience the write is rejected rather than silently mis-attributed.
 
-Details: `src/embrapa_commodities/serving/iap.py` and
+Details: `src/embrapa_dashboard/serving/iap.py` and
 [`docs/auth_architecture.md`](auth_architecture.md).
 
 ## Activating curation in prod (one-time) and keeping it built

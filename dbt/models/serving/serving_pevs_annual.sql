@@ -22,7 +22,7 @@
 --
 -- Backs (frontend_data_contract.md §3): overviewTS (GROUP BY year), productTS
 -- (GROUP BY year, product_code), ufData (GROUP BY state_acronym). Carries the
--- cross-source commodity_id (from gold_commodity_crosswalk) so a row can be
+-- cross-source agrupamento_id (from gold_produto_agrupamento) so a row can be
 -- linked to its commodity — column-identical with serving_pam_annual.
 --
 -- Grain: one row per (reference_year, state_acronym, product_code, family).
@@ -78,8 +78,8 @@ select
     g.state_name,
     g.region,
     g.region_abbrev,
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     p.product_code,
     p.product_description,
     p.family,
@@ -103,5 +103,5 @@ select
 from pevs p
 left join {{ ref('dim_geo_br') }} g
     on g.state_acronym = p.state_acronym
-left join {{ ref('gold_commodity_crosswalk') }} x
+left join {{ ref('gold_produto_agrupamento') }} x
     on x.source = 'pevs' and x.code = p.product_code

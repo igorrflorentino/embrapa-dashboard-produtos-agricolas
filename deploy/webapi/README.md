@@ -2,7 +2,7 @@
 
 The Dash→React migration's deploy target. Serves the built React SPA **and** the
 `/api` JSON endpoints from one origin (one service, one IAP, no CORS) via
-gunicorn → `embrapa_commodities.webapi.app:app`.
+gunicorn → `embrapa_dashboard.webapi.app:app`.
 
 Replaces the Dash image (`deploy/dashboard/`) **in place** at cutover: the
 `deploy.sh` defaults to the same service (`embrapa-dashboard`), the same runtime

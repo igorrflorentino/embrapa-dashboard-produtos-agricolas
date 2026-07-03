@@ -121,7 +121,7 @@ const GLOSSARY = {
       { term: 'Base 100',  cat: 'Método', short: 'Reindexação de cada série a 100 no ano inicial, para comparar trajetórias independentemente da unidade.' },
       { term: 'Eixo duplo', cat: 'Método', short: 'Duas unidades em eixos verticais distintos (esquerda/direita) — compara o formato das curvas, não o nível absoluto.' },
       { term: 'Coeficiente de exportação', cat: 'Perspectiva', tag: 'IBGE × MDIC', short: 'Parcela da produção de cada UF (IBGE) que segue para exportação (MDIC). Mede a orientação exportadora por estado.' },
-      { term: 'Participação no mercado mundial', cat: 'Perspectiva', tag: 'MDIC × Comtrade', short: 'Exportação brasileira como fração da exportação mundial do produto (UN Comtrade).' },
+      { term: 'Participação no mercado mundial', cat: 'Perspectiva', tag: 'MDIC × Comtrade', short: 'Exportação brasileira como fração da exportação mundial do agrupamento (UN Comtrade).' },
       { term: 'Espelho comercial', cat: 'Perspectiva', tag: 'MDIC × Comtrade', short: 'A mesma exportação vista por MDIC, Comtrade e parceiros; a divergência ao longo do tempo é um diagnóstico de qualidade entre fontes.' },
       { term: 'Balanço da cadeia', cat: 'Perspectiva', tag: 'massa', short: 'Reconstitui o destino da produção — comércio interno (SEFAZ), exportação (MDIC) e consumo/estoque — com massa conservada, mais a fatia no mercado mundial.' },
       { term: 'Defasagem safra → embarque', cat: 'Perspectiva', tag: 'lead-lag', short: 'Quantos meses os embarques (MDIC, mensal) seguem o pico da safra (IBGE), estimado por correlação cruzada por defasagem.' },

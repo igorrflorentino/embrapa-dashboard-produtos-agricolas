@@ -116,42 +116,42 @@ models:
       - name: imediata_name
         description: "Região geográfica imediata name (pt-BR)."
 
-  - name: dim_commodity_catalog
+  - name: dim_produto_catalog
     description: |
       The CURRENT commodity catalog (Curadoria) — latest-wins, active rows from the
-      append-only research_inputs.commodity_catalog_log. The editable successor to the
-      commodity_crosswalk seed; gold_commodity_crosswalk + serving_{pam,ppm}_annual read
-      it. Exposes (commodity_id, commodity_name, source, codigo_commodity) — each commodity
+      append-only research_inputs.produto_catalog_log. The editable successor to the
+      commodity_crosswalk seed; gold_produto_agrupamento + serving_{pam,ppm}_annual read
+      it. Exposes (agrupamento_id, agrupamento_nome, source, codigo_produto) — each commodity
       is one EXACT source code (no prefixes). VIEW, so a fresh admin edit is live
       immediately. NOT gated — the live SOT.
     tests:
-      # The composite key (codigo_commodity, source) is unique in the CURRENT catalog
-      # (latest-wins per (codigo_commodity, banco)). Because codes are exact, a Gold code
+      # The composite key (codigo_produto, source) is unique in the CURRENT catalog
+      # (latest-wins per (codigo_produto, banco)). Because codes are exact, a Gold code
       # resolves to at most one commodity — no cross-source fan-out — also guarded by the
-      # unique_combination on gold_commodity_crosswalk's (source, code).
+      # unique_combination on gold_produto_agrupamento's (source, code).
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
-              - codigo_commodity
+              - codigo_produto
               - source
     columns:
-      - name: codigo_commodity
+      - name: codigo_produto
         description: "The EXACT source code the researcher registered — half the catalog key."
         tests: [not_null]
       - name: source
         description: "Source token / banco (pevs, comex, comtrade, pam, ppm)."
         tests: [not_null]
-      - name: commodity_name
+      - name: agrupamento_nome
         description: "The agrupamento (cross-source commodity concept), pt-BR."
 
-  - name: dim_commodity_visibility
+  - name: dim_produto_visibility
     description: |
       The HIDDEN-code registry for the Ciclo de Vida visibility gate (F7). Emits ONLY
       (source, code) of commodities a researcher set to "Fazer Ingestão mas deixar
       indisponível" (latest-wins, active). The gate is a NOT EXISTS predicate over this
       view (macros/hidden_code_predicate + serving/sql.visibility_clause), applied at every
       researcher-facing Gold read (serving marts, quality donut, cross-source picker). Kept
-      SEPARATE from dim_commodity_catalog so the admin editor + crosswalk still see
+      SEPARATE from dim_produto_catalog so the admin editor + crosswalk still see
       hidden-but-active rows. Empty in the no-op steady state (nothing hidden). VIEW.
     columns:
       - name: source
@@ -210,22 +210,22 @@ models:
                 severity: warn
 
 unit_tests:
-  # F7 gate SOT: dim_commodity_visibility emits ONLY active + indisponível codes,
+  # F7 gate SOT: dim_produto_visibility emits ONLY active + indisponível codes,
   # latest-wins. Disponível, tombstoned (active=false), and superseded rows are excluded.
-  - name: test_dim_commodity_visibility_only_hidden_latest_wins
-    model: dim_commodity_visibility
+  - name: test_dim_produto_visibility_only_hidden_latest_wins
+    model: dim_produto_visibility
     given:
-      - input: source('research_inputs', 'commodity_catalog_log')
+      - input: source('research_inputs', 'produto_catalog_log')
         rows:
           # disponível → NOT hidden
-          - {codigo_commodity: '11', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão e deixar disponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c1'}
+          - {codigo_produto: '11', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão e deixar disponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c1'}
           # active + indisponível → hidden
-          - {codigo_commodity: '22', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c2'}
+          - {codigo_produto: '22', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c2'}
           # tombstone (active=false) → NOT hidden (left the catalog; orphan path handles it)
-          - {codigo_commodity: '33', banco: 'comex', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: false, edited_at: '2024-01-01 00:00:00', change_id: 'c3'}
+          - {codigo_produto: '33', banco: 'comex', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: false, edited_at: '2024-01-01 00:00:00', change_id: 'c3'}
           # latest-wins: same key flips disponível → indisponível on a newer edit → hidden
-          - {codigo_commodity: '44', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão e deixar disponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c4'}
-          - {codigo_commodity: '44', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: true, edited_at: '2024-06-01 00:00:00', change_id: 'c5'}
+          - {codigo_produto: '44', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão e deixar disponível', active: true, edited_at: '2024-01-01 00:00:00', change_id: 'c4'}
+          - {codigo_produto: '44', banco: 'pevs', ciclo_de_vida: 'Fazer Ingestão mas deixar indisponível', active: true, edited_at: '2024-06-01 00:00:00', change_id: 'c5'}
     expect:
       rows:
         - {source: 'pevs', code: '22'}

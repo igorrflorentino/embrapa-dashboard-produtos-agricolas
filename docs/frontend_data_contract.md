@@ -1,16 +1,16 @@
 # Frontend data contract — Gold → snapshot mapping
 
 **Audience:** anyone maintaining the dashboard's data-access layer (the Flask BFF
-in `src/embrapa_commodities/serving/` + `webapi/`). **Purpose:** spell out, field
+in `src/embrapa_dashboard/serving/` + `webapi/`). **Purpose:** spell out, field
 by field, how the frontend's in-memory snapshot shapes (defined in
 `dataStore.js` / `contracts.js`) are produced from the
 **Gold** tables — so the BFF is a thin mapping and the UI lights up without rework.
 
 > This is a **data contract**. **Update (2026-06 Dash→React migration):** both
-> halves now EXIST — the BFF / data-access layer (`src/embrapa_commodities/serving/`
+> halves now EXIST — the BFF / data-access layer (`src/embrapa_dashboard/serving/`
 > queries the pre-aggregated `serving` marts in `dbt/models/serving/` instead of
 > loading Gold in memory) **and** the React SPA + Flask REST UI (`frontend/` +
-> `src/embrapa_commodities/webapi/`), live on Cloud Run behind IAP. What the
+> `src/embrapa_dashboard/webapi/`), live on Cloud Run behind IAP. What the
 > backend guarantees is below: column names, **magnitudes**, units, and the few
 > transforms (family vocab, region code, `world_exp`) the BFF must apply.
 
@@ -27,7 +27,7 @@ cross-source layer. Everything here feeds those; no view/chart/router changes.
 | `gold.gold_pam_production` | year × UF × city × product | IBGE PAM (production), with area/yield columns `area_planted_ha`, `area_harvested_ha`, `yield_kg_ha`, served via the `/api/productivity` seam |
 | `gold.gold_comex_flows` | flow × year × **month** × NCM × country × UF × **via** | MDIC COMEX (Brazil trade) |
 | `gold.gold_comtrade_flows` | flow × year × reporter × partner × cmd(HS6) | UN Comtrade (global trade) |
-| `gold.gold_commodity_crosswalk` | (source, code) → commodity | cross-source product bridge |
+| `gold.gold_produto_agrupamento` | (source, code) → commodity | cross-source product bridge |
 | `gold.gold_source_metadata` | one row per source | provenance for `dataStore.meta(id)` (§9) |
 
 **Capabilities** (drive the brief's view gating; match `bancos.js`):
@@ -220,30 +220,30 @@ derived (value ÷ weight), kept internally consistent with `exp_value`/`exp_weig
 
 ---
 
-## 6. Product crosswalk (brief §6) — `gold_commodity_crosswalk`
+## 6. Product crosswalk (brief §6) — `gold_produto_agrupamento`
 
 The keystone for every cross-source join (export coefficient, market share, price
 spread, trade mirror, harvest→shipment lag). Resolved table, grain `(source, code)`:
 
 | column | meaning |
 |---|---|
-| `commodity_id` | stable slug: `castanha_do_para`, `madeira_em_tora` |
-| `commodity_name` | display name |
+| `agrupamento_id` | stable slug: `castanha_do_para`, `madeira_em_tora` |
+| `agrupamento_nome` | display name |
 | `source` | `pevs` \| `comex` \| `comtrade` |
 | `code` | exact code in that source (PEVS code / NCM8 / HS6) |
 
 **Usage** — join each fact's product code to get a comparable commodity:
 ```sql
-SELECT x.commodity_id, SUM(c.val_yearfx_usd) AS comex_exp_usd
+SELECT x.agrupamento_id, SUM(c.val_yearfx_usd) AS comex_exp_usd
 FROM gold.gold_comex_flows c
-JOIN gold.gold_commodity_crosswalk x ON x.source='comex' AND x.code = c.ncm_code
+JOIN gold.gold_produto_agrupamento x ON x.source='comex' AND x.code = c.ncm_code
 WHERE c.flow='export'
-GROUP BY x.commodity_id
+GROUP BY x.agrupamento_id
 ```
 A product code matching no commodity is simply absent from the crosswalk →
 **"não vinculado"** (graceful), never an error. Register a new commodity by its exact
-source code via the **"Cadastro de commodities"** admin view (writes to `research_inputs`
-→ `core/dim_commodity_catalog` → `gold_commodity_crosswalk`) when the product scope grows.
+source code via the **"Cadastro de produtos agrícolas"** admin view (writes to `research_inputs`
+→ `core/dim_produto_catalog` → `gold_produto_agrupamento`) when the product scope grows.
 
 Verified (2023): the crosswalk links castanha and roundwood across all three
 sources, so e.g. the export coefficient (COMEX exports ÷ PEVS production) and the
@@ -309,7 +309,7 @@ Both flows tables share the 4 monetary conventions (× 3 currencies): `val_yearf
   reporter_code/name/iso_a3, partner_code/name/iso_a3, partner_is_group,
   qty_unit_code, unit_native_symbol, net_weight_kg, gross_weight_kg,
   val_cif_usd, val_fob_usd, source_rows. (annual — no reference_month.)
-- **gold_commodity_crosswalk**: commodity_id, commodity_name, source, code.
+- **gold_produto_agrupamento**: agrupamento_id, agrupamento_nome, source, code.
 - **gold_source_metadata**: source, gold_table, cadence, year_start, year_end,
   total_rows, products_total, ufs_total, last_refresh. (view; see §9.)
 

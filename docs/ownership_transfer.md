@@ -5,18 +5,18 @@ This project was designed to be portable: nothing in the code hardcodes the `GCP
 ## Migration checklist
 
 1. **GitHub** — transfer the repository to the company's organization under *Settings → Transfer ownership*. Collaborators and history are preserved.
-2. **New GCP project** — create a project inside the company's org, for example `embrapa-commodities-prod`. Enable the APIs: BigQuery, Cloud Storage, IAM.
+2. **New GCP project** — create a project inside the company's org, for example `embrapa-produtos agrícolas-prod`. Enable the APIs: BigQuery, Cloud Storage, IAM.
 3. **Local permissions (dev)** — each engineer runs once: `gcloud auth application-default login`.
 4. **Company `.env`** — copy `.env.example` and update:
    ```
-   GCP_PROJECT_ID=embrapa-commodities-prod
-   GCS_BUCKET=embrapa-commodities-prod-datalake
+   GCP_PROJECT_ID=embrapa-produtos agrícolas-prod
+   GCS_BUCKET=embrapa-produtos agrícolas-prod-datalake
    BQ_LOCATION=southamerica-east1   # or US, depending on company policy
    ```
 5. **Company `profiles.yml`** — copy `dbt/profiles.yml.example` to `~/.dbt/profiles.yml` and swap `project:` for the new project.
 6. **First load** — `uv run embrapa ingest all` automatically creates the bucket and the `bronze_ibge` / `bronze_bcb` / `bronze_comex` / `bronze_pam` / `bronze_ppm` / `bronze_comtrade` datasets in the new project (PAM and PPM are excluded from `all` — run `uv run embrapa ingest ibge-pam` and `ingest ibge-ppm` separately; COMTRADE is also left out of `all` — it is key-gated; run `uv run embrapa ingest comtrade` separately).
 7. **First transformation** — `make dbt-build` materializes Silver and Gold.
-8. **Looker Studio** — duplicate the existing report and repoint the data source to `embrapa-commodities-prod.gold.gold_pevs_production`.
+8. **Looker Studio** — duplicate the existing report and repoint the data source to `embrapa-produtos agrícolas-prod.gold.gold_pevs_production`.
 
 ## When to migrate orchestration to the cloud
 
@@ -65,7 +65,7 @@ final Friday of each sprint.
 | 90 days | Transition to `COLDLINE` |
 | 365 days | `DELETE` |
 
-(Configured in `src/embrapa_commodities/gcp/storage.py` and applied at
+(Configured in `src/embrapa_dashboard/gcp/storage.py` and applied at
 bucket creation — the `landing/` prefix follows a separate lifecycle that
 ends in `ARCHIVE`, with no delete.)
 

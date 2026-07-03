@@ -63,14 +63,14 @@ beforeAll(async () => {
   window.React = React;
   window.numBR = numBR;
   window.pctBR = pctBR;
-  window.crossCatalog = () => CATALOG;
+  window.agrupamentoCatalog = () => CATALOG;
   await import('./ViewsMultiSource.jsx');
   ({ ViewExportCoef, ViewMarketShare, ViewPriceSpread, ViewMirror, CrossProductPicker } = window);
 });
 
 beforeEach(() => {
   // Re-establish the catalog + widgets per test (cheap; some tests override producers).
-  window.crossCatalog = () => CATALOG;
+  window.agrupamentoCatalog = () => CATALOG;
   stubWidgets();
 });
 

@@ -14,10 +14,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.ibge import ppm_pipeline
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.ibge import ppm_pipeline
 
-P = "embrapa_commodities.ibge.ppm_pipeline"
+P = "embrapa_dashboard.ibge.ppm_pipeline"
 
 
 @pytest.fixture

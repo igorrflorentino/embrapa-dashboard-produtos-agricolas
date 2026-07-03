@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 import requests
 
-from embrapa_commodities import doctor
-from embrapa_commodities.config import Settings
+from embrapa_dashboard import doctor
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def test_check_pam_variable_codes_handles_unexpected_exception(settings: Setting
 def test_check_adc_reports_impersonation_target(settings: Settings) -> None:
     """When an impersonation SA is set, the detail names it (line 199 branch)."""
     settings.gcp_impersonation_sa = "sa-impersonate@x.iam.gserviceaccount.com"
-    with patch("embrapa_commodities.doctor.google.auth.default") as auth:
+    with patch("embrapa_dashboard.doctor.google.auth.default") as auth:
         auth.return_value = (MagicMock(), "test-project")
         result = doctor._check_adc(settings)
     assert result.ok is True
@@ -93,7 +93,7 @@ def test_check_adc_reports_impersonation_target(settings: Settings) -> None:
 
 
 def test_check_bq_fails_when_client_raises(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.return_value.get_service_account_email.side_effect = Exception("403 denied")
         result = doctor._check_bq(settings)
     assert result.ok is False
@@ -105,7 +105,7 @@ def test_check_bq_fails_when_client_raises(settings: Settings) -> None:
 
 def test_check_gcs_fails_on_non_notfound_error(settings: Settings) -> None:
     """A permission error (not NotFound) is a hard failure, not a 'will create'."""
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.side_effect = Exception("permission denied")
         result = doctor._check_gcs(settings)
     assert result.ok is False
@@ -116,7 +116,7 @@ def test_check_gcs_fails_on_non_notfound_error(settings: Settings) -> None:
 
 
 def test_check_pam_fails_on_request_error(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.requests.get") as get:
+    with patch("embrapa_dashboard.doctor.requests.get") as get:
         get.side_effect = requests.ConnectionError("pam host down")
         result = doctor._check_pam(settings)
     assert result.ok is False
@@ -127,7 +127,7 @@ def test_check_pam_fails_on_request_error(settings: Settings) -> None:
 
 
 def test_check_ppm_fails_on_request_error(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.requests.get") as get:
+    with patch("embrapa_dashboard.doctor.requests.get") as get:
         get.side_effect = requests.ConnectionError("ppm host down")
         result = doctor._check_ppm(settings)
     assert result.ok is False
@@ -146,7 +146,7 @@ def test_check_bcb_fails_when_inflation_series_empty(settings_factory) -> None:
 
 
 def test_check_bcb_fails_on_request_error(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.requests.get") as get:
+    with patch("embrapa_dashboard.doctor.requests.get") as get:
         get.side_effect = requests.ConnectionError("bcb host down")
         result = doctor._check_bcb(settings)
     assert result.ok is False
@@ -160,7 +160,7 @@ def test_check_comex_fails_on_connection_error(settings: Settings) -> None:
     """A ConnectionError (not an HTTPError) hits the generic except → hard fail,
     with no previous-year fallback."""
     settings.comex_end_year = 2026
-    with patch("embrapa_commodities.doctor.requests.head") as head:
+    with patch("embrapa_dashboard.doctor.requests.head") as head:
         head.side_effect = requests.ConnectionError("comex host unreachable")
         result = doctor._check_comex(settings)
     assert result.ok is False
@@ -173,7 +173,7 @@ def test_check_comex_fails_on_connection_error(settings: Settings) -> None:
 
 
 def test_check_comtrade_fails_on_request_error(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.requests.get") as get:
+    with patch("embrapa_dashboard.doctor.requests.get") as get:
         get.side_effect = requests.ConnectionError("comtrade host down")
         result = doctor._check_comtrade(settings)
     assert result.ok is False
@@ -183,7 +183,7 @@ def test_check_comtrade_fails_on_request_error(settings: Settings) -> None:
 def test_check_comtrade_reports_key_configured(settings: Settings) -> None:
     """When the API responds AND a key is set, the success line names the key (371)."""
     settings.comtrade_api_key = "secret-key"
-    with patch("embrapa_commodities.doctor.requests.get") as get:
+    with patch("embrapa_dashboard.doctor.requests.get") as get:
         get.return_value.raise_for_status.return_value = None
         get.return_value.close.return_value = None
         result = doctor._check_comtrade(settings)
@@ -195,7 +195,7 @@ def test_check_comtrade_reports_key_configured(settings: Settings) -> None:
 
 
 def test_check_bronze_tables_fails_when_client_raises(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.side_effect = Exception("bq client init failed")
         result = doctor._check_bronze_tables(settings)
     assert result.ok is False
@@ -206,7 +206,7 @@ def test_check_bronze_tables_fails_when_client_raises(settings: Settings) -> Non
 
 
 def test_check_serving_marts_fails_when_client_raises(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.side_effect = Exception("serving client init failed")
         result = doctor._check_serving_marts(settings)
     assert result.ok is False
@@ -233,7 +233,7 @@ def test_list_backup_runs_skips_unparseable_timestamp(settings: Settings) -> Non
 
 
 def test_check_backup_freshness_fails_when_storage_client_raises(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.side_effect = Exception("storage init failed")
         result = doctor._check_backup_freshness(settings)
     assert result.ok is False

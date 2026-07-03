@@ -7,22 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [1.10.7] - 2026-07-03
+## [1.10.8] - 2026-07-03
+
+Terminologia precisa + renomeação do projeto para **"produtos agrícolas"**.
+
+### Changed
+- **Terminologia de 5 termos, consistente na UI:** **produto** = 1 item de um
+  banco; **agrupamento** = produtos de *vários* bancos (perspectivas multi-fonte);
+  **cesta** = produtos de *um único* banco (seleção por filtros); **commodity** =
+  produto *sem* diferenciação (eixo "nível de industrialização"); **manufaturado**
+  = produto *com* diferenciação. As perspectivas cruzadas passam a chamar a
+  seleção de "Agrupamento" (era "Commodity"), com "Todos os agrupamentos" no lugar
+  de "Cesta completa". "commodity" fica reservado ao eixo de industrialização;
+  os itens individuais seguem como "produto".
+- **Projeto renomeado de "commodities" para "produtos agrícolas"** — o dashboard
+  cobre produtos agrícolas como um todo, não só commodities. Renomeados: o título
+  da aba e do topo ("Análise histórica de produtos agrícolas"), a tela "Sobre o
+  dashboard", a descrição do pacote e o título nos docs (README, ARCHITECTURE,
+  CONTRIBUTING, CLAUDE.md). O **repositório GitHub** virou
+  `embrapa-dashboard-produtos-agricolas` (com o Workload Identity Federation do CI
+  repontado) e o **nome de exibição do projeto GCP** virou "Produtos Agricolas
+  Dashboard". O **ID do projeto GCP permanece `embrapa-dashboard-commodities`**
+  (imutável; embutido em BigQuery/Cloud Run/IAM) — só o nome de exibição mudou.
 
 Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
 seletor de commodity (Coeficiente de exportação, entre outras).
 
 ### Fixed
 - **`/api/catalog` retornava 500 em produção, quebrando as análises cruzadas.**
-  Duas commodities no `gold_commodity_crosswalk` — PEVS **3433 (Carvão vegetal)** e
-  **3434 (Lenha)** — estavam com `commodity_id` NULL (uma entrada do catálogo salva
-  sem agrupamento). No `commodity_catalog()` isso virava uma **chave de dicionário
+  Duas commodities no `gold_produto_agrupamento` — PEVS **3433 (Carvão vegetal)** e
+  **3434 (Lenha)** — estavam com `agrupamento_id` NULL (uma entrada do catálogo salva
+  sem agrupamento). No `produto_catalog()` isso virava uma **chave de dicionário
   `float` NaN** misturada com as chaves texto; o provedor JSON do Flask serializa
   com `sort_keys=True`, tentava ordenar `NaN` contra `str` e estourava
   (`'<' not supported between float and str`), **derrubando o endpoint inteiro**.
-  Com o `crossCatalog()` vazio, a perspectiva "Coeficiente de exportação" (e os
+  Com o `agrupamentoCatalog()` vazio, a perspectiva "Coeficiente de exportação" (e os
   seletores de commodity das demais cruzadas) exibia "Indicador indisponível".
-  Agora uma linha com `commodity_id` nulo é **ignorada** (com log de aviso) em vez
+  Agora uma linha com `agrupamento_id` nulo é **ignorada** (com log de aviso) em vez
   de derrubar a resposta — uma única linha malformada nunca mais quebra todas as
   views. As duas commodities ficam fora das análises cruzadas até receberem um
   agrupamento (continuam normais nas views de banco único). Teste de regressão
@@ -119,7 +140,7 @@ dead-code cleanup.
 ### Fixed
 - **Cadastro rejects an invalid `banco` token.** A banco outside the 5 valid catalog
   tokens (pevs/pam/ppm/comex/comtrade) silently bypassed the code-existence guard and
-  wrote a junk catalog row that never joined in `gold_commodity_crosswalk`. The writer
+  wrote a junk catalog row that never joined in `gold_produto_agrupamento`. The writer
   now rejects it loudly (400).
 - **Add form no longer loses your input on a failed write.** A 400 (duplicate/inexistent
   code) or 403 (not on the editor allowlist) kept the red banner but wiped the form; it
@@ -135,7 +156,7 @@ dead-code cleanup.
 
 ### Changed (docs / internal)
 - Corrected stale `code_prefix`/prefix wording to exact-code across the gateway/lifecycle
-  docstrings, the `hidden_code_predicate` macro, and the `gold_commodity_crosswalk`
+  docstrings, the `hidden_code_predicate` macro, and the `gold_produto_agrupamento`
   BigQuery description; documented the quality taxonomy as **11-value** (9 emitted + 2
   reserved) in README / CLAUDE.md / the quality PLAN.
 - Removed dead `code_prefix` test fixtures; retired the misleading `commodity_crosswalk`
@@ -202,8 +223,8 @@ commodity's current state in the dashboard.
 
 ### Changed
 - **`code_prefix` eliminated end-to-end** (DB, backend, dbt, UI). Every commodity is
-  keyed by its exact `(codigo_commodity, banco)`; the cross-source bridge, the F7
-  visibility gate (`dim_commodity_visibility` + `hidden_code_predicate`), the PAM/PPM
+  keyed by its exact `(codigo_produto, banco)`; the cross-source bridge, the F7
+  visibility gate (`dim_produto_visibility` + `hidden_code_predicate`), the PAM/PPM
   serving joins, the orphan diff and the purge plan all switched from
   `LIKE code_prefix||'%'` to exact `= code`. Behavior-preserving — after the v1.9.5
   import every entry's prefix already equalled its exact leaf code.
@@ -218,10 +239,10 @@ commodity's current state in the dashboard.
 ### Operator follow-up (zero-downtime column removal — two steps around the deploy)
 - **Before deploy** (makes prod ready for the new writer; the old revision is unaffected —
   it still writes a non-null value into a now-nullable column):
-  `ALTER TABLE research_inputs.commodity_catalog_log ALTER COLUMN code_prefix DROP NOT NULL;`
+  `ALTER TABLE research_inputs.produto_catalog_log ALTER COLUMN code_prefix DROP NOT NULL;`
 - **After the new revision is live and verified** (fully removes the column — the new code
   never references it):
-  `ALTER TABLE research_inputs.commodity_catalog_log DROP COLUMN code_prefix;`
+  `ALTER TABLE research_inputs.produto_catalog_log DROP COLUMN code_prefix;`
 
 ## [1.9.5] - 2026-07-02
 
@@ -231,7 +252,7 @@ industrialização) — one catalog, in sync.
 ### Changed
 - **The industrialization worklist now reads the SAME live commodity catalog the
   "Cadastro de commodities" editor uses** (`seam_curation.catalog_worklist` → the
-  append-only `commodity_catalog_log`). So both features share identical
+  append-only `produto_catalog_log`). So both features share identical
   banco+código+descrição+agrupamento, any catalog edit (new/renamed/moved/removed
   commodity or group) propagates to both automatically, and **PAM/PPM now group by
   commodity** (they live in the catalog with their agrupamentos, unlike the crosswalk).
@@ -294,24 +315,24 @@ table now reflows to readable cards on phones. Frontend-only (no dbt/Gold change
 
 Curadoria "Cadastro de commodities" editor overhaul — agrupamentos become a first-class,
 fully editable entity, each code now shows its original source description, and the vestigial
-"Industrialização" field is removed. `dim_commodity_catalog` drops one column (rebuilt on the
+"Industrialização" field is removed. `dim_produto_catalog` drops one column (rebuilt on the
 next prod build); no other Gold change.
 
 ### Added
 - **First-class AGRUPAMENTOS (groups) in the "Cadastro de commodities" editor.** Groups were
   previously *derived* (the distinct set of `agrupamento` names on catalog entries) — no empty
-  groups, no rename, no delete. They are now a real registry (`research_inputs.commodity_group_log`,
-  append-only, IAP-attributed, keyed by `group_id` == a catalog entry's `commodity_id`) with a full
+  groups, no rename, no delete. They are now a real registry (`research_inputs.agrupamento_log`,
+  append-only, IAP-attributed, keyed by `group_id` == a catalog entry's `agrupamento_id`) with a full
   lifecycle: **create** (incl. empty groups), **rename** (re-tags the group's member entries), and
   **delete** (blocked while the group still has members — reassign first). A researcher can also
-  **move a commodity between groups** inline. Backend `serving/commodity_groups.py` +
+  **move a commodity between groups** inline. Backend `serving/agrupamentos.py` +
   `/api/catalog/groups` (GET) + `/api/catalog/group` / `/api/catalog/group/remove` (POST).
 - **The source's ORIGINAL description per code** in the editor — a read-only "Descrição (fonte)"
   column showing the name the source (IBGE / NCM / HS6) gives each code, via `fetch_products`.
 
 ### Removed
 - **The catalog's free-text "Industrialização" field, everywhere** (writer, `gateway` read,
-  `dim_commodity_catalog`, `_sources.yml`, the editor column + Add form). It was vestigial —
+  `dim_produto_catalog`, `_sources.yml`, the editor column + Add form). It was vestigial —
   nothing downstream consumed it — and duplicated the concept owned by the separate **Engenharia de
   Atributos · Nível de industrialização** feature (the versioned `dim_code_industrialization_scd2`),
   which is now the single home for industrialization.
@@ -485,8 +506,8 @@ row-identical on real data and the whole feature was live-verified end-to-end on
 - **Referências** — a read-only viewer for the calibration seeds (currency-reform factors, unit
   conversions, code/country dimensions, …) with a per-row "reportar valor incorreto" →
   feedback loop. No edit rights; engineers fix the version-controlled CSVs.
-- **Editable commodity catalog.** `research_inputs.commodity_catalog_log` →
-  `core/dim_commodity_catalog` → `gold_commodity_crosswalk`; the `commodity_crosswalk` **seed is
+- **Editable commodity catalog.** `research_inputs.produto_catalog_log` →
+  `core/dim_produto_catalog` → `gold_produto_agrupamento`; the `commodity_crosswalk` **seed is
   RETIRED**. Append-only writer (IAP author + `change_id` idempotency), a per-catalog editor
   allowlist (`research_inputs.catalog_editors`), an on-write prefix-disjointness guard, and the
   **"Cadastro de commodities"** admin UI (add / remove / edit; the in/out *Ciclo de Vida* per
@@ -534,13 +555,13 @@ unavailable) is now hidden from every researcher-facing Gold read, while still v
 editor and the crosswalk. **No-op today** (0 hidden rows). Spec:
 `PLANS/quality_outliers_and_visibility_gate.md`.
 
-- New dbt model `core/dim_commodity_visibility` (a view of `(source, code_prefix)` for the hidden
+- New dbt model `core/dim_produto_visibility` (a view of `(source, code_prefix)` for the hidden
   commodities), the `hidden_code_predicate` macro, and `serving/sql.visibility_clause` (the Python
   builder used by the gateway's direct-Gold readers).
 - The gate is applied at every researcher-facing Gold read: the 6 serving marts,
   `serving_quality_by_source`, the cross-source picker (`seam_base`), and the gateway direct readers
   (município cube, quality timeseries, quality-by-product).
-- Kept **separate** from `dim_commodity_catalog` so the admin editor and `gold_commodity_crosswalk`
+- Kept **separate** from `dim_produto_catalog` so the admin editor and `gold_produto_agrupamento`
   still see the hidden rows.
 
 ### Fixed — Contrato de Dados integration
@@ -1064,7 +1085,7 @@ mart-grain change — the new code runs against the existing prod Gold/serving t
   **Preço: porteira vs. FOB** views (which compare PEVS mass to COMEX weight) now offer
   ONLY pure-mass commodities and open on a real indicator, instead of defaulting to the
   always-incompatible "Cesta completa". `/api/catalog` now carries each commodity's PEVS
-  `family` (derived from the existing `_pevs_family_by_commodity` index).
+  `family` (derived from the existing `_pevs_family_by_agrupamento` index).
 
 ### Changed
 - **Leaner analytical bundle** (#141) — the audit-polish pass trimmed the Plotly
@@ -1132,7 +1153,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
 ### Added
 - **Dedicated dashboard rebuilt as a React SPA + Flask REST `webapi`** (Plotly.js
   charts), replacing the Dash UI entirely — served from one origin behind Cloud Run
-  direct IAP (`src/embrapa_commodities/webapi/`, `frontend/`). The Dash package was
+  direct IAP (`src/embrapa_dashboard/webapi/`, `frontend/`). The Dash package was
   removed at cutover.
 - **Decoupled release CI** — `.github/workflows/release.yml` (#132) builds a
   versioned, immutable `webapi` image to Artifact Registry on a `v*` tag; deploy
@@ -1269,7 +1290,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
     `research_inputs.code_industrialization_log` (author captured from the IAP
     header `X-Goog-Authenticated-User-Email`); the UI does a live LEFT JOIN of the
     static mart to the classification dimension.
-  - **Python BFF** (`src/embrapa_commodities/serving/`, optional `serving` extra):
+  - **Python BFF** (`src/embrapa_dashboard/serving/`, optional `serving` extra):
     `sql` (@param + anti-injection allowlist), `gateway` (`@cache.memoize`), `cache`
     (flask-caching — `SimpleCache` scales multi-instance for free; `RedisCache`
     optional), `iap`, `curation` (append-only INSERT + cache invalidation).
@@ -1318,7 +1339,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
   `transport_route_code` (in the grain) + `via_name` via the new `comex_via` seed
   (MDIC CO_VIA codes → PT labels: Marítima, Aérea, Rodoviária…).
 - **Cross-source product crosswalk** — seed `commodity_crosswalk` (links by
-  *prefix*, at the commodity-concept level) + model `gold_commodity_crosswalk`
+  *prefix*, at the commodity-concept level) + model `gold_produto_agrupamento`
   (resolves to an exact `(source, code) → commodity`). Links the same commodity
   across PEVS (extractive code) / COMEX (NCM8) / COMTRADE (HS6) — the basis for the
   cross analyses (export coefficient, market share, trade mirror).
@@ -1452,7 +1473,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
   same product. Scope: export **and** import, Brazil nut (NCM `08012100`/
   `08012200`) + the entire chapter 44 (wood/charcoal), at the month×NCM×country×UF
   grain.
-  - **Bronze (`src/embrapa_commodities/comex/`):** `client.py` bulk-downloads the
+  - **Bronze (`src/embrapa_dashboard/comex/`):** `client.py` bulk-downloads the
     annual CSVs from Comex Stat (`EXP_<ano>.csv`/`IMP_<ano>.csv`; `;`/latin-1)
     — *stream to disk* (100+ MB files), pandas parse in chunks, column-precise
     filter on `CO_NCM`/`CO_NCM[:2]`. EXP (11 cols) and IMP (13 cols: +
@@ -1540,7 +1561,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
 ### Removed
 - **Dash + Plotly UI layer removed (2026-05-29).** The frontend is being
   rebuilt with the Claude Design System in a separate flow. The following were
-  deleted: the `src/embrapa_commodities/dashboard/` package, the
+  deleted: the `src/embrapa_dashboard/dashboard/` package, the
   `tests/test_dashboard_*` tests, the scripts `scripts/dashboard_*` /
   `scripts/check_dashboard_size.py` / `scripts/dashboard-*.ps1`, the
   `Dockerfile`, the workflow `.github/workflows/dashboard-smoke.yml`, the

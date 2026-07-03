@@ -1,4 +1,4 @@
-# Contributing — Embrapa Commodities Dashboard
+# Contributing — Embrapa Produtos Agrícolas Dashboard
 
 Thank you for considering contributing to this project! This guide explains how to collaborate efficiently and consistently.
 
@@ -179,8 +179,8 @@ uv run pytest tests/test_ibge_client.py::test_name   # specific test
 | Type of change | Location |
 |---|---|
 | **Adding a new data source** | Follow the checklist in [`docs/adding_a_data_source.md`](docs/adding_a_data_source.md) |
-| New ingestion pipeline | `src/embrapa_commodities/<source>/` |
-| Primitives shared across sources | `src/embrapa_commodities/core/` |
+| New ingestion pipeline | `src/embrapa_dashboard/<source>/` |
+| Primitives shared across sources | `src/embrapa_dashboard/core/` |
 | New dbt model | `dbt/models/<layer>/` (Gold is per-source: `gold_<source>_*`) |
 | New dbt macro | `dbt/macros/` |
 | Python tests | `tests/` |

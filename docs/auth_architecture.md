@@ -47,7 +47,7 @@ OAuth 2.0 with service account impersonation:
                         │ (Service Account Token Creator)
                         ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Google Cloud Project (embrapa-dashboard-commodities)           │
+│ Google Cloud Project (embrapa-dashboard-produtos agrícolas)           │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │ Four-Tier Service Account Architecture                  │  │
@@ -140,13 +140,13 @@ The trust relationship flows downward:
 
 ```yaml
 # ~/.dbt/profiles.yml (enterprise mode)
-embrapa_commodities:
+embrapa_dashboard:
   target: dev
   outputs:
     dev:
       type: bigquery
       method: oauth                    # Modern: OAuth
-      project: embrapa-dashboard-commodities
+      project: embrapa-dashboard-produtos agrícolas
       impersonate_service_account: sa-secret-reader-prod@{project}.iam.gserviceaccount.com
       dataset: dbt_dev
       # ... rest of config
@@ -184,7 +184,7 @@ client = bigquery.Client(credentials=credentials, project=project)
 **For service account impersonation to work, each developer must have:**
 
 ```
-Project: embrapa-dashboard-commodities
+Project: embrapa-dashboard-produtos agrícolas
 
 Role on sa-secret-reader-prod:
   - roles/iam.serviceAccountTokenCreator
@@ -256,7 +256,7 @@ Why each control is load-bearing:
 | `--no-allow-unauthenticated` | Removes the public `allUsers` invoker binding. Defense-in-depth: the request must carry a valid identity (the IAP service agent's). |
 
 > **Defense in depth — the app also verifies the IAP JWT.** Cloud Run direct IAP is
-> the primary boundary; `src/embrapa_commodities/serving/iap.py` additionally
+> the primary boundary; `src/embrapa_dashboard/serving/iap.py` additionally
 > validates the signed `X-Goog-IAP-JWT-Assertion` (when `IAP_AUDIENCE` is set) so a
 > misconfiguration (e.g. IAP accidentally disabled) fails closed rather than
 > trusting a forged plain header. Operators must **not** rely on the in-app JWT
@@ -309,7 +309,7 @@ their daily work.
 ```bash
 # Grant a new developer permission to impersonate the service account
 gcloud iam service-accounts add-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --member=user:florenciaitalo@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 ```
@@ -348,7 +348,7 @@ If a developer leaves:
 ```bash
 # Remove their impersonation permission
 gcloud iam service-accounts remove-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --member=user:departed@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 

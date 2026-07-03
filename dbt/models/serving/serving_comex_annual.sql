@@ -99,8 +99,8 @@ select
     c.country_code,
     c.country_name,
     c.country_iso_a3,
-    x.commodity_id,
-    x.commodity_name,
+    x.agrupamento_id,
+    x.agrupamento_nome,
     c.family,
     c.unit_native,
     c.base_unit,
@@ -124,5 +124,5 @@ select
 from comex c
 left join {{ ref('dim_geo_br') }} g
     on g.state_acronym = c.state_acronym
-left join {{ ref('gold_commodity_crosswalk') }} x
+left join {{ ref('gold_produto_agrupamento') }} x
     on x.source = 'comex' and x.code = c.ncm_code

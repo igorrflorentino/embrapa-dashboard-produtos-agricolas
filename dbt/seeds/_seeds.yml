@@ -117,7 +117,7 @@ seeds:
       factor, copy its row and set source/product_code to the real identifiers.
 
       NOT the same thing as the cross-source COMMODITY crosswalk
-      (commodity_crosswalk seed → gold_commodity_crosswalk model, the "Phase 3"
+      (commodity_crosswalk seed → gold_produto_agrupamento model, the "Phase 3"
       product bridge, which IS fully wired). This seed is the per-product UNIT
       crosswalk — a different concern.
     config:
@@ -353,8 +353,8 @@ seeds:
 
   # ─── Cross-source product bridge — RETIRED ─────────────────────────────────
   # The commodity_crosswalk seed was replaced by the editable Curadoria catalog
-  # (research_inputs.commodity_catalog_log → core/dim_commodity_catalog). The three
-  # consumers (gold_commodity_crosswalk + serving_{pam,ppm}_annual) read the dim now;
+  # (research_inputs.produto_catalog_log → core/dim_produto_catalog). The three
+  # consumers (gold_produto_agrupamento + serving_{pam,ppm}_annual) read the dim now;
   # the cutover was proven row-identical on real data. See PLANS/curadoria_catalogo.md.
 
   # ─── IBGE municipal territorial mesh (sub-UF geography) ─────────────────────

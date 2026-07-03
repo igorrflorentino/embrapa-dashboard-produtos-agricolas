@@ -15,10 +15,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from embrapa_commodities.bcb import series as bcb_series
-from embrapa_commodities.bcb.currency import SPEC as CURRENCY_SPEC
-from embrapa_commodities.bcb.inflation import SPEC as INFLATION_SPEC
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.bcb import series as bcb_series
+from embrapa_dashboard.bcb.currency import SPEC as CURRENCY_SPEC
+from embrapa_dashboard.bcb.inflation import SPEC as INFLATION_SPEC
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def test_effective_start_year_returns_configured_when_table_empty(
     spec, label, codes, labels
 ) -> None:
     bq = MagicMock()
-    with patch("embrapa_commodities.bcb.series.latest_reference_date", return_value=None) as latest:
+    with patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=None) as latest:
         result = bcb_series.effective_start_year(spec, bq, "proj.ds.tbl", "433", 1980)
     latest.assert_called_once_with(bq, "proj.ds.tbl", "433")
     assert result == 1980
@@ -65,9 +65,7 @@ def test_effective_start_year_returns_configured_when_table_empty(
 def test_effective_start_year_honours_configured_floor(spec, label, codes, labels) -> None:
     """If the user set the start after the last load, the configured floor wins."""
     bq = MagicMock()
-    with patch(
-        "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(1995, 6, 1)
-    ):
+    with patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(1995, 6, 1)):
         result = bcb_series.effective_start_year(spec, bq, "proj.ds.tbl", "433", 2010)
     assert result == 2010
 
@@ -79,8 +77,8 @@ def test_extract_full_mode_skips_lookup_and_uses_configured_start(
 ) -> None:
     bq = MagicMock()
     with (
-        patch("embrapa_commodities.bcb.series.latest_reference_date") as latest,
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE) as fetch,
+        patch("embrapa_dashboard.bcb.series.latest_reference_date") as latest,
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE) as fetch,
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=True)
     latest.assert_not_called()
@@ -96,9 +94,9 @@ def test_extract_delta_mode_anchors_per_series(spec, label, codes, labels, setti
     bq = MagicMock()
     with (
         patch(
-            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2025, 6, 1)
+            "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 6, 1)
         ) as latest,
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE),
     ):
         bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
     assert latest.call_count == len(codes)
@@ -108,10 +106,8 @@ def test_extract_delta_mode_anchors_per_series(spec, label, codes, labels, setti
 def test_extract_delta_empty_returns_empty_df(spec, label, codes, labels, settings) -> None:
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
-        ),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=pd.DataFrame()),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=pd.DataFrame()),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
     assert df.empty
@@ -121,8 +117,8 @@ def test_extract_delta_empty_returns_empty_df(spec, label, codes, labels, settin
 def test_extract_full_empty_raises(spec, label, codes, labels, settings) -> None:
     bq = MagicMock()
     with (
-        patch("embrapa_commodities.bcb.series.latest_reference_date"),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=pd.DataFrame()),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date"),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=pd.DataFrame()),
         pytest.raises(RuntimeError, match=f"no {spec.kind} data"),
     ):
         bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=True)
@@ -132,10 +128,8 @@ def test_extract_full_empty_raises(spec, label, codes, labels, settings) -> None
 def test_extract_canonical_columns_and_labels(spec, label, codes, labels, settings) -> None:
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)
-        ),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
     # Verbatim: extract no longer stamps ingestion_timestamp (Phase 2 does).
@@ -158,8 +152,8 @@ def test_extract_full_raises_when_any_single_series_is_empty(
 
     bq = MagicMock()
     with (
-        patch("embrapa_commodities.bcb.series.latest_reference_date"),
-        patch("embrapa_commodities.bcb.series.fetch_series", side_effect=fetch),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date"),
+        patch("embrapa_dashboard.bcb.series.fetch_series", side_effect=fetch),
         pytest.raises(RuntimeError, match=empty_code),
     ):
         bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=True)
@@ -178,10 +172,8 @@ def test_extract_delta_keeps_going_when_one_series_is_empty(
 
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)
-        ),
-        patch("embrapa_commodities.bcb.series.fetch_series", side_effect=fetch),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)),
+        patch("embrapa_dashboard.bcb.series.fetch_series", side_effect=fetch),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
     assert set(df["series_code"]) == codes - {empty_code}
@@ -212,15 +204,13 @@ def _raw_roundtrip():
 @pytest.mark.parametrize("spec, label, codes, labels", SPECS)
 def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, settings) -> None:
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch(
-            "embrapa_commodities.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
-        ),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=pd.DataFrame()),
-        patch("embrapa_commodities.bcb.series.land_raw") as land,
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=pd.DataFrame()),
+        patch("embrapa_dashboard.bcb.series.land_raw") as land,
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         destination = bcb_series.run(spec, settings, full=False)
     assert destination == ""
@@ -232,13 +222,13 @@ def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, s
 def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, settings) -> None:
     land, read = _raw_roundtrip()
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
-        patch("embrapa_commodities.bcb.series.land_raw", side_effect=land),
-        patch("embrapa_commodities.bcb.series.read_raw", side_effect=read),
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE),
+        patch("embrapa_dashboard.bcb.series.land_raw", side_effect=land),
+        patch("embrapa_dashboard.bcb.series.read_raw", side_effect=read),
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         bcb_series.run(spec, settings, full=True)
     load_kwargs = load.call_args.kwargs
@@ -250,13 +240,13 @@ def test_run_full_passes_partition_and_cluster_keys(spec, label, codes, labels, 
 def test_run_raw_basename_is_runstamped_under_kind(spec, label, codes, labels, settings) -> None:
     land, read = _raw_roundtrip()
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.fetch_series", return_value=FAKE),
-        patch("embrapa_commodities.bcb.series.land_raw", side_effect=land) as land_mock,
-        patch("embrapa_commodities.bcb.series.read_raw", side_effect=read),
-        patch("embrapa_commodities.bcb.series.load_dataframe"),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE),
+        patch("embrapa_dashboard.bcb.series.land_raw", side_effect=land) as land_mock,
+        patch("embrapa_dashboard.bcb.series.read_raw", side_effect=read),
+        patch("embrapa_dashboard.bcb.series.load_dataframe"),
     ):
         bcb_series.run(spec, settings, full=True)
     kwargs = land_mock.call_args.kwargs

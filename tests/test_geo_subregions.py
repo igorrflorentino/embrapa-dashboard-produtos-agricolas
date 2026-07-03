@@ -11,12 +11,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from embrapa_commodities.serving import sql as sqlbuild
+from embrapa_dashboard.serving import sql as sqlbuild
 
 
 def _seam():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     return seam
 
@@ -24,7 +24,7 @@ def _seam():
 def _bind_simplecache():
     from flask import Flask
 
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving.cache import cache
 
     app = Flask(__name__)
     cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
@@ -75,7 +75,7 @@ def test_geo_municipio_mesh_selects_both_divisions():
 
 # ── Serializers ──────────────────────────────────────────────────────────────
 def test_serialize_municipio_yearly_scales_like_uf_cube():
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     df = pd.DataFrame(
         [
@@ -100,7 +100,7 @@ def test_serialize_municipio_yearly_scales_like_uf_cube():
 
 
 def test_serialize_municipio_yearly_empty():
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     assert serializers.serialize_municipio_yearly(None) == {"municipioYearly": []}
 
@@ -110,7 +110,7 @@ def test_serialize_municipio_yearly_coerces_nan_to_zero():
     no rows, arrives as NaN/None — _num must map it to 0.0 (JSON-safe), never NaN (TEST-4)."""
     import numpy as np
 
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     df = pd.DataFrame(
         [
@@ -134,13 +134,13 @@ def test_serialize_municipio_yearly_coerces_nan_to_zero():
 
 def test_serialize_geo_mesh_empty_frame():
     """An empty DataFrame (not just None) → {municipios: []}, never a NaN-bearing row (TEST-4)."""
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     assert serializers.serialize_geo_mesh(pd.DataFrame()) == {"municipios": []}
 
 
 def test_serialize_geo_mesh_shape_and_blank_levels():
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     df = pd.DataFrame(
         [
@@ -224,7 +224,7 @@ def test_geo_municipio_yearly_none_for_non_geo_banco():
 
 def test_municipio_cube_gateway_skips_non_municipal_source():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     app, _ = _bind_simplecache()
     with app.app_context():
@@ -236,7 +236,7 @@ def test_municipio_cube_gateway_requires_city_codes():
     # Cost guard (audit D): the cube is ALWAYS city-scoped, so an empty city set returns
     # None WITHOUT a query — never a full ~146k-row município grid scan.
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     app, _ = _bind_simplecache()
     with app.app_context():

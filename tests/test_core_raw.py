@@ -15,8 +15,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.core import raw
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.core import raw
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_raw_object_name_honours_prefix(settings: Settings) -> None:
 def test_land_raw_writes_parquet_and_returns_uri(settings: Settings, df: pd.DataFrame) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value
-    with patch("embrapa_commodities.core.raw.ensure_bucket") as ensure_bucket:
+    with patch("embrapa_dashboard.core.raw.ensure_bucket") as ensure_bucket:
         uri = raw.land_raw(
             df,
             settings=settings,
@@ -74,7 +74,7 @@ def test_land_raw_ensures_bucket_only_once_per_client(settings: Settings, df: pd
     chunk — the per-client memo avoids hundreds of exists()/reload() round-trips on
     a full multi-chunk run (e.g. COMTRADE)."""
     gcs = MagicMock(name="gcs")
-    with patch("embrapa_commodities.core.raw.ensure_bucket") as ensure_bucket:
+    with patch("embrapa_dashboard.core.raw.ensure_bucket") as ensure_bucket:
         for year in (2021, 2022, 2023):
             raw.land_raw(
                 df,
@@ -92,7 +92,7 @@ def test_land_raw_ensures_bucket_only_once_per_client(settings: Settings, df: pd
 def test_land_raw_stamps_provenance_plus_auto_fields(settings: Settings, df: pd.DataFrame) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value
-    with patch("embrapa_commodities.core.raw.ensure_bucket"):
+    with patch("embrapa_dashboard.core.raw.ensure_bucket"):
         raw.land_raw(
             df,
             settings=settings,
@@ -113,7 +113,7 @@ def test_land_raw_stamps_provenance_plus_auto_fields(settings: Settings, df: pd.
 def test_land_raw_coerces_metadata_values_to_str(settings: Settings, df: pd.DataFrame) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value
-    with patch("embrapa_commodities.core.raw.ensure_bucket"):
+    with patch("embrapa_dashboard.core.raw.ensure_bucket"):
         raw.land_raw(
             df,
             settings=settings,
@@ -190,7 +190,7 @@ def test_raw_bronze_loaded_reads_marker() -> None:
 def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value
-    with patch("embrapa_commodities.core.raw.ensure_bucket") as ensure_bucket:
+    with patch("embrapa_dashboard.core.raw.ensure_bucket") as ensure_bucket:
         uri = raw.land_raw_file(
             "/tmp/EXP_2023.parquet",
             settings=settings,
@@ -218,7 +218,7 @@ def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings)
 def test_land_raw_file_omits_rows_when_unknown(settings: Settings) -> None:
     gcs = MagicMock(name="gcs")
     blob = gcs.bucket.return_value.blob.return_value
-    with patch("embrapa_commodities.core.raw.ensure_bucket"):
+    with patch("embrapa_dashboard.core.raw.ensure_bucket"):
         raw.land_raw_file(
             "/tmp/x.parquet",
             settings=settings,

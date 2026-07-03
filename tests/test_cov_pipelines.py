@@ -19,9 +19,9 @@ from unittest.mock import patch
 
 import pytest
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.ibge import pam_pipeline, ppm_pipeline
-from embrapa_commodities.ibge import pipeline as ibge_pipeline
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.ibge import pam_pipeline, ppm_pipeline
+from embrapa_dashboard.ibge import pipeline as ibge_pipeline
 
 
 @pytest.fixture
@@ -66,14 +66,14 @@ def test_ibge_run_from_raw_empty_archive_returns_empty(ibge_settings: Settings) 
     """--from-raw with NO archived raw → warn + return "" (lines 272-274), never
     touching read_raw / load_dataframe."""
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.list_raw", return_value=[]),
-        patch("embrapa_commodities.ibge.pipeline._order_by_fetched_at") as order,
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.list_raw", return_value=[]),
+        patch("embrapa_dashboard.ibge.pipeline._order_by_fetched_at") as order,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         destination = ibge_pipeline.run(ibge_settings, from_raw=True)
 
@@ -88,14 +88,14 @@ def test_ibge_run_from_raw_empty_archive_returns_empty(ibge_settings: Settings) 
 def test_pam_run_from_raw_empty_archive_returns_empty(pam_settings: Settings) -> None:
     """PAM --from-raw with an empty raw archive → warn + return "" (lines 245-247)."""
     with (
-        patch("embrapa_commodities.ibge.pam_pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pam_pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pam_pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pam_pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pam_pipeline.list_raw", return_value=[]),
-        patch("embrapa_commodities.ibge.pam_pipeline._order_by_fetched_at") as order,
-        patch("embrapa_commodities.ibge.pam_pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pam_pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pam_pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pam_pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.list_raw", return_value=[]),
+        patch("embrapa_dashboard.ibge.pam_pipeline._order_by_fetched_at") as order,
+        patch("embrapa_dashboard.ibge.pam_pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pam_pipeline.load_dataframe") as load,
     ):
         destination = pam_pipeline.run(pam_settings, from_raw=True)
 
@@ -110,7 +110,7 @@ def test_pam_run_from_raw_empty_archive_returns_empty(pam_settings: Settings) ->
 def test_ppm_run_from_raw_empty_archive_returns_empty(ppm_settings: Settings) -> None:
     """PPM --from-raw with an empty raw archive for BOTH specs → each ``_run_spec``
     warns + returns "" (lines 276-278), so ``run`` yields no destinations → ""."""
-    P = "embrapa_commodities.ibge.ppm_pipeline"
+    P = "embrapa_dashboard.ibge.ppm_pipeline"
     with (
         patch(f"{P}.fetch_sidra_dataframe") as fetch,
         patch(f"{P}.storage.Client"),

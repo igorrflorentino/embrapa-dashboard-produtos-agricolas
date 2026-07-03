@@ -1,7 +1,7 @@
 # `scripts/` — operational tooling
 
 Helper scripts that sit alongside the Python package. Each script is short
-and single-purpose; the heavy logic lives in `src/embrapa_commodities/`. This
+and single-purpose; the heavy logic lives in `src/embrapa_dashboard/`. This
 README is the index — for behaviour details, open the script and read its
 header comment / docstring (which is also the source for every description
 below).
@@ -52,8 +52,8 @@ than committing point-in-time snapshots.
 
 | Script | Platform | What it does | When to run | Invoked by |
 |---|---|---|---|---|
-| [`export_commodity_inventory.py`](export_commodity_inventory.py) | Cross-platform (Python 3) | Exports the per-banco commodity inventory (`Banco \| Código \| Descrição`, one row per product code) from the five live Gold tables to `inventario_commodities.csv`. | Ad-hoc, to produce a flat commodity list for a report. | Standalone. |
-| [`export_commodity_consolidated.py`](export_commodity_consolidated.py) | Cross-platform (Python 3) | Exports the inventory **consolidated by commodity concept** via `gold_commodity_crosswalk` (`Conceito \| Banco \| Código \| Descrição`) plus a per-concept summary, into two CSVs. Codes the crosswalk does not link (all PAM + PPM, deep COMTRADE wood-derivatives) are kept in a marked `(não vinculado)` bucket. | Ad-hoc, alongside the inventory export, when a concept-grouped view is needed. | Standalone. |
+| [`export_commodity_inventory.py`](export_commodity_inventory.py) | Cross-platform (Python 3) | Exports the per-banco commodity inventory (`Banco \| Código \| Descrição`, one row per product code) from the five live Gold tables to `inventario_produtos agrícolas.csv`. | Ad-hoc, to produce a flat commodity list for a report. | Standalone. |
+| [`export_commodity_consolidated.py`](export_commodity_consolidated.py) | Cross-platform (Python 3) | Exports the inventory **consolidated by commodity concept** via `gold_produto_agrupamento` (`Conceito \| Banco \| Código \| Descrição`) plus a per-concept summary, into two CSVs. Codes the crosswalk does not link (all PAM + PPM, deep COMTRADE wood-derivatives) are kept in a marked `(não vinculado)` bucket. | Ad-hoc, alongside the inventory export, when a concept-grouped view is needed. | Standalone. |
 
 ---
 

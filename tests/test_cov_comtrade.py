@@ -27,8 +27,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses
 
-from embrapa_commodities.comtrade import client, pipeline
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.comtrade import client, pipeline
+from embrapa_dashboard.config import Settings
 
 BASE_URL = "https://comtradeapi.un.org/data/v1/get"
 API_KEY = "secret-key-123"

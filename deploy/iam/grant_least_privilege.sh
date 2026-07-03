@@ -122,7 +122,7 @@ ensure_sa "$DASHBOARD_SA" "Web Dashboard (Prod)" \
   "Stateless Cloud Run dashboard: read '${SERVING_DATASET}' + '${GOLD_DATASET}', append to '${RESEARCH_DATASET}'."
 grant_dataset_role "$SERVING_DATASET"  READER "$DASHBOARD_SA"
 # The dashboard also reads small reference/dimension tables straight from gold —
-# gold_source_metadata (page-hero provenance), gold_commodity_crosswalk and
+# gold_source_metadata (page-hero provenance), gold_produto_agrupamento and
 # gold_pevs_production (Multi-fonte cross-analytics). Marts cover the chart grains;
 # these reads do not, so the runtime SA needs gold READER too.
 grant_dataset_role "$GOLD_DATASET"     READER "$DASHBOARD_SA"

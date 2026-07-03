@@ -53,7 +53,7 @@ legacy keyfile mode):
 ### 4️⃣ dbt Configuration (6 checks)
 - ✅ `profiles.yml` is readable
 - ✅ Required sections present:
-  - `embrapa_commodities:`
+  - `embrapa_dashboard:`
   - `dev:` and `prod:` targets
   - `type: bigquery`
   - `method: service-account` (legacy) **or** `method: oauth` (enterprise)

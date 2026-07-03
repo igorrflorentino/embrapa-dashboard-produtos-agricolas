@@ -157,6 +157,6 @@ prereq table; the job currently lacks the all-reporters scope):
 
 - `deploy/ingestion/schedule_comtrade.sh` — monthly trigger + prerequisites block
 - `deploy/ingestion/deploy.sh` — secret wiring (`--set-secrets`), `COMTRADE_*` scope forwarding gated on `COMTRADE_KEY_SECRET`
-- `src/embrapa_commodities/cli.py` — `ingest comtrade`; COMTRADE is `in_all=False`
-- `src/embrapa_commodities/comtrade/pipeline.py` — `resolve_reporters` (`all` → `list_reporters()`), `_basename` (content-hash resume), `plan_chunks`, `sync_raw`
+- `src/embrapa_dashboard/cli.py` — `ingest comtrade`; COMTRADE is `in_all=False`
+- `src/embrapa_dashboard/comtrade/pipeline.py` — `resolve_reporters` (`all` → `list_reporters()`), `_basename` (content-hash resume), `plan_chunks`, `sync_raw`
 - `dbt/models/silver/silver_comtrade_flows.sql` — the incremental cost guard

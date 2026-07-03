@@ -4,7 +4,7 @@
     {
       "name": "webapi",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--extra", "webapi", "python", "-c", "from embrapa_commodities.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"],
+      "runtimeArgs": ["run", "--extra", "webapi", "python", "-c", "from embrapa_dashboard.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"],
       "port": 8000
     },
     {

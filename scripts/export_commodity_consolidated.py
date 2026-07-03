@@ -1,6 +1,6 @@
 """Export the commodity inventory CONSOLIDATED by commodity concept (crosswalk).
 
-Joins every per-banco product code to gold_commodity_crosswalk so each code is
+Joins every per-banco product code to gold_produto_agrupamento so each code is
 grouped under its cross-source commodity CONCEPT (Soja, Madeira, ...). A LEFT
 JOIN keeps every code: those the crosswalk does not yet link (all PAM + PPM, plus
 deep COMTRADE wood-derivatives) fall into a clearly-marked "(não vinculado)"
@@ -48,26 +48,26 @@ WITH inv AS (
 {inv_arms}
 )
 SELECT
-  COALESCE(x.commodity_name, '{UNLINKED}') AS conceito,
+  COALESCE(x.agrupamento_nome, '{UNLINKED}') AS conceito,
   inv.banco, inv.codigo, inv.descricao
 FROM inv
-LEFT JOIN `{PROJECT}.gold.gold_commodity_crosswalk` x
+LEFT JOIN `{PROJECT}.gold.gold_produto_agrupamento` x
   ON x.source = inv.src AND x.code = inv.codigo
 ORDER BY
-  (x.commodity_name IS NULL),                 -- linked concepts first, unlinked last
-  x.commodity_name,
+  (x.agrupamento_nome IS NULL),                 -- linked concepts first, unlinked last
+  x.agrupamento_nome,
   CASE inv.banco {banco_order} END,
   SAFE_CAST(inv.codigo AS INT64), inv.codigo
 """
 
 summary_query = f"""
 SELECT
-  commodity_name AS conceito,
+  agrupamento_nome AS conceito,
   COUNTIF(source = 'pevs')     AS pevs,
   COUNTIF(source = 'comex')    AS comex,
   COUNTIF(source = 'comtrade') AS comtrade,
   COUNT(*)                     AS total_codigos
-FROM `{PROJECT}.gold.gold_commodity_crosswalk`
+FROM `{PROJECT}.gold.gold_produto_agrupamento`
 GROUP BY conceito
 ORDER BY conceito
 """

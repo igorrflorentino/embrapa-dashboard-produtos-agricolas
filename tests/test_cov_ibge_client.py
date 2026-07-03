@@ -1,6 +1,6 @@
 """Coverage tests for the IBGE SIDRA client error/retry/edge branches.
 
-Targets the currently-uncovered lines in ``embrapa_commodities.ibge.client``:
+Targets the currently-uncovered lines in ``embrapa_dashboard.ibge.client``:
 - ``_emit_retry`` tenacity before_sleep hook (227-235)
 - ``_http_get_once`` non-limit status handling (267-270)
 - ``_fetch_block`` re-raise on single-year cell-limit (367)
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from embrapa_commodities.ibge import client
+from embrapa_dashboard.ibge import client
 
 
 # ─── _emit_retry tenacity before_sleep hook (227-235) ────────────────────────

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from embrapa_commodities import observability
+from embrapa_dashboard import observability
 
 
 @pytest.fixture

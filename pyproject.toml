@@ -1,6 +1,6 @@
 [project]
-name = "embrapa-commodities"
-version = "1.10.7"
+name = "embrapa-dashboard"
+version = "1.10.8"
 description = "Medallion pipeline (IBGE PEVS + PAM + PPM + BCB + COMEX + UN Comtrade) → BigQuery → Looker Studio + React/Flask dashboard"
 readme = "README.md"
 requires-python = "==3.12.*"
@@ -25,14 +25,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Dashboard data-access layer (src/embrapa_commodities/serving). Kept out of the
+# Dashboard data-access layer (src/embrapa_dashboard/serving). Kept out of the
 # core install so the ingestion CLI stays lean — `uv sync --extra serving` (or
 # the Cloud Run image) pulls these. google-cloud-bigquery is already a core dep.
 serving = [
     "flask>=3.0",
     "flask-caching>=2.3",
 ]
-# REST layer (src/embrapa_commodities/webapi) for the React SPA — the dashboard's
+# REST layer (src/embrapa_dashboard/webapi) for the React SPA — the dashboard's
 # consumption path (replaced the Dash UI in the 2026-06 migration). Serves /api
 # (over the `serving` BFF) + the built React SPA, via gunicorn. No dash/plotly:
 # the analytical charts are client-side Plotly.js in the frontend (`frontend/`).
@@ -47,14 +47,14 @@ webapi = [
 ]
 
 [project.scripts]
-embrapa = "embrapa_commodities.cli:app"
+embrapa = "embrapa_dashboard.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/embrapa_commodities"]
+packages = ["src/embrapa_dashboard"]
 
 [dependency-groups]
 dev = [
@@ -99,7 +99,7 @@ addopts = "-ra --strict-markers"
 # Makefile `test` target) — kept off `addopts` so a single-file `pytest tests/x.py`
 # still runs without the whole-suite threshold tripping.
 [tool.coverage.run]
-source = ["src/embrapa_commodities"]
+source = ["src/embrapa_dashboard"]
 
 [tool.coverage.report]
 show_missing = true

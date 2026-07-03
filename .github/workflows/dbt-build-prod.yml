@@ -99,7 +99,7 @@ on:
     branches: [main]
     paths:
       - 'dbt/**'
-      - 'src/embrapa_commodities/config.py'  # Settings defaults consumed by dbt env_var()
+      - 'src/embrapa_dashboard/config.py'  # Settings defaults consumed by dbt env_var()
       - '.github/workflows/dbt-build-prod.yml'
   schedule:
     # Daily prod build so INGESTED Bronze reaches Silver/Gold automatically —
@@ -182,7 +182,7 @@ jobs:
         run: |
           mkdir -p ~/.dbt
           cat > ~/.dbt/profiles.yml <<EOF
-          embrapa_commodities:
+          embrapa_dashboard:
             target: prod
             outputs:
               prod:

@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.ibge import pipeline as ibge_pipeline
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.ibge import pipeline as ibge_pipeline
 
 
 @pytest.fixture
@@ -75,13 +75,13 @@ def _patch_phase2_df(read_raw, sidra_df: pd.DataFrame) -> None:
 def test_run_extracts_to_raw_then_loads_bronze(settings: Settings, sidra_df: pd.DataFrame) -> None:
     """Happy path: SIDRA fetch → land_raw (Phase 1) → read_raw → BQ load (Phase 2)."""
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset") as ensure_dataset,
-        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client") as gcs_cls,
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client") as bq_cls,
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset") as ensure_dataset,
+        patch("embrapa_dashboard.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
         _patch_phase2_df(read_raw, sidra_df)
@@ -121,13 +121,13 @@ def test_run_raw_basename_encodes_products_and_window(
     """Phase 1 archives raw/ibge/pevs/products_<codes>_<from>_<to>."""
     settings.ibge_product_codes = "3405,3435"
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe", return_value=sidra_df),
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe", return_value=sidra_df),
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
     ):
         _patch_phase2_df(read_raw, sidra_df)
         ibge_pipeline.run(settings)
@@ -145,13 +145,13 @@ def test_run_uses_provided_clients_without_constructing_new_ones(
     storage_client = MagicMock(name="storage-client")
     bq_client = MagicMock(name="bq-client")
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client") as gcs_cls,
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client") as bq_cls,
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         fetch.return_value = sidra_df
         _patch_phase2_df(read_raw, sidra_df)
@@ -168,16 +168,16 @@ def test_run_from_raw_skips_fetch_and_rebuilds_bronze(
 ) -> None:
     """--from-raw rebuilds Bronze from the archived raw without querying SIDRA."""
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
         patch(
-            "embrapa_commodities.ibge.pipeline.list_raw",
+            "embrapa_dashboard.ibge.pipeline.list_raw",
             return_value=["products_3405_2020_2020"],
         ),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         _patch_phase2_df(read_raw, sidra_df)
         destination = ibge_pipeline.run(settings, from_raw=True)
@@ -193,14 +193,14 @@ def test_run_returns_empty_string_when_sidra_returns_no_rows(settings: Settings)
     """Empty fetch must NOT archive raw or load Bronze — only emit ingest_empty."""
     with (
         patch(
-            "embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe",
+            "embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe",
             return_value=pd.DataFrame(),
         ),
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         destination = ibge_pipeline.run(settings)
 
@@ -213,9 +213,9 @@ def test_run_returns_empty_string_when_sidra_returns_no_rows(settings: Settings)
 def test_run_raises_when_start_year_is_none(settings: Settings) -> None:
     settings.ibge_start_year = None
     with (
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
         pytest.raises(RuntimeError, match="IBGE_START_YEAR is empty"),
     ):
         ibge_pipeline.run(settings)
@@ -229,14 +229,14 @@ def test_run_delta_rewinds_start_to_recent_years(
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2024
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2023),
-        patch("embrapa_commodities.ibge.pipeline.land_raw"),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=2023),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw"),
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
     ):
         fetch.return_value = sidra_df
         _patch_phase2_df(read_raw, sidra_df)
@@ -254,14 +254,14 @@ def test_run_full_bypasses_delta_and_uses_configured_window(
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2024
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.latest_reference_year") as latest,
-        patch("embrapa_commodities.ibge.pipeline.land_raw"),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year") as latest,
+        patch("embrapa_dashboard.ibge.pipeline.land_raw"),
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
     ):
         fetch.return_value = sidra_df
         _patch_phase2_df(read_raw, sidra_df)
@@ -277,14 +277,14 @@ def test_run_delta_noop_when_bronze_already_at_end_year(settings: Settings) -> N
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2024
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
         # Bronze is already AT the configured end year (and would push start past end).
-        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2024),
-        patch("embrapa_commodities.ibge.pipeline.land_raw") as land_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=2024),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw") as land_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         destination = ibge_pipeline.run(settings)  # delta default
 
@@ -300,12 +300,12 @@ def test_run_delta_noop_when_bronze_ahead_of_end_year(settings: Settings) -> Non
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2020
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2024),
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=2024),
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         assert ibge_pipeline.run(settings) == ""
     fetch.assert_not_called()
@@ -318,7 +318,7 @@ def test_delta_start_year_clamps_effective_start_to_end_year(settings: Settings)
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2024
     settings.ibge_delta_overlap_years = 0
-    with patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=2023):
+    with patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=2023):
         rewound = ibge_pipeline._delta_start_year(settings, MagicMock())
     assert rewound is not None
     # last_year - overlap = 2023, clamped <= end_year(2024) → 2023; window [2023, 2024] valid.
@@ -333,14 +333,14 @@ def test_run_delta_cold_bronze_keeps_configured_window(
     settings.ibge_start_year = 1986
     settings.ibge_end_year = 2024
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
-        patch("embrapa_commodities.ibge.pipeline.latest_reference_year", return_value=None),
-        patch("embrapa_commodities.ibge.pipeline.land_raw"),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=None),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw"),
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
     ):
         fetch.return_value = sidra_df
         _patch_phase2_df(read_raw, sidra_df)
@@ -354,16 +354,16 @@ def test_run_from_raw_replays_all_archived_objects(
 ) -> None:
     """--from-raw replays the whole delta trail (every archived object), appending each."""
     with (
-        patch("embrapa_commodities.ibge.pipeline.fetch_sidra_dataframe") as fetch,
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
         patch(
-            "embrapa_commodities.ibge.pipeline.list_raw",
+            "embrapa_dashboard.ibge.pipeline.list_raw",
             return_value=["products_3405_1986_2024", "products_3405_2023_2024"],
         ),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe") as load,
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe") as load,
     ):
         _patch_phase2_df(read_raw, sidra_df)
         ibge_pipeline.run(settings, from_raw=True)
@@ -387,19 +387,19 @@ def test_run_from_raw_orders_replay_by_fetched_at_not_basename(
         "products_3405_1991_1995": {"fetched_at": "2024-01-01T00:00:00Z"},
     }
     with (
-        patch("embrapa_commodities.ibge.pipeline.storage.Client"),
-        patch("embrapa_commodities.ibge.pipeline.bigquery.Client"),
-        patch("embrapa_commodities.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
         patch(
-            "embrapa_commodities.ibge.pipeline.list_raw",
+            "embrapa_dashboard.ibge.pipeline.list_raw",
             return_value=sorted(fetched_at),  # list_raw returns lexical order
         ),
         patch(
-            "embrapa_commodities.ibge.pipeline.raw_provenance",
+            "embrapa_dashboard.ibge.pipeline.raw_provenance",
             side_effect=lambda *_a, basename, **_kw: fetched_at[basename],
         ),
-        patch("embrapa_commodities.ibge.pipeline.read_raw") as read_raw,
-        patch("embrapa_commodities.ibge.pipeline.load_dataframe"),
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
     ):
         _patch_phase2_df(read_raw, sidra_df)
         ibge_pipeline.run(settings, from_raw=True)
@@ -416,7 +416,7 @@ def test_order_by_fetched_at_puts_unstamped_objects_first(settings: Settings) ->
         "b_unstamped": {},
     }
     with patch(
-        "embrapa_commodities.ibge.pipeline.raw_provenance",
+        "embrapa_dashboard.ibge.pipeline.raw_provenance",
         side_effect=lambda *_a, basename, **_kw: provenance[basename],
     ):
         ordered = ibge_pipeline._order_by_fetched_at(

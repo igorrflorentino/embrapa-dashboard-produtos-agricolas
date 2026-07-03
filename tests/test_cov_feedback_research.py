@@ -17,8 +17,8 @@ from unittest import mock
 
 import pytest
 
-from embrapa_commodities.serving import feedback as fb
-from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
+from embrapa_dashboard.serving import feedback as fb
+from embrapa_dashboard.serving.feedback import FeedbackValidationError, record_feedback
 from tests.test_serving import _isolated_settings
 
 
@@ -109,7 +109,7 @@ def test_record_feedback_issue_url_stamp_failure_is_swallowed(monkeypatch):
 
 def test_bq_client_delegates_to_resolve_bq_client(monkeypatch):
     """_bq_client is a thin wrapper over resolve_bq_client(settings)."""
-    from embrapa_commodities.serving import research_inputs as ri
+    from embrapa_dashboard.serving import research_inputs as ri
 
     resolved = mock.Mock()
     monkeypatch.setattr(ri, "resolve_bq_client", lambda settings: resolved)
@@ -119,7 +119,7 @@ def test_bq_client_delegates_to_resolve_bq_client(monkeypatch):
 
 def test_ensure_curators_table_resolves_client_via_bq_client(monkeypatch):
     """With no explicit client, ensure_curators_table goes through _bq_client (line 64)."""
-    from embrapa_commodities.serving import research_inputs as ri
+    from embrapa_dashboard.serving import research_inputs as ri
 
     resolved = mock.Mock()
     monkeypatch.setattr(ri, "resolve_bq_client", lambda settings: resolved)
@@ -137,7 +137,7 @@ def test_ensure_curators_table_resolves_client_via_bq_client(monkeypatch):
 def test_ensure_banco_metadata_table_creates_with_explicit_schema(monkeypatch):
     """The operator-editable override table is auto-created with the explicit
     BANCO_METADATA_SCHEMA (never autodetected) and exists_ok=True."""
-    from embrapa_commodities.serving import research_inputs as ri
+    from embrapa_dashboard.serving import research_inputs as ri
 
     seen = {}
 
@@ -160,7 +160,7 @@ def test_ensure_banco_metadata_table_creates_with_explicit_schema(monkeypatch):
 
 def test_ensure_banco_metadata_table_resolves_client_when_none(monkeypatch):
     """No client passed → resolved through _bq_client/resolve_bq_client."""
-    from embrapa_commodities.serving import research_inputs as ri
+    from embrapa_dashboard.serving import research_inputs as ri
 
     resolved = mock.Mock()
     monkeypatch.setattr(ri, "resolve_bq_client", lambda settings: resolved)

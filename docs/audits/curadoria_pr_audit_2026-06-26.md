@@ -25,14 +25,14 @@ fallback to the retired seed), and the P0 3-way split.
 
 | ID | Sev | Finding | Fix |
 |----|-----|---------|-----|
-| H-1 | High | Blank Agrupamento → NULL `commodity_id`/`commodity_name` → breaks the nightly prod `dbt build` (`not_null` tests). Reachable via the admin UI. | Reject empty `commodity_id`/`agrupamento` at the write gate (`curation.record_commodity_catalog`); mirror client-side in `ViewCadastroCommodities.submitAdd`. |
+| H-1 | High | Blank Agrupamento → NULL `agrupamento_id`/`agrupamento_nome` → breaks the nightly prod `dbt build` (`not_null` tests). Reachable via the admin UI. | Reject empty `agrupamento_id`/`agrupamento` at the write gate (`curation.record_produto_catalog`); mirror client-side in `ViewCadastroProdutos.submitAdd`. |
 | M-1 | Med | Whitespace-only `code_prefix` → `''` → `LIKE '%'` matches **every** code in the banco (silent fan-out). | Reject empty + LIKE-wildcard (`%`/`_`) `code_prefix` at the write gate. |
-| M-2 | Med | `remove` hardcoded `codigo_commodity` into the tombstone's `code_prefix` slot → orphan detection (which keys off that prefix) silently no-ops for coarse-prefix entries. | Look up the active entry's real `code_prefix` and carry it into the tombstone. |
+| M-2 | Med | `remove` hardcoded `codigo_produto` into the tombstone's `code_prefix` slot → orphan detection (which keys off that prefix) silently no-ops for coarse-prefix entries. | Look up the active entry's real `code_prefix` and carry it into the tombstone. |
 | M-3 | Med | Re-orphan after a prior descontinuado/purge was never re-marked (deterministic `change_id` + status gate) and could not be re-purged. | Generation-aware re-mark: expose the tombstone's `removed_at`, compare it to the last lifecycle `flagged_at`, and key the `change_id` on the generation. |
 | M-4 | Med | The prefix-overlap (and other writer) reason was masked by a generic 400 message → researcher could not self-correct. | `errorhandler(ValueError)` now surfaces `str(exc)`; catalog + attribute-engineering writer messages made pt-BR. |
 | M-5 | Med | A mid-loop failure in the per-Agrupamento bulk ciclo update left a stale, partially-applied grid. | Reload the grid in `run`'s `finally` (re-sync to persisted state); report how many members applied before the failure. |
 | L-1 | Low | `remove` of a never-cataloged key wrote a phantom tombstone → false orphan. | Require a currently-active entry before tombstoning (the same M-2 lookup). |
-| L-2 | Low | (folds into H-1) NULL `commodity_id` polluted the cross-source picker. | Covered by the H-1 write-time guard. |
+| L-2 | Low | (folds into H-1) NULL `agrupamento_id` polluted the cross-source picker. | Covered by the H-1 write-time guard. |
 | L-3 | Low | `purge_plan` regex permitted `_` (a LIKE single-char wildcard) in the printed DELETE. | Drop `_` from the allowed character class. |
 | L-4 | Low | `orphan_worklist` hardcoded `status='descontinuado'`, ignoring an actual `'purged'`. | Use the recorded `st.status`; fall back to the standing warning when a purged event has no note. |
 | L-5 | Low | `fetch_catalog_editors` was omitted from `_bind_classification_ttl`, so its auth-gate TTL ignored `CACHE_CLASSIFICATION_TIMEOUT`. | Rebind it alongside the other classification reads. |

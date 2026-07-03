@@ -25,14 +25,14 @@ from tests.test_webapi_routes import _client
 def test_catalog_editor_invalid_iap_assertion_is_403(monkeypatch):
     """An audience is configured but no signed JWT is present → InvalidIapAssertion →
     403 on the catalog-editor authz path (distinct from the curator path)."""
-    from embrapa_commodities.webapi import routes
+    from embrapa_dashboard.webapi import routes
 
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
     # Self-heal of the per-catalog editor table must never touch BigQuery here.
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
     assert "error" in resp.get_json()
@@ -41,13 +41,13 @@ def test_catalog_editor_invalid_iap_assertion_is_403(monkeypatch):
 def test_catalog_editor_without_identity_is_401(monkeypatch):
     """No IAP header + no dev fallback → MissingAuthorError (a PermissionError) → 401
     on the catalog-editor authz path (never writes)."""
-    from embrapa_commodities.webapi import routes
+    from embrapa_dashboard.webapi import routes
 
     client = _client(monkeypatch)  # curation_dev_author=None, iap_audience=None
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     resp = client.post(
         "/api/catalog/entry/remove",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 401
     assert "error" in resp.get_json()
@@ -58,7 +58,7 @@ def test_catalog_editor_without_identity_is_401(monkeypatch):
 
 def test_catalog_entry_upsert_auth_failure_returns_err(monkeypatch):
     """The upsert route short-circuits on the authz error tuple (no seam write)."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
@@ -69,14 +69,14 @@ def test_catalog_entry_upsert_auth_failure_returns_err(monkeypatch):
     monkeypatch.setattr(seam, "record_catalog_entry", must_not_run)
     resp = client.post(
         "/api/catalog/entry",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
 
 
 def test_catalog_entry_remove_missing_fields_is_400(monkeypatch):
     """Authorized (open allowlist) but an incomplete remove body → 400 before any write."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
@@ -92,7 +92,7 @@ def test_catalog_entry_remove_missing_fields_is_400(monkeypatch):
 
 def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):
     """The remove route short-circuits on the authz error tuple (line 232)."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
@@ -103,7 +103,7 @@ def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):
     monkeypatch.setattr(seam, "remove_catalog_entry", must_not_run)
     resp = client.post(
         "/api/catalog/entry/remove",
-        json={"codigo_commodity": "4403", "banco": "un_comtrade"},
+        json={"codigo_produto": "4403", "banco": "un_comtrade"},
     )
     assert resp.status_code == 403
 
@@ -135,7 +135,7 @@ def test_table_route_400_on_filter_missing_col(monkeypatch):
 def test_geo_yearly_route_threads_flow_to_seam(monkeypatch):
     """A ?flow= reaches the seam as summary['flow'] (the trade cube re-queries by
     direction server-side, same as /snapshot) — line 420."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -159,7 +159,7 @@ def test_geo_yearly_route_threads_flow_to_seam(monkeypatch):
 def test_products_by_uf_route_threads_filters_conv_to_seam(monkeypatch):
     """/products-by-uf forwards the active filter summary (codes/states/y0/y1) + the
     currency/correction conventions to the seam, and returns the serialized shape."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -189,7 +189,7 @@ def test_products_by_uf_route_threads_filters_conv_to_seam(monkeypatch):
 def test_products_by_uf_route_rejects_invalid_convention(monkeypatch):
     """An invalid currency 400s at the boundary BEFORE the seam runs (the conv guard
     on the /products-by-uf route — lines 485-487)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
 
@@ -207,8 +207,8 @@ def test_products_by_uf_route_rejects_invalid_convention(monkeypatch):
 def test_feedback_invalid_iap_assertion_is_403(monkeypatch):
     """record_feedback raising InvalidIapAssertionError (a forged/invalid IAP JWT)
     maps to a 403 on the feedback route — line 689."""
-    from embrapa_commodities.serving.iap import InvalidIapAssertionError
-    from embrapa_commodities.webapi import routes
+    from embrapa_dashboard.serving.iap import InvalidIapAssertionError
+    from embrapa_dashboard.webapi import routes
 
     client = _client(monkeypatch)
 

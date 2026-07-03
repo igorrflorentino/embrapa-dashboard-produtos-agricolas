@@ -13,10 +13,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from embrapa_commodities.comtrade import client, pipeline
-from embrapa_commodities.comtrade.client import ComtradeQuotaError
-from embrapa_commodities.config import Settings
-from embrapa_commodities.core import ChunkOutcome, IngestPartialFailure
+from embrapa_dashboard.comtrade import client, pipeline
+from embrapa_dashboard.comtrade.client import ComtradeQuotaError
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.core import ChunkOutcome, IngestPartialFailure
 
 
 @pytest.fixture
@@ -270,9 +270,9 @@ def test_run_enumerates_reporters_and_loads_changed_chunks(settings) -> None:
         return year == 2022 and batch == first_batch
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(client, "list_reporters", return_value=reporters) as lr,
         patch.object(pipeline, "sync_raw", side_effect=fake_sync),
@@ -290,9 +290,9 @@ def test_run_enumerates_reporters_and_loads_changed_chunks(settings) -> None:
 
 def test_run_from_raw_skips_sync_uses_has_raw(settings) -> None:
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(client, "list_reporters", return_value=[str(i) for i in range(30)]),
         patch.object(pipeline, "sync_raw") as sync,
@@ -310,9 +310,9 @@ def test_run_from_raw_skips_sync_uses_has_raw(settings) -> None:
 def test_run_explicit_reporter_list_skips_enumeration(settings) -> None:
     settings = settings.model_copy(update={"comtrade_reporters": "76,842"})
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(client, "list_reporters") as lr,
         patch.object(pipeline, "sync_raw", return_value=False),
@@ -350,9 +350,9 @@ def test_run_continues_after_chunk_failure_and_raises_aggregate(settings) -> Non
         return True
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(pipeline, "sync_raw", side_effect=flaky),
         patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
@@ -376,9 +376,9 @@ def test_run_with_on_chunk_reports_outcomes_without_raising(settings) -> None:
         return True
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(pipeline, "sync_raw", side_effect=flaky),
         patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
@@ -401,9 +401,9 @@ def test_run_stops_on_quota_and_propagates(settings) -> None:
         raise ComtradeQuotaError("quota exhausted — re-run to resume")
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(pipeline, "sync_raw", side_effect=quota_then_never),
         patch.object(pipeline, "bronze_one", return_value="p.d.t"),
@@ -422,7 +422,7 @@ def test_run_one_chunk_marks_truncation_failed_without_stopping(settings, caplog
     action-required anomaly instead of blending into retryable noise."""
     import logging
 
-    from embrapa_commodities.comtrade.client import ComtradeTruncationError
+    from embrapa_dashboard.comtrade.client import ComtradeTruncationError
 
     def truncate(*_a, **_k):
         raise ComtradeTruncationError("truncated at 100000 rows for reporters=['276']")

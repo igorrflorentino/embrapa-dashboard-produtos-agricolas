@@ -10,8 +10,8 @@ import pytest
 import responses
 from google.cloud.exceptions import NotFound
 
-from embrapa_commodities import doctor
-from embrapa_commodities.config import Settings
+from embrapa_dashboard import doctor
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ def test_check_currency_series_codes_fails_on_stale_wrong_codes(settings: Settin
 
 
 def test_check_adc_returns_project_when_ok(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.google.auth.default") as auth:
+    with patch("embrapa_dashboard.doctor.google.auth.default") as auth:
         auth.return_value = (MagicMock(), "test-project")
         result = doctor._check_adc(settings)
     assert result.ok is True
@@ -112,7 +112,7 @@ def test_check_adc_returns_project_when_ok(settings: Settings) -> None:
 
 
 def test_check_adc_fails_with_recovery_hint(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.google.auth.default") as auth:
+    with patch("embrapa_dashboard.doctor.google.auth.default") as auth:
         auth.side_effect = Exception("no credentials")
         result = doctor._check_adc(settings)
     assert result.ok is False
@@ -120,7 +120,7 @@ def test_check_adc_fails_with_recovery_hint(settings: Settings) -> None:
 
 
 def test_check_bq_calls_service_account(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.return_value.get_service_account_email.return_value = "sa@x.iam"
         result = doctor._check_bq(settings)
     assert result.ok is True
@@ -128,7 +128,7 @@ def test_check_bq_calls_service_account(settings: Settings) -> None:
 
 
 def test_check_gcs_reports_existing_bucket(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = iter([object()])
         result = doctor._check_gcs(settings)
     assert result.ok is True
@@ -139,7 +139,7 @@ def test_check_gcs_passes_when_bucket_missing(settings: Settings) -> None:
     """Missing bucket is OK — it'll be lazily created on first ingest."""
     from google.cloud.exceptions import NotFound
 
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.side_effect = NotFound("bucket not found")
         result = doctor._check_gcs(settings)
     assert result.ok is True
@@ -234,7 +234,7 @@ def test_check_comex_fails_on_5xx_without_fallback(settings: Settings) -> None:
 
 
 def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         client = bq_cls.return_value
         # First table found, others missing (8 Bronze targets: ibge, pam, ppm×2,
         # bcb×2, comex, comtrade).
@@ -254,7 +254,7 @@ def test_check_bronze_tables_distinguishes_present_vs_missing(settings: Settings
 
 
 def test_check_serving_marts_all_present_and_populated(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.return_value.get_table.return_value = MagicMock(num_rows=100)
         result = doctor._check_serving_marts(settings)
     assert result.ok is True
@@ -262,7 +262,7 @@ def test_check_serving_marts_all_present_and_populated(settings: Settings) -> No
 
 
 def test_check_serving_marts_reports_missing(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         # First seven marts present; gold_source_metadata (the 8th target) missing.
         bq_cls.return_value.get_table.side_effect = [
             MagicMock(num_rows=10),
@@ -281,7 +281,7 @@ def test_check_serving_marts_reports_missing(settings: Settings) -> None:
 
 
 def test_check_serving_marts_flags_empty_mart(settings: Settings) -> None:
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         # serving_pevs_annual is empty (0 rows); the view (last) reports
         # num_rows=0 too — but only the materialized mart may be flagged.
         bq_cls.return_value.get_table.side_effect = [
@@ -302,7 +302,7 @@ def test_check_serving_marts_flags_empty_mart(settings: Settings) -> None:
 def test_check_serving_marts_view_with_zero_num_rows_is_not_empty(settings: Settings) -> None:
     """The BigQuery API returns numRows=0 for VIEWs (verified against the live
     API) — gold_source_metadata must not be flagged 'empty' on every run."""
-    with patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls:
+    with patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls:
         bq_cls.return_value.get_table.side_effect = [
             MagicMock(num_rows=10, table_type="TABLE"),
             MagicMock(num_rows=10, table_type="TABLE"),
@@ -351,7 +351,7 @@ def test_check_backup_freshness_reports_fresh_snapshot(settings: Settings) -> No
     """Recent snapshot (well within threshold): ok=True, no warn marker."""
     now = datetime.now(UTC)
     recent = (now - timedelta(days=2)).strftime("%Y%m%dT%H%M%SZ")
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([f"backups/run={recent}/"])
         _mark_complete(gcs_cls)
         result = doctor._check_backup_freshness(settings)
@@ -364,7 +364,7 @@ def test_check_backup_freshness_warns_on_stale(settings: Settings) -> None:
     """Snapshot older than BACKUP_STALENESS_DAYS: ok=True but ⚠ in detail."""
     settings.backup_staleness_days = 14
     stale_ts = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
             [f"backups/run={stale_ts}/"]
         )
@@ -381,7 +381,7 @@ def test_check_backup_freshness_picks_latest_of_many(settings: Settings) -> None
     old = (now - timedelta(days=400)).strftime("%Y%m%dT%H%M%SZ")
     middle = (now - timedelta(days=100)).strftime("%Y%m%dT%H%M%SZ")
     recent = (now - timedelta(days=3)).strftime("%Y%m%dT%H%M%SZ")
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
             [
                 f"backups/run={old}/",
@@ -401,7 +401,7 @@ def test_check_backup_freshness_skips_incomplete_snapshot(settings: Settings) ->
     now = datetime.now(UTC)
     complete_ts = (now - timedelta(days=3)).strftime("%Y%m%dT%H%M%SZ")
     partial_ts = (now - timedelta(days=1)).strftime("%Y%m%dT%H%M%SZ")
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
             [f"backups/run={complete_ts}/", f"backups/run={partial_ts}/"]
         )
@@ -418,7 +418,7 @@ def test_check_backup_freshness_fails_when_only_incomplete_snapshots(settings: S
     This is exactly the partial/failed-backup scenario: the operator must not
     be told the cold-storage rollback path is intact."""
     fresh_ts = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y%m%dT%H%M%SZ")
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
             [f"backups/run={fresh_ts}/"]
         )
@@ -431,7 +431,7 @@ def test_check_backup_freshness_fails_when_only_incomplete_snapshots(settings: S
 
 def test_check_backup_freshness_fails_when_no_snapshot(settings: Settings) -> None:
     """Empty backups/ prefix is a hard fail with a recovery hint."""
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock([])
         result = doctor._check_backup_freshness(settings)
     assert result.ok is False
@@ -445,7 +445,7 @@ def test_check_backup_freshness_ignores_malformed_prefixes(settings: Settings) -
     `backups/`; the probe must not crash and must not let them count as a
     snapshot.
     """
-    with patch("embrapa_commodities.doctor.storage.Client") as gcs_cls:
+    with patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls:
         gcs_cls.return_value.list_blobs.return_value = _list_blobs_mock(
             ["backups/ad-hoc-thing/", "backups/run=not-a-timestamp/"]
         )
@@ -457,11 +457,11 @@ def test_check_backup_freshness_ignores_malformed_prefixes(settings: Settings) -
 def test_run_all_executes_every_probe(settings: Settings) -> None:
     """run_all should call each probe exactly once in CHECKS order."""
     with (
-        patch("embrapa_commodities.doctor.google.auth.default") as auth,
-        patch("embrapa_commodities.doctor.bigquery.Client") as bq_cls,
-        patch("embrapa_commodities.doctor.storage.Client") as gcs_cls,
-        patch("embrapa_commodities.doctor.requests.get") as get,
-        patch("embrapa_commodities.doctor.requests.head") as head,
+        patch("embrapa_dashboard.doctor.google.auth.default") as auth,
+        patch("embrapa_dashboard.doctor.bigquery.Client") as bq_cls,
+        patch("embrapa_dashboard.doctor.storage.Client") as gcs_cls,
+        patch("embrapa_dashboard.doctor.requests.get") as get,
+        patch("embrapa_dashboard.doctor.requests.head") as head,
     ):
         auth.return_value = (MagicMock(), "p")
         bq_cls.return_value.get_service_account_email.return_value = "sa@x"
@@ -521,7 +521,7 @@ def test_every_ingest_source_is_covered_by_a_doctor_check() -> None:
     doctor.SOURCE_CHECKS/BRONZE_TARGETS (per docs/adding_a_data_source.md), but the
     lists don't reference each other, so a missed doctor entry is silent today. This
     pins the three registries together."""
-    from embrapa_commodities import cli
+    from embrapa_dashboard import cli
 
     ingest_names = {spec.name for spec in cli.INGESTS}
     doctor_keys = {name for name, _ in doctor.SOURCE_CHECKS}

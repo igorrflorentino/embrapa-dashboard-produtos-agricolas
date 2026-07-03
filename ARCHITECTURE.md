@@ -1,4 +1,4 @@
-# Architecture — Embrapa Commodities Dashboard
+# Architecture — Embrapa Produtos Agrícolas Dashboard
 
 > "Under the hood" technical document: folder structure, stack decisions, data flow, and diagrams.
 
@@ -19,7 +19,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
        └──────┬───────┴──────────────┴──────────────┴──────────────┴───────────────┘
               ▼
  ┌─────────────────────────────────────────────────────┐
- │  Python  (src/embrapa_commodities) — two-phase      │
+ │  Python  (src/embrapa_dashboard) — two-phase      │
  │  Phase 1  extract → raw/ (verbatim Parquet on GCS)  │
  │  Phase 2  raw/ → filter/shape → BigQuery Bronze     │
  └───────────────────────┬─────────────────────────────┘
@@ -73,9 +73,9 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 ## Folder Structure
 
 ```
-embrapa-dashboard-commodities/
+embrapa-dashboard-produtos agrícolas/
 │
-├── src/embrapa_commodities/          # Main Python package
+├── src/embrapa_dashboard/          # Main Python package
 │   ├── __init__.py
 │   ├── cli.py                        # Typer entrypoint (`embrapa`) + INGESTS registry
 │   ├── config.py                     # pydantic-settings — reads .env
@@ -159,7 +159,7 @@ embrapa-dashboard-commodities/
 │   │   │   ├── gold_ppm_production.sql   # Gold IBGE PPM (form: production; herd stock + animal flow)
 │   │   │   ├── gold_comex_flows.sql      # Gold COMEX (form: flows, Brazil)
 │   │   │   ├── gold_comtrade_flows.sql   # Gold COMTRADE (form: flows, global bilateral)
-│   │   │   ├── gold_commodity_crosswalk.sql  # Cross-source bridge (source,code)→commodity
+│   │   │   ├── gold_produto_agrupamento.sql  # Cross-source bridge (source,code)→commodity
 │   │   │   └── gold_source_metadata.sql  # Per-source provenance (view; dataStore.meta seam)
 │   │   │                                 # New sources: gold_<source>_<form>
 │   │   ├── core/                     # ⭐ Conformed dimensions (Pushdown Computing)
@@ -298,7 +298,7 @@ embrapa-dashboard-commodities/
 └── init_dev_env.sh                   # Sandbox initialization
 ```
 
-> The old Dash UI was deleted on 2026-05-29 (`src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`) and **replaced** in the 2026-06 React migration by `frontend/`, `src/embrapa_commodities/webapi/` and `deploy/webapi/` above — see [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
+> The old Dash UI was deleted on 2026-05-29 (`src/embrapa_dashboard/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`) and **replaced** in the 2026-06 React migration by `frontend/`, `src/embrapa_dashboard/webapi/` and `deploy/webapi/` above — see [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
 
 ---
 
@@ -312,7 +312,7 @@ metadata: URL, ETag/Last-Modified, `fetched_at`, `rows`). Bronze derives
 from that raw. This way, re-filtering / changing products / re-deriving Bronze
 **does not hit the source again** — only a real data revision triggers a re-fetch. Each
 `embrapa ingest <source>` has `--from-raw` (rebuilds Bronze from raw, with no
-internet). Shared contract in [`core/raw.py`](src/embrapa_commodities/core/raw.py);
+internet). Shared contract in [`core/raw.py`](src/embrapa_dashboard/core/raw.py);
 details in [`PLANS/raw_zone_architecture.md`](PLANS/raw_zone_architecture.md).
 Per source: COMEX re-downloads only when the ETag changes (filters in Phase 2 via
 `iter_batches`); IBGE archives the SIDRA response; BCB archives each delta window
@@ -341,7 +341,7 @@ as a per-run stamped object (append-only trail).
 - IBGE PPM table: `gold_ppm_production` — annual livestock (SIDRA tables 3939 herd + 74 animal production), same `production` form and monetary conventions as PEVS. **Multi-table** source: `silver_ibge_ppm` unions the two SIDRA tables, tagging each row `measure_kind` (`stock` = herd headcount in Cabeças, no value; `flow` = animal production with value). No área/rendimento (livestock) → no *Produtividade* view. Multiple unit families coexist (Cabeças/contagem, Mil litros/volume, Mil dúzias/contagem, Quilogramas/massa) — `family` stays in the serving grain so quantities are never summed across families.
 - MDIC COMEX table: `gold_comex_flows` — one row per `(flow, reference_year, reference_month, ncm_code, country_code, state_acronym, transport_route_code)` (the transport route `via` is part of the grain; `via_name` via the `comex_via` seed). The 4 currency conventions are applied over `VL_FOB` (US$): `val_yearfx_*` at the registration month's FX, and `val_real_*` converting US$→BRL at the month's FX, deflating by the BCB chain and reconverting at the current FX (**monthly** deflation, not annual, because the grain is monthly).
 - UN Comtrade table: `gold_comtrade_flows` — **global** bilateral trade, one row per `(flow, reference_year, reporter_code, partner_code, cmd_code)`. Same 4 conventions over `primaryValue` (US$), but **annual** deflation (year-average FX, year-end inflation index — like PEVS) because the grain is annual. Bilateral geography: `reporter` + `partner` (both M49 → name/ISO3). No double-counting (World dropped in Silver), so `SUM` over partners is the true bilateral total.
-- **Cross-source dimension** (an exception to "one table per source"): `gold_commodity_crosswalk` — `(source, code) → commodity_id`, resolved from the editable Curadoria catalog (`research_inputs.commodity_catalog_log` → `core/dim_commodity_catalog`; the prefix-based links that used to live in the now-retired `commodity_crosswalk` seed) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
+- **Cross-source dimension** (an exception to "one table per source"): `gold_produto_agrupamento` — `(source, code) → agrupamento_id`, resolved from the editable Curadoria catalog (`research_inputs.produto_catalog_log` → `core/dim_produto_catalog`; the prefix-based links that used to live in the now-retired `commodity_crosswalk` seed) against the Gold tables' real codes. Links the same commodity across PEVS/COMEX/COMTRADE for cross analyses.
 - **Per-source metadata** (view): `gold_source_metadata` — one row per source with provenance derived from Gold (table, cadence, coverage, counters, `last_refresh`). Feeds the frontend's `dataStore.meta(id)` seam; `maturity`/`visible` are runtime config (see [docs/frontend_data_contract.md](docs/frontend_data_contract.md)).
 - **Gold is per-source, ONE comprehensive table per source.** Naming: `gold_<source>_<form>`, where `<form>` is the semantic grain — `production` (measurement of productive output, no origin→destination; PEVS, PAM, PPM) or `flows` (origin→destination flow; the trade databases: COMEX, COMTRADE, NFe). Each source has its own lineage consuming the same deflation/FX Silver tables. Gold is the **comprehensive analytical grain** per source; ad-hoc aggregations (Looker, exploration) come from it via `GROUP BY` at query time. **To enable the dashboard's Pushdown Computing without blowing up cost and latency on BigQuery**, a **`serving/`** layer materializes pre-aggregated marts at the exact chart grains (see [§ Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard)) — it **derives** from Gold, it does not replace it. Incompatible grains (monthly × country × HS code for COMEX, event × UF for NFe) also justify separate lineages — see [docs/adding_a_data_source.md](docs/adding_a_data_source.md).
 - Four currency conventions (applicable to any monetary Gold table):
@@ -354,13 +354,13 @@ as a per-run stamped object (append-only trail).
 Two parallel paths, both reading the same Gold tables — they are not exclusive and can coexist:
 
 - **Looker Studio** (no-code): direct connection to the Gold tables (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Good for standardized reports and quick exploration without a deploy. Available now.
-- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/); the SPA in [`frontend/`](frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
+- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_dashboard/webapi/`](src/embrapa_dashboard/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_dashboard/serving/`](src/embrapa_dashboard/serving/); the SPA in [`frontend/`](frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
 
 ---
 
 ## `core/` Layer — common contract across sources
 
-`src/embrapa_commodities/core/` concentrates the genuinely shared primitives, keeping IBGE/BCB/… lean:
+`src/embrapa_dashboard/core/` concentrates the genuinely shared primitives, keeping IBGE/BCB/… lean:
 
 - **`SourceTransientError`** (in `core/exceptions.py`): a marker for transient upstream failures. `SidraTransientError` and `BcbTransientError` inherit via a mixin, and any new source does the same. This lets the shared decorator `core.http.http_retry_policy` catch all transients without having to list each class by name.
 - **`http_retry_policy` + `get_drained`** (in `core/http.py`): the tenacity retry policy (`stop_after_attempt(5) | stop_after_delay(deadline_s)` + `wait_exponential(1, 2, 30)`) and the manual body drain under a wall-clock deadline (a defense against slow-byte hangs that bypass `requests`' per-read timeout). Each source composes it with its own local deadlines and its transient exception. Adopted by `ibge/client._http_get` and `bcb/client._fetch_window`.
@@ -411,14 +411,14 @@ near-live exception: it backs the SPA geography cascade via `GET /api/geo-mesh` 
 universe, cached) and the city-scoped `POST /api/municipio-yearly` cube (read straight
 from Gold — basket + `city_codes` scoped, `maximum_bytes_billed`-guarded), since the
 sub-UF levels are too fine to pre-aggregate as a mart. The marts
-carry `commodity_id` (via `gold_commodity_crosswalk`) so a row can be linked to
+carry `agrupamento_id` (via `gold_produto_agrupamento`) so a row can be linked to
 its cross-source commodity.
 
 **Own dataset + least privilege.** The marts live in the `serving` dataset
 (`BQ_SERVING_DATASET`), separate from Gold, so that the dashboard's SA
 (`sa-web-dashboard-prod`) is scoped **only** to the serving surface.
 
-**Data-access layer (Python).** [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/)
+**Data-access layer (Python).** [`src/embrapa_dashboard/serving/`](src/embrapa_dashboard/serving/)
 is the **UI-agnostic** BFF that the `webapi` Flask app imports — **no
 pages/charts** (those live in `frontend/`; `webapi/seam.py` composes these
 readers per view and `webapi/serializers.py` shapes them to the SPA's
@@ -538,9 +538,9 @@ Each write follows the same pattern:
 
 Adding a new source touches three lightweight registries + creating two files. Everything is documented in [docs/adding_a_data_source.md](docs/adding_a_data_source.md). The registries are:
 
-- `cli.INGESTS` (`src/embrapa_commodities/cli.py`) — registers the source in `embrapa ingest all`.
-- `doctor.SOURCE_CHECKS` (`src/embrapa_commodities/doctor.py`) — adds the `embrapa doctor` probe for the new API.
-- `doctor.BRONZE_TARGETS` (`src/embrapa_commodities/doctor.py`) — makes the "does the Bronze table exist?" check include the new table.
+- `cli.INGESTS` (`src/embrapa_dashboard/cli.py`) — registers the source in `embrapa ingest all`.
+- `doctor.SOURCE_CHECKS` (`src/embrapa_dashboard/doctor.py`) — adds the `embrapa doctor` probe for the new API.
+- `doctor.BRONZE_TARGETS` (`src/embrapa_dashboard/doctor.py`) — makes the "does the Bronze table exist?" check include the new table.
 
 Each `@ingest_app.command()` stays hand-maintained (heterogeneous observability across sources — IBGE emits state events, BCB does not). Only `ingest all` uses the registry.
 

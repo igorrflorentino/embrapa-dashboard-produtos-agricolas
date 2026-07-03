@@ -243,10 +243,10 @@ describe('AppShell — sidebar + topnav selection', () => {
     const props = baseProps();
     const { container } = render(<AppShell {...props} />);
     const cadastro = [...container.querySelectorAll('.side-item')].find((el) =>
-      el.textContent.includes('Cadastro de commodities'),
+      el.textContent.includes('Cadastro de produtos'),
     );
     fireEvent.click(cadastro);
-    expect(props.setInfoPage).toHaveBeenCalledWith('cadastro_commodities');
+    expect(props.setInfoPage).toHaveBeenCalledWith('cadastro_produtos');
 
     const glossary = [...container.querySelectorAll('.side-item')].find((el) =>
       el.textContent.includes('Glossário global'),

@@ -32,7 +32,7 @@ $pytest = ".venv\Scripts\pytest.exe"
 & $ruff check src/ --select C90 --output-format concise
 
 # 5. Test coverage
-& $pytest --cov=src/embrapa_commodities --cov-report=term-missing -q
+& $pytest --cov=src/embrapa_dashboard --cov-report=term-missing -q
 ```
 
 > **Windows note:** If `uv run radon` fails with "Acesso negado", it means another process holds a `.dist-info` lock (VS Code, a running dashboard server). Use the `.venv\Scripts\` form above instead.
@@ -98,7 +98,7 @@ ibge/pipeline.py              | A66 | B(6)   | 96%      | ✅
 ```
 
 Focus coverage on the ingestion/transform backend under
-`src/embrapa_commodities/` — today `{cli, config, doctor, backup, observability,
+`src/embrapa_dashboard/` — today `{cli, config, doctor, backup, observability,
 discover}` plus the `{ibge, bcb, comex, comtrade, gcp, core, monitor}` packages.
 
 ## Step 5 — Propose a plan
@@ -112,5 +112,5 @@ After presenting the report, propose a **prioritised refactoring plan** in order
 ## Important constraints
 
 - **Do not auto-fix.** Every change must be proposed and approved explicitly.
-- **The custom Dash frontend was removed and replaced by a live React SPA (`frontend/`) + Flask `webapi` (`src/embrapa_commodities/webapi/`).** There is no `dashboard/` package or `GoldRepository` class in the tree today — do not expect them, and there is no pending reconstruction to revisit. This audit's Python scope is the ingestion/transform backend **plus** the `webapi`/serving Python (already covered by `test_webapi_*` / `test_serving`); the React frontend has its own Vitest harness.
+- **The custom Dash frontend was removed and replaced by a live React SPA (`frontend/`) + Flask `webapi` (`src/embrapa_dashboard/webapi/`).** There is no `dashboard/` package or `GoldRepository` class in the tree today — do not expect them, and there is no pending reconstruction to revisit. This audit's Python scope is the ingestion/transform backend **plus** the `webapi`/serving Python (already covered by `test_webapi_*` / `test_serving`); the React frontend has its own Vitest harness.
 - **dbt SQL is out of scope** for this audit — use `make dbt-test` + `sqlfluff` for SQL quality.

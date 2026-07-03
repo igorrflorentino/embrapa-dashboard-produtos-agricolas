@@ -92,7 +92,7 @@ window.BANCOS = [
     id:     'ibge_pevs',
     short:  'IBGE PEVS',
     label:  'IBGE · Produção da Extração Vegetal e da Silvicultura',
-    sub:    'Produção e exploração de commodities no território brasileiro',
+    sub:    'Produção e exploração de produtos agrícolas no território brasileiro',
     // Onboarding description (ViewAbout): plain-language, non-technical — what the banco
     // IS and what it's FOR, for a researcher meeting it for the first time.
     about:  'Reúne, ano a ano, a quantidade e o valor da produção do extrativismo vegetal e da silvicultura no Brasil — castanha-do-pará, madeira, lenha, carvão vegetal, açaí e outros. É a base para acompanhar a exploração de recursos florestais, nativos e plantados, ao longo das décadas.',

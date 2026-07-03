@@ -237,16 +237,16 @@ window.crossCommonWindow = function crossCommonWindow(refs = []) {
 };
 
 // ── crosswalk commodity catalog (the multi-source pickers' option universe) ───
-// The cross/* analytics are keyed by the crosswalk commodity_id SLUG (not a PEVS
+// The cross/* analytics are keyed by the crosswalk agrupamento_id SLUG (not a PEVS
 // product code), so their commodity picker must offer slugs. /api/catalog returns
-// { commodity_id -> {id, name, pevs[], comex[], comtrade[]} }; we flatten it to a
+// { agrupamento_id -> {id, name, pevs[], comex[], comtrade[]} }; we flatten it to a
 // sorted [{ code: <slug>, name }] list (sync-over-async like the analytics below —
 // reads the cache, kicks the fetch on a miss, returns [] until it lands).
 // PEVS physical-unit family normalized pt-BR -> the English keys the views use
 // (METRIC_FAMILIES / dataFilters key on 'mass'/'volume'). null = no single PEVS
 // family (mixed, or a COMEX/COMTRADE-only commodity) -> family-gated pickers skip it.
 const CATALOG_FAMILY_JS = { massa: 'mass', volume: 'volume' };
-window.crossCatalog = function crossCatalog() {
+window.agrupamentoCatalog = function agrupamentoCatalog() {
   const key = 'cross:catalog';
   ensure(key, () => `${API}/catalog`);
   const data = get(key);
@@ -262,12 +262,12 @@ window.crossCatalog = function crossCatalog() {
 
 // ── cross-source analytics (crosswalk-joined) ─────────────────────────────────
 const crossAnalytic = (name, path, shell) =>
-  function (commodityId, states) {
+  function (agrupamentoId, states) {
     // states = origin-UF array (per-UF scoping for price-spread / value-added);
     // undefined/empty = national. The COMEX/PEVS sides honour it server-side.
     const st = states && states.length ? states.join(',') : undefined;
-    const key = `cross:${name}:${commodityId || '*'}:${st ?? ''}`;
-    ensure(key, () => `${API}/cross/${path}?${qs({ commodity: commodityId, states: st })}`);
+    const key = `cross:${name}:${agrupamentoId || '*'}:${st ?? ''}`;
+    ensure(key, () => `${API}/cross/${path}?${qs({ commodity: agrupamentoId, states: st })}`);
     return get(key) || shell;
   };
 
@@ -284,8 +284,8 @@ const crossAnalytic = (name, path, shell) =>
 const _exportCoefRaw = crossAnalytic('export-coef', 'export-coef', {
   preview: false, unit: 'mil t', byUf: [], national: {}, timeseries: [],
 });
-window.exportCoefficient = function exportCoefficient(commodityId) {
-  const data = _exportCoefRaw(commodityId);
+window.exportCoefficient = function exportCoefficient(agrupamentoId) {
+  const data = _exportCoefRaw(agrupamentoId);
   return { ...data, byUf: decorateUfRows(data.byUf) };
 };
 window.marketShare = crossAnalytic('market-share', 'market-share', {

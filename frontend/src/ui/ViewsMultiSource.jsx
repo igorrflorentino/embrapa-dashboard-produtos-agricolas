@@ -9,7 +9,7 @@ const { useState: useMSState } = React;
 
 // Shared commodity selector (single-select; null = whole basket).
 // Options come from the CROSSWALK catalog (/api/catalog) — each chip's `code` is
-// the commodity_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
+// the agrupamento_id SLUG the cross/* endpoints expect, NOT a PEVS product code.
 // (Sourcing from window.PRODUCTS shipped PEVS codes, which the backend can't
 // crosswalk, so every specific-commodity analysis came back empty.)
 // `families` (optional) restricts the offered commodities to those PEVS unit
@@ -17,12 +17,12 @@ const { useState: useMSState } = React;
 // only a pure-mass commodity is interpretable there. When set, the mixed "Cesta
 // completa" option is dropped too (it spans families, so it is incompatible).
 function CrossProductPicker({ value, onChange, families }) {
-  const all = window.crossCatalog();
+  const all = window.agrupamentoCatalog();
   const prods = families && families.length ? all.filter(p => families.includes(p.family)) : all;
   const allowBasket = !(families && families.length);
   return (
     <div className="pp-selector">
-      <span className="pp-selector-label">Commodity</span>
+      <span className="pp-selector-label">Agrupamento</span>
       <div className="pp-chips">
         {allowBasket && (
           <button className={'pp-chip ' + (!value ? 'on' : '')}
@@ -56,7 +56,7 @@ function ViewExportCoef() {
   // This view compares PEVS MASS to COMEX weight, so only a pure-mass commodity works.
   // Offer just those and default to the first (the mixed "Cesta completa" is always
   // incompatible here) — the user lands on a working indicator, not a fallback note.
-  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const massProds = window.agrupamentoCatalog().filter(p => p.family === 'mass');
   const effProduct = product || (massProds[0] && massProds[0].code) || null;
   const data = window.exportCoefficient(effProduct);
   const ranked = data.byUf.filter(u => u.production > 0).sort((a, b) => b.coefPct - a.coefPct);
@@ -77,9 +77,9 @@ function ViewExportCoef() {
           <p className="caption" style={{ padding: '16px 4px' }}>
             O coeficiente de exportação compara <strong>massa produzida</strong> (IBGE, em mil t)
             com <strong>peso exportado</strong> (MDIC, em kg) — uma razão só faz sentido para
-            commodities de família <strong>massa</strong>. A seleção atual inclui produto de
-            volume (m³) ou cesta mista, para a qual a razão não é interpretável. Escolha uma
-            commodity de massa para ver o indicador.
+            agrupamentos de família <strong>massa</strong>. A seleção atual inclui agrupamento de
+            volume (m³) ou cesta mista, para a qual a razão não é interpretável. Escolha um
+            agrupamento de massa para ver o indicador.
           </p>
         </div>
       </>
@@ -167,7 +167,7 @@ function ViewMarketShare() {
       </div>
 
       <div className="card">
-        <window.SectionHeader overline="Participação por commodity · último ano" title="Onde o Brasil pesa mais no mundo" />
+        <window.SectionHeader overline="Participação por agrupamento · último ano" title="Onde o Brasil pesa mais no mundo" />
         <window.BarChart data={data.byProduct.slice(0, 10).map(p => ({ name: p.name, value: p.share }))} valueKey="value" color="var(--viz-1)" label="% do mundo" height={300} />
       </div>
     </>
@@ -179,7 +179,7 @@ function ViewPriceSpread() {
   const [product, setProduct] = useMSState(null);
   // Same mass-basis requirement as the export coefficient — offer only pure-mass
   // commodities and default to the first, so the user opens on a real spread.
-  const massProds = window.crossCatalog().filter(p => p.family === 'mass');
+  const massProds = window.agrupamentoCatalog().filter(p => p.family === 'mass');
   const effProduct = product || (massProds[0] && massProds[0].code) || null;
   // Per-UF scoping ('' = Brasil). Both sides (PEVS farm-gate + COMEX FOB) honour it.
   const [uf, setUf] = useMSState('');
@@ -197,9 +197,9 @@ function ViewPriceSpread() {
           <window.SectionHeader overline="Spread de preço" title="Indicador indisponível para esta seleção" />
           <p className="caption" style={{ padding: '16px 4px' }}>
             O preço na porteira deriva de <strong>valor ÷ massa</strong> (IBGE) e o preço FOB de
-            <strong> valor ÷ peso</strong> (MDIC), em US$/kg — só interpretáveis para commodities de
-            família <strong>massa</strong>. A seleção atual inclui produto de volume (m³) ou cesta
-            mista. Escolha uma commodity de massa para ver o spread.
+            <strong> valor ÷ peso</strong> (MDIC), em US$/kg — só interpretáveis para agrupamentos de
+            família <strong>massa</strong>. A seleção atual inclui agrupamento de volume (m³) ou cesta
+            mista. Escolha um agrupamento de massa para ver o spread.
           </p>
         </div>
       </>

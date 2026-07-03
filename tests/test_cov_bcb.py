@@ -19,10 +19,10 @@ from unittest.mock import patch
 import pytest
 import responses
 
-from embrapa_commodities.bcb import client
-from embrapa_commodities.bcb import series as bcb_series
-from embrapa_commodities.bcb.inflation import SPEC as INFLATION_SPEC
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.bcb import client
+from embrapa_dashboard.bcb import series as bcb_series
+from embrapa_dashboard.bcb.inflation import SPEC as INFLATION_SPEC
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture
@@ -89,13 +89,13 @@ def test_run_from_raw_with_no_archive_returns_empty(settings) -> None:
     run logs and short-circuits with "" without ever fetching SGS or writing
     Bronze."""
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.list_raw", return_value=[]) as list_raw,
-        patch("embrapa_commodities.bcb.series.fetch_series") as fetch,
-        patch("embrapa_commodities.bcb.series.read_raw") as read,
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.list_raw", return_value=[]) as list_raw,
+        patch("embrapa_dashboard.bcb.series.fetch_series") as fetch,
+        patch("embrapa_dashboard.bcb.series.read_raw") as read,
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         destination = bcb_series.run(INFLATION_SPEC, settings, full=False, from_raw=True)
 
@@ -131,15 +131,15 @@ def test_run_from_raw_with_archive_replays_trail(settings) -> None:
         captured["destination"] = destination
 
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
         patch(
-            "embrapa_commodities.bcb.series.list_raw",
+            "embrapa_dashboard.bcb.series.list_raw",
             return_value=["20200101T000000Z_2020_2020"],
         ),
-        patch("embrapa_commodities.bcb.series.read_raw", side_effect=fake_read),
-        patch("embrapa_commodities.bcb.series.load_dataframe", side_effect=fake_load),
+        patch("embrapa_dashboard.bcb.series.read_raw", side_effect=fake_read),
+        patch("embrapa_dashboard.bcb.series.load_dataframe", side_effect=fake_load),
     ):
         destination = bcb_series.run(INFLATION_SPEC, settings, full=False, from_raw=True)
 
@@ -156,7 +156,7 @@ def test_effective_start_year_uses_overlap_rule(settings) -> None:
 
     bq = um.MagicMock()
     with patch(
-        "embrapa_commodities.bcb.series.latest_reference_date",
+        "embrapa_dashboard.bcb.series.latest_reference_date",
         return_value=date(2025, 6, 1),
     ):
         result = bcb_series.effective_start_year(INFLATION_SPEC, bq, "proj.ds.tbl", "433", 1980)

@@ -1,5 +1,5 @@
 // producers.test.js — the crosswalk catalog producer that feeds the multi-source
-// commodity picker. The cross/* endpoints key on the commodity_id SLUG, so the
+// commodity picker. The cross/* endpoints key on the agrupamento_id SLUG, so the
 // picker must offer slugs (from /api/catalog), not PEVS product codes — this
 // guards that mapping + the sync-over-async loading shape (cold → [], hot → list).
 
@@ -11,8 +11,8 @@ function jsonRes(body) {
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
 }
 
-// /api/catalog shape: { commodity_id -> {id, name, family, pevs[], comex[], comtrade[]} }.
-// `family` is the PEVS unit family in pt-BR (the backend emits it raw; crossCatalog
+// /api/catalog shape: { agrupamento_id -> {id, name, family, pevs[], comex[], comtrade[]} }.
+// `family` is the PEVS unit family in pt-BR (the backend emits it raw; agrupamentoCatalog
 // normalizes it to the English keys the views use, and null = no single family).
 const CATALOG = {
   castanha_caju: { id: 'castanha_caju', name: 'Castanha de caju', family: 'massa', pevs: ['49101'], comex: ['0801'], comtrade: ['0801'] },
@@ -20,13 +20,13 @@ const CATALOG = {
 };
 
 // Fresh resource+producers modules per load so the module-level resource cache
-// (and window.crossCatalog) start clean; fetch is reassigned directly (matches
+// (and window.agrupamentoCatalog) start clean; fetch is reassigned directly (matches
 // the other data-layer suites — restoreMocks doesn't track a direct assignment).
 async function loadProducers(fetchImpl) {
   globalThis.fetch = fetchImpl;
   vi.resetModules();
   await import('./producers.js');
-  return window.crossCatalog;
+  return window.agrupamentoCatalog;
 }
 
 // Reload producers and return the full window surface for the filter tests.
@@ -42,28 +42,28 @@ async function loadAll(fetchImpl) {
 
 const urlOf = (f, i = 0) => f.mock.calls[i][0];
 
-describe('crossCatalog', () => {
+describe('agrupamentoCatalog', () => {
   it('returns [] while cold and kicks off exactly one /api/catalog fetch', async () => {
     const f = vi.fn(() => jsonRes(CATALOG));
-    const crossCatalog = await loadProducers(f);
+    const agrupamentoCatalog = await loadProducers(f);
 
-    expect(crossCatalog()).toEqual([]); // cold cache → empty, no crash
+    expect(agrupamentoCatalog()).toEqual([]); // cold cache → empty, no crash
     expect(f).toHaveBeenCalledTimes(1);
     expect(f.mock.calls[0][0]).toContain('/api/catalog');
 
-    crossCatalog(); // a re-render before the fetch resolves must not re-fetch
+    agrupamentoCatalog(); // a re-render before the fetch resolves must not re-fetch
     expect(f).toHaveBeenCalledTimes(1);
   });
 
   it('maps to slug-keyed {code,name,family} options, family normalized, sorted pt-BR', async () => {
     const f = vi.fn(() => jsonRes(CATALOG));
-    const crossCatalog = await loadProducers(f);
+    const agrupamentoCatalog = await loadProducers(f);
 
-    crossCatalog(); // kick the fetch
+    agrupamentoCatalog(); // kick the fetch
     await tick();
-    const opts = crossCatalog(); // cache hot now
+    const opts = agrupamentoCatalog(); // cache hot now
 
-    // code is the commodity_id SLUG the cross/* endpoints expect (not a PEVS code);
+    // code is the agrupamento_id SLUG the cross/* endpoints expect (not a PEVS code);
     // family is normalized pt-BR ('massa'/'volume') → the English keys the views gate on.
     expect(opts).toEqual([
       { code: 'acai', name: 'Açaí', family: 'volume' },
@@ -77,10 +77,10 @@ describe('crossCatalog', () => {
     const f = vi.fn(() => jsonRes({
       soja: { id: 'soja', name: 'Soja', family: null, pevs: [], comex: ['1201'], comtrade: ['1201'] },
     }));
-    const crossCatalog = await loadProducers(f);
-    crossCatalog();
+    const agrupamentoCatalog = await loadProducers(f);
+    agrupamentoCatalog();
     await tick();
-    expect(crossCatalog()).toEqual([{ code: 'soja', name: 'Soja', family: null }]);
+    expect(agrupamentoCatalog()).toEqual([{ code: 'soja', name: 'Soja', family: null }]);
   });
 });
 

@@ -3,7 +3,7 @@
 Targets the uncovered ``raise ValueError`` branches in the PPM/PAM/COMEX/COMTRADE
 list-property getters (each raises when the parsed list is empty or — for the flow
 properties — contains an invalid entry), and the ``PackageNotFoundError`` fallback
-in ``embrapa_commodities.__init__``.
+in ``embrapa_dashboard.__init__``.
 
 Mirrors tests/test_config.py: build Settings without picking up the developer-local
 .env via ``_env_file=None``, then read the property to trigger the branch.
@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.config import Settings
 
 
 def _make_settings(**overrides: object) -> Settings:
@@ -128,12 +128,12 @@ def test_version_falls_back_when_package_not_found() -> None:
     source tree without an install), __version__ falls back to '0.0.0'."""
     from importlib.metadata import PackageNotFoundError
 
-    import embrapa_commodities
+    import embrapa_dashboard
 
     with patch(
         "importlib.metadata.version", side_effect=PackageNotFoundError("embrapa-commodities")
     ):
-        reloaded = importlib.reload(embrapa_commodities)
+        reloaded = importlib.reload(embrapa_dashboard)
         try:
             assert reloaded.__version__ == "0.0.0"
         finally:

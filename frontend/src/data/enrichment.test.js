@@ -12,8 +12,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const WORKLIST = {
   rows: [
-    { source: 'ibge_pevs', code: '1.1', name: 'Mandioca', commodity: 'mandioca', commodity_name: 'Mandioca', level: null },
-    { source: 'mdic_comex', code: '4407', name: 'Madeira serrada', commodity: 'madeira', commodity_name: 'Madeira', level: 'processada' },
+    { source: 'ibge_pevs', code: '1.1', name: 'Mandioca', commodity: 'mandioca', agrupamento_nome: 'Mandioca', level: null },
+    { source: 'mdic_comex', code: '4407', name: 'Madeira serrada', commodity: 'madeira', agrupamento_nome: 'Madeira', level: 'processada' },
   ],
 };
 

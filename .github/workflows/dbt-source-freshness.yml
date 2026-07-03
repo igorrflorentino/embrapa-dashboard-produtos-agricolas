@@ -102,7 +102,7 @@ jobs:
         run: |
           mkdir -p ~/.dbt
           cat > ~/.dbt/profiles.yml <<EOF
-          embrapa_commodities:
+          embrapa_dashboard:
             target: prod
             outputs:
               prod:
@@ -153,7 +153,7 @@ jobs:
               status = (r.get("status") or "").lower()
               age = r.get("max_loaded_at_time_ago_in_s")
               age_str = f"{age/3600:.1f} h" if isinstance(age, (int, float)) else "—"
-              name = (r.get("unique_id") or "").replace("source.embrapa_commodities.", "")
+              name = (r.get("unique_id") or "").replace("source.embrapa_dashboard.", "")
               print(f"| `{name}` | {icon.get(status, '?')} {status or 'unknown'} | {age_str} |")
           PY
 

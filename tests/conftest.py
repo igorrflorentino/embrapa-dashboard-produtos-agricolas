@@ -18,7 +18,7 @@ import pytest
 @pytest.fixture
 def settings_factory():
     """Return a builder for env-isolated ``Settings`` (never reads ``.env``)."""
-    from embrapa_commodities.config import Settings
+    from embrapa_dashboard.config import Settings
 
     def _build(**overrides):
         overrides.setdefault("gcp_project_id", "test-project")

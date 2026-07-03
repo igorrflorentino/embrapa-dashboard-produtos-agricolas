@@ -10,7 +10,7 @@ import pytest
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 
-from embrapa_commodities.gcp.bigquery import (
+from embrapa_dashboard.gcp.bigquery import (
     ensure_dataset,
     latest_reference_date,
     latest_reference_year,

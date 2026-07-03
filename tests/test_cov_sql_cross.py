@@ -18,19 +18,19 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from embrapa_commodities.serving import sql
+from embrapa_dashboard.serving import sql
 
 
 def _cross():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_cross
+    from embrapa_dashboard.webapi import seam_cross
 
     return seam_cross
 
 
 def _base():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     return seam_base
 

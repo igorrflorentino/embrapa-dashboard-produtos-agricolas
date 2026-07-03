@@ -1,4 +1,4 @@
-"""Tests for ``embrapa_commodities.core.http`` — the shared HTTP primitives.
+"""Tests for ``embrapa_dashboard.core.http`` — the shared HTTP primitives.
 
 Covers the two helpers extracted from the IBGE and BCB clients in D1:
 
@@ -19,8 +19,8 @@ import pytest
 import requests
 import responses
 
-from embrapa_commodities.core import SourceTransientError
-from embrapa_commodities.core import http as core_http
+from embrapa_dashboard.core import SourceTransientError
+from embrapa_dashboard.core import http as core_http
 
 
 class _FakeTransient(SourceTransientError):
@@ -307,7 +307,7 @@ def test_get_drained_respects_explicit_empty_headers() -> None:
     )
     # With the defaults bypassed, neither our custom User-Agent nor
     # Connection: close should be present (requests' own defaults apply).
-    assert "embrapa-commodities" not in seen_headers[0].get("User-Agent", "")
+    assert "embrapa-dashboard" not in seen_headers[0].get("User-Agent", "")
     assert seen_headers[0].get("Connection") != "close"
 
 
@@ -332,4 +332,4 @@ def test_get_drained_default_headers_include_connection_close() -> None:
         transient_exc=_FakeTransient,
     )
     assert seen_headers[0].get("Connection") == "close"
-    assert "embrapa-commodities" in seen_headers[0].get("User-Agent", "")
+    assert "embrapa-dashboard" in seen_headers[0].get("User-Agent", "")

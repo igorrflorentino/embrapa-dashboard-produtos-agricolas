@@ -81,42 +81,42 @@ The single `summary` state is never reset when the banco changes (AppShell.onBan
 
 #### comtrade_cpc_value sums append-only Bronze with no dedup — values inflate with every re-ingestion
 
-- **Where**: `src/embrapa_commodities/serving/sql.py`:486
+- **Where**: `src/embrapa_dashboard/serving/sql.py`:486
 - **Category**: data-quality · **Area**: serving-layer
 
-comtrade_cpc_value() reads the COMTRADE Bronze table directly and does sum(safe_cast(primaryValue as float64)) grouped by (customsCode, flowCode, refYear), with only two predicates: customsCode != 'C00' and customsCode is not null. Bronze is append-only with explicitly at-least-once load semantics: the pipeline always re-fetches the latest year and reloads any changed chunk, and a crash between load and the bronze-loaded marker reloads the whole chunk — its own docstring says 'Duplicate rows are expected and safe: Silver dedupes on the natural key by ingestion_timestamp desc' (src/embrapa_commodities/comtrade/pipeline.py:294-297). But this query bypasses Silver and applies NO dedup: no qualify row_number() over the natural key by ingestion_timestamp desc, no collapse of the duplicate-qtyUnitCode rows that carry an IDENTICAL primaryValue (the exact double-count bug commit #102 fixed in silver_comtrade_flows.sql:62-68), no partnerCode != '0' (World aggregate) exclusion, and no HS6/length(cmdCode)=6 filter (all applied in Silver, dbt/models/silver/silver_comtrade_flows.sql:47-69). Consequence: the values served by gateway.fetch_comtrade_cpc_value (gateway.py:395) and displayed as absolute US$ bi in the market-nature analysis and as real cell values in the Curadoria regime×flow worklist (webapi/seam.py:816,872-881) multiply by the number of times each chunk was loaded into Bronze — wrong numbers shown to researchers, growing worse over time.
+comtrade_cpc_value() reads the COMTRADE Bronze table directly and does sum(safe_cast(primaryValue as float64)) grouped by (customsCode, flowCode, refYear), with only two predicates: customsCode != 'C00' and customsCode is not null. Bronze is append-only with explicitly at-least-once load semantics: the pipeline always re-fetches the latest year and reloads any changed chunk, and a crash between load and the bronze-loaded marker reloads the whole chunk — its own docstring says 'Duplicate rows are expected and safe: Silver dedupes on the natural key by ingestion_timestamp desc' (src/embrapa_dashboard/comtrade/pipeline.py:294-297). But this query bypasses Silver and applies NO dedup: no qualify row_number() over the natural key by ingestion_timestamp desc, no collapse of the duplicate-qtyUnitCode rows that carry an IDENTICAL primaryValue (the exact double-count bug commit #102 fixed in silver_comtrade_flows.sql:62-68), no partnerCode != '0' (World aggregate) exclusion, and no HS6/length(cmdCode)=6 filter (all applied in Silver, dbt/models/silver/silver_comtrade_flows.sql:47-69). Consequence: the values served by gateway.fetch_comtrade_cpc_value (gateway.py:395) and displayed as absolute US$ bi in the market-nature analysis and as real cell values in the Curadoria regime×flow worklist (webapi/seam.py:816,872-881) multiply by the number of times each chunk was loaded into Bronze — wrong numbers shown to researchers, growing worse over time.
 
 #### seam.py analytical core has zero test coverage (2 of 23 public functions tested)
 
 - **Where**: `tests/test_webapi_seam.py`:1
 - **Category**: test-gap · **Area**: tests-quality
 
-test_webapi_seam.py contains only 5 tests covering 2 functions (flow_market_worklist, market_nature) of the 23 public functions in src/embrapa_commodities/webapi/seam.py (894 lines). Untested functions perform the scientific unit math the dashboard exists for: snapshot() + _with_overview_quantities() (family-aware q_mass/q_vol aggregation and the COMEX total_value_usd→total_value rename), effective_value_column() (the currency×correction fallback chain that silently swaps a user's requested deflated column for BRL), cross_series()/_cross_points() (÷1e9 / ÷1e6 / ÷1e3 display scaling and the derived exp_price), market_share(), export_coefficient() (kg→mil t coefficients), price_spread() (gate price = v/(q*1000) US$/kg), trade_mirror() (discrepancy %), value_added() (premium = price_p/price_b), curation_worklist(), curator_emails(), productivity(), flow_data(), partner_data(), monthly_data(), cross_common_window() (inverted-interval fallback). A unit/scale regression in any of these (e.g. _cross_points' `wmap.get(year) or 1` silently turning a missing-weight year's 'US$/kg price' into the raw total value) would ship to researchers with no test failing, while the suite LOOKS like it covers webapi (3 webapi test files exist).
+test_webapi_seam.py contains only 5 tests covering 2 functions (flow_market_worklist, market_nature) of the 23 public functions in src/embrapa_dashboard/webapi/seam.py (894 lines). Untested functions perform the scientific unit math the dashboard exists for: snapshot() + _with_overview_quantities() (family-aware q_mass/q_vol aggregation and the COMEX total_value_usd→total_value rename), effective_value_column() (the currency×correction fallback chain that silently swaps a user's requested deflated column for BRL), cross_series()/_cross_points() (÷1e9 / ÷1e6 / ÷1e3 display scaling and the derived exp_price), market_share(), export_coefficient() (kg→mil t coefficients), price_spread() (gate price = v/(q*1000) US$/kg), trade_mirror() (discrepancy %), value_added() (premium = price_p/price_b), curation_worklist(), curator_emails(), productivity(), flow_data(), partner_data(), monthly_data(), cross_common_window() (inverted-interval fallback). A unit/scale regression in any of these (e.g. _cross_points' `wmap.get(year) or 1` silently turning a missing-weight year's 'US$/kg price' into the raw total value) would ship to researchers with no test failing, while the suite LOOKS like it covers webapi (3 webapi test files exist).
 
 #### Trade-banco quantities (COMEX/COMTRADE) serialized 1000x too large: kg-native qty summed and scaled as if tonnes
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:168
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:168
 - **Category**: bug · **Area**: webapi-seam
 
 snapshot() for trade bancos builds overviewTS q_mass by summing product_ts total_qty_native per family (seam._with_overview_quantities), and the serializer scales massa by /1e3 assuming the native unit is tonnes ('t->mil t') and emits per-product q the same way. That assumption only holds for PEVS/PAM (unit_native = Toneladas). For COMEX/COMTRADE, qty_native is the source statistical quantity, predominantly kilograms (COMEX 'QUILOGRAMA LIQUIDO', COMTRADE unit code 8 = kg), so the Overview KPI 'Quantidade (massa)' and Valor-e-Volume mass series for trade bancos are displayed ~1000x too large (kg/1e3 = t, labeled 'mil t' per contracts.js:48). Worse, the family-level sum mixes NCMs whose native unit is kg with NCMs in 'TONELADA METRICA LIQUIDA' (both family=massa), an apples+oranges sum; qty_base (already converted to t) exists in the marts and is what should be summed. The cross-series path got this right (exp_weight kg/1e6 -> mil t in _cross_points), proving the snapshot path is an oversight, not a convention.
 
 #### productTS/overview quantities treat qty_native as t/m³ — COMEX/COMTRADE mass quantities off by 1000× (or worse) and summed across incompatible units
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:216
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:216
 - **Category**: bug · **Area**: webapi-serializers
 
 _product_ts divides total_qty_native by 1e3 for family 'massa' (comment: 't→mil t') and _overview_ts divides q_mass by 1e3, but the seam feeds qty_native, which is in the SOURCE's native unit, not the family base unit. For PEVS/PAM native=t so it works; for COMEX the NCM statistical unit is mostly QUILOGRAMA LIQUIDO (kg), sometimes TONELADA METRICA LIQUIDA (t), GRAMA LIQUIDO (g) or QUILATE — and for COMTRADE mass qty is kg. The frontend treats q as 'mil t' (ViewValueVolume.jsx:18 'd.q_mass : mil t', ViewProductProfile scales with massQtyMul), so a kg-native NCM displays 1000× too large (a grama-native one 10⁶×). Worse, seam._with_overview_quantities sums qty_native ACROSS products of family 'massa', adding kg-NCMs to t-NCMs into one q_mass — a unit-incoherent number rendered as real data in the 'Valor e volume' view. The marts carry qty_base (normalized to t/m³) precisely for this, but it is never used for productTS/overview.
 
 #### _FLAG_KEY uses the prototype's synthetic flag taxonomy — real Gold flags INCOMPLETE and MISSING_WEIGHT are silently dropped from quality charts
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:35
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:35
 - **Category**: bug · **Area**: webapi-serializers
 
 Gold's actual data_quality_flag enum is OK/MISSING_VALUE/MISSING_QUANTITY/INCOMPLETE (PEVS/PAM/COMTRADE) and OK/MISSING_VALUE/MISSING_WEIGHT/INCOMPLETE (COMEX). _FLAG_KEY instead maps ESTIMATED/OUTLIER/BOUNDARY_HISTORIC — flags no Gold table ever emits — and omits INCOMPLETE and MISSING_WEIGHT. In _quality_ts, unmapped flags are counted in `total` but mapped to no output key, so the per-year stack silently loses those shares (never sums to 1); for COMEX every MISSING_WEIGHT row vanishes from the quality-over-time chart. _quality_by_product emits only the six _FLAG_KEY columns while inflating the denominator with the dropped flags. The donut (_quality) passes the raw id through, and since frontend QUALITY_FLAGS (data.js:299) also lacks INCOMPLETE/MISSING_WEIGHT, decorate.js falls back to showing the raw English id ('INCOMPLETE') as a user-facing label — violating the pt-BR rule. tests/test_webapi_serializers.py:162 codifies the wrong taxonomy (BOUNDARY_HISTORIC), confirming it was ported from the prototype, not from Gold.
 
 #### serialize_export_coef byUf rows lack the contracted col/row tile coords and nothing decorates them — the export-coefficient tile map renders broken
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:387
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:387
 - **Category**: bug · **Area**: webapi-serializers
 
 The ExportCoefficient contract requires byUf rows with col/row (contracts.js:114). serialize_export_coef passes seam rows through with only uf/name/region/production/exportV/coefPct, and the frontend producer for export-coef (producers.js crossAnalytic) returns the API payload as-is — unlike productivityData, which explicitly calls decorateUfRows. ViewExportCoef feeds these rows straight into BrazilTileMap, which positions each tile at d.col*(CELL_W+GAP) — undefined col/row yields NaN coordinates, so the 'Coeficiente de exportação' choropleth (a live view) renders with all tiles collapsed/invisible. The serializers module docstring claims 'The JS data layer decorates the rows we emit (keyed by uf)', but that decoration only exists for snapshot.ufData and productivity byUF.
@@ -126,7 +126,7 @@ The ExportCoefficient contract requires byUf rows with col/row (contracts.js:114
 
 #### Partial/failed Gold backup still satisfies doctor's freshness check (no completeness marker)
 
-- **Where**: `src/embrapa_commodities/backup.py`:78
+- **Where**: `src/embrapa_dashboard/backup.py`:78
 - **Category**: bug · **Area**: app-infra-python
 
 backup.run() extracts Gold tables sequentially and raises on the first failed extract_job.result(), leaving an incomplete backups/run=<ts>/ prefix containing only the tables exported before the failure. No manifest or success marker is written. doctor._check_backup_freshness derives freshness solely from the run=<ts>/ prefix timestamps, so a crashed half-backup is indistinguishable from a complete snapshot — the operator sees 'latest=<ts> (0d ago)' and believes the cold-storage rollback path is intact while most Gold tables are missing from it.
@@ -147,7 +147,7 @@ The Cloud Run deploy forwards runtime env via an explicit allowlist that omits C
 
 #### IAP_AUDIENCE is consumed but documented nowhere — the 'fails closed' IAP JWT verification is off by default and undiscoverable
 
-- **Where**: `src/embrapa_commodities/config.py`:236
+- **Where**: `src/embrapa_dashboard/config.py`:236
 - **Category**: security · **Area**: cross-cutting-infra
 
 The signed X-Goog-IAP-JWT-Assertion is only verified when Settings.iap_audience is set (iap.py:134 `if audience: return verify_iap_jwt(...)`); otherwise the curation author comes from the spoofable plaintext X-Goog-Authenticated-User-Email header. docs/auth_architecture.md asserts the app 'additionally validates the signed X-Goog-IAP-JWT-Assertion so a misconfiguration (e.g. an accidental public ingress) fails closed' — but never mentions that this requires IAP_AUDIENCE, and the variable appears in no documentation at all: .env.example has the curation/cache section but no IAP_AUDIENCE entry. The only occurrence outside src/ is the deploy.sh allowlist regex. An operator following .env.example + auth_architecture.md deploys prod with the JWT check disabled while the doc claims it is active.
@@ -157,7 +157,7 @@ The signed X-Goog-IAP-JWT-Assertion is only verified when Settings.iap_audience 
 - **Where**: `README.md`:47
 - **Category**: doc-mismatch · **Area**: cross-cutting-infra
 
-The 2026-06 Dash→React migration shipped (deploy/webapi/, src/embrapa_commodities/webapi/, frontend/ — per CLAUDE.md the React SPA is 'live on Cloud Run'), yet the primary docs still describe the dashboard as a Dash app being rebuilt: README calls the consumption path 'Dash dashboard @ Cloud Run ... UI under reconstruction' and its diagram says 'Dashboard Dash @ Cloud Run'; ARCHITECTURE.md says the UI is 'currently being rebuilt with the Claude Design System' and that sa-web-dashboard-prod 'is dormant while the UI is rebuilt'; .env.example and dbt_project.yml reference 'the stateless Dash app'; docs/testing.md says 'Frontend under reconstruction ... will bring its own testing strategy' although frontend Vitest tests already run in ci.yml; docs/frontend_data_contract.md says 'the Dash UI still arrives with the design-system handoff'; deploy/ingestion/Dockerfile says the dashboard Service image 'arrives with the Claude Design System handoff'; deploy/webapi/Dockerfile references the nonexistent module `embrapa_commodities.dashboard.seam` (it is webapi/seam.py). These claims send readers to a UI that no longer exists and hide the one that does.
+The 2026-06 Dash→React migration shipped (deploy/webapi/, src/embrapa_dashboard/webapi/, frontend/ — per CLAUDE.md the React SPA is 'live on Cloud Run'), yet the primary docs still describe the dashboard as a Dash app being rebuilt: README calls the consumption path 'Dash dashboard @ Cloud Run ... UI under reconstruction' and its diagram says 'Dashboard Dash @ Cloud Run'; ARCHITECTURE.md says the UI is 'currently being rebuilt with the Claude Design System' and that sa-web-dashboard-prod 'is dormant while the UI is rebuilt'; .env.example and dbt_project.yml reference 'the stateless Dash app'; docs/testing.md says 'Frontend under reconstruction ... will bring its own testing strategy' although frontend Vitest tests already run in ci.yml; docs/frontend_data_contract.md says 'the Dash UI still arrives with the design-system handoff'; deploy/ingestion/Dockerfile says the dashboard Service image 'arrives with the Claude Design System handoff'; deploy/webapi/Dockerfile references the nonexistent module `embrapa_dashboard.dashboard.seam` (it is webapi/seam.py). These claims send readers to a UI that no longer exists and hide the one that does.
 
 #### Scheduled/auto prod dbt builds never pass enable_curation — SCD2 view code changes and tests are unpropagated once curation is activated
 
@@ -171,7 +171,7 @@ dim_commodity_scd2 and dim_code_industrialization_scd2 are gated by `enabled=var
 - **Where**: `ARCHITECTURE.md`:150
 - **Category**: doc-mismatch · **Area**: cross-cutting-infra
 
-The 'Folder Structure' tree in ARCHITECTURE.md predates both the React migration and the PAM source: it lists no src/embrapa_commodities/webapi/, no frontend/, no deploy/ directory at all; the dbt listings omit silver_ibge_pam.sql, gold_pam_production.sql, gold_commodity_crosswalk is listed but serving_pam_annual.sql and dim_code_industrialization_scd2.sql are missing; the .github/workflows list shows only ci.yml and dbt-build-prod.yml (dbt-source-freshness.yml and gitleaks.yml exist); docs/ listing omits gold_data_model.md and operations_runbook.md. README likewise: the pipeline diagram and 'Sources today' omit IBGE PAM / gold_pam_production, and the CLI reference omits `ingest ibge-pam`, `ingest ibge-batch`, `ingest reconcile`, `doctor`, `backup-gold`, `monitor` — all existing commands. Readers using these as the map will not find major shipped components.
+The 'Folder Structure' tree in ARCHITECTURE.md predates both the React migration and the PAM source: it lists no src/embrapa_dashboard/webapi/, no frontend/, no deploy/ directory at all; the dbt listings omit silver_ibge_pam.sql, gold_pam_production.sql, gold_produto_agrupamento is listed but serving_pam_annual.sql and dim_code_industrialization_scd2.sql are missing; the .github/workflows list shows only ci.yml and dbt-build-prod.yml (dbt-source-freshness.yml and gitleaks.yml exist); docs/ listing omits gold_data_model.md and operations_runbook.md. README likewise: the pipeline diagram and 'Sources today' omit IBGE PAM / gold_pam_production, and the CLI reference omits `ingest ibge-pam`, `ingest ibge-batch`, `ingest reconcile`, `doctor`, `backup-gold`, `monitor` — all existing commands. Readers using these as the map will not find major shipped components.
 
 #### CONTRIBUTING.md instructs 'Docstrings in Portuguese', the inverse of the project language rule and actual practice
 
@@ -185,11 +185,11 @@ The project language rule (CLAUDE.md Code Style) is explicit: text read exclusiv
 - **Where**: `dbt/models/serving/serving_pam_annual.sql`:98
 - **Category**: doc-mismatch · **Area**: dbt-serving-core
 
-serving_pam_annual LEFT JOINs gold_commodity_crosswalk on x.source = 'pam' and its comment claims commodity linkage 'lights up if pam rows are seeded'. That is impossible: (1) gold_commodity_crosswalk only expands seed prefixes against codes harvested from gold_pevs_production / gold_comex_flows / gold_comtrade_flows — its source_codes CTE never scans gold_pam_production, so a (source='pam', code) row can never be emitted; (2) the seed schema test rejects 'pam' outright (accepted_values [pevs, comex, comtrade] on commodity_crosswalk.source), as does the accepted_values test on the crosswalk model itself (_gold.yml:373-377). Consequence: commodity_id/commodity_name are permanently NULL for PAM, and a developer following the in-code instruction will either fail the seed test or silently get no rows, with no hint that gold_commodity_crosswalk.sql also needs changing.
+serving_pam_annual LEFT JOINs gold_produto_agrupamento on x.source = 'pam' and its comment claims commodity linkage 'lights up if pam rows are seeded'. That is impossible: (1) gold_produto_agrupamento only expands seed prefixes against codes harvested from gold_pevs_production / gold_comex_flows / gold_comtrade_flows — its source_codes CTE never scans gold_pam_production, so a (source='pam', code) row can never be emitted; (2) the seed schema test rejects 'pam' outright (accepted_values [pevs, comex, comtrade] on commodity_crosswalk.source), as does the accepted_values test on the crosswalk model itself (_gold.yml:373-377). Consequence: agrupamento_id/agrupamento_nome are permanently NULL for PAM, and a developer following the in-code instruction will either fail the seed test or silently get no rows, with no hint that gold_produto_agrupamento.sql also needs changing.
 
 #### productTS sums qty_native across unit families, defeating the family split the marts were built to enforce
 
-- **Where**: `src/embrapa_commodities/serving/sql.py`:609
+- **Where**: `src/embrapa_dashboard/serving/sql.py`:609
 - **Category**: bug · **Area**: dbt-serving-core
 
 The serving marts deliberately put `family` in the grain so quantities are only ever summed WITHIN one physical-unit family (mart comment: 'qty_base summed WITHIN a family ... correctly splits the rare mixed-unit NCM'), and _serving.yml:79-83 confirms a real mixed-unit NCM exists in prod (the uniqueness test 'FALSELY failed on exactly that NCM' until family was added to the tested key). But the BFF reader product_timeseries() groups only by (code, reference_year) and computes sum(qty_native) with any_value(family) — for that mixed-unit NCM it adds quantities expressed in two different statistical units into one number, then serializers._product_ts (webapi/serializers.py:216) picks the t-vs-m³ display scale from whichever family any_value happened to return. The productTS quantity chart for such a code is wrong in value and possibly in unit/scale. products() (sql.py:571-586) has the same any_value(family)/any_value(unit_native) arbitrariness.
@@ -231,7 +231,7 @@ ViewFlows/ViewPartners/ViewSeasonality/ViewProductivity call the producers with 
 
 #### serialize_monthly returns monthlyAvg: [] on empty data, violating the 12-value contract and crashing ViewSeasonality
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:480
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:480
 - **Category**: bug · **Area**: frontend-data-charts
 
 contracts.js defines MonthlyData.monthlyAvg as '12 values', and producers.js deliberately ships 12 zeros in the loading shell so 'the view's peak/low/amplitude math survives'. But when /api/monthly resolves with an empty frame, serialize_monthly emits monthlyAvg: [] — then ViewSeasonality computes peakIdx = [].indexOf(Math.max(...[])) = -1, reads monthlyAvg[-1] = undefined, and fmt(undefined) throws TypeError on .toLocaleString, sending the whole perspective to the error boundary ('Erro ao renderizar a perspectiva') instead of an honest empty state. The Cobertura KPI also renders 'undefined–undefined'.
@@ -245,7 +245,7 @@ seam.export_coefficient and seam.price_spread deliberately refuse non-mass selec
 
 #### Snapshot ufData q_mass/q_vol are hardcoded 0.0 while the contract declares them real — Geografia quantity dimensions render an all-zero map
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:260
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:260
 - **Category**: data-quality · **Area**: frontend-data-charts
 
 _uf_data emits q_mass: 0.0 and q_vol: 0.0 for every UF (acknowledged server-side as a known gap), but contracts.js BancoSnapshot declares ufData rows with real q_mass/q_vol, and ViewGeography offers 'Quantidade (massa)' / 'Quantidade (volume)' dimensions whenever the basket has those families — gated on families present, not on data availability. Selecting them shows an all-gray/zero choropleth, zero region bars, and a zero heatmap, with no in-product notice that per-UF quantity is unavailable.
@@ -301,28 +301,28 @@ FilterMenu's value section tells the user 'Inclua apenas linhas cujo valor monet
 
 #### Comtrade reference fetches documented as retryable are never retried; one blip aborts the whole run
 
-- **Where**: `src/embrapa_commodities/comtrade/client.py`:113
+- **Where**: `src/embrapa_dashboard/comtrade/client.py`:113
 - **Category**: bug · **Area**: ingestion-comex-comtrade
 
 list_reporters() and list_hs6_codes() call core_http.get_drained directly with no @http_retry_policy decorator, and get_drained performs a single GET with no retry. Yet the code's own contract says these failures are retried: ComtradeTransientError is documented as 'Transient (retryable) error: 5xx/408 (incl. short reference-file hiccups)' (client.py:69), ComtradeQuotaError's docstring says 'a 429 on the public, key-less reference files (list_reporters / list_hs6_codes) is a momentary rate limit and stays transient/retryable' (client.py:82-84), and list_hs6_codes says 'an empty reference is treated as a transient fetch failure' implying a retry (client.py:158-160). In reality nothing catches or retries these. Consequence: pipeline.run() calls resolve_reporters(settings) before the chunk loop (pipeline.py:401) and the CLI does the same (cli.py:496), both outside any continue-on-failure handling — a single momentary 5xx/429/connection error on the Reporters reference crashes the entire `embrapa ingest comtrade` run before any chunk executes. A transient HS-reference blip inside resolve_cmd_codes fails chunks one by one instead of being retried. Only fetch_chunk (client.py:174-179) is actually wrapped in the retry policy.
 
 #### BCB --full silently skips a misconfigured/empty series when any other series returns data
 
-- **Where**: `src/embrapa_commodities/bcb/series.py`:115
+- **Where**: `src/embrapa_dashboard/bcb/series.py`:115
 - **Category**: bug · **Area**: ingestion-ibge-bcb
 
 extract()'s docstring promises 'In full mode an empty fetch is a real failure → raises', and bcb/client.py relies on that to justify mapping 404 to empty ('A genuinely bad series code also 404s and yields empty here, which the full-mode no-data guard catches'). But the guard only fires when ALL configured series come back empty: a single typo'd code (e.g. BCB_CURRENCY_SERIES='1:USD,216190:EUR') is silently dropped via 'if df.empty: continue' even on `ingest --full` and the monthly automated `ingest reconcile`. The run reports success while one whole series is permanently absent from Bronze, and the downstream Gold val_yearfx_*/val_real_* columns for that label come out NULL with no error anywhere. doctor only validates the three inflation pivot codes against the config map, not against actual data, so FX or extra inflation series have no safety net.
 
 #### IBGE/PAM --from-raw replays archives in lexical basename order, letting stale extracts win Silver dedup
 
-- **Where**: `src/embrapa_commodities/ibge/pipeline.py`:139
+- **Where**: `src/embrapa_dashboard/ibge/pipeline.py`:139
 - **Category**: bug · **Area**: ingestion-ibge-bcb
 
 bronze_from_raw() replays every archived raw object returned by list_raw(), which sorts basenames lexically (core/raw.py:175). IBGE/PAM basenames encode products+year-window only (`products_<codes>_<start>_<end>`), NOT extraction time — unlike BCB, whose basenames are run-stamped so lexical order == chronological order. Each replayed object is stamped with a fresh `pd.Timestamp.now(tz="UTC")` at load time, and Silver dedupes by `ingestion_timestamp desc`. So after a mixed trail (e.g. an old `ibge-batch` backfill chunk grid like 1991_1995 plus a newer `--full` object 1986_2026, or chunk grids from different chunk_years), `ingest ibge --from-raw` replays the lexically-later but possibly older-fetched archives LAST, giving them the newest ingestion_timestamp — silently resurrecting stale readings into Silver/Gold for the overlapping years. The docstring's claim that 'overlapping windows collapse to the latest reading' is only true when lexical basename order happens to match fetch recency. Replay should order by the stored `fetched_at` provenance, not basename. Same defect duplicated in pam_pipeline.bronze_from_raw.
 
 #### Curator allowlist table never auto-creates — runbook's setup path is broken
 
-- **Where**: `src/embrapa_commodities/serving/curation.py`:93
+- **Where**: `src/embrapa_dashboard/serving/curation.py`:93
 - **Category**: doc-mismatch · **Area**: serving-layer
 
 ensure_curators_table() has zero production callers — grep finds only a unit test (tests/test_serving.py:743) and the runbook reference. Unlike the three log tables (which self-heal inside each record_* writer, e.g. curation.py:209,354,459), nothing in the app factory, routes, seam, or gateway ever creates the curators table; fetch_curators (gateway.py:408) only reads it and raises NotFound, which seam.curator_emails() (webapi/seam.py:660) swallows as 'no allowlist'. docs/operations_runbook.md:40 tells the operator 'The table auto-creates on first use (serving.curation.ensure_curators_table)' — false. An operator following the runbook to enable the authorization allowlist hits 'table not found' on the documented INSERT, and until the table is created manually the curation gate stays at the permissive default (any IAP-authenticated caller may curate).
@@ -343,63 +343,63 @@ test_webapi_routes.py covers only /healthz, the curation POST auth matrix (401/4
 
 #### Cross-source analytics silently fall through to ALL-commodities totals when a commodity has no codes for a source
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:446
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:446
 - **Category**: bug · **Area**: webapi-seam
 
 _codes() returns an empty tuple when the selected commodity has no codes for a source (e.g. its NCM prefix matched nothing in Gold) or when the commodity id is unknown, and an empty tuple means 'no filter' to every gateway reader. market_share(), export_coefficient(), price_spread() and trade_mirror() pass that straight through, so e.g. a mass commodity with no resolved COMEX codes gets its export coefficient computed from the exports of ALL Brazilian trade divided by that one commodity's production (coefficients far above 100%), and market_share's per-commodity by_product loop computes b = ALL exports / commodity world exports. The result is presented as if scoped to the commodity. market_nature() contains an explicit guard against exactly this fallthrough (with a comment naming the hazard), proving the behavior is recognized as wrong; the four other producers lack it. _is_mass_basis only validates the PEVS side, so it does not protect the COMEX side of export_coefficient/price_spread.
 
 #### export_coefficient by-UF/national compares unaligned windows: PEVS production since 1986 vs COMEX exports since 1997
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:544
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:544
 - **Category**: bug · **Area**: webapi-seam
 
 The per-UF and national export coefficients divide cumulative COMEX export weight by cumulative PEVS production with no year bounds on either reader. PEVS coverage starts in 1986 while COMEX starts in 1997 (and their end years can also differ), so the denominator includes ~11 years of production that can have no matching export data — systematically understating coefPct. The timeseries in the same payload correctly intersects the two sources' years (sorted(set(pevs_mass) & set(exp_mass))), so the static ranking and the timeseries in one response are computed over different windows and will disagree with each other.
 
 #### COMEX Sankey mixes import rows into 'UF de origem -> pais parceiro' links (no flow filter)
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:261
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:261
 - **Category**: bug · **Area**: webapi-seam
 
 flow_data() builds the directed Sankey labeled 'UF de origem -> país parceiro' from fetch_comex_flows without passing flow='export', so import rows are summed into the same directed links. In MDIC COMEX, SG_UF_NCM is the UF *of the product*: origin UF for exports but destination UF for imports, and the partner country is the goods' origin on imports — i.e., for import rows the real direction is country->UF, yet their value is added to the UF->country link. The gateway/SQL builders expose a flow parameter (used correctly by export_coefficient with flow='export'), so the omission here inflates and mislabels every link in the territorial-flows view. The same unfiltered exp+imp sum feeds snapshot uf_data and product_uf_ranking for COMEX (seam.py:122-126, 199), where 'Onde X é produzido' becomes total trade rather than origin value.
 
 #### Crosswalk/catalog cached for process lifetime via lru_cache — nightly dbt rebuilds never reach a warm Cloud Run instance
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:420
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:420
 - **Category**: bug · **Area**: webapi-seam
 
-_crosswalk_df, commodity_catalog, _pevs_family_by_commodity and _code_to_commodity are functools.lru_cache(maxsize=1) — cached forever per process. The crosswalk and gold_pevs_production families they read are rebuilt by the daily dbt run, so a long-lived Cloud Run instance keeps serving a stale /api/catalog, stale curation-worklist commodity grouping, and stale mass-basis gating until the instance happens to recycle. This contradicts the serving layer's own caching policy (every gateway read uses flask-caching TTLs sized to 'every instance independently converges to the same data within the TTL', gateway.py:9-20). New commodities/codes added by a dbt build are invisible to the API indefinitely.
+_crosswalk_df, produto_catalog, _pevs_family_by_agrupamento and _code_to_agrupamento are functools.lru_cache(maxsize=1) — cached forever per process. The crosswalk and gold_pevs_production families they read are rebuilt by the daily dbt run, so a long-lived Cloud Run instance keeps serving a stale /api/catalog, stale curation-worklist commodity grouping, and stale mass-basis gating until the instance happens to recycle. This contradicts the serving layer's own caching policy (every gateway read uses flask-caching TTLs sized to 'every instance independently converges to the same data within the TTL', gateway.py:9-20). New commodities/codes added by a dbt build are invisible to the API indefinitely.
 
 #### value_added issues 2 BigQuery queries per classified code per request (N+1)
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:752
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:752
 - **Category**: performance · **Area**: webapi-seam
 
 value_added() loops over every code currently classified bruta/processada and calls _xyear twice per code (exp_value + exp_weight), each a separate parameterized BigQuery query via fetch_cross_series((code,)). With N classified NCM codes, a cold /api/cross/value-added request runs 2N sequential BQ round-trips (seconds each on a cold cache), scaling linearly as curators classify more codes — easily exceeding request timeouts. fetch_cross_series already accepts a tuple of codes, so the level split could be served with 2 queries per level (4 total) by passing the full code set per level, or one grouped query.
 
 #### Trade-mirror payload omits the contracted `partners` series field — ViewMirror's third line ('Reportado pelos parceiros') is always empty
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:407
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:407
 - **Category**: doc-mismatch · **Area**: webapi-serializers
 
 The TradeMirror contract defines series rows as {y, mdic, comtrade, partners} (contracts.js:132). seam.trade_mirror builds rows with only {y, mdic, comtrade} and serialize_trade_mirror passes them through unchanged. The live 'Espelho comercial' view renders three lines, the third reading d.partners — undefined for every point — so the chart silently shows a legend entry ('Reportado pelos parceiros') with no data, and the KPI prose ('Parceiros tendem a registrar mais') refers to a series that never arrives. Either the partner-reported series should be produced (COMTRADE where partner=Brazil) or the contract/view should drop the third source; today the mismatch ships a permanently dead chart line.
 
 #### _uf_data hardcodes q_mass/q_vol = 0.0 — ViewGeography's 'Quantidade (massa/volume)' toggles render all-zero maps presented as real data
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:247
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:247
 - **Category**: data-quality · **Area**: webapi-serializers
 
 The snapshot's ufData rows always carry q_mass: 0.0 and q_vol: 0.0 (the per-UF reader only returns total_value). But ViewGeography offers 'Quantidade (massa)' and 'Quantidade (volume)' dimension toggles whenever the banco's products include those families (true for PEVS/PAM/COMEX), and reads ufData.q_mass/q_vol for the choropleth/tile map and rankings. Users selecting those dimensions get an all-zero map ('—' in every cell) indistinguishable from real zero production — there is no in-product placeholder, only a code comment acknowledging the gap. This breaks the project's own 'honest placeholder' rule for unservable data: the capability is offered in the UI but silently returns fabricated zeros.
 
 #### COMTRADE coverage drift: backend registry says 2022–2023, frontend registry says 1988–2024 — comparable-window math and user-facing coverage claims disagree
 
-- **Where**: `src/embrapa_commodities/webapi/registries.py`:193
+- **Where**: `src/embrapa_dashboard/webapi/registries.py`:193
 - **Category**: inconsistency · **Area**: webapi-serializers
 
 registries.py declares COMTRADE metric coverage [2022, 2023] with maturity_note 'Cobertura inicial 2022–2023' (matching the intentional ingestion cap), but the frontend's bancos.js — which is what the UI actually reads — declares years [1988, 2024], cobertura '1988 → presente', and a different maturity note ('Backfill histórico (1988–2010) parcial'). The client's crossCommonWindow computes the comparable window from ITS registry (so PEVS×COMTRADE intersects to 1988–2024 instead of 2022–2023), while the server's SeriesResult.coverage returns [2022,2023]; the two layers ship contradictory coverage to the same view, and the frontend's user-facing claim overstates what Gold holds. The frontend PAM entry also carries maturityDate '1º trimestre/2027' that the Python Banco lacks.
 
 #### registries.py view/filter/maturity registries are dead code that has already drifted (productivity 'soon' vs live), under a 'single source of truth' docstring
 
-- **Where**: `src/embrapa_commodities/webapi/registries.py`:467
+- **Where**: `src/embrapa_dashboard/webapi/registries.py`:467
 - **Category**: dead-code · **Area**: webapi-serializers
 
 Only Banco and banco_by_id are imported anywhere (seam.py:29). MATURITY, CAPABILITIES, View/ViewGroup/VIEW_GROUPS/VIEW_BY_ID, view_by_id/view_label/is_view_live/view_applies_to/bancos_supporting/missing_caps_label, VALUE_PRESETS, TIER_LABEL, FILTER_SCHEMAS/filter_schema_for, maturity_meta, banco_availability, visible_bancos and canon_currency_for have zero callers in src/ or tests/ — the UI derives these from frontend/src/proto/{views,bancos,filtersSchema}.js. The dead copy has already drifted: the Python View('productivity', ..., 'soon') (not exportable) contradicts the shipped feature (frontend views.js status 'live', exportable: true; /api/productivity wired end-to-end per commit 25821f4), and FILTER_SCHEMAS is internally inconsistent (PEVS dims carry 'num': '01'… keys; the COMEX/COMTRADE dims have none). The module docstring 'Registries — the single source of truth for bancos, perspectives, and filters' is therefore misleading: any future reader would update the wrong place.
@@ -409,49 +409,49 @@ Only Banco and banco_by_id are imported anywhere (seam.py:29). MATURITY, CAPABIL
 
 #### doctor COMEX probe hard-fails on the expected current-year 404 the pipeline itself treats as healthy
 
-- **Where**: `src/embrapa_commodities/doctor.py`:186
+- **Where**: `src/embrapa_dashboard/doctor.py`:186
 - **Category**: bug · **Area**: app-infra-python
 
 _check_comex HEADs EXP_<COMEX_END_YEAR>.csv, and comex_end_year defaults to the CURRENT year (config.py:148). Early in each year, MDIC has not yet published that file, so the HEAD 404s and the check returns ok=False — which makes `embrapa doctor` exit 1 (cli.py:793-795). The comex ingest pipeline explicitly classifies that same condition as an expected skip ('a legitimate current-year 404'), so doctor reports the environment as broken while every ingest would succeed. Any cron/CI gate on doctor goes red for weeks every January.
 
 #### doctor serving-marts check permanently flags the gold_source_metadata view as 'empty' (num_rows is 0, not None, for views)
 
-- **Where**: `src/embrapa_commodities/doctor.py`:305
+- **Where**: `src/embrapa_dashboard/doctor.py`:305
 - **Category**: bug · **Area**: app-infra-python
 
 _check_serving_marts assumes `tbl.num_rows` is None for views ('0 only for an empty materialized mart; None for views', and the docstring claims existence-only for gold_source_metadata). Verified against the live BigQuery API: tables.get for the gold_source_metadata VIEW returns numRows:"0", so google-cloud-bigquery's Table.num_rows is the int 0 and the view lands in the '⚠ empty=[...]' list on every doctor run even when everything is healthy — a permanent false alarm that trains operators to ignore the empty-mart warning, masking real empty marts.
 
 #### monitor --pipeline filter prefix-collides: 'ibge' matches ibge-batch and ibge-pam logs
 
-- **Where**: `src/embrapa_commodities/observability.py`:87
+- **Where**: `src/embrapa_dashboard/observability.py`:87
 - **Category**: bug · **Area**: app-infra-python
 
 latest_log_path filters with glob f"{pipeline}-*.jsonl" while log filenames are f"{pipeline}-{run_id}.jsonl" and pipeline names themselves contain hyphens (ibge-batch, ibge-pam, bcb-inflation, bcb-currency). `embrapa monitor --pipeline ibge` therefore attaches to the most recent of ibge-, ibge-batch- OR ibge-pam- logs — the CLI help explicitly offers 'ibge' and 'ibge-batch' as distinct filters, so the user watching an `ingest ibge` run can silently be shown a PAM/batch run instead. test_observability only covers non-overlapping prefixes (ibge vs bcb), so the collision is untested.
 
 #### RotatingFileHandler rotation breaks the monitor's append-only tail protocol (silent event loss/freeze)
 
-- **Where**: `src/embrapa_commodities/observability.py`:60
+- **Where**: `src/embrapa_dashboard/observability.py`:60
 - **Category**: bug · **Area**: app-infra-python
 
 The module docstring guarantees 'Events are append-only and ordered. The monitor relies on ordering', yet init_run installs a RotatingFileHandler (maxBytes=10MB, backupCount=5). On rollover the live file is renamed to *.jsonl.1 and a fresh empty file replaces it; the monitor's _tail_jsonl reopens the path each tick and seeks to last_position — now past EOF — so it reads nothing and keeps the stale offset, silently freezing until the new file grows past the old byte offset (up to 10MB of events skipped, then resumes mid-stream). Rotated *.jsonl.N files also stop matching the *.jsonl glob in latest_log_path/list_log_paths. Reachable on large COMTRADE backfills (252 reporters × retry/truncated events).
 
 #### doctor's '.env parsed' check does not exercise the PAM/COMEX/COMTRADE parsers it implicitly vouches for
 
-- **Where**: `src/embrapa_commodities/doctor.py`:40
+- **Where**: `src/embrapa_dashboard/doctor.py`:40
 - **Category**: test-gap · **Area**: app-infra-python
 
 _check_env only evaluates inflation_series_map, currency_series_map and product_codes. The lazily-parsed properties comex_ncm_map, comex_chapter_map, comex_flows_list, comtrade_cmd_map, comtrade_flows_list and pam_product_codes_list (all of which raise ValueError on malformed input, config.py:276-339) are never touched, so a malformed COMEX_NCM_CODES or COMTRADE_FLOWS passes '.env parsed ✓' and only explodes mid-ingest — exactly the failure mode doctor exists to pre-empt ('validate .env parsing ... before kicking off a long ingest', doctor.py:3-6).
 
 #### Monitor shows a bogus 'Chunk states 0/27' bar and rows=0 for non-IBGE pipelines
 
-- **Where**: `src/embrapa_commodities/monitor/render.py`:167
+- **Where**: `src/embrapa_dashboard/monitor/render.py`:167
 - **Category**: inconsistency · **Area**: app-infra-python
 
 _build_progress adds the per-chunk states row with total=STATES_PER_CHUNK (27 Brazilian UFs) whenever ANY chunk is active, but only the IBGE SIDRA client emits state_start/state_end events — COMEX/COMTRADE/BCB never do, so their monitor view shows a frozen 'Chunk states 0/27' bar with ETA '?'. Related contract gaps: _on_chunk_end reads ev.get('rows') but ChunkTracker.finish never includes a rows field (only ibge/pam emit ingest_loaded), so COMEX/COMTRADE runs always display 'rows 0'; and _summarize_retry reads ev['state'] while comex/comtrade retries emit 'series', rendering 'retry ? attempt=...'. The monitor is explicitly advertised for COMEX ('Emits a chunk per (flow, year) for live `embrapa monitor` progress', cli.py:429).
 
 #### Stale 'stateless Dash app' references in config.py and .env.example (Dash UI was removed)
 
-- **Where**: `src/embrapa_commodities/config.py`:193
+- **Where**: `src/embrapa_dashboard/config.py`:193
 - **Category**: doc-mismatch · **Area**: app-infra-python
 
 The serving-dataset comments in both config.py and .env.example still describe the consumer as 'the stateless Dash app', but the Dash UI was entirely replaced by the React SPA + Flask webapi in the 2026-06 migration (the Dash package was deleted). A reader configuring BQ_SERVING_DATASET is pointed at a component that no longer exists.
@@ -472,7 +472,7 @@ The PAM block comment says 'The end floats with the current year so a routine ru
 
 #### doctor_cmd help text understates what doctor checks and which checks can fail
 
-- **Where**: `src/embrapa_commodities/cli.py`:774
+- **Where**: `src/embrapa_dashboard/cli.py`:774
 - **Category**: doc-mismatch · **Area**: app-infra-python
 
 The `embrapa doctor` docstring (shown as CLI help) says it validates '.env parsing, ADC credentials, BigQuery / GCS reachability, IBGE SIDRA + BCB SGS connectivity, and whether Bronze tables exist yet' and that only the 'Bronze-tables check is informational'. In reality doctor also probes PAM, COMEX, COMTRADE, serving marts and Gold-backup freshness — and the backup-freshness check returns ok=False (exit 1) when no snapshot exists, which the help never mentions. A fresh-project user sees doctor fail for a reason the help says isn't checked.
@@ -545,7 +545,7 @@ The model comment (copy-pasted from serving_comex_annual) says putting family in
 - **Where**: `dbt/models/core/_core.yml`:100
 - **Category**: test-gap · **Area**: dbt-serving-core
 
-The companion view dim_commodity_scd2 enforces its SCD2 invariant with a `unique` test on commodity_id filtered to is_current rows (_core.yml:76-78). dim_code_industrialization_scd2's description claims the same guarantee ('The SCD2 window guarantees at most one is_current row per (source, code)') but defines no equivalent test — there is no dbt_utils.unique_combination_of_columns on (source, code) with where is_current. If the view logic or the log writer ever regresses (e.g. duplicate change_id rows slipping past the writer's idempotency check), duplicate 'current' classifications would flow undetected into the value-added split (seam.value_added builds a dict keyed on (source, code), silently keeping an arbitrary winner).
+The companion view dim_commodity_scd2 enforces its SCD2 invariant with a `unique` test on agrupamento_id filtered to is_current rows (_core.yml:76-78). dim_code_industrialization_scd2's description claims the same guarantee ('The SCD2 window guarantees at most one is_current row per (source, code)') but defines no equivalent test — there is no dbt_utils.unique_combination_of_columns on (source, code) with where is_current. If the view logic or the log writer ever regresses (e.g. duplicate change_id rows slipping past the writer's idempotency check), duplicate 'current' classifications would flow undetected into the value-added split (seam.value_added builds a dict keyed on (source, code), silently keeping an arbitrary winner).
 
 #### Stale references to the removed Dash app in serving-layer comments
 
@@ -633,77 +633,77 @@ The project rule says text read exclusively by developers (logs, operator messag
 
 #### COMEX _emit_retry misattributes head_source retries (emits 'ncm' as the series, logs the wrong URL)
 
-- **Where**: `src/embrapa_commodities/comex/client.py`:118
+- **Where**: `src/embrapa_dashboard/comex/client.py`:118
 - **Category**: bug · **Area**: ingestion-comex-comtrade
 
 _emit_retry's docstring and arg-unpacking assume the retried function is _download_to_disk(url, dest): it takes args[0] as the URL and derives the monitor 'series' from its last path segment. But the same hook is also wired as before_sleep of head_source(base_url, flow, year) (client.py:185-190). For HEAD retries args[0] is the *base* URL, so the observability event is emitted with series='ncm' (the base path's last segment) for every (flow, year), and the warning log prints 'Retrying Comex download url=<base_url>' — a HEAD mislabeled as a download, with the actual flow/year (e.g. EXP_2023) unidentifiable. `embrapa monitor` users cannot tell which file's freshness probe is flapping, and all HEAD retries collapse into one bogus 'ncm' series. The docstring ('the retried function is _download_to_disk') is also stale relative to the second wiring.
 
 #### doctor._check_comex probes the current-year file the pipeline itself expects to 404 (false 'COMEX unreachable' early each year)
 
-- **Where**: `src/embrapa_commodities/doctor.py`:186
+- **Where**: `src/embrapa_dashboard/doctor.py`:186
 - **Category**: inconsistency · **Area**: ingestion-comex-comtrade
 
 The doctor health check HEADs EXP_<comex_end_year>.csv and calls raise_for_status(), turning any 404 into CheckResult('COMEX reachable', False). comex_end_year defaults to the current calendar year (config.py:148), and the ingestion pipeline explicitly models a current-year 404 as 'an *expected* not-yet-published state, not a pipeline failure' (comex/pipeline.py:271-280, _is_current_year_missing). So in the weeks between Jan 1 and MDIC publishing the new year's file, `embrapa doctor` reports COMEX as unreachable/failing while the source and pipeline are perfectly healthy — the two layers contradict each other on the same condition. Probing the prior year (or treating a current-year 404 as a pass) would match the pipeline's contract.
 
 #### Any keyed 429 is classified as daily-quota exhaustion and aborts the whole Comtrade run, with zero client-side throttling between calls
 
-- **Where**: `src/embrapa_commodities/comtrade/client.py`:216
+- **Where**: `src/embrapa_dashboard/comtrade/client.py`:216
 - **Category**: bug · **Area**: ingestion-comex-comtrade
 
 fetch_chunk maps every HTTP 429 on a keyed data call to ComtradeQuotaError ('quota exhausted ... re-run to resume'), which pipeline.run() treats as a hard stop for the entire run (pipeline.py:420-424). But UN Comtrade's APIM enforces a per-second/burst rate limit *in addition to* the daily quota, both answering 429. The pipeline fires keyed calls back-to-back with no delay anywhere — the chunk loop (pipeline.py:405-419) and the adaptive splitter's recursive sub-calls (client.py:257-276) issue the next request immediately, and past-year chunks with little data return in milliseconds, so consecutive calls can easily land within the same second. A burst-induced transient 429 then aborts the run with the misleading 'quota exhausted' message instead of backing off for a few seconds (a Retry-After header, which would disambiguate the two cases, is never inspected). Impact is bounded because the run is resumable, but unattended scheduled runs (deploy/ingestion/schedule_comtrade.sh) terminate early and report quota exhaustion that never happened.
 
 #### Bronze string coercion can land '0.0'/NULL breakdown codes that Silver's exact-match filters silently drop
 
-- **Where**: `src/embrapa_commodities/comtrade/client.py`:227
+- **Where**: `src/embrapa_dashboard/comtrade/client.py`:227
 - **Category**: data-quality · **Area**: ingestion-comex-comtrade
 
 fetch_chunk builds the Bronze frame with pd.DataFrame(rows).reindex(columns=BRONZE_COLUMNS).astype('string'). Two coercion paths produce values Silver cannot match: (1) the code itself anticipates sparse responses — 'missing columns (a sparse response) are added as NA via reindex' — which land as SQL NULL for motCode/customsCode/mosCode/partner2Code; (2) if any row in a response carries a JSON null in an otherwise-integer column, pandas floatifies the whole column, so motCode 0 becomes the string '0.0' (and qtyUnitCode -1 becomes '-1.0'). silver_comtrade_flows.sql keeps only rows where motCode = '0' AND customsCode = 'C00' AND partner2Code = '0' AND mosCode = '0' (exact string equality; NULL never matches), so every row from such a response silently vanishes from Silver/Gold with no data_quality_flag, no log, and no test failure — the chunk is marked bronze_loaded and never revisited. The '-1.0' variant would also defeat the qtyUnitCode-fix preference `order by (qtyUnitCode = '-1')` (silver line 68), keeping the no-quantity row over the kg row. Normalizing integer-coded columns at ingestion (strip a trailing '.0', or fail loudly on NULL breakdown codes) would close the gap.
 
 #### PER_STATE_DEADLINE_S is neither per-state nor a hard ceiling as its comments claim
 
-- **Where**: `src/embrapa_commodities/ibge/client.py`:103
+- **Where**: `src/embrapa_dashboard/ibge/client.py`:103
 - **Category**: inconsistency · **Area**: ingestion-ibge-bcb
 
 Two overstatements about the same constant. (1) It is documented as 'Hard ceiling per state — after this many seconds across all retries, give up', but the http_retry_policy decorator wraps _http_get, i.e. ONE HTTP block call; _fetch_block's recursive period-halving issues multiple _http_get calls per state, each with its own 180s retry budget, so one state can legitimately run far past 180s. (2) tenacity's stop_after_delay only prevents STARTING a new attempt — it never interrupts a running one — so even a single _http_get can run to ~180s + REQUEST_TOTAL_DEADLINE_S (75s) ≈ 255s, contradicting 'a slow-byte hang can't keep the worker alive past PER_STATE_DEADLINE_S even if it never exhausts attempts'. Behavior stays bounded, but operators sizing Cloud Run job timeouts from these comments will under-provision.
 
 #### Operator guidance 'Lower IBGE_END_YEAR to the latest published year' silently disables the delta's revision absorption
 
-- **Where**: `src/embrapa_commodities/ibge/pipeline.py`:96
+- **Where**: `src/embrapa_dashboard/ibge/pipeline.py`:96
 - **Category**: doc-mismatch · **Area**: ingestion-ibge-bcb
 
 The empty-fetch warning (and the matching CLI message) instructs the operator to pin IBGE_END_YEAR to the latest published year. But _delta_start_year returns None (clean no-op) whenever the latest Bronze year >= ibge_end_year — so once Bronze reaches that pinned year, every nightly delta run skips entirely and PEVS revisions of recent years are never re-fetched until the monthly reconcile. This contradicts the documented delta contract (CLAUDE.md/config: the delta 're-fetches from latest_bronze_year - IBGE_DELTA_OVERLAP_YEARS forward — absorbing PEVS revisions of recent years'; config.py explains END must FLOAT with the current year precisely so the nightly delta absorbs revisions). Following the printed advice quietly trades away that guarantee. The same conflicting advice text exists in pam_pipeline.py (line ~107) and cli.py.
 
 #### fetch_curators TTL not bound to CACHE_CLASSIFICATION_TIMEOUT, contradicting its docstring and the runbook
 
-- **Where**: `src/embrapa_commodities/serving/cache.py`:85
+- **Where**: `src/embrapa_dashboard/serving/cache.py`:85
 - **Category**: inconsistency · **Area**: serving-layer
 
 _bind_classification_ttl() rebinds the Settings-derived TTL onto fetch_current_classifications, fetch_current_code_industrialization, and fetch_current_flow_market, but NOT onto fetch_curators — which is decorated with the same hard-coded DEFAULT_CLASSIFICATION_TTL fallback (gateway.py:407) and whose docstring promises 'Short TTL (like the classification reads) so a Console add/remove takes effect within the window'. The runbook (docs/operations_runbook.md:37-38) likewise tells operators curator changes take effect within CACHE_CLASSIFICATION_TIMEOUT. In reality the allowlist read is pinned at 30s: an operator who lowers CACHE_CLASSIFICATION_TIMEOUT (e.g. to 5s for faster revocation of a removed curator — an authorization control) gets no effect on the curators cache; a revoked curator can keep writing for up to 30s regardless of the configured value.
 
 #### Commodity-level curation path (record_processing_stage / fetch_current_classifications) is unreachable dead code since the React migration
 
-- **Where**: `src/embrapa_commodities/serving/curation.py`:170
+- **Where**: `src/embrapa_dashboard/serving/curation.py`:170
 - **Category**: dead-code · **Area**: serving-layer
 
 The entire commodity-level classification path — record_processing_stage (curation.py:170), invalidate_classification_cache (curation.py:257), ensure_curation_log_table (curation.py:111), CURATION_LOG_SCHEMA (curation.py:42), gateway.fetch_current_classifications (gateway.py:561), and sql.current_classifications (sql.py:261) — has no caller outside tests. The webapi exposes only the per-code (/curation/code-level) and flow-market (/curation/flow-market) writers (webapi/routes.py:223,246) and never reads dim_commodity_scd2; the React frontend has no processing-stage UI either. The module docstring still presents it as 'the backend of the dashboard's Save button', sql.py:263-265 still claims its result 'is the ONLY serving cache that a curation write invalidates', and the serving marts' comments still promise a live LEFT JOIN to dim_commodity_scd2 that no layer performs. Misleading maintenance surface: the cache short-TTL machinery and the dbt view are kept alive for a code path the product cannot trigger.
 
 #### Serving package docstrings still describe the deleted Dash UI
 
-- **Where**: `src/embrapa_commodities/serving/__init__.py`:1
+- **Where**: `src/embrapa_dashboard/serving/__init__.py`:1
 - **Category**: doc-mismatch · **Area**: serving-layer
 
 CLAUDE.md states the 2026-06 React migration 'replaced the Dash UI entirely (the Dash package was removed after the cutover)', yet the serving package's documentation still frames itself around Dash: __init__.py:1 'Data-access layer for the stateless Dash dashboard'; __init__.py:3-5 'It does NOT contain any Dash pages, layouts, or chart components — those arrive with the Claude Design System handoff' (the handoff already happened); cache.py:5-6 'passing its Flask server (Dash's underlying WSGI app)'; curation.py:183-184 'flask.request.headers in a Dash callback'; curation.py:260-261 'a CLI-driven write outside the Dash server'. A maintainer reading these will look for Dash callbacks/wiring that no longer exists; the real consumer is webapi (Flask app factory + React SPA).
 
 #### Over-length curation input raises ValueError that the API surfaces as a 500 instead of a 400
 
-- **Where**: `src/embrapa_commodities/serving/curation.py`:142
+- **Where**: `src/embrapa_dashboard/serving/curation.py`:142
 - **Category**: bug · **Area**: serving-layer
 
 _validate_edit_text / _validate_code_edit / the market length check raise ValueError for user-supplied input that exceeds the caps (processing_stage/level/market > 200 chars, note > 2000 chars). The only caller-side guard in the webapi is a presence check (routes.py:234,258); the over-length case propagates to the blueprint-wide error handler (routes.py:31-39), which maps non-HTTPException to a generic 500 'internal server error'. So a POST to /api/curation/code-level or /api/curation/flow-market with a long level/market — which the serving layer deliberately validates as a client-input error — is reported as a server fault: wrong status code for monitoring (500s page operators), and the specific validation message is lost to the client. ValueError from the serving writers should be mapped to 400.
 
 #### webapi/format.py has no tests; monetary_column↔ALLOWED_VALUE_COLUMNS contract unpinned
 
-- **Where**: `src/embrapa_commodities/webapi/format.py`:135
+- **Where**: `src/embrapa_dashboard/webapi/format.py`:135
 - **Category**: test-gap · **Area**: tests-quality
 
 There is no test file for webapi/format.py (no test_webapi_format.py; grep finds no test importing it). format.monetary_column() builds column names by string concatenation (f"val_{infix}_{suffix}") and seam.effective_value_column() validates the result against sql.ALLOWED_VALUE_COLUMNS, silently falling back to a BRL column when the name doesn't match. Nothing asserts that every (currency, correction) combo the UI offers maps into the allowlist — a one-character drift in _CORRECTION_INFIX/_CURRENCY_SUFFIX (or in ALLOWED_VALUE_COLUMNS) would make e.g. 'USD + IPCA' silently serve BRL data with a misleading label, and no test would fail. The pt-BR display formatters (fmt_brl, fmt_axis_tick, fmt_pct, _refresh_label callers) that end users read are also entirely untested.
@@ -724,56 +724,56 @@ test_cli.py pins argument parsing and dispatch for every other ingest subcommand
 
 #### exp_price cross series divides by 1 when a year's weight is missing, emitting raw US$ billions as 'US$/kg'
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:405
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:405
 - **Category**: bug · **Area**: webapi-seam
 
 _cross_points for mdic_comex:exp_price computes value/weight per year, but a year present in the value series and absent (or zero) in the weight series falls back to dividing by 1 ('or 1'), so the chart point becomes the year's total export value (potentially billions) plotted on a US$/kg axis — a catastrophic outlier rather than a skipped point. Years without weight should be omitted from the series (the way price_spread intersects fob/gate years). A related zero-instead-of-skip pattern exists in price_spread at seam.py:591 (gate=0 emitted as a real farm-gate price when PEVS quantity is missing, making spread=fob and markup=0 look like data).
 
 #### Unknown /api/* paths return SPA index.html with HTTP 200 instead of a JSON 404
 
-- **Where**: `src/embrapa_commodities/webapi/app.py`:88
+- **Where**: `src/embrapa_dashboard/webapi/app.py`:88
 - **Category**: bug · **Area**: webapi-seam
 
 The SPA catch-all route ('/<path:path>') matches any /api path not explicitly registered on the blueprint, so a typo'd or removed endpoint returns index.html with status 200. The SPA's fetch layer checks r.ok (true) then r.json(), which fails with a parse error and burns its retry budget (frontend/src/data/resource.js MAX_ATTEMPTS) instead of receiving the machine-readable JSON error the /api error handler was built to guarantee ('Always emit parseable JSON from /api', routes.py:33-35). The catch-all should 404 (JSON) for paths under /api.
 
 #### Dead code: seam.cross_common_window has no callers
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:340
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:340
 - **Category**: dead-code · **Area**: webapi-seam
 
 cross_common_window() is referenced nowhere in src/, routes, serializers, or tests (repo-wide grep finds only its definition); no /api endpoint exposes it and the frontend computes its own coverage intersection. Its dual key shapes (r.get('b') or r.get('banco')) and hard-coded fallbacks ((1997, 2024)) suggest a removed caller. Dead branches like the y0>y1 'union' fallback can silently rot if it is ever re-wired.
 
 #### registries.py contradicts itself and the frontend: PAM described as 'no Gold / planejado placeholder' and productivity view still 'soon'
 
-- **Where**: `src/embrapa_commodities/webapi/registries.py`:15
+- **Where**: `src/embrapa_dashboard/webapi/registries.py`:15
 - **Category**: doc-mismatch · **Area**: webapi-seam
 
 The module docstring and the BANCOS comment still state that IBGE PAM has no Gold table and is a 'planejado' placeholder, while the same file declares ibge_pam as maturity='beta' with table='gold_pam_production', and seam._LIVE_SOURCES serves it. Additionally, the 'productivity' View is status='soon' in the Python registry while the frontend's views.js (the registry it claims to faithfully port, 'single source of truth') marks it 'live' — drift introduced when #105 wired the PAM produtividade view end-to-end. Nothing in Python currently consumes View.status, but the file advertises itself as the source of truth for capability gating, so the drift will mislead the next consumer.
 
 #### Configured classification TTL is not applied to the curator-allowlist read (auth freshness drift)
 
-- **Where**: `src/embrapa_commodities/serving/cache.py`:85
+- **Where**: `src/embrapa_dashboard/serving/cache.py`:85
 - **Category**: inconsistency · **Area**: webapi-seam
 
 _bind_classification_ttl() rebinds the Settings-derived cache_classification_timeout onto the three classification reads but not onto gateway.fetch_curators, which is also decorated with the static DEFAULT_CLASSIFICATION_TTL (30s) and whose docstring claims 'Short TTL (like the classification reads)'. The curator allowlist gates POST /api/curation/* authorization (routes._authorize_curator unions it into the allowlist), so changing CACHE_CLASSIFICATION_TIMEOUT in config affects classification reads but leaves allowlist staleness pinned at 30s — e.g. an operator who lowers the TTL to make a curator removal take effect faster gets no change on the authz path.
 
 #### Trade snapshot value labeled 'Valor (US$ FOB)' for UN Comtrade, whose import values are CIF and which the overview sums in
 
-- **Where**: `src/embrapa_commodities/webapi/seam.py`:48
+- **Where**: `src/embrapa_dashboard/webapi/seam.py`:48
 - **Category**: data-quality · **Area**: webapi-seam
 
 effective_value_column() returns the user-facing label 'Valor (US$ FOB)' for both trade bancos. For un_comtrade the snapshot overview sums exports and imports together (fetch_comtrade_overview is called without a flow filter), and UN Comtrade primary values for imports are reported on a CIF basis, so labeling the combined series 'US$ FOB' misstates the valuation basis shown to researchers in a scientific tool. The label is emitted verbatim as the snapshot's valueLabel.
 
 #### serialize_productivity omits the contracted `preview` key and the national/byUF fields the ProductivityData typedef requires
 
-- **Where**: `src/embrapa_commodities/webapi/serializers.py`:304
+- **Where**: `src/embrapa_dashboard/webapi/serializers.py`:304
 - **Category**: doc-mismatch · **Area**: webapi-serializers
 
 SNAPSHOT_CONTRACTS.perBanco.productivity lists 'preview' among required keys, and the ProductivityData typedef defines national as {yieldKgHa, areaHa, prodT, yieldCagr} and byUF rows with areaHa/prodT. serialize_productivity's base dict has no 'preview' key (every other serializer stamps preview: False), national carries only yieldCagr, and byUF rows carry only uf/name/region/yieldKgHa. ViewProductivity happens to read only national.yieldCagr today, but the runtime contract lint (auditSnapshotContracts) will report 'falta `preview`' whenever it runs against a warm producer, and any view/export relying on the documented national/byUF fields gets undefined.
 
 #### The formatter half of format.py is dead code (only 3 of ~15 exports are used), and the dead functions carry latent bugs
 
-- **Where**: `src/embrapa_commodities/webapi/format.py`:27
+- **Where**: `src/embrapa_dashboard/webapi/format.py`:27
 - **Category**: dead-code · **Area**: webapi-serializers
 
 Across src/ and tests/, only monetary_column, convention_value_label and MONTH_ABBR_PT are referenced (by seam.py/serializers.py). fmt_brl, fmt_money, fmt_num, fmt_pct, fmt_signed, fmt_rows, fmt_axis_tick, currency_symbol, symbol_for_column, convention_monetary_label, CURRENCY_LONG and DEFAULT_CONVENTIONS have zero callers — the React frontend does all user-facing formatting in JS (data.js). The dead code also harbors real defects that would bite anyone resurrecting it: fmt_axis_tick buckets by the ROUNDED-input magnitude so 999_950_000 renders '1.000 mi' instead of '1 bi' (and 999_999 → '1.000 mil'); _ptbr(float('nan')) returns the literal string 'nan' (only None is guarded); fmt_signed renders 0 as '+0,0%' while using U+2212 for negatives where fmt_brl/fmt_axis_tick use ASCII '-'. Verified by execution.
@@ -781,8 +781,8 @@ Across src/ and tests/, only monetary_column, convention_value_label and MONTH_A
 
 ## Refuted (false positives — listed so they are not re-reported)
 
-- **Idempotency dedupe echoes the caller's payload as written, even when it differs from the stored row** (`src/embrapa_commodities/serving/curation.py`): refuted with medium confidence.
-- **mark_raw_bronze_loaded read-modify-write patches GCS metadata without a precondition (race re-opens the gap it exists to close)** (`src/embrapa_commodities/core/raw.py`): refuted with high confidence.
-- **Inflation delta overlap formula floor-divides months, silently breaking for any non-multiple-of-12 setting** (`src/embrapa_commodities/bcb/inflation.py`): refuted with high confidence.
+- **Idempotency dedupe echoes the caller's payload as written, even when it differs from the stored row** (`src/embrapa_dashboard/serving/curation.py`): refuted with medium confidence.
+- **mark_raw_bronze_loaded read-modify-write patches GCS metadata without a precondition (race re-opens the gap it exists to close)** (`src/embrapa_dashboard/core/raw.py`): refuted with high confidence.
+- **Inflation delta overlap formula floor-divides months, silently breaking for any non-multiple-of-12 setting** (`src/embrapa_dashboard/bcb/inflation.py`): refuted with high confidence.
 - **serving_comtrade_annual partition range (1970+) is narrower than its Gold source (1960+)** (`dbt/models/serving/serving_comtrade_annual.sql`): refuted with medium confidence.
 - **Empty-window SIDRA test has no network guard — regression failure mode is 27 real HTTP calls** (`tests/test_ibge_client.py`): refuted with high confidence.

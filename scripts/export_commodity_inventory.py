@@ -36,11 +36,11 @@ ORDER = {label: i for i, (label, *_rest) in enumerate(SOURCES)}
 case = " ".join(f"WHEN '{label}' THEN {i}" for label, i in ORDER.items())
 
 query = f"""
-WITH all_commodities AS (
+WITH all_produtos AS (
 {arms}
 )
 SELECT banco, codigo, descricao
-FROM all_commodities
+FROM all_produtos
 ORDER BY CASE banco {case} END, SAFE_CAST(codigo AS INT64), codigo
 """
 

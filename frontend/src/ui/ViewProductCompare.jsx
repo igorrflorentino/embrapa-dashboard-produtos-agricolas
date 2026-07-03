@@ -85,7 +85,7 @@ function ViewProductCompare({ summary, conventions, database }) {
     <>
       {/* Selector */}
       <div className="pp-selector">
-        <span className="pp-selector-label">Comparar commodities <small className="pc-cap">(até {MAX})</small></span>
+        <span className="pp-selector-label">Comparar produtos <small className="pc-cap">(até {MAX})</small></span>
         <div className="pp-chips">
           {available.map(c => {
             const p = filtered.products.find(x => x.code === c);

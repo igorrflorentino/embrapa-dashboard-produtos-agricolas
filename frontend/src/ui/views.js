@@ -87,7 +87,7 @@ window.VIEW_GROUPS = [
 
       { id: 'cross_market_share', label: 'Brasil no mercado mundial', status: 'live', requires: [], crossBanco: true, align: 'eixo temporal (ano)',
         sources: ['mdic_comex', 'un_comtrade'],
-        desc: 'Exportação brasileira como fração da exportação mundial do produto (UN Comtrade). Trajetória de participação e quebra por commodity.' },
+        desc: 'Exportação brasileira como fração da exportação mundial do agrupamento (UN Comtrade). Trajetória de participação e quebra por agrupamento.' },
 
       { id: 'cross_price_spread', label: 'Preço: porteira vs. FOB', status: 'live', requires: [], crossBanco: true, align: 'eixo temporal (ano)',
         sources: ['ibge_pevs', 'mdic_comex'],

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from embrapa_commodities.bcb import currency as bcb_currency
+from embrapa_dashboard.bcb import currency as bcb_currency
 
 
 def test_spec_label_column_is_currency() -> None:
