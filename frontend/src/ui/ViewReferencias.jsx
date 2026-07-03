@@ -184,7 +184,7 @@ function ViewReferencias() {
                 background: meta.editable ? 'var(--info-bg, #e6f0ff)' : 'var(--subtle-bg, #f1f1f1)',
                 color: meta.editable ? 'var(--info, #1457b8)' : 'var(--muted, #555)',
               }}>
-              {meta.editable ? 'Editável pelo cadastro de commodities' : 'Somente leitura · calibração'}
+              {meta.editable ? 'Editável pelo cadastro de produtos' : 'Somente leitura · calibração'}
             </span>
             {meta.description && <p className="caption" style={{ margin: 0 }}>{meta.description}</p>}
             {!meta.editable && (

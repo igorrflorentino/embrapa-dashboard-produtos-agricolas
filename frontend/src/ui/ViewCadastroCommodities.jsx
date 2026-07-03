@@ -289,8 +289,8 @@ function ViewCadastroCommodities() {
     <>
       <div className="card subtle" style={{ marginBottom: 12 }}>
         <p className="caption" style={{ margin: 0 }}>
-          Este é o <strong>cadastro de commodities</strong> — a fonte única de verdade do que entra
-          e sai do dashboard. Cada commodity é identificada por <code>(código, banco)</code> — o
+          Este é o <strong>cadastro de produtos</strong> — a fonte única de verdade do que entra
+          e sai do dashboard. Cada produto é identificado por <code>(código, banco)</code> — o
           <strong> código real da fonte</strong>, uma a uma — e pertence a um <strong>agrupamento</strong> (o
           conceito que a unifica entre fontes). Agrupamentos são criados, renomeados e excluídos aqui;
           o <strong>Ciclo de Vida</strong> controla a exibição; <strong>remover</strong> uma commodity a marca
@@ -340,7 +340,7 @@ function ViewCadastroCommodities() {
 
       <div className="pp-selector" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <span className="pp-selector-label">
-          {data.entries.length.toLocaleString('pt-BR')} commodities · {data.groups.length} agrupamentos
+          {data.entries.length.toLocaleString('pt-BR')} produtos · {data.groups.length} agrupamentos
         </span>
         <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           Novo agrupamento:
@@ -450,7 +450,7 @@ function ViewCadastroCommodities() {
                           onClick={() => renameGroup(g)} title="Renomear agrupamento">✎ Renomear</button>
                   <button type="button" className="seg-opt" disabled={busy || g.n_members > 0}
                           onClick={() => deleteGroup(g)}
-                          title={g.n_members > 0 ? 'Reatribua ou remova as commodities antes de excluir' : 'Excluir agrupamento vazio'}>
+                          title={g.n_members > 0 ? 'Reatribua ou remova os produtos antes de excluir' : 'Excluir agrupamento vazio'}>
                     🗑 Excluir
                   </button>
                   {g.n_members > 0 && (
@@ -465,7 +465,7 @@ function ViewCadastroCommodities() {
                   )}
                 </div>
                 {members.length ? memberRows(members) : (
-                  <p className="caption" style={{ margin: '0 2px' }}>Agrupamento vazio — adicione commodities ou exclua-o.</p>
+                  <p className="caption" style={{ margin: '0 2px' }}>Agrupamento vazio — adicione produtos ou exclua-o.</p>
                 )}
               </div>
             );

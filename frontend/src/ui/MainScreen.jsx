@@ -63,13 +63,13 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     const _INFO_TITLES = {
       about: 'Sobre o dashboard',
       referencias: 'Tabelas de referência',
-      cadastro_commodities: 'Cadastro de commodities',
+      cadastro_commodities: 'Cadastro de produtos',
       health: 'Saúde do sistema',
     };
     const _INFO_SUBS = {
       about: 'O que é o dashboard, quais bancos compõem a base, como os dados são processados e como interpretar cada perspectiva.',
       referencias: 'Consulte os valores de referência que o pipeline usa (conversões, fatores de moeda, dimensões de código). Confira se estão corretos e, se notar um erro, avise a equipe pela própria linha.',
-      cadastro_commodities: 'Defina quais commodities entram e saem do dashboard: agrupamento e ciclo de vida (exibir ou ocultar). Edições exigem autorização e ficam registradas com seu e-mail.',
+      cadastro_commodities: 'Defina quais produtos entram e saem do dashboard: agrupamento e ciclo de vida (exibir ou ocultar). Edições exigem autorização e ficam registradas com seu e-mail.',
       health: 'Operacionalidade dos bancos em produção: status das consultas à Gold, cobertura, frescor e maturidade de cada fonte.',
     };
     const _infoTitle = _INFO_TITLES[infoPage] || _INFO_TITLES.health;

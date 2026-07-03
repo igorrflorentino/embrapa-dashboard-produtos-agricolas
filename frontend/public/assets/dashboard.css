@@ -3278,7 +3278,7 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .dt-null { color: var(--fg-4); }
 .dt-pager { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
 
-/* ── Cadastro de commodities — the "Adicionar commodity" form + status columns ──── */
+/* ── Cadastro de produtos — the "Adicionar produto" form + status columns ──── */
 .cc-add-card { border: 1px solid var(--border-default); }
 .cc-add-grid {
   display: grid;

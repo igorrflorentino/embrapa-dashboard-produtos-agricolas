@@ -87,7 +87,7 @@ describe('ViewReferencias — read-only seed consultation', () => {
     expect(container.querySelector('.dt-null')).toBeTruthy(); // the null cell renders ∅
     expect(container.textContent).toContain('46'); // total row count
     // the first (synthetic) seed is editable → the catalog badge says so
-    expect(container.textContent).toContain('Editável pelo cadastro de commodities');
+    expect(container.textContent).toContain('Editável pelo cadastro de produtos');
   });
 
   it('reports a suspect row through the feedback loop, prefilled with the seed + row', async () => {

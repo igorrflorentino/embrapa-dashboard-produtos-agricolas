@@ -531,7 +531,7 @@ function AppShell({
           <div className="side-section">Curadoria</div>
           <div className={'side-item ' + (infoPage === 'cadastro_commodities' ? 'active' : '')}
                {...clickable(() => onInfo('cadastro_commodities'))}>
-            <window.Icon name="inventory_2"/>Cadastro de commodities
+            <window.Icon name="inventory_2"/>Cadastro de produtos
           </div>
 
           {/* Engenharia de Atributos — the per-code industrialization editor (researcher-
