@@ -484,7 +484,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
               </span>
             </div>
             <div className="meta-row">
-              <span className="meta-label">Commodities</span>
+              <span className="meta-label">Produtos</span>
               <span className="meta-val tnum">{productsSelected ?? '—'} / {productsTotal ?? '—'}</span>
             </div>
             <div className="meta-row">

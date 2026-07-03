@@ -229,7 +229,7 @@ function AppShell({
   // computed by the shell (withChips); restricted-only dims (quality/value) are
   // included only when an actual filter is set.
   const scopeBits = [];
-  if (summary?.products) scopeBits.push(`Commodities: ${summary.products}`);
+  if (summary?.products) scopeBits.push(`Produtos: ${summary.products}`);
   if (summary?.geo) scopeBits.push(`UFs: ${summary.geo}`);
   if (summary?.flags && summary.flags.length && summary.quality) scopeBits.push(`Qualidade: ${summary.quality}`);
   if ((summary?.valueMin != null || summary?.valueMax != null) && summary.valueRange) scopeBits.push(`Faixa de valor: ${summary.valueRange}`);
@@ -578,7 +578,7 @@ function AppShell({
                 <h2 id="cite-title">Citar painel</h2>
                 <p className="caption">
                   Do painel exatamente como exibido — banco, perspectiva, recorte temporal,
-                  commodities, UFs, filtros e convenções métricas — com o link permanente que
+                  produtos, UFs, filtros e convenções métricas — com o link permanente que
                   reproduz a seleção. A <strong>citação no texto</strong> segue a ABNT NBR
                   10520:2023; a <strong>referência</strong> completa segue a ABNT NBR 6023:2025.
                 </p>

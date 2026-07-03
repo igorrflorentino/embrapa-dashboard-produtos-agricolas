@@ -222,7 +222,7 @@ describe('ViewGeography — gating and honest-note branches', () => {
     const { container } = render(
       <ViewGeography families={['mass']} summary={{}} database="ibge_pevs" conventions={{ autoScale: true }} />
     );
-    expect(container.textContent).toContain('todas as commodities');
+    expect(container.textContent).toContain('todos os produtos');
   });
 
   it('shows the mass-unavailable note when the family is in the basket but per-UF has no mass', () => {
