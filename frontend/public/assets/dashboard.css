@@ -324,10 +324,25 @@
 }
 .util-action svg { stroke: currentColor; }
 
-/* The mobile-only "⋯" overflow menu + the in-drawer mode toggle are hidden on desktop;
-   the ≤768px block (bottom of file) shows them and hides their desktop counterparts. */
+/* The mobile-only "⋯" overflow menu is hidden on desktop; the ≤768px block (bottom of
+   file) reveals it. */
 .util-overflow { display: none; }
-.side-mode-switch { display: none; }
+
+/* The single/multi mode toggle lives in the sidebar at EVERY width (moved out of the
+   topbar). Light-surface segmented control, aligned with the sidebar sections (18px).
+   The ≤768px block near the bottom keeps the mobile drawer edge-to-edge (margin 0). */
+.side-mode-switch {
+  display: flex; gap: 4px; margin: 4px 18px 14px; padding: 3px;
+  background: var(--bg-surface-2); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.side-mode-switch .mode-opt {
+  flex: 1; justify-content: center; height: auto; min-height: 40px;
+  color: var(--fg-2);
+}
+.side-mode-switch .mode-opt span { display: inline; }   /* full labels at all widths (override the ≤1080px icon-only rule) */
+.side-mode-switch .mode-opt:hover { background: var(--bg-surface); color: var(--fg-1); }
+.side-mode-switch .mode-opt.on { background: var(--embrapa-green); color: #fff; }
 
 /* ====================================================================
    Citation modal (triggered by header "Citar painel" button)
@@ -3072,19 +3087,9 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 }
 .cur-coderow-nested td:nth-child(2) { padding-left: 30px; }
 
-/* ---- Mode switch (Banco único · Multi-fonte) on the green topbar ---- */
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  align-self: center;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.22);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  flex-shrink: 0;
-  margin-left: 4px;
-}
+/* ---- Mode switch buttons (Banco único · Multi-fonte). The toggle now lives in the
+   sidebar (.side-mode-switch, defined near the top of this file); these are the shared
+   button atoms it reuses. ---- */
 .mode-opt {
   display: inline-flex; align-items: center; gap: 7px;
   height: 30px; padding: 0 12px;
