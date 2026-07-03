@@ -289,9 +289,7 @@ def test_record_catalog_entry_captures_iap_headers_in_request_context(monkeypatc
     with app.test_request_context(
         "/api/catalog/entry", headers={"X-Goog-Authenticated-User-Email": "a@embrapa.br"}
     ):
-        out = seam_curation.record_catalog_entry(
-            {"codigo_produto": "4403", "banco": "un_comtrade"}
-        )
+        out = seam_curation.record_catalog_entry({"codigo_produto": "4403", "banco": "un_comtrade"})
 
     assert out == {"ok": True}
     assert captured["headers"]["X-Goog-Authenticated-User-Email"] == "a@embrapa.br"

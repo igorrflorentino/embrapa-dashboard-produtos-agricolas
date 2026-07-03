@@ -165,9 +165,7 @@ _BANCO_TO_SOURCE = {
 }
 
 
-def _is_active_entry(
-    bq: bigquery.Client, table_fqn: str, codigo_produto: str, banco: str
-) -> bool:
+def _is_active_entry(bq: bigquery.Client, table_fqn: str, codigo_produto: str, banco: str) -> bool:
     """Whether (codigo_produto, banco) is CURRENTLY an active catalog entry (latest-wins)
     — i.e. this write is an UPDATE, not a new registration. ``False`` when the log table
     doesn't exist yet."""

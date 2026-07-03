@@ -65,9 +65,7 @@ def test_effective_start_year_returns_configured_when_table_empty(
 def test_effective_start_year_honours_configured_floor(spec, label, codes, labels) -> None:
     """If the user set the start after the last load, the configured floor wins."""
     bq = MagicMock()
-    with patch(
-        "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(1995, 6, 1)
-    ):
+    with patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(1995, 6, 1)):
         result = bcb_series.effective_start_year(spec, bq, "proj.ds.tbl", "433", 2010)
     assert result == 2010
 
@@ -108,9 +106,7 @@ def test_extract_delta_mode_anchors_per_series(spec, label, codes, labels, setti
 def test_extract_delta_empty_returns_empty_df(spec, label, codes, labels, settings) -> None:
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
-        ),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)),
         patch("embrapa_dashboard.bcb.series.fetch_series", return_value=pd.DataFrame()),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
@@ -132,9 +128,7 @@ def test_extract_full_empty_raises(spec, label, codes, labels, settings) -> None
 def test_extract_canonical_columns_and_labels(spec, label, codes, labels, settings) -> None:
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)
-        ),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)),
         patch("embrapa_dashboard.bcb.series.fetch_series", return_value=FAKE),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
@@ -178,9 +172,7 @@ def test_extract_delta_keeps_going_when_one_series_is_empty(
 
     bq = MagicMock()
     with (
-        patch(
-            "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)
-        ),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2025, 1, 1)),
         patch("embrapa_dashboard.bcb.series.fetch_series", side_effect=fetch),
     ):
         df = bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
@@ -215,9 +207,7 @@ def test_run_delta_short_circuits_with_no_new_data(spec, label, codes, labels, s
         patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
         patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch("embrapa_dashboard.bcb.series.ensure_dataset"),
-        patch(
-            "embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)
-        ),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", return_value=date(2026, 1, 1)),
         patch("embrapa_dashboard.bcb.series.fetch_series", return_value=pd.DataFrame()),
         patch("embrapa_dashboard.bcb.series.land_raw") as land,
         patch("embrapa_dashboard.bcb.series.load_dataframe") as load,

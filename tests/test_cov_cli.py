@@ -422,9 +422,7 @@ def test_with_webapp_context_missing_extra_exits_1(monkeypatch: pytest.MonkeyPat
     real_import = builtins.__import__
 
     def fake_import(name: str, *args: object, **kwargs: object):
-        if name == "embrapa_dashboard.webapi.app" or name.startswith(
-            "embrapa_dashboard.webapi"
-        ):
+        if name == "embrapa_dashboard.webapi.app" or name.startswith("embrapa_dashboard.webapi"):
             raise ModuleNotFoundError("No module named 'flask'")
         return real_import(name, *args, **kwargs)
 
