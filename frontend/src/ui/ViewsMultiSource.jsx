@@ -28,7 +28,7 @@ function CrossProductPicker({ value, onChange, families }) {
           <button className={'pp-chip ' + (!value ? 'on' : '')}
             onClick={() => onChange(null)}
             style={!value ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>
-            Cesta completa
+            Todos os agrupamentos
           </button>
         )}
         {prods.map(p => {
@@ -54,7 +54,7 @@ const msNum = window.numBR, msPct = window.pctBR;
 function ViewExportCoef() {
   const [product, setProduct] = useMSState(null);
   // This view compares PEVS MASS to COMEX weight, so only a pure-mass commodity works.
-  // Offer just those and default to the first (the mixed "Cesta completa" is always
+  // Offer just those and default to the first (the mixed "Todos os agrupamentos" is always
   // incompatible here) — the user lands on a working indicator, not a fallback note.
   const massProds = window.crossCatalog().filter(p => p.family === 'mass');
   const effProduct = product || (massProds[0] && massProds[0].code) || null;

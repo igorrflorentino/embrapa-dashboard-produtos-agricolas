@@ -9,24 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ## [1.10.8] - 2026-07-03
 
-Melhoria de UX de terminologia: distinguir **agrupamento** (a cesta) de
-**commodity** (o item individual) de forma consistente na UI.
+Melhoria de UX de terminologia: três termos com significados precisos e
+consistentes na UI — **commodity** (item individual: 1 código = 1 commodity),
+**agrupamento** (conjunto de commodities *entre bancos* — as perspectivas
+multi-fonte) e **cesta** (conjunto de commodities de *um único banco* — o que os
+filtros selecionam).
 
 ### Changed
-- **As perspectivas cruzadas (multi-fonte) passam a chamar a cesta de
-  "Agrupamento", não "Commodity".** No Cadastro as cestas já se chamavam
-  "agrupamentos"; nas perspectivas o mesmo conceito aparecia como "commodity",
-  o que confundia. Agora o vocabulário é consistente: **agrupamento** = a cesta
-  (o que o seletor cruzado escolhe, chaveado por `commodity_id`), **commodity** =
-  o item individual. Só textos de exibição mudaram: o rótulo do seletor das 4
-  perspectivas cruzadas ("Commodity" → "Agrupamento"); os avisos "indicador
-  indisponível" do Coeficiente de exportação e do Preço porteira vs. FOB
-  ("agrupamento de massa" no lugar de "commodity de massa"); o título
-  "Participação por agrupamento" (era "por commodity") em Brasil no mercado
-  mundial; e as descrições de perspectiva + glossário correspondentes ("quebra
-  por agrupamento", "exportação mundial do agrupamento"). Os itens individuais
-  seguem como "produto"/"commodity" nas telas de banco único, e a escala de
-  industrialização ("Commodity Pura/Manufaturado") fica intacta.
+- **Perspectivas cruzadas (multi-fonte): a seleção passa a se chamar
+  "Agrupamento", não "Commodity".** O seletor cruzado (chaveado por
+  `commodity_id`) monta um conjunto entre bancos = agrupamento. Mudaram o rótulo
+  do seletor das 4 perspectivas cruzadas ("Commodity" → "Agrupamento"), a opção
+  "Cesta completa" → "Todos os agrupamentos", os avisos de "indicador
+  indisponível" (Coeficiente de exportação, Preço porteira vs. FOB), o título
+  "Participação por agrupamento" (Brasil no mercado mundial) e as descrições +
+  glossário correspondentes.
+- **Itens individuais passam a se chamar "commodity", não "produto", nas telas de
+  banco único.** Menu de perspectivas ("Análise por commodity", "Perfil da
+  commodity", "Comparativo entre commodities"); menu de filtros (seletor
+  "Commodities · PEVS", "Commodity · NCM/SH", "Commodity · HS6/NCM", busca e
+  contagens); chips de recorte ("Commodities"); categoria do glossário
+  ("Commodity"); e a referência cruzada na perspectiva Geografia. **"cesta"**
+  segue significando o conjunto de um único banco (Análise agregada, "cesta
+  selecionada").
+- **Intocados de propósito** (candidatos a uma próxima passada conforme a revisão
+  no preview): a escala de industrialização ("Commodity Pura / Manufaturado" —
+  outro conceito), os nomes oficiais de capítulos SH, os cabeçalhos de colunas do
+  CSV, os termos de domínio "Lavouras" (PAM) e "Rebanho/Produtos" (PPM), e as
+  descrições de granularidade dos bancos ("produto × município × ano").
 
 Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
 seletor de commodity (Coeficiente de exportação, entre outras).

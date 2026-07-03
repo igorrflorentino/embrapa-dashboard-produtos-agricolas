@@ -36,13 +36,13 @@ describe('FilterTriggerBar — capability-driven chips', () => {
   it('production banco (no flow): product/period/geo/quality — never Fluxo or Faixa de valor', () => {
     const banco = { id: 'ibge_pevs', short: 'IBGE PEVS', provides: ['product', 'geo', 'quality'] };
     const { container } = render(<FilterTriggerBar summary={SUMMARY} banco={banco} live />);
-    expect(chipKeys(container)).toEqual(['Produtos', 'Período', 'Geografia', 'Qualidade']);
+    expect(chipKeys(container)).toEqual(['Commodities', 'Período', 'Geografia', 'Qualidade']);
   });
 
   it('trade banco with flow but no geo (COMTRADE): shows Fluxo, hides Geografia', () => {
     const banco = { id: 'un_comtrade', short: 'UN COMTRADE', provides: ['product', 'flow', 'quality'] };
     const { container } = render(<FilterTriggerBar summary={SUMMARY} banco={banco} live />);
-    expect(chipKeys(container)).toEqual(['Produtos', 'Período', 'Fluxo', 'Qualidade']);
+    expect(chipKeys(container)).toEqual(['Commodities', 'Período', 'Fluxo', 'Qualidade']);
   });
 
   it('never renders a "Faixa de valor" chip (no backed filter path → hidden, not inert)', () => {

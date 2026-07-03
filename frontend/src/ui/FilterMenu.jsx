@@ -338,7 +338,7 @@ function ProductTree({ nodes, selected, setProducts, search }) {
   render(nodes);
 
   if (rows.length === 0) {
-    return <div className="fm-empty-grid">Nenhum produto corresponde a “{search}”.</div>;
+    return <div className="fm-empty-grid">Nenhuma commodity corresponde a “{search}”.</div>;
   }
   return <div className="fm-tree">{rows}</div>;
 }
@@ -532,7 +532,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const showMunis = geoLevel === 'municipio';
   const dims      = (schema && schema.dims) || [];
   const prodDim   = dims.find(d => d.type === 'products' || d.type === 'multi-tree');
-  const prodLabel = (prodDim && prodDim.label) || `Produtos · ${bancoMeta ? bancoMeta.short : 'PEVS'}`;
+  const prodLabel = (prodDim && prodDim.label) || `Commodities · ${bancoMeta ? bancoMeta.short : 'PEVS'}`;
   // The menu renders ONLY what the active banco can filter on: each section below is
   // capability-gated (hasProduct/hasGeo/hasQuality/hasFlow), so a dim the banco
   // doesn't provide, or one declared-but-not-backed (via/CFOP/CNAE/partner — summed
@@ -775,8 +775,8 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   // summary
   const summary = useMemo(() => {
     const prodTxt = products.size === PRODS.length
-      ? `${PRODS.length} produtos (todos)`
-      : `${products.size} de ${PRODS.length} produtos`;
+      ? `${PRODS.length} commodities (todos)`
+      : `${products.size} de ${PRODS.length} commodities`;
     const period = `${formatMonth(startDate)}–${formatMonth(endDate)}`;
     const geoTxt = window.filterSummary.geoHeaderText({
       hasGeo,
@@ -930,7 +930,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
                   <span className="fm-section-label"><span className="fm-section-num">01</span>{prodLabel}</span>
-                  <SearchInput value={qProducts} onChange={setQProducts} placeholder="Buscar produto ou código…"/>
+                  <SearchInput value={qProducts} onChange={setQProducts} placeholder="Buscar commodity ou código…"/>
                 </div>
                 <span className="fm-section-meta">
                   <strong>{products.size}</strong> de {PRODS.length} selecionados
@@ -957,7 +957,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                   ) : (
                     <div className="fm-grid">
                       {filteredProducts.length === 0 ? (
-                        <div className="fm-empty-grid">Nenhum produto corresponde a “{qProducts}”.</div>
+                        <div className="fm-empty-grid">Nenhuma commodity corresponde a “{qProducts}”.</div>
                       ) : filteredProducts.map(p => {
                         const on = products.has(p.code);
                         return (

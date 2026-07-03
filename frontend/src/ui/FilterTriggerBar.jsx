@@ -59,7 +59,7 @@ function FilterTriggerBar({ summary, onOpen, onExport, live = true, banco = null
     return (marketOpts || []).find((o) => o.value === raw)?.label || raw;
   })();
   const chips = [
-    has('product') && { k: 'Produtos',  v: summary.products },
+    has('product') && { k: 'Commodities',  v: summary.products },
     { k: 'Período', v: summary.period },
     has('flow')    && { k: 'Fluxo',      v: flowChip },
     regimeOpts     && { k: 'Regime',     v: regimeChip },

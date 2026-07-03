@@ -23,15 +23,15 @@ window.VIEW_GROUPS = [
   },
   {
     id: 'product',
-    label: 'Análise por produto',
+    label: 'Análise por commodity',
     hint: 'commodity individual',
     views: [
-      { id: 'product_profile', label: 'Perfil do produto', status: 'live', exportable: true, requires: ['product'],
+      { id: 'product_profile', label: 'Perfil da commodity', status: 'live', exportable: true, requires: ['product'],
         desc: 'Mergulho em uma única commodity: série de valor e quantidade, preço médio implícito (valor ÷ quantidade), evolução da participação na cesta e ranking histórico de UFs produtoras.',
         planned: ['Preço médio implícito por ano', 'Participação da commodity na cesta', 'Ranking de UFs produtoras ao longo do tempo', 'Ficha técnica (código, unidade, espécie, cobertura)'] },
-      { id: 'product_compare', label: 'Comparativo entre produtos', status: 'live', exportable: true, requires: ['product'],
+      { id: 'product_compare', label: 'Comparativo entre commodities', status: 'live', exportable: true, requires: ['product'],
         desc: 'Selecione 2 a 4 commodities e compare lado a lado: séries normalizadas (base 100), variação acumulada, CAGR e correlação cruzada.',
-        planned: ['Séries normalizadas base 100', 'CAGR por produto', 'Correlação cruzada entre commodities', 'Tabela comparativa de métricas'] },
+        planned: ['Séries normalizadas base 100', 'CAGR por commodity', 'Correlação cruzada entre commodities', 'Tabela comparativa de métricas'] },
       { id: 'productivity', label: 'Produtividade', status: 'live', exportable: true, requires: ['yield'], selfData: true,
         desc: 'Rendimento (kg/ha) e área colhida por lavoura: trajetória nacional de produtividade e a geografia do rendimento por UF. Disponível para bancos de produção agrícola (IBGE PAM).',
         planned: ['Série de rendimento médio (kg/ha)', 'Série de área colhida', 'Mapa de produtividade por UF', 'Ranking de UFs mais produtivas'] },
@@ -58,8 +58,8 @@ window.VIEW_GROUPS = [
       { id: 'geo',           label: 'Geografia', status: 'live', exportable: true, requires: ['geo'],
         desc: 'Distribuição territorial por valor, massa e volume, em região, UF ou município. Mapas, mapas de calor e rankings.' },
       { id: 'concentration', label: 'Concentração e desigualdade', status: 'live', exportable: true, requires: [],
-        desc: 'Quão concentrada é a atividade: curva de Lorenz, índice de Gini e HHI (Herfindahl-Hirschman) por geografia e por produto.',
-        planned: ['Curva de Lorenz', 'Índice de Gini ao longo do tempo', 'HHI por UF e por produto', 'Participação dos top-5 produtores'] },
+        desc: 'Quão concentrada é a atividade: curva de Lorenz, índice de Gini e HHI (Herfindahl-Hirschman) por geografia e por commodity.',
+        planned: ['Curva de Lorenz', 'Índice de Gini ao longo do tempo', 'HHI por UF e por commodity', 'Participação dos top-5 produtores'] },
     ],
   },
   {
@@ -129,7 +129,7 @@ window.VIEW_GROUPS = [
     hint: 'metadados',
     views: [
       { id: 'quality',  label: 'Qualidade dos dados', status: 'live', exportable: true, requires: ['quality'],
-        desc: 'Diagnóstico da dimensão data_quality_flag: distribuição de flags, integridade temporal e qualidade por produto e UF.' },
+        desc: 'Diagnóstico da dimensão data_quality_flag: distribuição de flags, integridade temporal e qualidade por commodity e UF.' },
       { id: 'dados',    label: 'Estrutura de dados', status: 'live', requires: [],
         desc: 'A estrutura por trás do banco: percorra as tabelas de cada camada do pipeline — Bronze (bruto), Silver (padronizado), Gold (analítico) e Serving (pronto para o painel) — e investigue qualquer uma linha a linha, com paginação, ordenação e filtros por coluna. Para conferir os dados ou rastrear de onde vem cada número.',
         planned: ['Tabelas das 4 camadas (Bronze → Serving)', 'Linhagem: da fonte oficial ao gráfico', 'Paginação no servidor', 'Ordenar por qualquer coluna', 'Filtrar por coluna (=, >, contém…)', 'Exportar o recorte em CSV'] },
@@ -220,7 +220,7 @@ window.crossPreviewBanco = (viewId) => {
 // whether a perspective is even meaningful for the active banco — distinct
 // from whether the component has been built yet (status live/soon).
 window.CAPABILITIES = {
-  product: { label: 'dimensão de produto' },
+  product: { label: 'dimensão de commodity' },
   geo:     { label: 'dimensão geográfica (UF/município)' },
   flow:    { label: 'fluxo origem → destino' },
   partner: { label: 'dimensão de parceiro comercial' },
