@@ -29,8 +29,13 @@ with xwalk as (
 
     -- The editable Curadoria catalog (dim_produto_catalog), the SOT that replaced
     -- the commodity_crosswalk seed. Each row is one exact (source, codigo_produto).
+    -- A produto registered WITHOUT an agrupamento (agrupamento_id null) can't be
+    -- cross-linked, so it is excluded from the crosswalk — matching the serving
+    -- layer's produto_catalog() skip. Keeps agrupamento_id/_nome NOT NULL here (and
+    -- those produtos still appear in single-banco views via gold_<source>_production).
     select agrupamento_id, agrupamento_nome, source, codigo_produto
     from {{ ref('dim_produto_catalog') }}
+    where agrupamento_id is not null
 
 ),
 
