@@ -60,7 +60,7 @@ default `catalog_editors`), keyed by `(resource, email)` where `resource` is the
 edit that catalog (open mode); add a row to lock it down.
 
 ```sql
--- add an editor for the commodity catalog
+-- add an editor for the produto catalog
 INSERT INTO `<project>.research_inputs.catalog_editors` (resource, email, added_by, added_at)
 VALUES ('produto_catalog', 'new.editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
 

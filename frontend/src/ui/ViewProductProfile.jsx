@@ -65,7 +65,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
   if (!activeCode) {
     return (
       <window.EmptyCard>
-        Nenhum produto disponível na seleção atual. Ajuste os filtros para escolher uma commodity.
+        Nenhum produto disponível na seleção atual. Ajuste os filtros para escolher um produto.
       </window.EmptyCard>
     );
   }
@@ -155,7 +155,7 @@ function ViewProductProfile({ families, summary, database, conventions }) {
     <>
       {/* Product selector */}
       <div className="pp-selector">
-        <span className="pp-selector-label">Commodity em análise</span>
+        <span className="pp-selector-label">Produto em análise</span>
         <div className="pp-chips">
           {available.map(c => {
             const p = filtered.products.find(x => x.code === c);

@@ -48,7 +48,7 @@ function ViewValueAdded() {
   return (
     <>
       <div className="pp-selector">
-        <span className="pp-selector-label">Commodity</span>
+        <span className="pp-selector-label">Agrupamento</span>
         <div className="pp-chips">
           <button className={'pp-chip ' + (!group ? 'on' : '')} onClick={() => setGroup(null)}
             style={!group ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>Todas curadas</button>
@@ -122,7 +122,7 @@ function ViewMarketNature() {
   // Scope the analysis to one commodity's COMTRADE codes (or all curated).
   const selector = (
     <div className="pp-selector">
-      <span className="pp-selector-label">Commodity</span>
+      <span className="pp-selector-label">Agrupamento</span>
       <div className="pp-chips">
         <button className={'pp-chip ' + (!group ? 'on' : '')} onClick={() => setGroup(null)}
           style={!group ? { background: 'var(--embrapa-green)', borderColor: 'var(--embrapa-green)', color: '#fff' } : null}>Todas curadas</button>

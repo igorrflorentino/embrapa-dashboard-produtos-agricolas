@@ -51,7 +51,7 @@ def main() -> None:
 
     with OUT.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["Banco", "Codigo Commodity", "Descricao Commodity"])
+        writer.writerow(["Banco", "Codigo Produto", "Descricao Produto"])
         for r in rows:
             writer.writerow([r["banco"], r["codigo"], r["descricao"] or ""])
 
@@ -61,7 +61,7 @@ def main() -> None:
 
     print(f"Wrote {len(rows)} rows to {OUT.resolve()}")
     for label, *_ in SOURCES:
-        print(f"  {label:<12} {by_banco.get(label, 0):>4} commodities")
+        print(f"  {label:<12} {by_banco.get(label, 0):>4} produtos")
 
 
 if __name__ == "__main__":

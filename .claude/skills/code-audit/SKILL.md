@@ -7,7 +7,7 @@ description: >-
   Do NOT use for routine lint fixes — use lint-and-test for that.
 ---
 
-# Code Audit — Embrapa Commodities
+# Code Audit — Embrapa Produtos Agrícolas
 
 This skill produces a structured architectural report. It does **not** auto-fix anything — its job is to analyse, categorise, and propose a prioritised refactoring plan.
 

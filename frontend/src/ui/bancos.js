@@ -304,7 +304,7 @@ window.BANCOS = [
     short:  'UN COMTRADE',
     label:  'UN Comtrade · Estatísticas de Comércio Internacional',
     sub:    'Fluxos de comércio entre nações reportados à Divisão de Estatística da ONU',
-    about:  'É o maior repositório global de dados oficiais de comércio internacional, compilado pelas Nações Unidas. Oferece estatísticas de importação e exportação reportadas por diversos países, permitindo situar a participação do Brasil no mercado mundial de cada commodity.',
+    about:  'É o maior repositório global de dados oficiais de comércio internacional, compilado pelas Nações Unidas. Oferece estatísticas de importação e exportação reportadas por diversos países, permitindo situar a participação do Brasil no mercado mundial de cada produto.',
     domain: 'Comércio internacional',
     scope:  'País → país (com ou sem filtro Brasil)',
     source: 'UN Statistics Division',

@@ -7,7 +7,7 @@ description: >-
   asked to inspect or query tables directly.
 ---
 
-# BigQuery Debug — Embrapa Commodities
+# BigQuery Debug — Embrapa Produtos Agrícolas
 
 ## Dataset Map
 

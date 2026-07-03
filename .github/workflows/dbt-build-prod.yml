@@ -245,13 +245,13 @@ jobs:
           fi
           uv run dbt "${ARGS[@]}"
 
-      # Curadoria lifecycle: auto-mark orphan commodities (removed from the catalog but
+      # Curadoria lifecycle: auto-mark orphan produtos (removed from the catalog but
       # with Gold data still lingering) as Descontinuado, on the build boundary — orphan
       # status only changes when Gold or the catalog change, both of which happen here, so
       # no separate scheduler is needed. NON-DESTRUCTIVE (the purge is a human-gated CLI).
       # Best-effort: needs the `webapi` extra (the cache for the memoized reads) and must
       # NOT fail the build (the marts are already rebuilt) — continue-on-error.
-      - name: Mark orphan commodities (Curadoria lifecycle)
+      - name: Mark orphan produtos (Curadoria lifecycle)
         if: success()
         continue-on-error: true
         env:

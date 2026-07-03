@@ -199,7 +199,7 @@ describe('ViewProductCompare — single-product + value-less herd branches', () 
     expect(container.querySelectorAll('.pc-table tbody tr').length).toBe(1);
     // < 2 products → correlation matrix replaced by the prompt note.
     expect(container.querySelector('.pc-corr')).toBeFalsy();
-    expect(container.textContent).toContain('ao menos 2 commodities');
+    expect(container.textContent).toContain('ao menos 2 produtos');
   });
 
   it('indexes an all-stock (herd) basket on headcount and labels it "do efetivo"', () => {

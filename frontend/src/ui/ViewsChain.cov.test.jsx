@@ -27,7 +27,7 @@ function stubWidgets() {
   window.PreviewBanner = (props) => { previewBannerProps = props; return <div className="preview-banner" />; };
   window.CrossProductPicker = ({ value, onChange }) => (
     <select className="pp" value={value || ''} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">Cesta completa</option>
+      <option value="">Todos os agrupamentos</option>
       <option value="acai">Açaí</option>
     </select>
   );
