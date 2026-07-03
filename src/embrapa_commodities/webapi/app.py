@@ -142,7 +142,13 @@ def create_app() -> Flask:
             # index.html so the client-side router (deep-links like ?v=&b=) loads.
             if path and (spa / path).is_file():
                 return send_from_directory(spa, path)
-            return send_from_directory(spa, "index.html")
+            # index.html is the unhashed entrypoint. It references the JS bundle by
+            # content hash and the static CSS by a ?v=<version> query, so a stale
+            # cached index.html would pin the browser to the OLD css/js and any
+            # ?v= bump would never take effect. Force revalidation on every load.
+            resp = send_from_directory(spa, "index.html")
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
     return app
 

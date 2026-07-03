@@ -66,6 +66,9 @@ def test_app_serves_index_static_and_deeplink_fallback(monkeypatch, tmp_path):
     root = client.get("/")
     assert root.status_code == 200
     assert b"<title>SPA</title>" in root.data
+    # index.html must be served no-cache so a ?v=<version> css bump / new js hash
+    # always reaches the browser instead of a stale cached shell pinning the old ones.
+    assert "no-cache" in root.headers.get("Cache-Control", "")
 
     # A real hashed asset is served from disk, not the index fallback.
     asset = client.get("/assets/app.js")
@@ -73,10 +76,11 @@ def test_app_serves_index_static_and_deeplink_fallback(monkeypatch, tmp_path):
     assert b"console.log('app')" in asset.data
 
     # An unknown client-side route (no file on disk) → index.html, status 200,
-    # so the React router loads instead of a 404.
+    # so the React router loads instead of a 404 — and also no-cache.
     deeplink = client.get("/produto/123")
     assert deeplink.status_code == 200
     assert b"<title>SPA</title>" in deeplink.data
+    assert "no-cache" in deeplink.headers.get("Cache-Control", "")
 
 
 def test_unknown_api_path_is_json_404_not_spa_html(monkeypatch, tmp_path):
