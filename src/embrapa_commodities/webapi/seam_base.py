@@ -17,12 +17,16 @@ instead of serving a stale one for its whole process lifetime.
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from embrapa_commodities.config import get_settings
 from embrapa_commodities.serving import gateway
 from embrapa_commodities.serving import sql as sqlbuild
 from embrapa_commodities.serving.cache import cache
+
+logger = logging.getLogger(__name__)
 
 # Banco id → the BFF source key (they already align by construction).
 _LIVE_SOURCES = {"ibge_pevs", "ibge_pam", "ibge_ppm", "mdic_comex", "un_comtrade"}
@@ -49,9 +53,21 @@ def _crosswalk_df() -> pd.DataFrame:
 
 @cache.memoize()
 def commodity_catalog() -> dict:
-    """commodity_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk."""
+    """commodity_id -> {id, name, pevs[], comex[], comtrade[]} from the crosswalk.
+
+    A crosswalk row whose commodity_id is NULL (a catalog entry saved without an
+    agrupamento) is SKIPPED: it has no cross-source identity to key on, and a NaN
+    id would become a float dict key that 500s the WHOLE /api/catalog response —
+    the JSON provider's sort_keys can't order float against str keys, so one
+    malformed row would take down every cross-source view. Skipping keeps the
+    endpoint resilient; the row is logged so the bad catalog entry stays visible.
+    """
     cat: dict = {}
+    skipped: list[str] = []
     for r in _crosswalk_df().itertuples():
+        if pd.isna(r.commodity_id):
+            skipped.append(f"{r.source}:{r.code}")
+            continue
         c = cat.setdefault(
             r.commodity_id,
             {
@@ -63,6 +79,13 @@ def commodity_catalog() -> dict:
             },
         )
         c[r.source].append(str(r.code))
+    if skipped:
+        logger.warning(
+            "commodity_catalog: skipped %d crosswalk row(s) with NULL commodity_id "
+            "(catalog entry saved without an agrupamento): %s",
+            len(skipped),
+            ", ".join(sorted(skipped)),
+        )
     return cat
 
 
