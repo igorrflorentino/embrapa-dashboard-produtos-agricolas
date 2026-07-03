@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.5] - 2026-07-02
+
+Correção do menu de filtros travado no iPhone/iOS Safari — funcionava no emulador do
+Chrome, mas não no aparelho real.
+
+### Fixed
+- **Menu de filtros ("Editar filtros") inutilizável no iPhone (iOS Safari).** O modal tinha
+  listas com rolagem *aninhada* (`.fm-grid-scroll` dos produtos/flags de qualidade e cada
+  coluna `.fm-geo-list` da geografia) dentro do corpo rolável. O iOS Safari **não encadeia**
+  a rolagem restante de um scroller interno para o pai (o Chrome encadeia — por isso o
+  emulador passava): um toque que começasse sobre uma dessas listas prendia o gesto e o
+  modal parecia **congelado**, sem alcançar o rodapé (Redefinir/Cancelar/Aplicar). No
+  celular (≤600px) as listas internas agora são só layout (`max-height: none; overflow:
+  visible`), deixando **uma única região de rolagem** (o corpo do modal); adicionados
+  `overscroll-behavior: contain` + `-webkit-overflow-scrolling: touch`. O DOM de municípios
+  continua limitado por `GEO_RENDER_CAP=300`.
+- **Rodapé do modal fora da tela no iOS.** O teto de altura usava `100vh`, que no iOS mede a
+  viewport *grande* (barra de URL recolhida), empurrando o rodapé fixo para baixo da dobra.
+  Adicionado par de *fallback* com `100dvh` (viewport visível/dinâmica) — o `vh` fica como
+  reserva para navegadores sem `dvh`.
+- Toques nas caixas de seleção da geografia ganharam área maior (padding 5px → 9px), acima
+  do conforto mínimo do iOS. Trilho decorativo do cabeçalho de seção agora tem
+  `pointer-events: none` (nunca intercepta um toque).
+
+### Changed (internal)
+- Os CSS estáticos (`colors_and_type.css`, `dashboard.css`, `filter-menu.css`) têm nomes
+  fixos (sem hash), então navegadores os mantêm em cache. Adicionado `?v=<versão>` aos
+  `<link>` em `frontend/index.html` para forçar o download da versão nova — **incremente
+  junto com a versão do app** a cada mudança de CSS. Sem alteração no desktop.
+
 ## [1.10.4] - 2026-07-02
 
 Mobile/tablet responsiveness pass for four admin/utility surfaces that still assumed
