@@ -962,4 +962,8 @@
   .fm-backdrop { padding: 16px 10px; }
   .fm-bulk button { min-height: 36px; padding: 8px 4px; }
   .fm-quick button { height: 36px; }
+  /* The geo footer meta ("Malha IBGE: 5571 municípios · mesorregião/microrregião …")
+     is a single flex child; the global .fm-section-meta is flex-shrink:0, so it kept its
+     ~526px content width and overflowed the panel by ~230px. Let THIS one shrink + wrap. */
+  .fm-geo-foot .fm-section-meta { flex: 1 1 0; min-width: 0; white-space: normal; }
 }

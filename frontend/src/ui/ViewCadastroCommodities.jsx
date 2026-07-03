@@ -231,7 +231,7 @@ function ViewCadastroCommodities() {
   const strayEntries = data.entries.filter((e) => !knownIds.has(e.commodity_id));
 
   const memberRows = (members) => (
-    <div className="dt-wrap">
+    <div className="dt-wrap cc-dt-wrap">
       <table className="dt-table cc-table">
         <thead>
           <tr>
@@ -245,21 +245,21 @@ function ViewCadastroCommodities() {
             const st = statusMap[e.banco + ':' + e.codigo_commodity];
             return (
               <tr key={e.banco + '|' + e.codigo_commodity}>
-                <td>{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
-                <td className="tnum">{e.codigo_commodity}</td>
-                <td>{e.descricao_fonte || <span className="dt-null">—</span>}</td>
-                <td className="num tnum">{st ? _ccInt(st.n_rows) : '…'}</td>
-                <td className="tnum">{st && st.year_start != null ? `${st.year_start}–${st.year_end}` : '—'}</td>
-                <td>
+                <td className="cc-cell-title">{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
+                <td className="tnum" data-label="Código">{e.codigo_commodity}</td>
+                <td data-label="Descrição">{e.descricao_fonte || <span className="dt-null">—</span>}</td>
+                <td className="num tnum" data-label="Linhas">{st ? _ccInt(st.n_rows) : '…'}</td>
+                <td className="tnum" data-label="Período">{st && st.year_start != null ? `${st.year_start}–${st.year_end}` : '—'}</td>
+                <td data-label="Dados">
                   {!st ? <span className="dt-null">…</span>
                     : st.has_data ? <span className="cc-has-data" title="Tem dados na Gold">✓</span>
                     : <span className="cc-no-data" title="Cadastrada, mas sem dados na Gold">sem dados</span>}
                 </td>
-                <td>
+                <td data-label="Agrupamento">
                   <CcGroupSelect value={e.commodity_id} onChange={(gid) => moveEntry(e, gid)}
                                  groups={groupsSorted} busy={busy} />
                 </td>
-                <td>
+                <td data-label="Ciclo de vida">
                   <select disabled={busy} value={e.ciclo_de_vida || ''}
                           title={e.ciclo_de_vida || ''}
                           onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
@@ -269,7 +269,7 @@ function ViewCadastroCommodities() {
                     {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
                   </select>
                 </td>
-                <td>
+                <td className="cc-cell-actions" data-label="Ações">
                   <button type="button" className="cc-remove" disabled={busy}
                           title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_commodity}`}
                           onClick={() => removeEntry(e)}
