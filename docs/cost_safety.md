@@ -34,8 +34,8 @@ architecture is **100% scale-to-zero / pay-per-use** — if nobody uses it, it c
 
 1. **Cloud Console → Billing → Budgets & alerts**
 2. **Create budget**:
-   - Name: `embrapa-commodities-monthly`
-   - Projects: select `embrapa-dashboard-commodities`
+   - Name: `embrapa-produtos agrícolas-monthly`
+   - Projects: select `embrapa-dashboard-produtos agrícolas`
    - Services: leave blank (covers everything in the project)
 3. **Budget amount**:
    - Type: **Specified amount**
@@ -91,7 +91,7 @@ The readers consume from their own project; yours stays isolated.
 
 ```bash
 gcloud billing accounts list
-gcloud billing projects describe embrapa-dashboard-commodities
+gcloud billing projects describe embrapa-dashboard-produtos agrícolas
 ```
 
 Or via the Console: **Billing → Reports** — cost-by-SKU chart for the last

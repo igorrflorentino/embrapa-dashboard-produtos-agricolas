@@ -4,7 +4,7 @@ Step-by-step instructions for administrators to set up Google Cloud IAM roles an
 
 ## Prerequisites
 
-- **Google Cloud Project:** `embrapa-dashboard-commodities`
+- **Google Cloud Project:** `embrapa-dashboard-produtos agrícolas`
 - **gcloud CLI installed:** https://cloud.google.com/sdk/docs/install
 - **Admin access** to the GCP project
 
@@ -24,7 +24,7 @@ through OAuth + service account impersonation.
 
 ```bash
 gcloud auth login igorlopesc@gmail.com
-gcloud config set project embrapa-dashboard-commodities
+gcloud config set project embrapa-dashboard-produtos agrícolas
 ```
 
 Verify:
@@ -32,7 +32,7 @@ Verify:
 gcloud config list
 # Output:
 # [core]
-# project = embrapa-dashboard-commodities
+# project = embrapa-dashboard-produtos agrícolas
 ```
 
 ## Step 2: Create Service Accounts
@@ -48,23 +48,23 @@ gcloud iam service-accounts create sa-secret-reader-prod \
 Grant developer-workflow permissions:
 ```bash
 # Read/write to BigQuery (dbt builds, ad-hoc queries)
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/bigquery.dataEditor
 
 # Run BigQuery jobs + create own datasets (dbt builds the dbt_dev_* schemas)
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/bigquery.user
 
 # Read GCS landing data
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/storage.objectViewer
 
 # Allow the SA to make API calls to GCP services (storage.objectViewer does not include this)
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/serviceusage.serviceUsageConsumer
 ```
 
@@ -86,18 +86,18 @@ Grant data pipeline permissions:
 # archive, Phase 2 reads it back to derive Bronze (and `--from-raw` re-reads it).
 # objectCreator alone (write-only) is therefore INSUFFICIENT — the pipeline SA
 # must also read. objectAdmin grants both; or pair objectCreator + objectViewer.
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/storage.objectAdmin
 
 # Write to BigQuery (Bronze)
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/bigquery.dataEditor
 
 # Run BigQuery jobs
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
-  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
+  --member=serviceAccount:sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/bigquery.jobUser
 ```
 
@@ -131,22 +131,22 @@ BigQuery dataset-level roles are granted on the dataset resource (not via
 way is to merge an access entry into the dataset with `bq`:
 
 ```bash
-SA="sa-web-dashboard-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com"
+SA="sa-web-dashboard-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com"
 
 # READ on the serving dataset only.
-bq show --format=prettyjson embrapa-dashboard-commodities:serving > /tmp/serving.json
+bq show --format=prettyjson embrapa-dashboard-produtos agrícolas:serving > /tmp/serving.json
 jq --arg sa "$SA" \
   '.access += [{"role":"READER","userByEmail":$sa}]' /tmp/serving.json > /tmp/serving.patched.json
-bq update --source /tmp/serving.patched.json embrapa-dashboard-commodities:serving
+bq update --source /tmp/serving.patched.json embrapa-dashboard-produtos agrícolas:serving
 
 # WRITE (append) on the research_inputs dataset only.
-bq show --format=prettyjson embrapa-dashboard-commodities:research_inputs > /tmp/research.json
+bq show --format=prettyjson embrapa-dashboard-produtos agrícolas:research_inputs > /tmp/research.json
 jq --arg sa "$SA" \
   '.access += [{"role":"WRITER","userByEmail":$sa}]' /tmp/research.json > /tmp/research.patched.json
-bq update --source /tmp/research.patched.json embrapa-dashboard-commodities:research_inputs
+bq update --source /tmp/research.patched.json embrapa-dashboard-produtos agrícolas:research_inputs
 
 # jobUser is the ONLY project-level role — needed to execute query jobs, grants no data access.
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
   --member="serviceAccount:${SA}" \
   --role=roles/bigquery.jobUser
 ```
@@ -175,33 +175,33 @@ trail). So grant read-only data access project-wide, `jobUser` to run queries,
 and confine all *write* to a single dedicated report/sandbox dataset.
 
 ```bash
-SA="sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com"
+SA="sa-ai-agent-admin-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com"
 AGENT_SANDBOX_DATASET=ai_reports   # one dedicated dataset for agent output; create it first.
 
 # Create the sandbox dataset the agent is allowed to write to.
-bq mk --dataset --location=us-central1 embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET}
+bq mk --dataset --location=us-central1 embrapa-dashboard-produtos agrícolas:${AGENT_SANDBOX_DATASET}
 
 # Read-only on data (project-wide) — analysis across Bronze/Silver/Gold.
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
   --member="serviceAccount:${SA}" \
   --role=roles/bigquery.dataViewer
 
 # Run query jobs (no data access on its own).
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
   --member="serviceAccount:${SA}" \
   --role=roles/bigquery.jobUser
 
 # WRITE confined to the sandbox dataset ONLY (never project-wide, never on gold/research_inputs).
-bq show --format=prettyjson embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET} > /tmp/agent.json
+bq show --format=prettyjson embrapa-dashboard-produtos agrícolas:${AGENT_SANDBOX_DATASET} > /tmp/agent.json
 jq --arg sa "$SA" \
   '.access += [{"role":"WRITER","userByEmail":$sa}]' /tmp/agent.json > /tmp/agent.patched.json
-bq update --source /tmp/agent.patched.json embrapa-dashboard-commodities:${AGENT_SANDBOX_DATASET}
+bq update --source /tmp/agent.patched.json embrapa-dashboard-produtos agrícolas:${AGENT_SANDBOX_DATASET}
 
 # Read from GCS + write reports to GCS.
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
   --member="serviceAccount:${SA}" \
   --role=roles/storage.objectViewer
-gcloud projects add-iam-policy-binding embrapa-dashboard-commodities \
+gcloud projects add-iam-policy-binding embrapa-dashboard-produtos agrícolas \
   --member="serviceAccount:${SA}" \
   --role=roles/storage.objectCreator
 ```
@@ -218,10 +218,10 @@ gcloud iam service-accounts list --filter="displayName:*Prod"
 
 # Output:
 # NAME                                             EMAIL
-# sa-secret-reader-prod                           sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-# sa-data-pipeline-prod                           sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-# sa-web-dashboard-prod                           sa-web-dashboard-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
-# sa-ai-agent-admin-prod                          sa-ai-agent-admin-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
+# sa-secret-reader-prod                           sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
+# sa-data-pipeline-prod                           sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
+# sa-web-dashboard-prod                           sa-web-dashboard-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
+# sa-ai-agent-admin-prod                          sa-ai-agent-admin-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
 ```
 
 ## Step 3: Grant Developer Impersonation Access
@@ -236,7 +236,7 @@ ad-hoc queries can run as that service account.
 DEVELOPER_EMAIL="florenciaitalo@gmail.com"
 
 gcloud iam service-accounts add-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --member=user:${DEVELOPER_EMAIL} \
   --role=roles/iam.serviceAccountTokenCreator
 ```
@@ -254,7 +254,7 @@ EOF
 # Grant all at once
 while read email; do
   gcloud iam service-accounts add-iam-policy-binding \
-    sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+    sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
     --member=user:${email} \
     --role=roles/iam.serviceAccountTokenCreator
 done < batch_developers.txt
@@ -264,7 +264,7 @@ done < batch_developers.txt
 
 ```bash
 gcloud iam service-accounts get-iam-policy \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreator")'
 
 # Output:
@@ -297,7 +297,7 @@ Each developer runs the setup script:
 
 ```bash
 # Developer command
-cd embrapa-dashboard-commodities
+cd embrapa-dashboard-produtos agrícolas
 python3 scripts/setup_dev_env.py
 ```
 
@@ -344,8 +344,8 @@ If you want automated pipelines to run as `sa-data-pipeline-prod`:
 ```bash
 # Service: Cloud Run Jobs
 gcloud iam service-accounts add-iam-policy-binding \
-  sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --member=serviceAccount:cloud-run-service-account@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
+  --member=serviceAccount:cloud-run-service-account@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --role=roles/iam.serviceAccountUser
 ```
 
@@ -354,12 +354,12 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```bash
 # Create GitHub OIDC provider (one-time setup)
 gcloud iam workload-identity-pools create "github-pool" \
-  --project="embrapa-dashboard-commodities" \
+  --project="embrapa-dashboard-produtos agrícolas" \
   --location="global" \
   --display-name="GitHub Actions"
 
 gcloud iam workload-identity-pools providers create-oidc "github-provider" \
-  --project="embrapa-dashboard-commodities" \
+  --project="embrapa-dashboard-produtos agrícolas" \
   --location="global" \
   --workload-identity-pool="github-pool" \
   --display-name="GitHub" \
@@ -368,8 +368,8 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
 
 # Bind GitHub to sa-data-pipeline-prod
 gcloud iam service-accounts add-iam-policy-binding \
-  sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
-  --project="embrapa-dashboard-commodities" \
+  sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
+  --project="embrapa-dashboard-produtos agrícolas" \
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/projects/NUMERIC_PROJECT_ID/locations/global/workloadIdentityPools/github-pool/attribute.repository/igorrflorentino/embrapa-dashboard-produtos-agricolas"
 ```
@@ -389,7 +389,7 @@ DEPARTING_EMAIL="departed@gmail.com"
 
 # Remove impersonation permission
 gcloud iam service-accounts remove-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --member=user:${DEPARTING_EMAIL} \
   --role=roles/iam.serviceAccountTokenCreator
 
@@ -400,7 +400,7 @@ gcloud iam service-accounts remove-iam-policy-binding \
 Verify removal:
 ```bash
 gcloud iam service-accounts get-iam-policy \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
   --format=json | jq '.bindings[] | select(.role=="roles/iam.serviceAccountTokenCreator") | .members'
 
 # Output should NOT include the departing email
@@ -415,7 +415,7 @@ gcloud iam service-accounts get-iam-policy \
 **Solution:** Verify developer is in `iam.serviceAccountTokenCreator` role:
 ```bash
 gcloud iam service-accounts get-iam-policy \
-  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
+  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
 ```
 
 If missing, re-run Step 3 for that developer.
@@ -471,17 +471,17 @@ gcloud iam service-accounts list
 
 ### View service account details
 ```bash
-gcloud iam service-accounts describe sa-data-pipeline-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com
+gcloud iam service-accounts describe sa-data-pipeline-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com
 ```
 
 ### List all IAM roles on a project
 ```bash
-gcloud projects get-iam-policy embrapa-dashboard-commodities --flatten="bindings[].members" --format=table
+gcloud projects get-iam-policy embrapa-dashboard-produtos agrícolas --flatten="bindings[].members" --format=table
 ```
 
 ### Check specific member's roles
 ```bash
-gcloud projects get-iam-policy embrapa-dashboard-commodities \
+gcloud projects get-iam-policy embrapa-dashboard-produtos agrícolas \
   --flatten="bindings[].members" \
   --filter="bindings.members:user:florenciaitalo@gmail.com" \
   --format=table(bindings.role)

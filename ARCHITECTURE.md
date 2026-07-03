@@ -73,7 +73,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 ## Folder Structure
 
 ```
-embrapa-dashboard-commodities/
+embrapa-dashboard-produtos agrícolas/
 │
 ├── src/embrapa_dashboard/          # Main Python package
 │   ├── __init__.py
