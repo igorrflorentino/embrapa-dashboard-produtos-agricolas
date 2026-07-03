@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from embrapa_commodities.comex import client, pipeline
-from embrapa_commodities.config import Settings
-from embrapa_commodities.core import ChunkOutcome, IngestPartialFailure
+from embrapa_dashboard.comex import client, pipeline
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.core import ChunkOutcome, IngestPartialFailure
 
 
 @pytest.fixture
@@ -236,9 +236,9 @@ def test_run_loads_bronze_only_for_changed_chunks(settings) -> None:
         return flow == "export" and year == 2020
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
         patch.object(pipeline, "sync_raw", side_effect=fake_sync),
         patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
@@ -254,9 +254,9 @@ def test_run_loads_bronze_only_for_changed_chunks(settings) -> None:
 
 def test_run_from_raw_skips_sync_and_uses_has_raw(settings) -> None:
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
         patch.object(pipeline, "sync_raw") as sync,
         patch.object(pipeline, "has_raw", return_value=True),
@@ -273,9 +273,9 @@ def test_run_reloads_unchanged_raw_when_bronze_marker_absent(settings) -> None:
     """Regression: a prior run archived raw then aborted before Phase 2. The raw
     is unchanged (sync_raw → False) but unmarked, so the re-run must still load."""
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="proj.ds.tbl"),
         patch.object(pipeline, "sync_raw", return_value=False),  # nothing re-extracted
         patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}),  # no marker
@@ -301,9 +301,9 @@ def test_run_continues_after_chunk_failure_and_raises_aggregate(settings) -> Non
         return True
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(pipeline, "sync_raw", side_effect=flaky_sync),
         patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),
@@ -330,9 +330,9 @@ def test_run_with_on_chunk_reports_each_outcome_and_does_not_raise(settings) -> 
         return True
 
     with (
-        patch("embrapa_commodities.gcp.clients.get_credentials", return_value=None),
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.gcp.clients.get_credentials", return_value=None),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
         patch.object(pipeline, "ensure_destination", return_value="p.d.t"),
         patch.object(pipeline, "sync_raw", side_effect=flaky_sync),
         patch.object(pipeline, "needs_bronze", side_effect=lambda *a, extracted, **k: extracted),

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from embrapa_commodities.webapi import registries as reg
+from embrapa_dashboard.webapi import registries as reg
 
 # ── banco_by_id / visible_bancos / canon_currency_for ─────────────────────────
 

@@ -2,7 +2,7 @@
 # React SPA + Flask REST Cloud Run SERVICE image (the Dash→React migration).
 #
 # Serves BOTH the built React SPA and the /api JSON endpoints from ONE origin
-# (one service, one IAP, no CORS) via gunicorn → embrapa_commodities.webapi.app:app.
+# (one service, one IAP, no CORS) via gunicorn → embrapa_dashboard.webapi.app:app.
 # Replaces the Dash image (deploy/dashboard/) at cutover — same service, same
 # runtime SA, same private+IAP posture.
 #
@@ -32,7 +32,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 # --no-dev drops pytest/ruff; the `webapi` extra pulls flask + flask-caching +
 # gunicorn (NO dash/plotly — the charts are client-side Plotly.js in the SPA).
-# The seam (embrapa_commodities.webapi.seam) is UI-framework-free and resolves
+# The seam (embrapa_dashboard.webapi.seam) is UI-framework-free and resolves
 # without dash installed.
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
@@ -63,4 +63,4 @@ EXPOSE 8080
 # expand; exec makes gunicorn PID 1 for correct SIGTERM on Cloud Run scale-down.
 CMD exec gunicorn --bind ":$PORT" --workers "$WEB_CONCURRENCY" --threads "$GUNICORN_THREADS" \
     --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile - \
-    embrapa_commodities.webapi.app:app
+    embrapa_dashboard.webapi.app:app

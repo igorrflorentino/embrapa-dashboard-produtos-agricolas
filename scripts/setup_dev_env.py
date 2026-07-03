@@ -79,7 +79,7 @@ BCB_END_YEAR=2026
 """
 
     # Enterprise: OAuth method with service account impersonation
-    DBT_PROFILES_ENTERPRISE = """embrapa_commodities:
+    DBT_PROFILES_ENTERPRISE = """embrapa_dashboard:
   target: dev
   outputs:
     dev:
@@ -108,7 +108,7 @@ BCB_END_YEAR=2026
 """
 
     # Legacy: Keyfile method (for backward compatibility)
-    DBT_PROFILES_LEGACY = """embrapa_commodities:
+    DBT_PROFILES_LEGACY = """embrapa_dashboard:
   target: dev
   outputs:
     dev:

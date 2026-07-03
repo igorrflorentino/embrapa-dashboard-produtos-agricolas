@@ -1,7 +1,7 @@
 # `scripts/` — operational tooling
 
 Helper scripts that sit alongside the Python package. Each script is short
-and single-purpose; the heavy logic lives in `src/embrapa_commodities/`. This
+and single-purpose; the heavy logic lives in `src/embrapa_dashboard/`. This
 README is the index — for behaviour details, open the script and read its
 header comment / docstring (which is also the source for every description
 below).

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from embrapa_commodities.webapi import serializers as s
+from embrapa_dashboard.webapi import serializers as s
 
 
 def test_serialize_snapshot_shapes_and_scales():
@@ -416,7 +416,7 @@ def test_quality_flag_taxonomy_complete_and_ptbr():
     qualityTs-key map and the pt-BR label map cover the SAME ids, and every label is
     Portuguese — never the raw English id (the pt-BR rule; the documented past failure was
     a flag with no server label falling back to the English token)."""
-    from embrapa_commodities.webapi import serializers as s
+    from embrapa_dashboard.webapi import serializers as s
 
     assert set(s._FLAG_KEY) == set(s._FLAG_LABEL_PT)
     assert {
@@ -856,7 +856,7 @@ def test_serialize_source_meta_carries_app_version():
     """The running release version (pyproject → importlib.metadata, the SoT the tag bumps) is
     surfaced as appVersion so the SPA shows the REAL version, never the stale frontend
     package.json literal. Absent for empty meta (caught by the guard above). (Asserted against
-    the serializer's captured constant, not the live ``embrapa_commodities.__version__`` global,
+    the serializer's captured constant, not the live ``embrapa_dashboard.__version__`` global,
     which another test mutates via importlib.reload.)"""
     out = s.serialize_source_meta({"source": "x", "gold_table": "g"})
     assert out["appVersion"] == s._APP_VERSION
@@ -1203,7 +1203,7 @@ def test_serialize_table_page_bq_nullable_na_serializes_to_json_null():
 
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     cols = {
         "reference_year": pd.array([2024, None], dtype="Int64"),  # nullable INTEGER → pd.NA

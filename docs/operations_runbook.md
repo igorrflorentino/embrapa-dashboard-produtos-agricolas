@@ -182,7 +182,7 @@ Operator steps (one-time per deployment):
 3. Verify: a curation save in prod records the IAP identity; with a wrong
    audience the write is rejected rather than silently mis-attributed.
 
-Details: `src/embrapa_commodities/serving/iap.py` and
+Details: `src/embrapa_dashboard/serving/iap.py` and
 [`docs/auth_architecture.md`](auth_architecture.md).
 
 ## Activating curation in prod (one-time) and keeping it built

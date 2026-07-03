@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses
 
-from embrapa_commodities.comex import client, pipeline
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.comex import client, pipeline
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture

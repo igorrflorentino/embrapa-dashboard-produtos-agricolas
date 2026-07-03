@@ -19,7 +19,7 @@ from unittest import mock
 import pytest
 from google.api_core.exceptions import NotFound
 
-from embrapa_commodities.serving import iap
+from embrapa_dashboard.serving import iap
 from tests.test_serving import _bind_simplecache, _isolated_settings
 
 
@@ -35,7 +35,7 @@ _HEADERS = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
 def test_ensure_catalog_editors_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -52,15 +52,15 @@ def test_ensure_catalog_editors_table_creates_with_explicit_schema(monkeypatch):
 
 
 def test_validate_catalog_edit_rejects_overlong_ciclo():
-    from embrapa_commodities.serving import curation
-    from embrapa_commodities.serving.research_inputs import MAX_STAGE_LEN
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import MAX_STAGE_LEN
 
     with pytest.raises(ValueError, match="ciclo_de_vida excede"):
         curation._validate_catalog_edit("4403", "un_comtrade", "x" * (MAX_STAGE_LEN + 1))
 
 
 def test_validate_catalog_edit_rejects_invalid_ciclo_enum():
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     # A non-empty value that is not one of the two F7 ciclo-de-vida literals → reject,
     # keeping the UI dropdown + dbt visibility gate in lockstep.
@@ -72,7 +72,7 @@ def test_validate_catalog_edit_rejects_invalid_ciclo_enum():
 
 
 def test_is_active_entry_false_when_table_absent():
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     client = mock.Mock()
     client.query.side_effect = NotFound("table does not exist yet")
@@ -85,8 +85,8 @@ def test_is_active_entry_false_when_table_absent():
 
 def test_record_commodity_catalog_rejects_overlong_agrupamento(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-    from embrapa_commodities.serving.research_inputs import MAX_NOTE_LEN
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import MAX_NOTE_LEN
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     with pytest.raises(ValueError, match="agrupamento excede"):
@@ -103,8 +103,8 @@ def test_record_commodity_catalog_rejects_overlong_agrupamento(monkeypatch):
 
 def test_record_commodity_catalog_rejects_overlong_descricao(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
-    from embrapa_commodities.serving.research_inputs import MAX_NOTE_LEN
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import MAX_NOTE_LEN
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     with pytest.raises(ValueError, match="descricao_commodity excede"):
@@ -125,7 +125,7 @@ def test_record_commodity_catalog_rejects_overlong_descricao(monkeypatch):
 
 def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
@@ -160,7 +160,7 @@ def test_record_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
 
 def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
@@ -192,7 +192,7 @@ def test_record_commodity_catalog_invalidates_cache_on_save(monkeypatch):
 
 def test_remove_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
@@ -222,7 +222,7 @@ def test_remove_commodity_catalog_dedupes_on_seen_change_id(monkeypatch):
 
 def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
@@ -253,7 +253,7 @@ def test_remove_commodity_catalog_invalidates_cache_on_tombstone(monkeypatch):
 
 def test_invalidate_commodity_catalog_cache_drops_memoized():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     app, _cache = _bind_simplecache()
     with app.app_context():
@@ -266,7 +266,7 @@ def test_invalidate_commodity_catalog_cache_swallows_unbound_backend(monkeypatch
     """When the cache is unbound / backend down, ``delete_memoized`` raises and the
     helper logs a warning instead of propagating (best-effort invalidation)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     def _boom(*_a, **_k):
         raise RuntimeError("cache backend unbound")

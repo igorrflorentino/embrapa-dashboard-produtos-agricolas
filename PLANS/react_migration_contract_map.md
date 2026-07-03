@@ -302,7 +302,7 @@ is an explicit `"US$"`; they are not part of the convention-driven snapshot path
 
 Multi-stage image in `deploy/webapi/`: node stage `npm ci && npm run
 build` → `frontend/dist`; python stage `uv sync --extra webapi`, copy `dist`, set
-`SPA_DIST_DIR=/app/frontend/dist`, run `gunicorn embrapa_commodities.webapi.app:app`. Same Cloud
+`SPA_DIST_DIR=/app/frontend/dist`, run `gunicorn embrapa_dashboard.webapi.app:app`. Same Cloud
 Run **Service**, same IAP, same runtime SA `sa-web-dashboard-prod`. User triggers the deploy.
 
 ## 8. Task order

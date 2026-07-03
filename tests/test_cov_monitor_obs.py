@@ -29,10 +29,10 @@ import pytest
 from rich.console import Console
 from rich.text import Text
 
-from embrapa_commodities import observability
-from embrapa_commodities.monitor import MonitorState, render
-from embrapa_commodities.monitor.render import _build_active_line
-from embrapa_commodities.monitor.state import (
+from embrapa_dashboard import observability
+from embrapa_dashboard.monitor import MonitorState, render
+from embrapa_dashboard.monitor.render import _build_active_line
+from embrapa_dashboard.monitor.state import (
     STATES_PER_CHUNK,
     _chunk_eta,
     _parse_ts,

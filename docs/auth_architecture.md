@@ -140,7 +140,7 @@ The trust relationship flows downward:
 
 ```yaml
 # ~/.dbt/profiles.yml (enterprise mode)
-embrapa_commodities:
+embrapa_dashboard:
   target: dev
   outputs:
     dev:
@@ -256,7 +256,7 @@ Why each control is load-bearing:
 | `--no-allow-unauthenticated` | Removes the public `allUsers` invoker binding. Defense-in-depth: the request must carry a valid identity (the IAP service agent's). |
 
 > **Defense in depth — the app also verifies the IAP JWT.** Cloud Run direct IAP is
-> the primary boundary; `src/embrapa_commodities/serving/iap.py` additionally
+> the primary boundary; `src/embrapa_dashboard/serving/iap.py` additionally
 > validates the signed `X-Goog-IAP-JWT-Assertion` (when `IAP_AUDIENCE` is set) so a
 > misconfiguration (e.g. IAP accidentally disabled) fails closed rather than
 > trusting a forged plain header. Operators must **not** rely on the in-app JWT

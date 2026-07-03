@@ -85,7 +85,7 @@ iam-grant:    ## Apply dataset-scoped least-privilege IAM grants (DRY_RUN=1 to p
 	bash deploy/iam/grant_least_privilege.sh
 
 webapi-run:    ## Run the REST API locally on :8000 (needs .env + ADC; serve the SPA via `cd frontend && npm run dev`)
-	uv run --extra webapi python -c "from embrapa_commodities.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"
+	uv run --extra webapi python -c "from embrapa_dashboard.webapi.app import app; app.run(host='127.0.0.1', port=8000, threaded=True)"
 
 webapi-deploy:    ## Build + deploy the React SPA + Flask REST Cloud Run Service (reads .env)
 	bash deploy/webapi/deploy.sh
@@ -109,7 +109,7 @@ serving-sync:    ## Install the dashboard data-access extra (flask + flask-cachi
 	uv sync --extra serving
 
 ensure-curation:    ## Create the append-only attribute-engineering log tables (research_inputs.*)
-	$(PY) python -c "from embrapa_commodities.serving.attribute_engineering import ensure_code_industrialization_log_table as c; from embrapa_commodities.serving.research_inputs import ensure_curators_table as a; print('code log ready:', c()); print('curators table ready:', a())"
+	$(PY) python -c "from embrapa_dashboard.serving.attribute_engineering import ensure_code_industrialization_log_table as c; from embrapa_dashboard.serving.research_inputs import ensure_curators_table as a; print('code log ready:', c()); print('curators table ready:', a())"
 
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
 	$(DBT) build --vars 'enable_curation: true'
@@ -131,7 +131,7 @@ lint:    ## Ruff lint + format check (no writes)
 	$(PY) ruff format --check .
 
 test:    ## Run the unit test suite + coverage gate (credential-free, no live BQ required)
-	$(PY) pytest --cov=src/embrapa_commodities --cov-report=term-missing --cov-fail-under=99
+	$(PY) pytest --cov=src/embrapa_dashboard --cov-report=term-missing --cov-fail-under=99
 
 precommit-install:    ## Install git hooks defined in .pre-commit-config.yaml
 	$(PY) pre-commit install

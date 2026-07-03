@@ -10,7 +10,7 @@ Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scienti
 
 > 📊 **Two consumption paths, in parallel.** The Gold tables are served by two first-class frontends, both reading the same data:
 > 1. **Looker Studio** — direct no-code connection to the Gold table; available today.
-> 2. **Dedicated dashboard (React SPA + Flask REST API + Plotly.js) on Google Cloud Run, behind IAP — stateless, Pushdown Computing** — the Flask backend (`src/embrapa_commodities/webapi/`, serving the built SPA and `/api` from one origin) translates each UI filter into **parameterized SQL** (`@param`) over a **`serving`** layer of pre-aggregated marts, with **flask-caching** on the results (without loading Gold into memory); curation via an **append-only log + SCD Type 2**. Live since the 2026-06 Dash→React migration (the previous Dash UI was removed on 2026-05-29 and replaced entirely); the data-access layer lives in `src/embrapa_commodities/serving/`, the frontend in `frontend/`, the deploy in `deploy/webapi/` (`make webapi-deploy`).
+> 2. **Dedicated dashboard (React SPA + Flask REST API + Plotly.js) on Google Cloud Run, behind IAP — stateless, Pushdown Computing** — the Flask backend (`src/embrapa_dashboard/webapi/`, serving the built SPA and `/api` from one origin) translates each UI filter into **parameterized SQL** (`@param`) over a **`serving`** layer of pre-aggregated marts, with **flask-caching** on the results (without loading Gold into memory); curation via an **append-only log + SCD Type 2**. Live since the 2026-06 Dash→React migration (the previous Dash UI was removed on 2026-05-29 and replaced entirely); the data-access layer lives in `src/embrapa_dashboard/serving/`, the frontend in `frontend/`, the deploy in `deploy/webapi/` (`make webapi-deploy`).
 >
 > The backend (Medallion pipeline + dbt + `embrapa` CLI) is independent of the visualization layer and already feeds both paths. Neither one is exclusive — they can coexist.
 
@@ -18,7 +18,7 @@ Medallion pipeline (**Bronze → Silver → Gold**) for **historical and scienti
 IBGE PEVS API    ─┐
 IBGE PAM API     ─┤
 IBGE PPM API     ─┤
-BCB Inflation    ─┼─► Python (src/embrapa_commodities) — two-phase
+BCB Inflation    ─┼─► Python (src/embrapa_dashboard) — two-phase
 BCB Currency     ─┤   extract → GCS raw/ (verbatim) → filter → BigQuery Bronze
 MDIC COMEX CSV   ─┤                                           │
 UN Comtrade API  ─┘                                           │

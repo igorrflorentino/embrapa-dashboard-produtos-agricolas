@@ -8,8 +8,8 @@ import re
 import pytest
 import responses
 
-from embrapa_commodities import discover
-from embrapa_commodities.ibge import client
+from embrapa_dashboard import discover
+from embrapa_dashboard.ibge import client
 
 
 @pytest.fixture

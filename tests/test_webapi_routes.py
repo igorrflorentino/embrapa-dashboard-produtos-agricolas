@@ -15,9 +15,9 @@ import pytest
 def _client(monkeypatch, **settings_over):
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.config import Settings
-    from embrapa_commodities.webapi import app as app_mod
-    from embrapa_commodities.webapi import auth, routes, seam
+    from embrapa_dashboard.config import Settings
+    from embrapa_dashboard.webapi import app as app_mod
+    from embrapa_dashboard.webapi import auth, routes, seam
 
     base = {
         "gcp_project_id": "test-project",
@@ -66,7 +66,7 @@ def test_trade_route_threads_basket_and_year_window_to_seam(
     """The active-filter params (`codes`/`y0`/`y1`) reach the seam as a summary
     dict — the bug was routes parsing none and passing summary=None, so a basket
     or year window left the trade charts unchanged."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -92,7 +92,7 @@ def test_trade_route_threads_basket_and_year_window_to_seam(
 def test_trade_route_unfiltered_passes_summary_none(monkeypatch):
     """No filter params → summary is None (the unfiltered default — no behavior
     change for an unfiltered request)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -110,7 +110,7 @@ def test_snapshot_route_threads_flow_to_seam(monkeypatch):
     """/api/snapshot?flow=export reaches the seam as a flow-only summary — flow is
     the ONE server-side filter (basket/geo/year stay client-side). Absent → None,
     so an unfiltered snapshot request is unchanged."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -135,7 +135,7 @@ def test_snapshot_route_threads_flow_to_seam(monkeypatch):
 def test_snapshot_route_threads_customs_regime_to_seam(monkeypatch):
     """/api/snapshot?customs=C03 reaches the seam as a regime filter (the second
     server-side trade filter). 'all'/absent → not in the summary (sum every regime)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -160,7 +160,7 @@ def test_snapshot_route_threads_customs_regime_to_seam(monkeypatch):
 def test_invalid_customs_regime_is_400(monkeypatch):
     """A malformed customs procedure 400s (not C+2 digits), mirroring flow validation;
     C00 (total) and 'all' are valid."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
@@ -177,7 +177,7 @@ def test_snapshot_route_threads_market_nature_to_seam(monkeypatch):
     """/api/snapshot?market=consumo reaches the seam as a tipo-de-mercado filter (the
     third server-side trade filter, seed-driven). 'all'/absent → not in the summary
     (sum every purpose)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -203,7 +203,7 @@ def test_invalid_market_nature_is_400(monkeypatch):
     """A tipo-de-mercado outside the seed's ids {consumo, processamento, all} 400s,
     mirroring flow/customs validation, rather than binding verbatim and matching zero
     rows."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
 
@@ -221,7 +221,7 @@ def test_invalid_market_nature_is_400(monkeypatch):
 def test_invalid_flow_value_is_400(monkeypatch):
     """A bad ``flow`` (typo/accent/case) must 400 — not bind verbatim, match zero rows
     and return an empty-but-200 result (the silent-fallback the validation closes)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
@@ -245,7 +245,7 @@ def test_reexport_reimport_flows_are_accepted(monkeypatch):
     """The four Comtrade regimes present in gold_comtrade_flows — export/import AND the
     hyphenated re-export/re-import — pass validation; the earlier UNDERSCORE form
     ('re_export') was rejected AND matched zero rows (data uses the hyphen)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "snapshot", lambda *a, **k: {})
@@ -263,7 +263,7 @@ def test_reexport_reimport_flows_are_accepted(monkeypatch):
 def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
     """An empty `codes` param ('basket cleared / all') yields no `basket` key, so
     the seam reads it as "no product filter" rather than "none selected"."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -286,7 +286,7 @@ def test_trade_route_cleared_basket_drops_basket_key(monkeypatch):
 def test_partners_route_metric_param(monkeypatch):
     """/api/partners?metric= threads value|weight|price to the seam (rank_by) and
     400s on an unknown metric (never silently falls back to value)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -314,7 +314,7 @@ def test_partners_route_metric_param(monkeypatch):
 def test_trade_route_threads_origin_uf_filter_to_seam(monkeypatch, endpoint, seam_fn, serialize_fn):
     """The origin-UF (``states``) param reaches the seam as ``summary['states']`` —
     the audit gap was the UF dimension being dropped on the trade origin readers."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -330,7 +330,7 @@ def test_trade_route_threads_origin_uf_filter_to_seam(monkeypatch, endpoint, sea
 def test_trade_route_no_states_param_omits_states_key(monkeypatch):
     """No ``states`` param → no ``states`` key in the summary (empty = unfiltered,
     the existing convention)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -348,7 +348,7 @@ def test_productivity_route_threads_year_window_not_basket(monkeypatch):
     """ViewProductivity honours the period window (y0/y1) but NOT the product
     basket — the crop selector is its product dimension — so the route passes a
     summary carrying only the year window."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -369,7 +369,7 @@ def test_geo_yearly_route_threads_basket_to_seam(monkeypatch):
     """/geo-yearly turns ?codes into the basket summary the seam pushes down to the
     by-UF-yearly mart, and threads currency/correction so the cube's value column
     matches the snapshot's."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -392,7 +392,7 @@ def test_geo_yearly_route_threads_basket_to_seam(monkeypatch):
 
 def test_geo_yearly_route_unfiltered_passes_summary_none(monkeypatch):
     """No ?codes → summary is None (all products), same convention as /snapshot."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -409,7 +409,7 @@ def test_geo_mesh_route_returns_municipios(monkeypatch):
     """GET /api/geo-mesh wires seam.geo_mesh → serialize_geo_mesh → jsonify. The static
     mesh universe backs the whole client-side sub-UF cascade, so the route wiring (not
     just the seam/serializer in isolation) is pinned here (TEST-2)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "geo_mesh", lambda: "df")
@@ -430,7 +430,7 @@ def test_municipio_yearly_requires_nonempty_city_codes(monkeypatch):
     """The cost guard: an absent/empty/blank-only cityCodes must 400 at the route
     BEFORE the seam runs, so the backend never scans the full ~146k-row município grid
     (TEST-1 audit finding — the route's 400 was asserted nowhere)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
 
@@ -450,7 +450,7 @@ def test_municipio_yearly_caps_city_codes_count(monkeypatch):
     """SEC-1/TEST-2: a cityCodes list past _MAX_MUNICIPIO_CODES must 400 with the pt-BR
     limit message BEFORE the seam runs. The numeric cap added in the prior audit had no
     regression test, so a future off-by-one or removal would have gone unnoticed."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch)
 
@@ -471,7 +471,7 @@ def test_basket_codes_count_is_capped(monkeypatch):
     """SEC-1: the product-basket `codes` IN-list is bounded symmetrically with cityCodes.
     An over-long ?codes list 400s as JSON (via the blueprint HTTPException handler)
     BEFORE the seam runs, instead of building an unbounded IN-list."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch)
 
@@ -488,7 +488,7 @@ def test_basket_codes_count_is_capped(monkeypatch):
 def test_municipio_yearly_threads_cities_and_basket_to_seam(monkeypatch):
     """A non-empty cityCodes → 200; the route blank-strips the city list, pushes the
     ?codes basket down, and threads currency/correction to the seam."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -515,7 +515,7 @@ def test_municipio_yearly_threads_cities_and_basket_to_seam(monkeypatch):
 def test_municipio_yearly_rejects_invalid_convention(monkeypatch):
     """An invalid currency/correction 400s at the boundary (same guard as the GET
     conv-routes), never reaching the seam with a fallback convention."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
 
@@ -550,7 +550,7 @@ def test_convention_routes_reject_invalid_currency_or_correction(monkeypatch, en
     """An invalid currency/correction must 400 at the route boundary, not silently
     fall back to BRL/IPCA inside monetary_column (which would hand the user the
     wrong deflated series with no signal). Covers all three conv-accepting routes."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
 
@@ -571,7 +571,7 @@ def test_convention_routes_reject_invalid_currency_or_correction(monkeypatch, en
 def test_convention_route_accepts_valid_non_default_pair(monkeypatch):
     """A valid non-default pair (e.g. USD/IGP-M) passes validation and reaches the
     seam verbatim — the validation only rejects unknown values, not legal ones."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -588,7 +588,7 @@ def test_convention_route_accepts_valid_non_default_pair(monkeypatch):
 
 def test_catalog_get_returns_seam_payload_as_json(monkeypatch):
     """/catalog jsonifies seam.commodity_catalog_with_family() verbatim (no serializer)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -604,7 +604,7 @@ def test_catalog_get_returns_seam_payload_as_json(monkeypatch):
 
 def test_source_meta_get_threads_banco_and_shapes_payload(monkeypatch):
     """/source-meta passes ?banco to the seam and returns the serialized shape."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -619,7 +619,7 @@ def test_source_meta_get_threads_banco_and_shapes_payload(monkeypatch):
 
 def test_source_meta_unknown_banco_returns_empty_object(monkeypatch):
     """An unknown banco yields {} (the seam's honest "no provenance row"), 200."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "source_meta", lambda banco: {})
@@ -632,7 +632,7 @@ def test_snapshot_get_threads_banco_and_conventions(monkeypatch):
     """/snapshot forwards banco + the currency/correction conventions to the seam;
     defaults are BRL/IPCA. The empty seam payload still serializes to the full
     BancoSnapshot key set (the contract the SPA reads)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -654,7 +654,7 @@ def test_snapshot_get_threads_banco_and_conventions(monkeypatch):
 
 
 def test_snapshot_get_defaults_conventions_to_brl_ipca(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -668,7 +668,7 @@ def test_snapshot_get_defaults_conventions_to_brl_ipca(monkeypatch):
 
 def test_product_uf_get_threads_code_conv_and_year_window(monkeypatch):
     """/product-uf forwards code + conventions + the startDate/endDate→summary."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -687,7 +687,7 @@ def test_product_uf_get_threads_code_conv_and_year_window(monkeypatch):
 
 
 def test_product_uf_get_no_year_window_passes_summary_none(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -703,7 +703,7 @@ def test_product_uf_get_no_year_window_passes_summary_none(monkeypatch):
 
 def test_productivity_get_defaults_crop_to_none(monkeypatch):
     """No ?crop → seam receives crop=None (it picks the first crop)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -723,7 +723,7 @@ def test_productivity_get_defaults_crop_to_none(monkeypatch):
 def test_cross_series_get_coerces_year_bounds_to_int(monkeypatch):
     """y0/y1 use Flask's type=int coercion — the seam must receive ints, not the
     raw query strings (the comparable-window math is integer year arithmetic)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -741,7 +741,7 @@ def test_cross_series_get_coerces_year_bounds_to_int(monkeypatch):
 
 
 def test_cross_series_get_missing_year_bounds_are_none(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -758,7 +758,7 @@ def test_cross_series_get_missing_year_bounds_are_none(monkeypatch):
 
 def test_cross_routes_thread_states_to_seam(monkeypatch):
     """P6: the ``states`` param reaches each cross seam as uf_codes (per-UF scoping)."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     cap = {}
@@ -782,7 +782,7 @@ def test_cross_routes_thread_states_to_seam(monkeypatch):
 
 
 def test_cross_metric_refs_get_returns_seam_list(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -813,7 +813,7 @@ def test_cross_analytics_get_threads_commodity_and_shapes_payload(
 ):
     """Each cross-analytics GET forwards ?commodity to the seam and returns the
     serialized contract shape (an empty seam dict still yields all the keys)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -843,7 +843,7 @@ def test_cross_analytics_get_threads_commodity_and_shapes_payload(
 def test_cross_analytics_get_unknown_commodity_passes_none(monkeypatch, endpoint):
     """No ?commodity → the seam receives None (all-commodities), 200; a blank
     ?commodity= is also normalized to None (the route's `or None`)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     captured = {}
@@ -868,7 +868,7 @@ def test_trade_get_endpoints_shape_empty_seam_payload(monkeypatch):
     """/flow, /partners, /monthly serialize a None/empty seam result into the
     contract's empty shape (the views' loading/empty-state math depends on it —
     notably /monthly must emit 12 monthlyAvg values, never [])."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(seam, "flow_data", lambda banco, summary=None: None)
@@ -886,7 +886,7 @@ def test_trade_get_endpoints_shape_empty_seam_payload(monkeypatch):
 
 
 def test_curation_worklist_get_returns_seam_payload(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -901,7 +901,7 @@ def test_get_endpoint_error_returns_json_500_not_html(monkeypatch):
     """A read endpoint that raises returns parseable JSON 500 (the SPA fetch layer
     can't recover from Flask's default HTML 500). Pins the handler for the GET
     surface, not just /catalog."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
 
@@ -1000,7 +1000,7 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     """An unhandled error in a read endpoint returns parseable JSON (so the SPA's
     fetch layer doesn't choke on Flask's default HTML 500 and retry-loop)."""
     client = _client(monkeypatch)
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     def boom():
         raise RuntimeError("BigQuery exploded")
@@ -1015,7 +1015,7 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
 def test_curation_post_authorized_via_bq_curators_table(monkeypatch):
     """An author absent from the ENV allowlist but present in the Console-managed
     BQ curators table is authorized — the effective allowlist is their UNION."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     # Env allowlist names someone else; the author is only in the BQ table.
     client = _client(
@@ -1035,7 +1035,7 @@ def test_curation_post_authorized_via_bq_curators_table(monkeypatch):
 
 def test_curation_post_forwards_change_id_to_seam(monkeypatch):
     """The client-supplied idempotency key reaches the seam writer verbatim."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     captured = {}
@@ -1057,7 +1057,7 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     """A ValueError from the serving writer (e.g. an over-length level the curation
     writer caps) is a client fault → HTTP 400, and the writer's pt-BR REASON is
     surfaced verbatim so the user can self-correct (not a generic 'check the fields')."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
@@ -1079,7 +1079,7 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
 def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):
     """First authorization check self-heals the Console-managed allowlist table so
     the runbook's documented INSERT path is real (auto-creates on first use)."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     called = {"n": 0}
@@ -1097,7 +1097,7 @@ def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):
 def test_auto_create_curators_failure_does_not_block_write(monkeypatch):
     """A transient BQ/permission fault while ensuring the allowlist table must not
     block an otherwise-authorized write (best-effort; empty table = open mode)."""
-    from embrapa_commodities.webapi import routes, seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
 
@@ -1126,7 +1126,7 @@ def test_response_with_numpy_scalars_and_dates_serializes_to_valid_json(monkeypa
     import numpy as np
     import pandas as pd
 
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -1170,7 +1170,7 @@ def test_tables_route_lists_inspectable_tables_without_leaking_dataset(monkeypat
 def test_table_route_threads_pagination_sort_filters_to_seam(monkeypatch):
     """The /api/table endpoint parses pagination + ORDER BY + the JSON filters into the
     seam call (filters as a hashable tuple of (col, op, val))."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -1254,7 +1254,7 @@ def test_seeds_route_lists_reference_seeds(monkeypatch):
 def test_seed_route_threads_pagination_sort_filters_to_seam(monkeypatch):
     """GET /api/seed parses pagination + ORDER BY + the JSON filters into seam.seed_page
     (filters as a hashable tuple of (col, op, val)) — the same grid contract as /api/table."""
-    from embrapa_commodities.webapi import seam, serializers
+    from embrapa_dashboard.webapi import seam, serializers
 
     client = _client(monkeypatch)
     captured = {}
@@ -1301,7 +1301,7 @@ def test_seed_route_400_on_unknown_id_end_to_end(monkeypatch):
 
 def test_catalog_entries_route_returns_worklist(monkeypatch):
     """GET /api/catalog/entries returns the current catalog (read is open behind IAP)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -1324,7 +1324,7 @@ def test_catalog_entries_route_returns_worklist(monkeypatch):
 def test_catalog_source_codes_route_forwards_banco(monkeypatch):
     """GET /api/catalog/source-codes?banco= returns the source's real codes for the add
     form's autocomplete + existence check."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     seen = {}
@@ -1344,7 +1344,7 @@ def test_catalog_source_codes_route_forwards_banco(monkeypatch):
 
 def test_catalog_status_route_returns_per_code_state(monkeypatch):
     """GET /api/catalog/status returns the per-commodity Gold state map (linhas + período)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(
@@ -1369,7 +1369,7 @@ def test_catalog_status_route_returns_per_code_state(monkeypatch):
 
 def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
     """POST /api/catalog/entry threads the body to the seam writer (open allowlist)."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
@@ -1393,7 +1393,7 @@ def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
 
 
 def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
@@ -1404,7 +1404,7 @@ def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
 def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
     """The PER-CATALOG allowlist (research_inputs.catalog_editors, resource-scoped): an
     author absent from it is refused 403 — distinct from the attribute-engineering curators."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(
@@ -1419,7 +1419,7 @@ def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
 def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
     """A ValueError from the writer (code doesn't exist / bad key / over-length) → 400,
     with the REASON forwarded so the UI can tell the researcher the code isn't real."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
@@ -1439,7 +1439,7 @@ def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
 
 def test_catalog_entry_remove_threads_to_seam(monkeypatch):
     """POST /api/catalog/entry/remove appends a tombstone via the seam writer."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
@@ -1457,7 +1457,7 @@ def test_catalog_entry_remove_threads_to_seam(monkeypatch):
 def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
     """GET /api/catalog/orphans returns the orphan worklist (read-only detection); the
     physical purge is a separate human-gated step, never triggered by this read."""
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch)
     monkeypatch.setattr(

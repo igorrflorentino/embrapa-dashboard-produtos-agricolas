@@ -1,4 +1,4 @@
-"""Coverage tests for src/embrapa_commodities/serving/gateway.py.
+"""Coverage tests for src/embrapa_dashboard/serving/gateway.py.
 
 Targets the gateway readers not exercised by tests/test_serving.py: the lazy
 ``_client`` builder, the geo-mesh / Curadoria-catalog / catalog-editors / orphan /
@@ -29,7 +29,7 @@ def test_client_builds_bigquery_client_from_settings(monkeypatch):
     """_client() is @lru_cache(maxsize=1); clear the cache, stub the BigQuery
     constructor + credentials, and assert it wires project/location/credentials
     from Settings — executing the construction body (68-69)."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     gateway._client.cache_clear()  # drop any client cached by an earlier test
 
@@ -59,7 +59,7 @@ def test_client_builds_bigquery_client_from_settings(monkeypatch):
 
 def test_fetch_geo_municipio_mesh_reads_dim_geo_municipio(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -84,7 +84,7 @@ def test_fetch_geo_municipio_mesh_reads_dim_geo_municipio(monkeypatch):
 
 def test_fetch_commodity_catalog_unscoped_has_no_where_and_no_params(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -111,7 +111,7 @@ def test_fetch_commodity_catalog_unscoped_has_no_where_and_no_params(monkeypatch
 
 def test_fetch_commodity_catalog_scoped_binds_banco_param(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -137,7 +137,7 @@ def test_fetch_commodity_catalog_scoped_binds_banco_param(monkeypatch):
 
 def test_fetch_catalog_editors_filters_by_resource_param(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -170,7 +170,7 @@ def test_fetch_source_code_stats_unknown_source_raises(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     app, cache = _bind_simplecache()
     with app.app_context(), pytest.raises(NotFound):
@@ -182,7 +182,7 @@ def test_fetch_source_code_stats_aggregates_by_code(monkeypatch):
     """A known banco drives ONE column-pruned aggregate over the Gold fact table:
     count(*) + min/max(reference_year) grouped by the exact code, max_bytes-guarded."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -218,7 +218,7 @@ def test_fetch_orphan_commodities_returns_early_when_no_tombstones(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     calls = []
 
@@ -245,7 +245,7 @@ def test_fetch_orphan_commodities_returns_empty_when_banco_unknown(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     calls = []
 
@@ -271,7 +271,7 @@ def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     calls = []
 
@@ -302,7 +302,7 @@ def test_fetch_orphan_commodities_scans_gold_for_known_banco(monkeypatch):
 
 def test_fetch_lifecycle_status_reads_latest_row_per_element(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -332,7 +332,7 @@ def test_fetch_lifecycle_status_reads_latest_row_per_element(monkeypatch):
 
 def test_resolve_inspect_table_success_returns_fqn(monkeypatch):
     """The allowlisted (banco, table) resolves to a fully-qualified ref (line 1163)."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     ref = gateway._resolve_inspect_table("ibge_pevs", "serving_pevs_annual")
@@ -343,7 +343,7 @@ def test_inspect_visibility_predicate_empty_for_unknown_short_token(monkeypatch)
     """A Gold-fact table_id match whose banco has no short token / code map yields
     '' (line 1183). Patch the maps so the Gold table matches but the short lookup
     misses, exercising the early-return guard that is otherwise unreached."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setitem(gateway._GOLD_TABLE, "weird_banco", "gold_weird")
@@ -370,7 +370,7 @@ def _schema_client(num_rows=7):
 
 def test_fetch_table_schema_returns_columns_and_row_count(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client(num_rows=42))
@@ -392,7 +392,7 @@ def test_fetch_table_rows_serving_mart_uses_free_list_rows(monkeypatch):
     """A serving mart (vis == '') with no order/filter takes the FREE list_rows
     shortcut — run_query is never called."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     client = mock.Mock()
     client.list_rows.return_value.to_dataframe.return_value = "ROWS"
@@ -420,7 +420,7 @@ def test_fetch_table_rows_with_order_runs_cost_guarded_query(monkeypatch):
     """An ORDER BY forces the query path: it pulls the schema for the column
     allowlist and calls run_query with a tight max_bytes cap."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -449,7 +449,7 @@ def test_fetch_table_rows_gated_gold_fact_always_queries(monkeypatch):
     """A Gold fact (vis != '') CANNOT use the free shortcut even with no order/filter —
     the F7 predicate forces the query path (the `not vis` guard at line 1218)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -477,7 +477,7 @@ def test_fetch_table_rows_gated_gold_fact_always_queries(monkeypatch):
 
 def test_fetch_table_count_unfiltered_ungated_uses_cached_num_rows(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client(num_rows=99))
@@ -499,7 +499,7 @@ def test_fetch_table_count_filtered_runs_count_query(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -527,7 +527,7 @@ def test_fetch_table_count_filtered_empty_result_returns_zero(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client())
@@ -548,7 +548,7 @@ def test_fetch_table_count_filtered_empty_result_returns_zero(monkeypatch):
 
 def test_resolve_seed_table_success_returns_silver_fqn(monkeypatch):
     """A consultable seed resolves to project.silver.<seed> (line 1388)."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     ref = gateway._resolve_seed_table("historical_currency_factors")
@@ -557,7 +557,7 @@ def test_resolve_seed_table_success_returns_silver_fqn(monkeypatch):
 
 def test_fetch_seed_schema_returns_columns_and_row_count(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client(num_rows=5))
@@ -573,7 +573,7 @@ def test_fetch_seed_schema_returns_columns_and_row_count(monkeypatch):
 
 def test_fetch_seed_rows_uses_free_list_rows_without_order(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     client = mock.Mock()
     client.list_rows.return_value.to_dataframe.return_value = "SEEDROWS"
@@ -598,7 +598,7 @@ def test_fetch_seed_rows_uses_free_list_rows_without_order(monkeypatch):
 
 def test_fetch_seed_rows_with_filter_runs_query(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -626,7 +626,7 @@ def test_fetch_seed_rows_with_filter_runs_query(monkeypatch):
 
 def test_fetch_seed_count_unfiltered_uses_cached_num_rows(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client(num_rows=123))
@@ -648,7 +648,7 @@ def test_fetch_seed_count_filtered_runs_count_query(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -675,7 +675,7 @@ def test_fetch_seed_count_filtered_empty_result_returns_zero(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     monkeypatch.setattr(gateway, "_client", lambda: _schema_client())

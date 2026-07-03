@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.serving import feedback as fb
-from embrapa_commodities.serving.feedback import FeedbackValidationError, record_feedback
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.serving import feedback as fb
+from embrapa_dashboard.serving.feedback import FeedbackValidationError, record_feedback
 
 
 def _cfg(**over):
@@ -89,9 +89,9 @@ def test_forward_to_github_is_noop_without_config():
 def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving.cache import init_cache
-    from embrapa_commodities.webapi import app as app_mod
-    from embrapa_commodities.webapi import auth, routes
+    from embrapa_dashboard.serving.cache import init_cache
+    from embrapa_dashboard.webapi import app as app_mod
+    from embrapa_dashboard.webapi import auth, routes
 
     cfg = _cfg(curation_dev_author=dev_author)
     monkeypatch.setattr(auth, "get_settings", lambda: cfg)

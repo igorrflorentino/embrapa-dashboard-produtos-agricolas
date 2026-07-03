@@ -9,8 +9,8 @@ from unittest import mock
 import pytest
 from google.api_core.exceptions import NotFound
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.serving import iap
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.serving import iap
 
 pytest.importorskip("flask_caching")
 
@@ -37,7 +37,7 @@ def _patch_common(monkeypatch, cg, current):
 
 
 def test_record_group_creates_new(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     inserted = _patch_common(monkeypatch, cg, {})
     out = cg.record_group(
@@ -49,7 +49,7 @@ def test_record_group_creates_new(monkeypatch):
 
 
 def test_record_group_rejects_duplicate(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
     with pytest.raises(ValueError):  # slug 'madeira' already active
@@ -59,15 +59,15 @@ def test_record_group_rejects_duplicate(monkeypatch):
 
 
 def test_record_group_rejects_blank_name(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     with pytest.raises(ValueError):
         cg.record_group("   ", _HEADERS, settings=_settings(), client=mock.Mock())
 
 
 def test_record_group_rename_retags_members(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import curation
 
     inserted = _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
     member = SimpleNamespace(
@@ -99,7 +99,7 @@ def test_record_group_rename_retags_members(monkeypatch):
 
 
 def test_record_group_rename_missing_raises(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     _patch_common(monkeypatch, cg, {})
     with pytest.raises(ValueError):  # group_id doesn't exist → nothing to rename
@@ -114,7 +114,7 @@ def test_record_group_rename_missing_raises(monkeypatch):
 
 
 def test_delete_group_rejects_with_members(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
     monkeypatch.setattr(
@@ -127,7 +127,7 @@ def test_delete_group_rejects_with_members(monkeypatch):
 
 
 def test_delete_group_tombstones_when_empty(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     inserted = _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
     monkeypatch.setattr(cg, "_active_member_rows", lambda bq, t, gid: [])
@@ -139,7 +139,7 @@ def test_delete_group_tombstones_when_empty(monkeypatch):
 
 
 def test_delete_group_missing_raises(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     _patch_common(monkeypatch, cg, {})
     with pytest.raises(ValueError):
@@ -159,7 +159,7 @@ def _q(rows):
 
 
 def test_ensure_group_log_table_creates_with_schema(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     monkeypatch.setattr(cg, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -178,7 +178,7 @@ def test_ensure_group_log_table_creates_with_schema(monkeypatch):
 
 
 def test_record_group_create_runs_real_helpers(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     monkeypatch.setattr(cg, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -191,7 +191,7 @@ def test_record_group_create_runs_real_helpers(monkeypatch):
 
 
 def test_record_group_dedupes_supplied_change_id(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     monkeypatch.setattr(cg, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
@@ -209,8 +209,8 @@ def test_record_group_dedupes_supplied_change_id(monkeypatch):
 
 
 def test_record_group_rename_runs_real_member_read(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(cg, "ensure_dataset", lambda *a, **k: None)
     grp = SimpleNamespace(group_id="madeira", group_name="Madeira")
@@ -240,7 +240,7 @@ def test_record_group_rename_runs_real_member_read(monkeypatch):
 
 
 def test_delete_group_empty_runs_real_helpers(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     monkeypatch.setattr(cg, "ensure_dataset", lambda *a, **k: None)
     grp = SimpleNamespace(group_id="madeira", group_name="Madeira")
@@ -254,7 +254,7 @@ def test_delete_group_empty_runs_real_helpers(monkeypatch):
 
 
 def test_current_groups_and_members_empty_on_not_found():
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     client = mock.Mock()
     client.query.side_effect = NotFound("absent")
@@ -263,7 +263,7 @@ def test_current_groups_and_members_empty_on_not_found():
 
 
 def test_record_group_rejects_unsluggable_name(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups as cg
+    from embrapa_dashboard.serving import commodity_groups as cg
 
     _patch_common(monkeypatch, cg, {})
     with pytest.raises(ValueError):  # '###' slugs to '' → cannot mint a group_id

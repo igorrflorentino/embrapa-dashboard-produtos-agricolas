@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 import responses
 
-from embrapa_commodities import discover
-from embrapa_commodities.bcb import client
+from embrapa_dashboard import discover
+from embrapa_dashboard.bcb import client
 
 
 @responses.activate

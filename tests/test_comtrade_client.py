@@ -15,7 +15,7 @@ import pytest
 import responses
 import tenacity
 
-from embrapa_commodities.comtrade import client
+from embrapa_dashboard.comtrade import client
 
 BASE_URL = "https://comtradeapi.un.org/data/v1/get"
 API_KEY = "secret-key-123"

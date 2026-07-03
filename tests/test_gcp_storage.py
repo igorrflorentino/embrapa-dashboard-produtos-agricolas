@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from embrapa_commodities.gcp.storage import (
+from embrapa_dashboard.gcp.storage import (
     _LIFECYCLE_RULES,
     _apply_protections,
     ensure_bucket,

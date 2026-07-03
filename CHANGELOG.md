@@ -1153,7 +1153,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
 ### Added
 - **Dedicated dashboard rebuilt as a React SPA + Flask REST `webapi`** (Plotly.js
   charts), replacing the Dash UI entirely — served from one origin behind Cloud Run
-  direct IAP (`src/embrapa_commodities/webapi/`, `frontend/`). The Dash package was
+  direct IAP (`src/embrapa_dashboard/webapi/`, `frontend/`). The Dash package was
   removed at cutover.
 - **Decoupled release CI** — `.github/workflows/release.yml` (#132) builds a
   versioned, immutable `webapi` image to Artifact Registry on a `v*` tag; deploy
@@ -1290,7 +1290,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
     `research_inputs.code_industrialization_log` (author captured from the IAP
     header `X-Goog-Authenticated-User-Email`); the UI does a live LEFT JOIN of the
     static mart to the classification dimension.
-  - **Python BFF** (`src/embrapa_commodities/serving/`, optional `serving` extra):
+  - **Python BFF** (`src/embrapa_dashboard/serving/`, optional `serving` extra):
     `sql` (@param + anti-injection allowlist), `gateway` (`@cache.memoize`), `cache`
     (flask-caching — `SimpleCache` scales multi-instance for free; `RedisCache`
     optional), `iap`, `curation` (append-only INSERT + cache invalidation).
@@ -1473,7 +1473,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
   same product. Scope: export **and** import, Brazil nut (NCM `08012100`/
   `08012200`) + the entire chapter 44 (wood/charcoal), at the month×NCM×country×UF
   grain.
-  - **Bronze (`src/embrapa_commodities/comex/`):** `client.py` bulk-downloads the
+  - **Bronze (`src/embrapa_dashboard/comex/`):** `client.py` bulk-downloads the
     annual CSVs from Comex Stat (`EXP_<ano>.csv`/`IMP_<ano>.csv`; `;`/latin-1)
     — *stream to disk* (100+ MB files), pandas parse in chunks, column-precise
     filter on `CO_NCM`/`CO_NCM[:2]`. EXP (11 cols) and IMP (13 cols: +
@@ -1561,7 +1561,7 @@ test coverage. Verified live in production (dashboard reads + curation writes).
 ### Removed
 - **Dash + Plotly UI layer removed (2026-05-29).** The frontend is being
   rebuilt with the Claude Design System in a separate flow. The following were
-  deleted: the `src/embrapa_commodities/dashboard/` package, the
+  deleted: the `src/embrapa_dashboard/dashboard/` package, the
   `tests/test_dashboard_*` tests, the scripts `scripts/dashboard_*` /
   `scripts/check_dashboard_size.py` / `scripts/dashboard-*.ps1`, the
   `Dockerfile`, the workflow `.github/workflows/dashboard-smoke.yml`, the

@@ -1,16 +1,16 @@
 # Frontend data contract — Gold → snapshot mapping
 
 **Audience:** anyone maintaining the dashboard's data-access layer (the Flask BFF
-in `src/embrapa_commodities/serving/` + `webapi/`). **Purpose:** spell out, field
+in `src/embrapa_dashboard/serving/` + `webapi/`). **Purpose:** spell out, field
 by field, how the frontend's in-memory snapshot shapes (defined in
 `dataStore.js` / `contracts.js`) are produced from the
 **Gold** tables — so the BFF is a thin mapping and the UI lights up without rework.
 
 > This is a **data contract**. **Update (2026-06 Dash→React migration):** both
-> halves now EXIST — the BFF / data-access layer (`src/embrapa_commodities/serving/`
+> halves now EXIST — the BFF / data-access layer (`src/embrapa_dashboard/serving/`
 > queries the pre-aggregated `serving` marts in `dbt/models/serving/` instead of
 > loading Gold in memory) **and** the React SPA + Flask REST UI (`frontend/` +
-> `src/embrapa_commodities/webapi/`), live on Cloud Run behind IAP. What the
+> `src/embrapa_dashboard/webapi/`), live on Cloud Run behind IAP. What the
 > backend guarantees is below: column names, **magnitudes**, units, and the few
 > transforms (family vocab, region code, `world_exp`) the BFF must apply.
 

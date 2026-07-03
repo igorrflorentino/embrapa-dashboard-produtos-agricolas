@@ -33,7 +33,7 @@ def _make_dist(tmp_path):
 
 def test_spa_dir_env_pointing_at_existing_dir_is_returned(monkeypatch, tmp_path):
     """SPA_DIST_DIR set to a real directory → that Path (the prod-image case)."""
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     dist = _make_dist(tmp_path)
     monkeypatch.setenv("SPA_DIST_DIR", str(dist))
@@ -43,7 +43,7 @@ def test_spa_dir_env_pointing_at_existing_dir_is_returned(monkeypatch, tmp_path)
 
 def test_spa_dir_env_pointing_at_missing_dir_is_none(monkeypatch, tmp_path):
     """SPA_DIST_DIR set but the dir doesn't exist → None (don't serve a ghost)."""
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     monkeypatch.setenv("SPA_DIST_DIR", str(tmp_path / "does-not-exist"))
 
@@ -53,7 +53,7 @@ def test_spa_dir_env_pointing_at_missing_dir_is_none(monkeypatch, tmp_path):
 def test_app_serves_index_static_and_deeplink_fallback(monkeypatch, tmp_path):
     """With a dist present the app serves real assets, and any unknown path falls
     back to index.html so the SPA router can resolve deep links (?v=&b=)."""
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     dist = _make_dist(tmp_path)
     monkeypatch.setenv("SPA_DIST_DIR", str(dist))
@@ -87,7 +87,7 @@ def test_unknown_api_path_is_json_404_not_spa_html(monkeypatch, tmp_path):
     """Even with the SPA mounted, an unknown /api path must return machine-readable
     JSON 404 — never index.html with HTTP 200 (which would burn the fetch layer's
     retry budget on a parse error)."""
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     dist = _make_dist(tmp_path)
     monkeypatch.setenv("SPA_DIST_DIR", str(dist))
@@ -108,7 +108,7 @@ def test_json_safe_maps_pandas_na_and_nat_to_null():
     the literal string "NaT" through the datetime branch. Floats stay NaN→null as before."""
     import pandas as pd
 
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     assert app_mod._json_safe(pd.NA) is None
     assert app_mod._json_safe(pd.NaT) is None
@@ -123,7 +123,7 @@ def test_json_safe_coerces_decimal_to_float():
     the stdlib encoder would 500 on it — coerce to float, and a NUMERIC NaN → null (JSON-1)."""
     import decimal
 
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     assert app_mod._json_safe(decimal.Decimal("3.14")) == 3.14
     assert app_mod._json_safe(decimal.Decimal("0")) == 0.0

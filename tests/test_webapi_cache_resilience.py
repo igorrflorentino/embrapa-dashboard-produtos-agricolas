@@ -18,10 +18,10 @@ import pytest
 def _patch_settings_to_fail(monkeypatch):
     """Make ``get_settings()`` raise the way a missing GCP_PROJECT_ID does.
 
-    ``init_cache`` does a lazy ``from embrapa_commodities.config import
+    ``init_cache`` does a lazy ``from embrapa_dashboard.config import
     get_settings`` at call time, so patching the module attribute is enough.
     """
-    import embrapa_commodities.config as config_mod
+    import embrapa_dashboard.config as config_mod
 
     def _boom():
         raise RuntimeError("gcp_project_id Field required")  # mimics pydantic ValidationError
@@ -32,8 +32,8 @@ def _patch_settings_to_fail(monkeypatch):
 def test_create_app_does_not_raise_and_binds_nullcache_when_settings_missing(monkeypatch):
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import cache as cache_mod
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.serving import cache as cache_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     _patch_settings_to_fail(monkeypatch)
 
@@ -54,8 +54,8 @@ def test_memoized_read_runs_instead_of_raising_keyerror_cache(monkeypatch):
     fallback the memoized function is invoked (passthrough, never cached)."""
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import cache as cache_mod
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.serving import cache as cache_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     _patch_settings_to_fail(monkeypatch)
     app = app_mod.create_app()
@@ -82,7 +82,7 @@ def test_healthz_works_even_when_settings_missing(monkeypatch):
     only the data endpoints depend on BigQuery config."""
     pytest.importorskip("flask")
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import app as app_mod
+    from embrapa_dashboard.webapi import app as app_mod
 
     _patch_settings_to_fail(monkeypatch)
     app = app_mod.create_app()

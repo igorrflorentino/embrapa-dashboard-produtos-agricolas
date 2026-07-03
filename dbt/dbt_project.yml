@@ -1,8 +1,8 @@
-name: embrapa_commodities
+name: embrapa_dashboard
 version: "0.1.0"
 config-version: 2
 
-profile: embrapa_commodities
+profile: embrapa_dashboard
 
 model-paths: ["models"]
 macro-paths: ["macros"]
@@ -21,7 +21,7 @@ on-run-end:
   - "{{ apply_dev_ttl(days=7) }}"
 
 models:
-  embrapa_commodities:
+  embrapa_dashboard:
     +persist_docs:
       relation: true
       columns: true
@@ -49,7 +49,7 @@ models:
       +schema: "{{ env_var('BQ_SERVING_DATASET', 'serving') }}"
 
 seeds:
-  embrapa_commodities:
+  embrapa_dashboard:
     # Seeds land in the same dataset as Silver (they are reference data consumed
     # by Silver models). In dev: dbt_dev_silver. In prod: silver.
     +schema: "{{ env_var('BQ_SILVER_DATASET', 'silver') }}"

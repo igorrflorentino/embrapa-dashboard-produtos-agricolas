@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from embrapa_commodities.core import observability_helpers
-from embrapa_commodities.core.observability_helpers import (
+from embrapa_dashboard.core import observability_helpers
+from embrapa_dashboard.core.observability_helpers import (
     ChunkOutcome,
     IngestPartialFailure,
     chunked_run,

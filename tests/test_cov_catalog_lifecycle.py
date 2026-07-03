@@ -29,7 +29,7 @@ def _status_df(rows):
 def test_insert_lifecycle_event_builds_parameterized_dml():
     """_insert_lifecycle_event (lines 81-100): server-side timestamp + 8 scalar params."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     bq = mock.Mock()
     catalog_lifecycle._insert_lifecycle_event(
@@ -67,7 +67,7 @@ def test_current_status_maps_rows_and_normalizes_code(monkeypatch):
     """_current_status (lines 105, 109-111): maps a populated lifecycle df to a status dict,
     normalizing a non-None code to str and keeping a None code as None."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     # A populated commodity row → code normalized to str.
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_current_status_notfound_returns_empty(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     def _raise():
         raise NotFound("no lifecycle log yet")
@@ -128,7 +128,7 @@ def test_current_status_empty_df_returns_empty(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_lifecycle_status", lambda: pd.DataFrame())
     assert catalog_lifecycle._current_status(_settings()) == {}
@@ -141,7 +141,7 @@ def test_current_lifecycle_maps_status_and_flagged_at(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     flagged = pd.Timestamp("2026-06-26T12:00:00Z")
     monkeypatch.setattr(
@@ -169,7 +169,7 @@ def test_current_lifecycle_empty_df_returns_empty(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_lifecycle_status", lambda: pd.DataFrame())
     assert catalog_lifecycle._current_lifecycle(_settings()) == {}
@@ -180,7 +180,7 @@ def test_current_lifecycle_notfound_returns_empty(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     def _raise():
         raise NotFound("no lifecycle log yet")
@@ -194,7 +194,7 @@ def test_auto_mark_orphans_notfound_short_circuits(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     def _raise():
         raise NotFound("no orphan view")
@@ -209,7 +209,7 @@ def test_auto_mark_orphans_empty_orphans_short_circuits(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", lambda: pd.DataFrame())
     res = catalog_lifecycle.auto_mark_orphans(settings=_settings(), client=mock.Mock())
@@ -225,7 +225,7 @@ def test_auto_mark_orphans_skips_already_marked_no_timestamps(monkeypatch):
     entry whose status is 'descontinuado' → fall back to status, skip (no insert)."""
     pytest.importorskip("flask_caching")
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     # _one_orphan_df has NO removed_at column → removed_at is None.
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
@@ -263,8 +263,8 @@ def test_auto_mark_orphans_skips_already_marked_no_timestamps(monkeypatch):
 def test_invalidate_lifecycle_cache_calls_delete_memoized(monkeypatch):
     """invalidate_lifecycle_cache (lines 209-211): delete_memoized is called for both readers."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving.cache import cache
 
     deleted = []
     monkeypatch.setattr(cache, "delete_memoized", lambda fn: deleted.append(fn))
@@ -276,8 +276,8 @@ def test_invalidate_lifecycle_cache_calls_delete_memoized(monkeypatch):
 def test_invalidate_lifecycle_cache_swallows_backend_error(monkeypatch):
     """invalidate_lifecycle_cache: a cache-backend error is logged, not raised (best-effort)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving import catalog_lifecycle
+    from embrapa_dashboard.serving.cache import cache
 
     def _boom(fn):
         raise RuntimeError("cache unbound")
@@ -291,8 +291,8 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     """purge_plan + _backup_status (lines 233-260, happy path): a fresh COMPLETE snapshot →
     backup_ok True with the snapshot timestamp message, and scoped DELETEs for the banco."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities import doctor
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard import doctor
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
@@ -301,7 +301,7 @@ def test_purge_plan_backup_status_complete(monkeypatch):
         lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
     )
     # Stub the GCS client + credentials so _backup_status runs its real body.
-    monkeypatch.setattr("embrapa_commodities.config.get_credentials", lambda s: None)
+    monkeypatch.setattr("embrapa_dashboard.config.get_credentials", lambda s: None)
     monkeypatch.setattr(
         "google.cloud.storage.Client", lambda project=None, credentials=None: mock.Mock()
     )
@@ -319,8 +319,8 @@ def test_purge_plan_backup_status_complete(monkeypatch):
 def test_purge_plan_backup_no_runs(monkeypatch):
     """_backup_status (lines 245-246): no snapshot runs at all → backup_ok False."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities import doctor
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard import doctor
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
@@ -328,7 +328,7 @@ def test_purge_plan_backup_no_runs(monkeypatch):
         "_current_status",
         lambda cfg: {("commodity", "pevs", "1234"): "descontinuado"},
     )
-    monkeypatch.setattr("embrapa_commodities.config.get_credentials", lambda s: None)
+    monkeypatch.setattr("embrapa_dashboard.config.get_credentials", lambda s: None)
     monkeypatch.setattr(
         "google.cloud.storage.Client", lambda project=None, credentials=None: mock.Mock()
     )
@@ -342,8 +342,8 @@ def test_purge_plan_backup_no_runs(monkeypatch):
 def test_purge_plan_backup_only_partial(monkeypatch):
     """_backup_status (lines 247-252): runs exist but none are COMPLETE → backup_ok False."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities import doctor
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard import doctor
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
@@ -351,7 +351,7 @@ def test_purge_plan_backup_only_partial(monkeypatch):
         "_current_status",
         lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
     )
-    monkeypatch.setattr("embrapa_commodities.config.get_credentials", lambda s: None)
+    monkeypatch.setattr("embrapa_dashboard.config.get_credentials", lambda s: None)
     monkeypatch.setattr(
         "google.cloud.storage.Client", lambda project=None, credentials=None: mock.Mock()
     )
@@ -369,8 +369,8 @@ def test_purge_plan_backup_stale(monkeypatch):
     """_backup_status (lines 253-259): the newest complete snapshot is older than the
     staleness threshold → backup_ok False with the age message."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities import doctor
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard import doctor
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
@@ -378,7 +378,7 @@ def test_purge_plan_backup_stale(monkeypatch):
         "_current_status",
         lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
     )
-    monkeypatch.setattr("embrapa_commodities.config.get_credentials", lambda s: None)
+    monkeypatch.setattr("embrapa_dashboard.config.get_credentials", lambda s: None)
     monkeypatch.setattr(
         "google.cloud.storage.Client", lambda project=None, credentials=None: mock.Mock()
     )
@@ -395,7 +395,7 @@ def test_purge_plan_backup_stale(monkeypatch):
 def test_purge_plan_backup_gcs_unreachable(monkeypatch):
     """_backup_status (lines 261-262): a GCS error is caught → backup_ok False."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_commodities", _one_orphan_df)
     monkeypatch.setattr(
@@ -403,7 +403,7 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
         "_current_status",
         lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
     )
-    monkeypatch.setattr("embrapa_commodities.config.get_credentials", lambda s: None)
+    monkeypatch.setattr("embrapa_dashboard.config.get_credentials", lambda s: None)
 
     def _boom(project=None, credentials=None):
         raise RuntimeError("GCS unreachable")

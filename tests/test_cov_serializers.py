@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from embrapa_commodities.webapi import serializers as s
+from embrapa_dashboard.webapi import serializers as s
 
 
 def test_int_or_none_non_numeric_string_returns_none():

@@ -67,7 +67,7 @@ GitHub-loop activation on the next routine deploy (the env allowlist omits
 ### 🟠 MEDIUM
 
 #### FB-1 — GitHub issue is opened *before* the durable BigQuery write (orphan risk + wrong docstring)
-- **Dimension:** feedback-feature / correctness-backend · **File:** `src/embrapa_commodities/serving/feedback.py:189-221` (docstring `:110-112`)
+- **Dimension:** feedback-feature / correctness-backend · **File:** `src/embrapa_dashboard/serving/feedback.py:189-221` (docstring `:110-112`)
 - **What/why:** `record_feedback` calls `_forward_to_github` at line 191, then the BigQuery
   `INSERT` at line 221. If the INSERT fails after the issue is created, you get an **orphan
   GitHub issue with no `feedback_log` row**. The `_forward_to_github` docstring claims
@@ -79,7 +79,7 @@ GitHub-loop activation on the next routine deploy (the env allowlist omits
 
 #### FREEZE-1 — Curadoria freeze is incomplete (residual entry points + glossary)
 - **Dimension:** curation-freeze · **Files:** `frontend/src/ui/MainScreen.jsx:40`,
-  `frontend/src/ui/glossary.js:129-143`, `src/embrapa_commodities/webapi/routes.py` (curation block)
+  `frontend/src/ui/glossary.js:129-143`, `src/embrapa_dashboard/webapi/routes.py` (curation block)
 - **What/why:** the freeze hid the nav/sidebar, but: (1) `MainScreen` still routes
   `infoPage === 'curation' | 'enrich_industrial' | 'enrich_market'` to the editor, so a
   stale `?ip=curation` **deep link still renders the (frozen) editor**; (2) `glossary.js`
@@ -114,7 +114,7 @@ GitHub-loop activation on the next routine deploy (the env allowlist omits
 ### 🟡 LOW
 
 #### SEC-1 — user message is interpolated raw into the GitHub issue (markdown/mention injection)
-- **File:** `src/embrapa_commodities/serving/feedback.py:119-137`
+- **File:** `src/embrapa_dashboard/serving/feedback.py:119-137`
 - **What/why:** `message` flows verbatim into the issue `title` and `body` (GitHub renders
   body as Markdown), so a reporter can inject Markdown, fake the "Aberto automaticamente"
   footer, or embed `@mentions`/links. **Low** because authors are IAP-gated trusted
@@ -122,7 +122,7 @@ GitHub-loop activation on the next routine deploy (the env allowlist omits
   in a fenced block / prefix lines, and strip leading `@`.
 
 #### SEC-2 — no rate-limit / abuse guard on `/api/feedback`
-- **File:** `src/embrapa_commodities/webapi/routes.py` (the `/feedback` route)
+- **File:** `src/embrapa_dashboard/webapi/routes.py` (the `/feedback` route)
 - **What/why:** each call issues a BigQuery DML INSERT **and** an outbound GitHub API call;
   there is no per-user throttle (only `MAX_CONTENT_LENGTH` caps body size). A loop could
   create unbounded issues + DML jobs. **Low** (IAP-gated, small audience). **Suggested fix:**

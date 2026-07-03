@@ -1,4 +1,4 @@
-"""Tests for the dashboard data-access layer (src/embrapa_commodities/serving).
+"""Tests for the dashboard data-access layer (src/embrapa_dashboard/serving).
 
 The pure modules (iap, sql) are tested directly. The cache/gateway/curation
 tests guard on the optional ``flask-caching`` extra and mock BigQuery — they
@@ -13,8 +13,8 @@ from unittest import mock
 import pytest
 from google.cloud import bigquery
 
-from embrapa_commodities.config import Settings
-from embrapa_commodities.serving import iap, sql
+from embrapa_dashboard.config import Settings
+from embrapa_dashboard.serving import iap, sql
 
 
 def _isolated_settings(**over) -> Settings:
@@ -47,7 +47,7 @@ def _restore_classification_ttls():
     import).
     """
     try:
-        from embrapa_commodities.serving import gateway
+        from embrapa_dashboard.serving import gateway
     except Exception:
         yield
         return
@@ -329,7 +329,7 @@ def test_production_by_uf_latest_year_tiles_sum_to_national_latest(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     # 3 years × 2 UFs. All-years cumulative PA = 100+136+1873; the bug summed those.
     rows = [
@@ -891,7 +891,7 @@ def _settings() -> Settings:
 
 def test_record_code_industrialization_inserts_parameterized_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     settings = _settings()
@@ -927,7 +927,7 @@ def test_record_code_industrialization_inserts_parameterized_row_with_author(mon
 
 def test_record_code_industrialization_rejects_empty_inputs():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError):
@@ -938,7 +938,7 @@ def test_record_code_industrialization_rejects_empty_inputs():
 
 def test_ensure_code_industrialization_log_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -973,7 +973,7 @@ def test_record_code_industrialization_generates_change_id_when_absent(monkeypat
     """No client change_id → a fresh uuid is minted, the dedupe SELECT is SKIPPED
     (a brand-new uuid can't pre-exist), and exactly one query (the INSERT) runs."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=True)  # would dedupe IF it probed — it must not
@@ -999,7 +999,7 @@ def test_record_code_industrialization_dedupes_on_repeated_change_id(monkeypatch
     """A client change_id that ALREADY exists in the log → no-op: the writer
     returns deduped=True and never issues the INSERT (only the SELECT probe)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=True)
@@ -1027,7 +1027,7 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
     """A client change_id NOT yet in the log → the probe misses and the INSERT
     proceeds, carrying the SAME change_id (so a retry would then dedupe)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = _seen_client(exists=False)
@@ -1056,7 +1056,7 @@ def test_ensure_curators_table_creates_with_explicit_schema(monkeypatch):
     """The Console-managed curator allowlist table is auto-created with the
     explicit (email, added_by, added_at) schema — never autodetected."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import research_inputs as curation
+    from embrapa_dashboard.serving import research_inputs as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -1075,8 +1075,8 @@ def test_memoize_avoids_repeated_bigquery_roundtrip(monkeypatch):
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.serving.cache import cache
 
     app = Flask(__name__)
     cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
@@ -1105,7 +1105,7 @@ def test_classification_cache_uses_short_ttl_for_multiinstance():
     staleness, letting the dashboard scale to N Cloud Run instances for free.
     """
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     mart_ttl = _isolated_settings().cache_default_timeout
     assert gateway.DEFAULT_CLASSIFICATION_TTL <= 60
@@ -1123,8 +1123,8 @@ def test_init_cache_binds_classification_ttl_from_settings():
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.serving.cache import init_cache
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.serving.cache import init_cache
 
     settings = _isolated_settings(cache_classification_timeout=17)
     app = Flask(__name__)
@@ -1145,8 +1145,8 @@ def test_init_cache_binds_classification_ttl_to_curator_allowlist():
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.serving.cache import init_cache
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.serving.cache import init_cache
 
     settings = _isolated_settings(cache_classification_timeout=7)
     app = Flask(__name__)
@@ -1166,8 +1166,8 @@ def test_init_cache_binds_classification_ttl_to_catalog_editors():
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.serving.cache import init_cache
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.serving.cache import init_cache
 
     settings = _isolated_settings(cache_classification_timeout=9)
     app = Flask(__name__)
@@ -1184,7 +1184,7 @@ def _bind_simplecache():
     """Bind the shared cache to a fresh Flask app on SimpleCache; return (app, cache)."""
     from flask import Flask
 
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving.cache import cache
 
     app = Flask(__name__)
     cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
@@ -1193,7 +1193,7 @@ def _bind_simplecache():
 
 def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1227,7 +1227,7 @@ def test_quality_readers_return_none_for_unknown_source_without_querying(monkeyp
     that None to empty, so this is the intended, lower-risk behavior; pin it so it is
     not silently changed."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     def boom(query, params):  # must never be reached for an unknown source
         raise AssertionError("run_query must not run for an unknown source")
@@ -1246,7 +1246,7 @@ def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
     lower(trim(email)) with NULLs excluded, from the research_inputs allowlist table.
     A typo here would silently widen or empty the curator allowlist."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1275,7 +1275,7 @@ def test_fetch_banco_metadata_binds_banco_id_as_param(monkeypatch):
     """fetch_banco_metadata reads operator overrides for ONE banco — the banco_id
     must be a BOUND parameter (not interpolated) and hit the overrides table."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1299,7 +1299,7 @@ def test_fetch_banco_metadata_binds_banco_id_as_param(monkeypatch):
 
 def test_fetch_production_by_uf_queries_correct_table_and_params(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1326,7 +1326,7 @@ def test_fetch_production_by_uf_latest_year_flag_threads_to_builder(monkeypatch)
     """fetch_production_by_uf defaults to the latest-year scoping; latest_year_only
     =False threads through to the cumulative builder (export-coefficient path)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1349,7 +1349,7 @@ def test_fetch_production_by_uf_latest_year_flag_threads_to_builder(monkeypatch)
 
 def test_fetch_comex_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1372,7 +1372,7 @@ def test_fetch_comex_by_uf_latest_year_flag_threads_to_builder(monkeypatch):
 
 def test_fetch_comex_months_per_year_queries_seasonality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1395,7 +1395,7 @@ def test_fetch_comex_months_per_year_queries_seasonality_mart(monkeypatch):
 
 def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1420,7 +1420,7 @@ def test_fetch_comex_seasonality_queries_correct_table_and_params(monkeypatch):
 
 def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1446,7 +1446,7 @@ def test_fetch_comex_overview_queries_annual_mart(monkeypatch):
 
 def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1476,7 +1476,7 @@ def test_fetch_comtrade_partners_queries_annual_mart(monkeypatch):
 
 def test_fetch_comtrade_flows_pins_reporter_to_brazil(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1506,7 +1506,7 @@ def test_fetch_comex_partners_does_not_pin_a_reporter(monkeypatch):
     """COMEX is Brazil's own customs (no reporter concept), so its readers must NOT
     add a reporter predicate — only the multi-reporter COMTRADE mart needs it."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1533,7 +1533,7 @@ def test_fetch_comtrade_overview_pins_reporter_to_brazil(monkeypatch):
     all-reporters years (2022-2023) would otherwise add the whole world's trade
     (regression guard for the NUM-1 audit finding)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1560,7 +1560,7 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
     single-reporter production marts (PEVS/PAM/PPM) and Brazil's-own-customs COMEX
     must NOT add a reporter predicate."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1635,7 +1635,7 @@ def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_ta
     mart/dataset name is a silent prod 404/400, so this locks the source→table
     mapping. Mirrors the per-reader gateway tests above."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1658,7 +1658,7 @@ def test_gateway_readers_build_expected_table_query(monkeypatch, call, expect_ta
 def test_visibility_clause_and_builder_injection():
     """The F7 visibility predicate (sql.visibility_clause) builds the NOT EXISTS over
     dim_commodity_visibility, and the direct-Gold builders inject it only when passed."""
-    from embrapa_commodities.serving import sql
+    from embrapa_dashboard.serving import sql
 
     clause = sql.visibility_clause(_isolated_settings(), "pevs", "product_code")
     assert "not exists" in clause.lower() and "dim_commodity_visibility" in clause
@@ -1685,7 +1685,7 @@ def test_quality_readers_thread_f7_visibility_gate(monkeypatch):
     though these bypass the (already-gated) serving marts. Uses each source's short token
     + its own code column."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
     monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
@@ -1713,7 +1713,7 @@ def test_inspect_visibility_predicate_gates_gold_facts_only(monkeypatch):
     """The Dados raw-row inspector gates ONLY the Gold facts — the serving marts are already
     gated at build time. _inspect_visibility_predicate returns the F7 NOT EXISTS for a Gold table
     and '' for a serving mart / unknown source."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
     pred = gateway._inspect_visibility_predicate("ibge_pevs", "gold_pevs_production")
@@ -1729,7 +1729,7 @@ def test_inspect_visibility_predicate_gates_gold_facts_only(monkeypatch):
 
 def test_raw_table_builders_inject_visibility_predicate():
     """The Dados Gold-fact SQL builders AND-in the F7 predicate only when given (back-compat)."""
-    from embrapa_commodities.serving import sql
+    from embrapa_dashboard.serving import sql
 
     cols = {"product_code": "STRING", "reference_year": "INT64"}
     pred = "not exists (select 1 from x)"
@@ -1743,7 +1743,7 @@ def test_raw_table_builders_inject_visibility_predicate():
 
 def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1767,7 +1767,7 @@ def test_fetch_quality_by_source_queries_quality_mart(monkeypatch):
 
 def test_fetch_products_dispatches_to_source_mart(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1793,7 +1793,7 @@ def test_fetch_products_requests_measure_kind_for_livestock(monkeypatch):
     """PPM is the one source whose mart carries measure_kind; fetch_products opts it
     in so the snapshot can gate the herd ('Rebanho') view on stock vs flow."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1815,7 +1815,7 @@ def test_fetch_products_requests_measure_kind_for_livestock(monkeypatch):
 
 def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1840,7 +1840,7 @@ def test_fetch_product_timeseries_uses_source_default_value_column(monkeypatch):
 
 def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1863,7 +1863,7 @@ def test_fetch_source_metadata_reads_gold_dataset(monkeypatch):
 
 def test_fetch_products_unknown_source_raises(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
@@ -1877,7 +1877,7 @@ def test_fetch_products_unknown_source_raises(monkeypatch):
 
 def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1902,7 +1902,7 @@ def test_fetch_cross_series_brazil_metric_filters_reporter(monkeypatch):
 
 def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -1924,7 +1924,7 @@ def test_fetch_cross_series_world_exp_sums_all_reporters(monkeypatch):
 
 def test_fetch_cross_series_unknown_metric_raises(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(gateway, "run_query", lambda *a, **k: pytest.fail("must reject"))
     monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
@@ -1940,7 +1940,7 @@ def test_fetch_cross_series_unknown_metric_raises(monkeypatch):
 def test_gateway_rejects_invalid_value_column(monkeypatch, fetch_name):
     """The allowlist is enforced THROUGH the gateway, not only the bare builder."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     monkeypatch.setattr(
         gateway, "run_query", lambda *a, **k: pytest.fail("must reject before querying")
@@ -1959,7 +1959,7 @@ def test_gateway_rejects_invalid_value_column(monkeypatch, fetch_name):
 
 def test_run_query_executes_with_parameterized_job_config(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     fake_client = mock.Mock()
     fake_client.query.return_value.result.return_value.to_dataframe.return_value = "DF"
@@ -1990,7 +1990,7 @@ def test_init_cache_selects_simplecache_by_default():
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving.cache import init_cache
+    from embrapa_dashboard.serving.cache import init_cache
 
     app = Flask(__name__)
     init_cache(app, _isolated_settings())
@@ -2004,7 +2004,7 @@ def test_init_cache_selects_redis_when_configured(monkeypatch):
     pytest.importorskip("flask_caching")
     from flask import Flask
 
-    from embrapa_commodities.serving import cache as cache_mod
+    from embrapa_dashboard.serving import cache as cache_mod
 
     # init_app on RedisCache would try to import/connect redis; stub init_app to
     # capture the config the backend WOULD receive (we test selection, not redis).
@@ -2036,7 +2036,7 @@ def test_init_cache_safely_logs_loud_error_and_falls_back_to_nullcache(monkeypat
 
     from flask import Flask
 
-    from embrapa_commodities.serving import cache as cache_mod
+    from embrapa_dashboard.serving import cache as cache_mod
 
     def boom(server):
         raise RuntimeError("gcp_project_id Field required")
@@ -2070,8 +2070,8 @@ def test_save_invalidates_code_industrialization_cache(monkeypatch):
     visible locally (other instances converge within the short TTL).
     """
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import gateway
 
     app, cache = _bind_simplecache()
 
@@ -2112,8 +2112,8 @@ def test_save_invalidates_code_industrialization_cache(monkeypatch):
 def test_invalidate_code_industrialization_cache_is_safe_when_unbound(monkeypatch):
     """With no Flask app bound, invalidation is a no-op (covers the except branch)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
-    from embrapa_commodities.serving.cache import Cache, cache
+    from embrapa_dashboard.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving.cache import Cache, cache
 
     # Reset to a pristine, unbound cache so delete_memoized raises internally and
     # the best-effort guard swallows it without propagating.
@@ -2130,7 +2130,7 @@ def test_invalidate_code_industrialization_cache_is_safe_when_unbound(monkeypatc
 
 def test_record_code_industrialization_rejects_overlong_level():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="industrialization_level excede"):
@@ -2146,7 +2146,7 @@ def test_record_code_industrialization_rejects_overlong_level():
 
 def test_record_code_industrialization_rejects_overlong_note():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="note excede"):
@@ -2164,7 +2164,7 @@ def test_record_code_industrialization_rejects_overlong_note():
 def test_record_code_industrialization_accepts_free_text_level(monkeypatch):
     """A novel, non-allowlisted level label is accepted (open vocabulary by design)."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
     client = mock.Mock()
@@ -2205,7 +2205,7 @@ def test_market_nature_series_scopes_to_cmd_codes_when_given():
 def test_gateway_production_mart_resolves_pevs_pam_and_ppm():
     """fetch_production_* are generic over the PEVS-shaped marts; PAM + PPM are registered."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     assert gateway._production_mart("ibge_pevs") == "serving_pevs_annual"
     assert gateway._production_mart("ibge_pam") == "serving_pam_annual"
@@ -2217,7 +2217,7 @@ def test_gateway_production_mart_resolves_pevs_pam_and_ppm():
 def test_gateway_pam_in_product_and_gold_registries():
     """PAM is wired into the source-parameterized products / quality readers."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     assert gateway._product_source("ibge_pam")[0] == "serving_pam_annual"
     assert gateway._GOLD_TABLE["ibge_pam"] == "gold_pam_production"
@@ -2227,7 +2227,7 @@ def test_gateway_pam_in_product_and_gold_registries():
 def test_gateway_ppm_in_product_and_gold_registries():
     """PPM (livestock, PEVS-shaped) rides the same source-parameterized readers."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     assert gateway._product_source("ibge_ppm")[0] == "serving_ppm_annual"
     assert gateway._product_source("ibge_ppm")[3] == "val_real_ipca_brl"  # BRL-native default
@@ -2272,7 +2272,7 @@ def test_fetch_cross_series_drops_uf_for_comtrade(monkeypatch):
     Uses _isolated_settings + _bind_simplecache (NOT create_app) so it runs in CI
     without a real .env / GCP_PROJECT_ID."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     recorded = {}
 
@@ -2370,7 +2370,7 @@ def test_raw_table_rows_rejects_bad_op_and_unbindable_value():
 
 
 def test_gateway_inspectable_tables_and_allowlist_boundary():
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     ppm = gateway.inspectable_tables("ibge_ppm")
     ids = [t["id"] for t in ppm]
@@ -2397,7 +2397,7 @@ def test_fetch_table_rows_clamps_absurd_offset(monkeypatch):
     """The free tabledata.list browse passes ``offset`` straight to ``start_index``; an
     absurd offset is clamped to RAW_TABLE_MAX_OFFSET so it can't drive a needless deep
     storage skip on a large Bronze table (audit COST-1). A normal offset is untouched."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     captured = {}
 
@@ -2424,7 +2424,7 @@ def test_gateway_seed_catalog_and_allowlist_boundary():
     """The 'Referências' seed catalog: the editable flag distinguishes the editable
     catalog seed from the read-only CALIBRATION seeds, and an id outside the catalog is
     refused before any BigQuery / table_ref call (the security boundary)."""
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     seeds = gateway.seed_tables()
     by_id = {s["id"]: s for s in seeds}
@@ -2453,7 +2453,7 @@ def test_serialize_seed_page_reuses_grid_and_adds_editable():
     degrades to an empty, non-editable page (never crashes)."""
     import pandas as pd
 
-    from embrapa_commodities.webapi import serializers
+    from embrapa_dashboard.webapi import serializers
 
     page = {
         "columns": [{"name": "commodity_id", "type": "STRING"}],
@@ -2485,7 +2485,7 @@ def test_every_seed_csv_is_a_consultable_reference_table():
     passes regardless of the pytest invocation cwd."""
     from pathlib import Path
 
-    from embrapa_commodities.serving import gateway
+    from embrapa_dashboard.serving import gateway
 
     seeds_dir = Path(__file__).resolve().parents[1] / "dbt" / "seeds"
     assert seeds_dir.is_dir(), f"expected seeds dir at {seeds_dir}"
@@ -2531,7 +2531,7 @@ def test_every_seed_csv_is_a_consultable_reference_table():
 
 
 def test_slug_matches_seed_commodity_ids():
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     assert curation._slug("Castanha-do-pará") == "castanha_do_para"
     assert curation._slug("Açaí") == "acai"
@@ -2541,7 +2541,7 @@ def test_slug_matches_seed_commodity_ids():
 
 def test_record_commodity_catalog_inserts_active_row_with_author(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     # The code-existence gate is exercised separately; skip it here (this asserts the INSERT).
@@ -2575,7 +2575,7 @@ def test_record_commodity_catalog_inserts_active_row_with_author(monkeypatch):
 
 def test_record_commodity_catalog_rejects_blank_key():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError):  # blank codigo_commodity breaks the key → reject
@@ -2590,7 +2590,7 @@ def test_record_commodity_catalog_rejects_nonexistent_code(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
@@ -2633,7 +2633,7 @@ def test_record_commodity_catalog_rejects_unknown_banco(monkeypatch):
     written that never joins in gold_commodity_crosswalk (silent orphaned data). Note the
     LONG source id 'un_comtrade' is NOT a valid catalog banco (the token is 'comtrade')."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
@@ -2652,7 +2652,7 @@ def test_record_commodity_catalog_rejects_unknown_banco(monkeypatch):
 
 def test_remove_commodity_catalog_appends_inactive_tombstone(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     # The entry is currently active → a tombstone may be written for its exact code.
@@ -2680,7 +2680,7 @@ def test_remove_commodity_catalog_rejects_uncataloged_key(monkeypatch):
     """Removing a key with no ACTIVE entry must raise (L-1) — a phantom tombstone would
     fabricate a false orphan, never silently appear."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # nothing active
@@ -2700,7 +2700,7 @@ def test_record_commodity_catalog_rejects_blank_agrupamento(monkeypatch):
     """A blank agrupamento → NULL commodity_id/commodity_name → the nightly prod dbt build
     not_null tests fail (H-1). Reject at the write gate (a fixable 400), not at build time."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
@@ -2721,7 +2721,7 @@ def test_record_commodity_catalog_rejects_blank_agrupamento(monkeypatch):
 
 def test_ensure_commodity_catalog_log_table_creates_with_explicit_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -2761,7 +2761,7 @@ def _one_orphan_df():
 
 def test_ensure_catalog_lifecycle_log_table_schema(monkeypatch):
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
@@ -2787,7 +2787,7 @@ def test_auto_mark_orphans_marks_new_with_system_author(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
 
@@ -2822,7 +2822,7 @@ def test_auto_mark_orphans_is_idempotent_when_already_marked(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
 
@@ -2856,7 +2856,7 @@ def test_auto_mark_orphans_remarks_a_fresh_reorphan(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     removed_at = pd.Timestamp("2026-06-26T12:00:00Z")
 
@@ -2923,8 +2923,8 @@ def test_orphan_worklist_marks_descontinuado_with_warning(monkeypatch):
     pytest.importorskip("flask_caching")
     from google.api_core.exceptions import NotFound
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.webapi import seam_curation
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.webapi import seam_curation
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
 
@@ -2946,8 +2946,8 @@ def test_orphan_worklist_reports_recorded_status(monkeypatch):
     pytest.importorskip("flask_caching")
     import pandas as pd
 
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.webapi import seam_curation
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.webapi import seam_curation
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
 
@@ -2976,7 +2976,7 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
     """The purge plan REFUSES an element that is not marked Descontinuado, and for one
     that is, builds the scoped Gold DELETE(s) + the backup status — without deleting."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle, gateway
+    from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_orphan_commodities", _one_orphan_df)
     # not marked → refuse
@@ -3001,7 +3001,7 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
 def test_purge_plan_rejects_injection_in_code():
     """A non-alphanumeric code (SQL-injection attempt) is rejected — the plan is printed
     verbatim for a human to run, so the code must be a simple token."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     with pytest.raises(ValueError):
         catalog_lifecycle.purge_plan("comex", "1' ; DROP TABLE x; --", settings=_settings())
@@ -3010,7 +3010,7 @@ def test_purge_plan_rejects_injection_in_code():
 def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
     """mark_purged records a terminal 'purged' audit event (who/when); idempotent."""
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(
         catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
@@ -3042,7 +3042,7 @@ def test_mark_purged_records_a_fresh_event_per_descontinuado_generation(monkeypa
     pytest.importorskip("flask_caching")
     from datetime import datetime
 
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(
         catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"

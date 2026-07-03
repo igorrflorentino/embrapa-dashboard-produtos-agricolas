@@ -24,14 +24,14 @@ import pytest
 
 def _curation():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_attribute_engineering
+    from embrapa_dashboard.webapi import seam_attribute_engineering
 
     return seam_attribute_engineering
 
 
 def _writer():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.serving import attribute_engineering
+    from embrapa_dashboard.serving import attribute_engineering
 
     return attribute_engineering
 
@@ -84,7 +84,7 @@ def test_current_code_levels_maps_rows_to_levels(monkeypatch):
 
 def test_value_added_codes_by_level_drops_out_of_scope_code(monkeypatch):
     seam = _curation()
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     # Two classified COMEX codes; the commodity scope only includes "A" → "B" is
     # dropped via the `scope is not None and code not in scope` continue (line 173).
@@ -105,7 +105,7 @@ def test_value_added_codes_by_level_drops_out_of_scope_code(monkeypatch):
 
 def test_value_added_accumulate_skips_level_with_empty_value(monkeypatch):
     seam = _curation()
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     calls = []
 
@@ -127,7 +127,7 @@ def test_value_added_returns_empty_when_value_query_empty(monkeypatch):
     """End-to-end: value_added surfaces an empty series when the export-value
     reader yields nothing for the classified level (the line-196 path)."""
     seam = _curation()
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     monkeypatch.setattr(
         seam, "_current_code_levels", lambda: {("mdic_comex", "A"): "commodity_pura"}
@@ -187,7 +187,7 @@ def test_market_nature_scoped_commodity_without_codes_returns_empty(monkeypatch)
     """A commodity with no COMTRADE (HS) codes short-circuits to empty, never
     hitting the unscoped all-commodities total."""
     seam = _curation()
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     monkeypatch.setattr(seam_base, "_codes", lambda cid, src: [])
     called = {"reader": False}
@@ -204,7 +204,7 @@ def test_market_nature_scoped_commodity_without_codes_returns_empty(monkeypatch)
 def test_market_nature_scoped_commodity_passes_codes(monkeypatch):
     """A scoped commodity forwards its HS codes to the gateway reader."""
     seam = _curation()
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     monkeypatch.setattr(seam_base, "_codes", lambda cid, src: ["0801", "0802"])
     seen: dict = {}
@@ -235,7 +235,7 @@ def test_validate_code_edit_rejects_long_level():
 
 
 def test_market_nature_series_sql_unscoped():
-    from embrapa_commodities.serving import sql as sqlbuild
+    from embrapa_dashboard.serving import sql as sqlbuild
 
     query, params = sqlbuild.market_nature_series("proj.serving.serving_comtrade_annual")
     low = query.lower()
@@ -248,7 +248,7 @@ def test_market_nature_series_sql_unscoped():
 
 
 def test_market_nature_series_sql_scoped_by_codes():
-    from embrapa_commodities.serving import sql as sqlbuild
+    from embrapa_dashboard.serving import sql as sqlbuild
 
     query, params = sqlbuild.market_nature_series(
         "proj.serving.serving_comtrade_annual", codes=("0801", "0802")

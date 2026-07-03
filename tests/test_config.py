@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from embrapa_commodities import config as config_module
-from embrapa_commodities.config import (
+from embrapa_dashboard import config as config_module
+from embrapa_dashboard.config import (
     Settings,
     _parse_code_label,
     get_credentials,

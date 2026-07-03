@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from embrapa_commodities import cli
-from embrapa_commodities.config import Settings
+from embrapa_dashboard import cli
+from embrapa_dashboard.config import Settings
 
 runner = CliRunner()
 
@@ -365,7 +365,7 @@ def test_ingest_comtrade_quota_exhausted_reports_and_exits(
     message and exits 0 — daily quota exhaustion is EXPECTED and self-healing (the
     next scheduled run resumes from the un-archived chunks), so it must NOT trip the
     Cloud Run job-failure alert. A genuine (non-quota) chunk failure still exits 1."""
-    from embrapa_commodities.comtrade.client import ComtradeQuotaError
+    from embrapa_dashboard.comtrade.client import ComtradeQuotaError
 
     _wire_comtrade(monkeypatch, settings)
     settings.comtrade_start_year = 2022
@@ -554,7 +554,7 @@ def test_ingest_all_aborts_cleanly_listing_partial_chunk_failure(
 ) -> None:
     """When a pipeline raises IngestPartialFailure (its own chunk loop had a
     failure), `ingest all` records it as a source failure and exits 1."""
-    from embrapa_commodities.core import IngestPartialFailure
+    from embrapa_dashboard.core import IngestPartialFailure
 
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setattr(cli.ibge_pipeline, "run", lambda s, full: "")
@@ -704,7 +704,7 @@ def test_ingest_reconcile_raises_when_ibge_start_year_unset(
 
 # ─── discover ────────────────────────────────────────────────────────────────
 def test_discover_ibge_products_prints_matches(monkeypatch: pytest.MonkeyPatch) -> None:
-    from embrapa_commodities.discover import ProductMatch
+    from embrapa_dashboard.discover import ProductMatch
 
     def fake_search(table_id: str, needles: list[str]) -> list[ProductMatch]:
         assert table_id == "289"
@@ -736,7 +736,7 @@ def test_discover_ibge_products_exits_1_when_no_matches(
 
 
 def test_discover_bcb_series_prints_sample(monkeypatch: pytest.MonkeyPatch) -> None:
-    from embrapa_commodities.discover import BcbSeriesSample
+    from embrapa_dashboard.discover import BcbSeriesSample
 
     monkeypatch.setattr(
         cli.discover,
@@ -754,7 +754,7 @@ def test_discover_bcb_series_prints_sample(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_discover_bcb_series_empty_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
-    from embrapa_commodities.discover import BcbSeriesSample
+    from embrapa_dashboard.discover import BcbSeriesSample
 
     monkeypatch.setattr(
         cli.discover,
@@ -826,7 +826,7 @@ def test_monitor_dispatches_to_monitor_run(monkeypatch: pytest.MonkeyPatch, tmp_
 
 # ─── doctor ──────────────────────────────────────────────────────────────────
 def test_doctor_all_passing_returns_zero(monkeypatch: pytest.MonkeyPatch) -> None:
-    from embrapa_commodities.doctor import CheckResult
+    from embrapa_dashboard.doctor import CheckResult
 
     monkeypatch.setattr(
         cli.doctor,
@@ -841,7 +841,7 @@ def test_doctor_all_passing_returns_zero(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_doctor_failure_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
-    from embrapa_commodities.doctor import CheckResult
+    from embrapa_dashboard.doctor import CheckResult
 
     monkeypatch.setattr(
         cli.doctor,

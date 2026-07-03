@@ -19,7 +19,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
        └──────┬───────┴──────────────┴──────────────┴──────────────┴───────────────┘
               ▼
  ┌─────────────────────────────────────────────────────┐
- │  Python  (src/embrapa_commodities) — two-phase      │
+ │  Python  (src/embrapa_dashboard) — two-phase      │
  │  Phase 1  extract → raw/ (verbatim Parquet on GCS)  │
  │  Phase 2  raw/ → filter/shape → BigQuery Bronze     │
  └───────────────────────┬─────────────────────────────┘
@@ -75,7 +75,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 ```
 embrapa-dashboard-commodities/
 │
-├── src/embrapa_commodities/          # Main Python package
+├── src/embrapa_dashboard/          # Main Python package
 │   ├── __init__.py
 │   ├── cli.py                        # Typer entrypoint (`embrapa`) + INGESTS registry
 │   ├── config.py                     # pydantic-settings — reads .env
@@ -298,7 +298,7 @@ embrapa-dashboard-commodities/
 └── init_dev_env.sh                   # Sandbox initialization
 ```
 
-> The old Dash UI was deleted on 2026-05-29 (`src/embrapa_commodities/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`) and **replaced** in the 2026-06 React migration by `frontend/`, `src/embrapa_commodities/webapi/` and `deploy/webapi/` above — see [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
+> The old Dash UI was deleted on 2026-05-29 (`src/embrapa_dashboard/dashboard/`, `Dockerfile`, `scripts/dashboard*`, `scripts/check_dashboard_size.py`, `tests/test_dashboard_*`, `.github/workflows/dashboard-smoke.yml`, `docs/auth.md`, and the Claude Code skills `run-dashboard` / `dash-page-scaffold` / `new-chart-component` / `deploy-cloud-run`) and **replaced** in the 2026-06 React migration by `frontend/`, `src/embrapa_dashboard/webapi/` and `deploy/webapi/` above — see [`PLANS/react_migration_contract_map.md`](PLANS/react_migration_contract_map.md).
 
 ---
 
@@ -312,7 +312,7 @@ metadata: URL, ETag/Last-Modified, `fetched_at`, `rows`). Bronze derives
 from that raw. This way, re-filtering / changing products / re-deriving Bronze
 **does not hit the source again** — only a real data revision triggers a re-fetch. Each
 `embrapa ingest <source>` has `--from-raw` (rebuilds Bronze from raw, with no
-internet). Shared contract in [`core/raw.py`](src/embrapa_commodities/core/raw.py);
+internet). Shared contract in [`core/raw.py`](src/embrapa_dashboard/core/raw.py);
 details in [`PLANS/raw_zone_architecture.md`](PLANS/raw_zone_architecture.md).
 Per source: COMEX re-downloads only when the ETag changes (filters in Phase 2 via
 `iter_batches`); IBGE archives the SIDRA response; BCB archives each delta window
@@ -354,13 +354,13 @@ as a per-run stamped object (append-only trail).
 Two parallel paths, both reading the same Gold tables — they are not exclusive and can coexist:
 
 - **Looker Studio** (no-code): direct connection to the Gold tables (`gold.gold_pevs_production`, `gold.gold_comex_flows`). Good for standardized reports and quick exploration without a deploy. Available now.
-- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_commodities/webapi/`](src/embrapa_commodities/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/); the SPA in [`frontend/`](frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
+- **Dedicated dashboard (React SPA + Flask REST API) on Cloud Run, behind IAP — stateless, Pushdown Computing**: a tailored frontend for researchers, live since the 2026-06 Dash→React migration. It does **not** load Gold tables into memory (Pandas) behind a global lock — that design was dropped due to OOM and concurrency risk. The Flask backend ([`src/embrapa_dashboard/webapi/`](src/embrapa_dashboard/webapi/)) translates each UI filter into **parameterized SQL** (`@param`) over the **`serving`** layer (pre-aggregated marts), with **flask-caching** on the results; curation uses an **append-only log + SCD Type 2** (see §§ [Serving Layer](#serving-layer--pushdown-computing-webapi-dashboard) and [Dynamic Curation](#dynamic-curation--append-only-log--scd-type-2)). The data-access layer (BFF) lives in [`src/embrapa_dashboard/serving/`](src/embrapa_dashboard/serving/); the SPA in [`frontend/`](frontend/) (React/Vite UI + Plotly.js charts); the Dockerfile/Cloud Run deploy in [`deploy/webapi/`](deploy/webapi/) (`make webapi-deploy`).
 
 ---
 
 ## `core/` Layer — common contract across sources
 
-`src/embrapa_commodities/core/` concentrates the genuinely shared primitives, keeping IBGE/BCB/… lean:
+`src/embrapa_dashboard/core/` concentrates the genuinely shared primitives, keeping IBGE/BCB/… lean:
 
 - **`SourceTransientError`** (in `core/exceptions.py`): a marker for transient upstream failures. `SidraTransientError` and `BcbTransientError` inherit via a mixin, and any new source does the same. This lets the shared decorator `core.http.http_retry_policy` catch all transients without having to list each class by name.
 - **`http_retry_policy` + `get_drained`** (in `core/http.py`): the tenacity retry policy (`stop_after_attempt(5) | stop_after_delay(deadline_s)` + `wait_exponential(1, 2, 30)`) and the manual body drain under a wall-clock deadline (a defense against slow-byte hangs that bypass `requests`' per-read timeout). Each source composes it with its own local deadlines and its transient exception. Adopted by `ibge/client._http_get` and `bcb/client._fetch_window`.
@@ -418,7 +418,7 @@ its cross-source commodity.
 (`BQ_SERVING_DATASET`), separate from Gold, so that the dashboard's SA
 (`sa-web-dashboard-prod`) is scoped **only** to the serving surface.
 
-**Data-access layer (Python).** [`src/embrapa_commodities/serving/`](src/embrapa_commodities/serving/)
+**Data-access layer (Python).** [`src/embrapa_dashboard/serving/`](src/embrapa_dashboard/serving/)
 is the **UI-agnostic** BFF that the `webapi` Flask app imports — **no
 pages/charts** (those live in `frontend/`; `webapi/seam.py` composes these
 readers per view and `webapi/serializers.py` shapes them to the SPA's
@@ -538,9 +538,9 @@ Each write follows the same pattern:
 
 Adding a new source touches three lightweight registries + creating two files. Everything is documented in [docs/adding_a_data_source.md](docs/adding_a_data_source.md). The registries are:
 
-- `cli.INGESTS` (`src/embrapa_commodities/cli.py`) — registers the source in `embrapa ingest all`.
-- `doctor.SOURCE_CHECKS` (`src/embrapa_commodities/doctor.py`) — adds the `embrapa doctor` probe for the new API.
-- `doctor.BRONZE_TARGETS` (`src/embrapa_commodities/doctor.py`) — makes the "does the Bronze table exist?" check include the new table.
+- `cli.INGESTS` (`src/embrapa_dashboard/cli.py`) — registers the source in `embrapa ingest all`.
+- `doctor.SOURCE_CHECKS` (`src/embrapa_dashboard/doctor.py`) — adds the `embrapa doctor` probe for the new API.
+- `doctor.BRONZE_TARGETS` (`src/embrapa_dashboard/doctor.py`) — makes the "does the Bronze table exist?" check include the new table.
 
 Each `@ingest_app.command()` stays hand-maintained (heterogeneous observability across sources — IBGE emits state events, BCB does not). Only `ingest all` uses the registry.
 

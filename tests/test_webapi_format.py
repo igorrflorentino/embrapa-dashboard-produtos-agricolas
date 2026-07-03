@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from embrapa_commodities.serving.sql import ALLOWED_VALUE_COLUMNS
-from embrapa_commodities.webapi import format as fmt
+from embrapa_dashboard.serving.sql import ALLOWED_VALUE_COLUMNS
+from embrapa_dashboard.webapi import format as fmt
 
 # Every (currency, correction) pair the conventions strip can present, mapped to
 # the canonical Gold/serving column. Pins the exact infix/suffix wiring.

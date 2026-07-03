@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 import pytest
 import responses
 
-from embrapa_commodities.comex import client
+from embrapa_dashboard.comex import client
 
 EXP_CSV = (
     '"CO_ANO";"CO_MES";"CO_NCM";"CO_UNID";"CO_PAIS";"SG_UF_NCM";"CO_VIA";"CO_URF";'

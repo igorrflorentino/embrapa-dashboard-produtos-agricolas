@@ -14,33 +14,33 @@ import json
 import pandas as pd
 import pytest
 
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.config import Settings
 
 
 def _seam():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     return seam
 
 
 def _cross():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_cross
+    from embrapa_dashboard.webapi import seam_cross
 
     return seam_cross
 
 
 def _curation():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_attribute_engineering
+    from embrapa_dashboard.webapi import seam_attribute_engineering
 
     return seam_attribute_engineering
 
 
 def _base():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.webapi import seam_base
 
     return seam_base
 
@@ -49,7 +49,7 @@ def _bind_simplecache():
     """Bind the shared serving cache to a fresh Flask app (SimpleCache)."""
     from flask import Flask
 
-    from embrapa_commodities.serving.cache import cache
+    from embrapa_dashboard.serving.cache import cache
 
     app = Flask(__name__)
     cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
@@ -394,7 +394,7 @@ def test_geo_yearly_none_for_banco_without_geo_grain():
 
 def test_effective_value_column_states_both_valuation_bases_for_comtrade():
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     # US$-nominal request: the FOB/CIF basis is stated in the label, but the figure
     # IS in the requested currency (the real year-FX US$ column).
@@ -415,7 +415,7 @@ def test_effective_value_column_trade_serves_real_brl_eur_columns():
     mart carries (no more client-side mock FX cross-conversion). The label keeps the
     customs FOB/CIF valuation-basis note so the researcher knows the US$ origin."""
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     # BRL · Nominal → the real year-FX BRL column.
     col, label = seam.effective_value_column(
@@ -440,7 +440,7 @@ def test_effective_value_column_trade_falls_back_for_unmodelled_combo():
     trade request for it falls back to the same correction in BRL — a REAL column,
     never a mock conversion — and the label flags the substitution + FOB/CIF basis."""
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     col, label = seam.effective_value_column(
         banco_by_id("un_comtrade"), {"currency": "USD", "correction": "IGP-M"}
@@ -876,9 +876,9 @@ def test_commodity_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
 
 def test_unknown_api_path_returns_json_404(monkeypatch):
     pytest.importorskip("flask_caching")
-    import embrapa_commodities.config as config_mod
-    from embrapa_commodities.webapi import app as app_mod
-    from embrapa_commodities.webapi import seam
+    import embrapa_dashboard.config as config_mod
+    from embrapa_dashboard.webapi import app as app_mod
+    from embrapa_dashboard.webapi import seam
 
     # create_app binds the cache via init_cache_safely → config.get_settings (a
     # lazy import), so patch the source module. _env_file=None keeps it hermetic.
@@ -911,7 +911,7 @@ def test_unknown_api_path_returns_json_404(monkeypatch):
 
 def test_effective_value_column_pevs_picks_requested_when_mart_has_it():
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     pevs = banco_by_id("ibge_pevs")
     col, label = seam.effective_value_column(pevs, {"currency": "BRL", "correction": "IGP-M"})
@@ -923,7 +923,7 @@ def test_effective_value_column_pevs_falls_back_to_brl_when_combo_absent():
     """USD + IGP-M is not in the mart (ALLOWED_VALUE_COLUMNS), so the seam swaps it
     for the same correction in BRL and flags the substitution in the label."""
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     pevs = banco_by_id("ibge_pevs")
     col, label = seam.effective_value_column(pevs, {"currency": "USD", "correction": "IGP-M"})
@@ -935,7 +935,7 @@ def test_effective_value_column_final_fallback_to_real_ipca_brl(monkeypatch):
     """When neither the requested combo NOR its BRL sibling is in the mart, the
     fallback chain bottoms out at val_real_ipca_brl."""
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     pevs = banco_by_id("ibge_pevs")
     # Shrink the allowlist to exclude both the requested column and its BRL sibling.
@@ -1326,7 +1326,7 @@ def test_productivity_none_when_banco_lacks_yield():
 def test_ppm_is_live_production_shaped_without_yield():
     """PPM is a live, PEVS-shaped production source: in _LIVE_SOURCES, NOT a trade
     source, and (livestock → no planted area) has no productivity/'yield'."""
-    from embrapa_commodities.webapi import seam, seam_base
+    from embrapa_dashboard.webapi import seam, seam_base
 
     assert "ibge_ppm" in seam_base._LIVE_SOURCES
     assert "ibge_ppm" not in seam._TRADE  # BRL-native production, not origin→dest flow
@@ -1343,8 +1343,8 @@ def test_source_registries_have_no_live_drift():
     source / inspectable banco is live) fails LOUDLY the moment a future banco is added to one
     registry but forgotten in ``_LIVE_SOURCES`` — the exact class of regression that the
     'PPM is gated off' report mistook for a live bug (it had already been wired in #147)."""
-    from embrapa_commodities.serving import gateway
-    from embrapa_commodities.webapi import seam_base
+    from embrapa_dashboard.serving import gateway
+    from embrapa_dashboard.webapi import seam_base
 
     live = set(seam_base._LIVE_SOURCES)
     product = set(gateway._PRODUCT_SOURCES)
@@ -1760,7 +1760,7 @@ def test_curation_worklist_joins_catalog_entries_to_levels(monkeypatch):
     """The worklist reads the SAME live catalog the Curadoria editor uses
     (seam_curation.catalog_worklist) ⟕ the current levels, so the two features share
     banco+código+descrição+agrupamento and PAM/PPM are grouped by commodity."""
-    from embrapa_commodities.webapi import seam_curation
+    from embrapa_dashboard.webapi import seam_curation
 
     seam = _seam()
     monkeypatch.setattr(
@@ -1943,7 +1943,7 @@ def test_commodity_catalog_with_family_tags_each_commodity(monkeypatch):
 
 def test_record_code_level_forwards_headers_to_writer(monkeypatch):
     seam = _seam()
-    from embrapa_commodities.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving import attribute_engineering as curation
 
     captured = {}
 

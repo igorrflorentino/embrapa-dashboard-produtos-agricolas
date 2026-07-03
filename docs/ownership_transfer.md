@@ -65,7 +65,7 @@ final Friday of each sprint.
 | 90 days | Transition to `COLDLINE` |
 | 365 days | `DELETE` |
 
-(Configured in `src/embrapa_commodities/gcp/storage.py` and applied at
+(Configured in `src/embrapa_dashboard/gcp/storage.py` and applied at
 bucket creation — the `landing/` prefix follows a separate lifecycle that
 ends in `ARCHIVE`, with no delete.)
 

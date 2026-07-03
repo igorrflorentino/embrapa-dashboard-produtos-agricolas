@@ -18,7 +18,7 @@ import pytest
 
 def _seam():
     pytest.importorskip("flask_caching")
-    from embrapa_commodities.webapi import seam
+    from embrapa_dashboard.webapi import seam
 
     return seam
 
@@ -31,7 +31,7 @@ def test_effective_value_column_trade_final_fallback_to_real_ipca_brl(monkeypatc
     the mart allowlist, the fallback chain bottoms out at val_real_ipca_brl with the
     FOB/CIF valuation-basis note appended (line 82)."""
     seam = _seam()
-    from embrapa_commodities.webapi.registries import banco_by_id
+    from embrapa_dashboard.webapi.registries import banco_by_id
 
     # Shrink the allowlist so both the requested column AND its BRL sibling are absent,
     # forcing the trade branch's terminal fallback.

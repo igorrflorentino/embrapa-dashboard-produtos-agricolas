@@ -15,9 +15,9 @@ from unittest.mock import patch
 import pytest
 import responses
 
-from embrapa_commodities.bcb import currency as bcb_currency
-from embrapa_commodities.bcb import inflation as bcb_inflation
-from embrapa_commodities.config import Settings
+from embrapa_dashboard.bcb import currency as bcb_currency
+from embrapa_dashboard.bcb import inflation as bcb_inflation
+from embrapa_dashboard.config import Settings
 
 
 @pytest.fixture
@@ -59,12 +59,12 @@ def test_inflation_full_run_archives_raw_then_loads(settings: Settings) -> None:
     )
     rt = _RawRoundTrip()
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client") as bq,
-        patch("embrapa_commodities.gcp.clients.storage.Client") as gcs,
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.land_raw", side_effect=rt.land) as land,
-        patch("embrapa_commodities.bcb.series.read_raw", side_effect=rt.read),
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client") as bq,
+        patch("embrapa_dashboard.gcp.clients.storage.Client") as gcs,
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.land_raw", side_effect=rt.land) as land,
+        patch("embrapa_dashboard.bcb.series.read_raw", side_effect=rt.read),
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         destination = bcb_inflation.run(settings, full=True)
 
@@ -95,12 +95,12 @@ def test_inflation_delta_short_circuits_when_no_new_data(settings: Settings) -> 
         status=200,
     )
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.latest_reference_date") as latest,
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.land_raw") as land,
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.latest_reference_date") as latest,
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.land_raw") as land,
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         latest.return_value = date(2020, 12, 1)
         destination = bcb_inflation.run(settings, full=False)
@@ -120,12 +120,12 @@ def test_currency_full_run_archives_raw_then_loads(settings: Settings) -> None:
     )
     rt = _RawRoundTrip()
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
-        patch("embrapa_commodities.bcb.series.land_raw", side_effect=rt.land),
-        patch("embrapa_commodities.bcb.series.read_raw", side_effect=rt.read),
-        patch("embrapa_commodities.bcb.series.load_dataframe") as load,
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.bcb.series.land_raw", side_effect=rt.land),
+        patch("embrapa_dashboard.bcb.series.read_raw", side_effect=rt.read),
+        patch("embrapa_dashboard.bcb.series.load_dataframe") as load,
     ):
         destination = bcb_currency.run(settings, full=True)
 
@@ -137,9 +137,9 @@ def test_currency_full_run_archives_raw_then_loads(settings: Settings) -> None:
 def test_inflation_empty_series_raises(settings: Settings) -> None:
     settings.bcb_inflation_series = "  "
     with (
-        patch("embrapa_commodities.gcp.clients.bigquery.Client"),
-        patch("embrapa_commodities.gcp.clients.storage.Client"),
-        patch("embrapa_commodities.bcb.series.ensure_dataset"),
+        patch("embrapa_dashboard.gcp.clients.bigquery.Client"),
+        patch("embrapa_dashboard.gcp.clients.storage.Client"),
+        patch("embrapa_dashboard.bcb.series.ensure_dataset"),
         pytest.raises(RuntimeError, match="empty"),
     ):
         bcb_inflation.run(settings, full=True)

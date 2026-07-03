@@ -1,4 +1,4 @@
-"""Coverage-focused tests for the Typer CLI (`embrapa_commodities.cli`).
+"""Coverage-focused tests for the Typer CLI (`embrapa_dashboard.cli`).
 
 Targets command bodies + error/edge branches not exercised by test_cli.py:
  - `ingest ibge-ppm` (the PPM source command, both happy + skipped paths)
@@ -27,8 +27,8 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from embrapa_commodities import cli
-from embrapa_commodities.config import Settings
+from embrapa_dashboard import cli
+from embrapa_dashboard.config import Settings
 
 runner = CliRunner()
 
@@ -153,7 +153,7 @@ def test_ingest_comtrade_quota_plus_genuine_failure_exits_1(
 ) -> None:
     """When the run stops on quota BUT a non-quota chunk also genuinely failed, the
     command must list the failed chunk(s) and exit 1 (the alert must still fire)."""
-    from embrapa_commodities.comtrade.client import ComtradeQuotaError
+    from embrapa_dashboard.comtrade.client import ComtradeQuotaError
 
     _wire_comtrade(monkeypatch, settings)
     settings.comtrade_start_year = 2022
@@ -257,7 +257,7 @@ def _bypass_webapp_context(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_mark_orphans_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:
     """`mark-orphans` dispatches to catalog_lifecycle.auto_mark_orphans (imported at
     call time) and prints the detected/newly_marked/already_marked summary."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
     monkeypatch.setattr(
@@ -278,7 +278,7 @@ def test_mark_orphans_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_purge_orphan_prints_plan_with_backup_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """The default (no --mark-purged) path prints the human-runnable purge plan with a
     healthy backup status and the DELETE statements."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
     monkeypatch.setattr(
@@ -304,7 +304,7 @@ def test_purge_orphan_prints_plan_with_backup_ok(monkeypatch: pytest.MonkeyPatch
 
 def test_purge_orphan_warns_when_backup_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """The backup-absent branch warns in red before printing the DELETEs."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
     monkeypatch.setattr(
@@ -328,7 +328,7 @@ def test_purge_orphan_warns_when_backup_missing(monkeypatch: pytest.MonkeyPatch)
 
 def test_purge_orphan_exits_1_on_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """A ValueError from purge_plan (not Descontinuado / malformed code) → exit 1."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
 
@@ -346,7 +346,7 @@ def test_purge_orphan_exits_1_on_value_error(monkeypatch: pytest.MonkeyPatch) ->
 def test_purge_orphan_mark_purged_records_event(monkeypatch: pytest.MonkeyPatch) -> None:
     """With --mark-purged, the command records the terminal audit event via
     mark_purged and prints the confirmation (the dedup-aware verb)."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
     captured: dict = {}
@@ -370,7 +370,7 @@ def test_purge_orphan_mark_purged_records_event(monkeypatch: pytest.MonkeyPatch)
 
 def test_purge_orphan_mark_purged_dedup_verb(monkeypatch: pytest.MonkeyPatch) -> None:
     """A deduped mark_purged result swaps the verb to 'already recorded'."""
-    from embrapa_commodities.serving import catalog_lifecycle
+    from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
     monkeypatch.setattr(
@@ -404,9 +404,9 @@ def test_with_webapp_context_happy_path_runs_fn_in_context(
             return False
 
     fake_app = SimpleNamespace(app_context=lambda: _Ctx())
-    fake_module = ModuleType("embrapa_commodities.webapi.app")
+    fake_module = ModuleType("embrapa_dashboard.webapi.app")
     fake_module.app = fake_app  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "embrapa_commodities.webapi.app", fake_module)
+    monkeypatch.setitem(sys.modules, "embrapa_dashboard.webapi.app", fake_module)
 
     result = cli._with_webapp_context(lambda: "done")
 
@@ -422,8 +422,8 @@ def test_with_webapp_context_missing_extra_exits_1(monkeypatch: pytest.MonkeyPat
     real_import = builtins.__import__
 
     def fake_import(name: str, *args: object, **kwargs: object):
-        if name == "embrapa_commodities.webapi.app" or name.startswith(
-            "embrapa_commodities.webapi"
+        if name == "embrapa_dashboard.webapi.app" or name.startswith(
+            "embrapa_dashboard.webapi"
         ):
             raise ModuleNotFoundError("No module named 'flask'")
         return real_import(name, *args, **kwargs)

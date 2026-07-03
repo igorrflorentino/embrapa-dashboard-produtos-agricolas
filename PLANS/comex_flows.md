@@ -49,7 +49,7 @@ design (the `flows` form — origin→destination flow — did not exist yet).
 ## Technical Design
 
 Following the 11 steps in `docs/adding_a_data_source.md`. Package
-`src/embrapa_commodities/comex/`.
+`src/embrapa_dashboard/comex/`.
 
 **1. Client (`comex/client.py`) — CSV downloader, not JSON API.**
 - Download via **GET** of the yearly files (tens/hundreds of MB) — **stream

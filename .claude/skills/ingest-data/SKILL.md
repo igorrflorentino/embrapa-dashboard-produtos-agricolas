@@ -40,7 +40,7 @@ uv run embrapa ingest bcb-currency --full
 
 ```
 IBGE SIDRA API ──┐   (IBGE/BCB shown; COMEX (MDIC) + COMTRADE follow the same Bronze path)
-BCB SGS API    ──┼──► Python (src/embrapa_commodities/) → GCS Parquet (raw/)
+BCB SGS API    ──┼──► Python (src/embrapa_dashboard/) → GCS Parquet (raw/)
                  ┘                                               │
                                                                  ▼
                                              BigQuery Bronze (WRITE_APPEND)
@@ -93,7 +93,7 @@ The product code flows straight through from SIDRA's `tipo_de_produto_extrativo_
 
 ## Configuration (`config.py`)
 
-All configuration flows through `src/embrapa_commodities/config.py` (pydantic-settings reading `.env`):
+All configuration flows through `src/embrapa_dashboard/config.py` (pydantic-settings reading `.env`):
 
 | Key env var | Purpose |
 |-------------|---------|
@@ -120,7 +120,7 @@ uv run embrapa discover bcb-series     433
 ## Pipeline Structure
 
 ```
-src/embrapa_commodities/
+src/embrapa_dashboard/
 ├── cli.py              # Typer entry point (embrapa ingest ...)
 ├── config.py           # Pydantic Settings (.env reader)
 ├── core/               # Shared primitives (raw zone, HTTP retry, observability)

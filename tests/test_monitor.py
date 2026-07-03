@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from embrapa_commodities.monitor import (
+from embrapa_dashboard.monitor import (
     STUCK_THRESHOLD_S,
     MonitorState,
     _build_state_grid,
@@ -418,7 +418,7 @@ def test_build_state_grid_arranges_cells_in_four_column_rows() -> None:
 def test_build_progress_hides_chunk_states_bar_without_state_events() -> None:
     """COMEX/COMTRADE/BCB never emit state_* events — the 'Chunk states 0/27'
     bar must not render for them (it would sit frozen with ETA '?')."""
-    from embrapa_commodities.monitor.render import _build_progress
+    from embrapa_dashboard.monitor.render import _build_progress
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="comex", run_id="r1", chunks_total=4))
@@ -430,7 +430,7 @@ def test_build_progress_hides_chunk_states_bar_without_state_events() -> None:
 
 
 def test_build_progress_shows_chunk_states_bar_for_uf_sweeping_pipelines() -> None:
-    from embrapa_commodities.monitor.render import _build_progress
+    from embrapa_dashboard.monitor.render import _build_progress
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
@@ -445,7 +445,7 @@ def test_build_progress_shows_chunk_states_bar_for_uf_sweeping_pipelines() -> No
 def test_build_progress_keeps_states_bar_across_chunk_boundaries() -> None:
     """saw_state_events is sticky: a fresh chunk resets the UF grid but the
     bar must not flicker away for IBGE-style pipelines."""
-    from embrapa_commodities.monitor.render import _build_progress
+    from embrapa_dashboard.monitor.render import _build_progress
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
@@ -463,7 +463,7 @@ def test_build_progress_keeps_states_bar_across_chunk_boundaries() -> None:
 def test_build_progress_shows_rows_unknown_until_reported() -> None:
     """COMEX/COMTRADE chunk_end events carry no rows field — the header must
     show 'rows ?' rather than a misleading 0."""
-    from embrapa_commodities.monitor.render import _build_progress
+    from embrapa_dashboard.monitor.render import _build_progress
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="comex", run_id="r1", chunks_total=2))
@@ -561,7 +561,7 @@ def _make_running_state() -> MonitorState:
 
 
 def test_pipeline_eta_returns_none_before_first_chunk_completes() -> None:
-    from embrapa_commodities.monitor import _pipeline_eta
+    from embrapa_dashboard.monitor import _pipeline_eta
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=3))
@@ -569,7 +569,7 @@ def test_pipeline_eta_returns_none_before_first_chunk_completes() -> None:
 
 
 def test_pipeline_eta_uses_average_of_completed_chunks() -> None:
-    from embrapa_commodities.monitor import _pipeline_eta
+    from embrapa_dashboard.monitor import _pipeline_eta
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=3))
@@ -582,7 +582,7 @@ def test_pipeline_eta_uses_average_of_completed_chunks() -> None:
 
 
 def test_pipeline_eta_zero_when_pipeline_ended() -> None:
-    from embrapa_commodities.monitor import _pipeline_eta
+    from embrapa_dashboard.monitor import _pipeline_eta
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=1))
@@ -591,14 +591,14 @@ def test_pipeline_eta_zero_when_pipeline_ended() -> None:
 
 
 def test_chunk_eta_none_when_no_active_chunk() -> None:
-    from embrapa_commodities.monitor import _chunk_eta
+    from embrapa_dashboard.monitor import _chunk_eta
 
     state = MonitorState()
     assert _chunk_eta(state) is None
 
 
 def test_chunk_eta_none_when_no_state_durations_yet() -> None:
-    from embrapa_commodities.monitor import _chunk_eta
+    from embrapa_dashboard.monitor import _chunk_eta
 
     state = MonitorState()
     state.apply(_evt("chunk_start", chunk_id="c1"))
@@ -607,7 +607,7 @@ def test_chunk_eta_none_when_no_state_durations_yet() -> None:
 
 
 def test_chunk_eta_returns_positive_when_data_available() -> None:
-    from embrapa_commodities.monitor import _chunk_eta
+    from embrapa_dashboard.monitor import _chunk_eta
 
     state = MonitorState()
     state.apply(_evt("chunk_start", chunk_id="c1"))
@@ -628,7 +628,7 @@ def test_render_produces_panel_for_running_pipeline(tmp_path: Path) -> None:
     """
     from rich.panel import Panel
 
-    from embrapa_commodities.monitor import _render
+    from embrapa_dashboard.monitor import _render
 
     state = _make_running_state()
     panel = _render(state, tmp_path / "fake-log.jsonl")
@@ -641,7 +641,7 @@ def test_render_handles_finished_pipeline(tmp_path: Path) -> None:
     """``_build_active_line`` has a separate branch for state.ended_at — cover it."""
     from rich.panel import Panel
 
-    from embrapa_commodities.monitor import _render
+    from embrapa_dashboard.monitor import _render
 
     state = _make_running_state()
     state.apply(_evt("pipeline_end", rows_total=1000, duration_s=30.0))
@@ -653,7 +653,7 @@ def test_render_handles_idle_pipeline_between_chunks(tmp_path: Path) -> None:
     """``_build_active_line`` third branch: no active chunk, not ended."""
     from rich.panel import Panel
 
-    from embrapa_commodities.monitor import _render
+    from embrapa_dashboard.monitor import _render
 
     state = MonitorState()
     state.apply(_evt("pipeline_start", pipeline="ibge", run_id="r1", chunks_total=2))
@@ -671,7 +671,7 @@ def test_run_tails_renders_and_exits_on_pipeline_end(tmp_path: Path, monkeypatch
     from rich.console import Console
     from rich.text import Text
 
-    from embrapa_commodities.monitor import render
+    from embrapa_dashboard.monitor import render
 
     monkeypatch.setattr(render.time, "sleep", lambda *a, **k: None)  # no real 1s pause
     rendered: list[MonitorState] = []
@@ -706,7 +706,7 @@ def test_run_reports_missing_log(tmp_path: Path) -> None:
 
     from rich.console import Console
 
-    from embrapa_commodities.monitor import render
+    from embrapa_dashboard.monitor import render
 
     buf = StringIO()
     render.run(tmp_path / "absent.jsonl", console=Console(file=buf, force_terminal=False))
@@ -720,7 +720,7 @@ def test_run_without_follow_renders_once(tmp_path: Path, monkeypatch) -> None:
     from rich.console import Console
     from rich.text import Text
 
-    from embrapa_commodities.monitor import render
+    from embrapa_dashboard.monitor import render
 
     monkeypatch.setattr(render.time, "sleep", lambda *a, **k: None)
     calls: list[int] = []

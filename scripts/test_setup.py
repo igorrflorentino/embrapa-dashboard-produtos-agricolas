@@ -196,7 +196,7 @@ class EnvironmentTester:
 
         # Required in all modes
         required_sections = [
-            "embrapa_commodities:",
+            "embrapa_dashboard:",
             "dev:",
             "prod:",
             "type: bigquery",

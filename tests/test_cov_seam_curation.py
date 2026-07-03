@@ -16,8 +16,8 @@ import pandas as pd
 import pytest
 from google.api_core.exceptions import NotFound
 
-from embrapa_commodities.serving import gateway
-from embrapa_commodities.webapi import seam_curation
+from embrapa_dashboard.serving import gateway
+from embrapa_dashboard.webapi import seam_curation
 
 # ── catalog_worklist ──────────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ def test_catalog_status_skips_banco_when_stats_absent(monkeypatch):
 def test_record_catalog_entry_threads_payload_without_request_context(monkeypatch):
     """Outside a request context, headers are an empty dict and every payload field is
     threaded as a keyword to the verified writer (lines 64-69, no-context branch)."""
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     captured = {}
 
@@ -275,7 +275,7 @@ def test_record_catalog_entry_captures_iap_headers_in_request_context(monkeypatc
     pytest.importorskip("flask")
     from flask import Flask
 
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     captured = {}
 
@@ -303,7 +303,7 @@ def test_record_catalog_entry_captures_iap_headers_in_request_context(monkeypatc
 def test_remove_catalog_entry_threads_tombstone_without_request_context(monkeypatch):
     """The remove seam forwards (codigo, banco, headers={}, change_id) to the tombstone
     writer when there is no request context (lines 87-92)."""
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     captured = {}
 
@@ -327,7 +327,7 @@ def test_remove_catalog_entry_captures_headers_in_request_context(monkeypatch):
     pytest.importorskip("flask")
     from flask import Flask
 
-    from embrapa_commodities.serving import curation
+    from embrapa_dashboard.serving import curation
 
     captured = {}
 
@@ -446,7 +446,7 @@ def test_group_worklist_empty_on_not_found(monkeypatch):
 
 
 def test_record_group_seam_threads_payload(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups
+    from embrapa_dashboard.serving import commodity_groups
 
     captured = {}
 
@@ -466,7 +466,7 @@ def test_record_group_seam_threads_payload(monkeypatch):
 
 
 def test_remove_group_seam_threads_payload(monkeypatch):
-    from embrapa_commodities.serving import commodity_groups
+    from embrapa_dashboard.serving import commodity_groups
 
     captured = {}
 

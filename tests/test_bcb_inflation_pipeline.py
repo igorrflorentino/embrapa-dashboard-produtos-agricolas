@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from embrapa_commodities.bcb import inflation as bcb_inflation
+from embrapa_dashboard.bcb import inflation as bcb_inflation
 
 
 def test_delta_overlap_is_twelve_months() -> None:

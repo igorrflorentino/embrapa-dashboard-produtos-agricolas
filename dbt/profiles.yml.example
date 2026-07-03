@@ -31,7 +31,7 @@
 # ============================================================================
 # ENTERPRISE CONFIGURATION (Service Account Impersonation with OAuth)
 # ============================================================================
-embrapa_commodities:
+embrapa_dashboard:
   target: dev
   outputs:
     dev:
@@ -64,7 +64,7 @@ embrapa_commodities:
 # LEGACY CONFIGURATION (OAuth without Impersonation)
 # Uncomment below if enterprise impersonation is not available
 # ============================================================================
-# embrapa_commodities:
+# embrapa_dashboard:
 #   target: dev
 #   outputs:
 #     dev:
@@ -93,7 +93,7 @@ embrapa_commodities:
 # LEGACY CONFIGURATION (Keyfile-based Authentication)
 # Uncomment below if OAuth/impersonation are not available (not recommended)
 # ============================================================================
-# embrapa_commodities:
+# embrapa_dashboard:
 #   target: dev
 #   outputs:
 #     dev:
