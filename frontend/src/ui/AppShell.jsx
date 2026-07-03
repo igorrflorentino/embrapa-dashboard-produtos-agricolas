@@ -285,9 +285,10 @@ function AppShell({
     try { await navigator.clipboard.writeText(inTextCite); } catch {}
   };
 
-  // The single/multi mode toggle — rendered in the topbar on desktop and inside the
-  // sidebar drawer on mobile (≤768px, where the topbar hides it for space), so the
-  // mode stays reachable. Same buttons, two homes; CSS shows the right one per width.
+  // The single/multi mode toggle — lives in the sidebar at every width (it belongs with
+  // data selection: it decides whether the list below is one banco or the cross-source
+  // set). It used to sit in the topbar on desktop; moved to the sidebar for a calmer top
+  // bar, matching where it already sat on mobile.
   const modeButtons = (
     <>
       <button role="tab" aria-selected={!isMulti}
@@ -322,8 +323,6 @@ function AppShell({
         </button>
         <div className="sep"></div>
         <div className="product-name">Análise histórica de produtos agrícolas</div>
-
-        <div className="mode-switch" role="tablist" aria-label="Modo de análise">{modeButtons}</div>
 
         <nav className="topnav">
           <button
@@ -475,9 +474,9 @@ function AppShell({
           <div className="sidebar-backdrop" onClick={() => setSideNavOpen(false)} aria-hidden="true" />
         )}
         <aside className="sidebar" onClick={(e) => { if (e.target.closest('.side-item')) setSideNavOpen(false); }}>
-          {/* Mobile-only (≤768px): the single/multi mode toggle (the topbar hides it for
-              space). It belongs with data selection — it decides whether the list below is
-              one banco or the cross-source set. */}
+          {/* The single/multi mode toggle — it belongs with data selection (it decides
+              whether the list below is one banco or the cross-source set). Shown at every
+              width; on mobile it sits at the top of the drawer. */}
           <div className="side-mode-switch" role="tablist" aria-label="Modo de análise">{modeButtons}</div>
           <div className="side-section">{isMulti ? 'Fontes no cruzamento' : 'Banco de dados'}</div>
           {isMulti ? (
