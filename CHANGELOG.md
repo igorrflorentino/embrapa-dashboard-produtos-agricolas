@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.10.4] - 2026-07-02
+
+Mobile/tablet responsiveness pass for four admin/utility surfaces that still assumed
+desktop width.
+
+### Fixed
+- **"Cadastro de commodities" e "Nível de industrialização" no celular/tablet.** As
+  tabelas largas (9 e 4 colunas) transbordavam ~800–960px no celular e ~400–580px no
+  tablet — viravam um scroll horizontal inútil. Agora **reflow em cartões empilhados**
+  (mesma convenção da tela "Saúde do sistema", via `data-label`): o cadastro vira cartões
+  ≤768px (celular + tablet retrato) e o classificador de industrialização ≤560px (celular;
+  cabe no tablet). A barra "Aplicar à base" e o seletor "Agrupar por" passam a quebrar
+  linha. Nada muda no desktop.
+- **Menu de filtros:** o rodapé da seção de geografia ("Malha IBGE: 5571 municípios ·
+  mesorregião/microrregião…") era um único filho flex com `flex-shrink: 0` e vazava ~230px
+  do painel no celular — agora encolhe e quebra em duas linhas.
+- **Janela "Citar painel":** tinha `overflow: hidden` sem `max-height`, então em telas
+  baixas (ou citações longas) o modal era **cortado sem rolagem**. Agora é limitado à
+  altura da viewport com o **corpo rolável** (o cabeçalho e o ✕ ficam fixos e visíveis).
+
 ## [1.10.3] - 2026-07-02
 
 Post-migration audit follow-ups (v1.10.0→v1.10.2): a multi-agent audit found no

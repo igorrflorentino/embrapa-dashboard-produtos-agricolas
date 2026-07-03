@@ -21,10 +21,10 @@ function EnrichmentCodeRow(c, nested) {
   const todo = !c.level;
   return (
     <tr key={c.id} className={(nested ? 'cur-coderow-nested' : '') + (todo ? ' cur-coderow-todo' : '')}>
-      <td>{nested ? null : <span className="cur-src">{_bancoShort(c.source)}</span>}</td>
-      <td className="tnum">{c.code}</td>
-      <td>{c.desc}{todo && <span className="cur-todo-pill">a classificar</span>}</td>
-      <td>
+      <td className="cur-cell-src">{nested ? null : <span className="cur-src">{_bancoShort(c.source)}</span>}</td>
+      <td className="tnum cur-cell-code" data-label="Código">{c.code}</td>
+      <td className="cur-cell-desc" data-label="Descrição">{c.desc}{todo && <span className="cur-todo-pill">a classificar</span>}</td>
+      <td className="cur-cell-level" data-label="Nível de industrialização">
         <select className={'xs-select cur-level' + (todo ? ' cur-level-empty' : '')} value={c.level || ''}
                 title={c.level ? window.enrichment.levelDesc(c.level) : 'Selecione o nível de industrialização'}
                 onChange={(e) => window.enrichment.setCode(c.id, { level: e.target.value })}>

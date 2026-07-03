@@ -346,9 +346,16 @@
   box-shadow: 0 28px 60px rgba(0,0,0,0.20), 0 4px 14px rgba(0,0,0,0.08);
   max-width: 640px;
   width: 100%;
+  /* Never taller than the (padded) viewport — the body scrolls instead of the modal
+     being clipped (it has overflow:hidden for the rounded corners). Critical on short
+     phone viewports / long citations. */
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 .cite-head {
+  flex: none;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -363,7 +370,7 @@
   letter-spacing: -0.005em;
 }
 .cite-head .caption { color: var(--fg-3); }
-.cite-body { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 14px; }
+.cite-body { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .cite-text {
   font: 400 13.5px var(--font-body);
   color: var(--fg-1);
@@ -2949,6 +2956,14 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .cur-apply-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-warn); flex-shrink: 0; }
 .cur-apply-actions { margin-left: auto; display: inline-flex; gap: 8px; }
 .cur-apply-actions .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Phone/tablet-portrait: the apply bar wraps so the status text + Descartar/Aplicar
+   buttons never crush; the actions drop to their own full-width row. The "Agrupar por"
+   segment in the classifier's section header also wraps below the title. */
+@media (max-width: 640px) {
+  .cur-apply { flex-wrap: wrap; gap: 10px; }
+  .cur-apply-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+  .cur-group-by { flex-wrap: wrap; }
+}
 
 /* Curadoria — commit (SCD2 write) loading + success, and worklist "a classificar" */
 .cur-apply.committing { border-color: color-mix(in srgb, var(--info) 40%, transparent); background: color-mix(in srgb, var(--info) 6%, transparent); }
@@ -3294,6 +3309,82 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   padding: 2px 6px; border-radius: 999px; white-space: nowrap;
 }
 @media (max-width: 640px) { .cc-add-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Cadastro member table (9 columns) → stacked label:value CARDS on phone + tablet-
+   portrait. The table is ~1.2k px wide, so it overflows even a 768px tablet; a card
+   reflow (same convention as ViewHealth's .hs-table) keeps it usable. Scoped to
+   .cc-dt-wrap so the shared .dt-wrap (ViewDados) is untouched. */
+@media (max-width: 768px) {
+  .cc-dt-wrap { overflow: visible; max-height: none; border: none; border-radius: 0; }
+  .cc-table, .cc-table thead, .cc-table tbody,
+  .cc-table th, .cc-table td, .cc-table tr { display: block; width: 100%; }
+  .cc-table thead {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .cc-table tbody tr {
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+    padding: 10px 12px; margin-bottom: 10px; background: var(--bg-surface);
+  }
+  .cc-table tbody td {
+    border: none; padding: 5px 0; min-height: 0; white-space: normal;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; text-align: right;
+  }
+  .cc-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font: 600 10px var(--font-body); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--fg-3); text-align: left; flex-shrink: 0;
+  }
+  /* First cell (Banco) = card title: full-width, no label. */
+  .cc-table tbody td.cc-cell-title {
+    display: block; text-align: left; font-weight: 700; font-size: 13px;
+    padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px dashed var(--border-subtle);
+  }
+  /* Long free-text (Descrição) stacks: label above, value wraps full-width. */
+  .cc-table tbody td[data-label="Descrição"] { display: block; text-align: left; overflow-wrap: anywhere; }
+  .cc-table tbody td[data-label="Descrição"]::before { display: block; margin-bottom: 2px; }
+  /* Selects/buttons take the value side, comfortably tappable (never wider than the card). */
+  .cc-table tbody td .cc-group-select,
+  .cc-table tbody td select { max-width: 60%; min-width: 0; min-height: 34px; }
+  .cc-table tbody td.cc-cell-actions { justify-content: flex-end; }
+}
+
+/* Industrialization classifier (.cur-table, 4 columns) fits on tablet but overflows a
+   phone → stacked cards on PHONE only (≤560px). Group/banco/chapter header rows (single
+   colSpan cell) stay as full-width bands; each code row becomes a card with its <select>. */
+@media (max-width: 560px) {
+  .pc-table-wrap { overflow-x: visible; }
+  .cur-table, .cur-table thead, .cur-table tbody,
+  .cur-table th, .cur-table td, .cur-table tr { display: block; width: 100%; }
+  .cur-table thead {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  /* Group / banco / chapter header bands (they carry no data-label cells). */
+  .cur-table tbody tr.cur-grouprow td,
+  .cur-table tbody tr.cur-bancorow td,
+  .cur-table tbody tr.cur-chaprow td { display: block; width: 100%; }
+  /* Code rows (everything that is NOT a header band) → cards. */
+  .cur-table tbody tr:not(.cur-grouprow):not(.cur-bancorow):not(.cur-chaprow) {
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+    padding: 10px 12px; margin: 8px 0; background: var(--bg-surface);
+  }
+  .cur-table tbody tr:not(.cur-grouprow):not(.cur-bancorow):not(.cur-chaprow) td {
+    border: none; padding: 4px 0; white-space: normal;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: right;
+  }
+  .cur-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font: 600 10px var(--font-body); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--fg-3); text-align: left; flex-shrink: 0;
+  }
+  .cur-table td.cur-cell-src:empty { display: none; }       /* nested rows: no source chip */
+  /* Description stacks (label above, value wraps) so long text never overflows the card. */
+  .cur-table td.cur-cell-desc { display: block; text-align: left; overflow-wrap: anywhere; }
+  .cur-table td.cur-cell-desc::before { display: block; margin-bottom: 2px; }
+  .cur-table td.cur-cell-level .cur-level { min-height: 36px; max-width: 60%; min-width: 0; }
+}
 
 /* ============================================================================
    MOBILE / PHONE RESPONSIVE PASS (≤768px) — added 2026-06-27.
