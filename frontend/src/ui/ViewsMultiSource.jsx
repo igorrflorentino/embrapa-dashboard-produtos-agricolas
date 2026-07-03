@@ -22,7 +22,7 @@ function CrossProductPicker({ value, onChange, families }) {
   const allowBasket = !(families && families.length);
   return (
     <div className="pp-selector">
-      <span className="pp-selector-label">Commodity</span>
+      <span className="pp-selector-label">Agrupamento</span>
       <div className="pp-chips">
         {allowBasket && (
           <button className={'pp-chip ' + (!value ? 'on' : '')}
@@ -77,9 +77,9 @@ function ViewExportCoef() {
           <p className="caption" style={{ padding: '16px 4px' }}>
             O coeficiente de exportação compara <strong>massa produzida</strong> (IBGE, em mil t)
             com <strong>peso exportado</strong> (MDIC, em kg) — uma razão só faz sentido para
-            commodities de família <strong>massa</strong>. A seleção atual inclui produto de
-            volume (m³) ou cesta mista, para a qual a razão não é interpretável. Escolha uma
-            commodity de massa para ver o indicador.
+            agrupamentos de família <strong>massa</strong>. A seleção atual inclui agrupamento de
+            volume (m³) ou cesta mista, para a qual a razão não é interpretável. Escolha um
+            agrupamento de massa para ver o indicador.
           </p>
         </div>
       </>
@@ -167,7 +167,7 @@ function ViewMarketShare() {
       </div>
 
       <div className="card">
-        <window.SectionHeader overline="Participação por commodity · último ano" title="Onde o Brasil pesa mais no mundo" />
+        <window.SectionHeader overline="Participação por agrupamento · último ano" title="Onde o Brasil pesa mais no mundo" />
         <window.BarChart data={data.byProduct.slice(0, 10).map(p => ({ name: p.name, value: p.share }))} valueKey="value" color="var(--viz-1)" label="% do mundo" height={300} />
       </div>
     </>
@@ -197,9 +197,9 @@ function ViewPriceSpread() {
           <window.SectionHeader overline="Spread de preço" title="Indicador indisponível para esta seleção" />
           <p className="caption" style={{ padding: '16px 4px' }}>
             O preço na porteira deriva de <strong>valor ÷ massa</strong> (IBGE) e o preço FOB de
-            <strong> valor ÷ peso</strong> (MDIC), em US$/kg — só interpretáveis para commodities de
-            família <strong>massa</strong>. A seleção atual inclui produto de volume (m³) ou cesta
-            mista. Escolha uma commodity de massa para ver o spread.
+            <strong> valor ÷ peso</strong> (MDIC), em US$/kg — só interpretáveis para agrupamentos de
+            família <strong>massa</strong>. A seleção atual inclui agrupamento de volume (m³) ou cesta
+            mista. Escolha um agrupamento de massa para ver o spread.
           </p>
         </div>
       </>

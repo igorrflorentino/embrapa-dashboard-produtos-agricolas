@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [1.10.7] - 2026-07-03
+## [1.10.8] - 2026-07-03
+
+Melhoria de UX de terminologia: distinguir **agrupamento** (a cesta) de
+**commodity** (o item individual) de forma consistente na UI.
+
+### Changed
+- **As perspectivas cruzadas (multi-fonte) passam a chamar a cesta de
+  "Agrupamento", não "Commodity".** No Cadastro as cestas já se chamavam
+  "agrupamentos"; nas perspectivas o mesmo conceito aparecia como "commodity",
+  o que confundia. Agora o vocabulário é consistente: **agrupamento** = a cesta
+  (o que o seletor cruzado escolhe, chaveado por `commodity_id`), **commodity** =
+  o item individual. Só textos de exibição mudaram: o rótulo do seletor das 4
+  perspectivas cruzadas ("Commodity" → "Agrupamento"); os avisos "indicador
+  indisponível" do Coeficiente de exportação e do Preço porteira vs. FOB
+  ("agrupamento de massa" no lugar de "commodity de massa"); o título
+  "Participação por agrupamento" (era "por commodity") em Brasil no mercado
+  mundial; e as descrições de perspectiva + glossário correspondentes ("quebra
+  por agrupamento", "exportação mundial do agrupamento"). Os itens individuais
+  seguem como "produto"/"commodity" nas telas de banco único, e a escala de
+  industrialização ("Commodity Pura/Manufaturado") fica intacta.
 
 Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
 seletor de commodity (Coeficiente de exportação, entre outras).
