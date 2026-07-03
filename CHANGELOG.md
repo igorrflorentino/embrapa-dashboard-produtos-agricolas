@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [1.10.6] - 2026-07-02
+## [1.10.7] - 2026-07-03
+
+Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
+seletor de commodity (Coeficiente de exportação, entre outras).
+
+### Fixed
+- **`/api/catalog` retornava 500 em produção, quebrando as análises cruzadas.**
+  Duas commodities no `gold_commodity_crosswalk` — PEVS **3433 (Carvão vegetal)** e
+  **3434 (Lenha)** — estavam com `commodity_id` NULL (uma entrada do catálogo salva
+  sem agrupamento). No `commodity_catalog()` isso virava uma **chave de dicionário
+  `float` NaN** misturada com as chaves texto; o provedor JSON do Flask serializa
+  com `sort_keys=True`, tentava ordenar `NaN` contra `str` e estourava
+  (`'<' not supported between float and str`), **derrubando o endpoint inteiro**.
+  Com o `crossCatalog()` vazio, a perspectiva "Coeficiente de exportação" (e os
+  seletores de commodity das demais cruzadas) exibia "Indicador indisponível".
+  Agora uma linha com `commodity_id` nulo é **ignorada** (com log de aviso) em vez
+  de derrubar a resposta — uma única linha malformada nunca mais quebra todas as
+  views. As duas commodities ficam fora das análises cruzadas até receberem um
+  agrupamento (continuam normais nas views de banco único). Teste de regressão
+  adicionado. Diagnosticado reproduzindo no preview contra os dados reais de prod.
 
 Correção **real** do menu de filtros no celular e no desktop — a v1.10.5 não
 resolveu (e piorou no iPhone). O diagnóstico desta vez foi feito reproduzindo o

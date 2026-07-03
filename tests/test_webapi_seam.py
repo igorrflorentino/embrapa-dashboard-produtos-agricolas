@@ -9,6 +9,8 @@ export filter, the value-added batching and the TTL-cached catalog.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -830,6 +832,43 @@ def test_commodity_catalog_is_ttl_cached_not_process_lifetime(monkeypatch):
         cache.clear()  # cache expiry/invalidation → re-queries (lru never would)
         seam.commodity_catalog()
         assert calls["n"] == 2
+
+
+def test_commodity_catalog_skips_null_id_rows_and_stays_json_safe(monkeypatch):
+    """A crosswalk row with a NULL commodity_id (a catalog entry saved without an
+    agrupamento — prod codes pevs:3433/3434) must be SKIPPED, not turned into a
+    NaN float dict key. Such a key 500s the WHOLE /api/catalog: the JSON provider's
+    sort_keys can't order float(NaN) against the str ids, taking down every
+    cross-source view. Regression guard for that outage."""
+    seam = _seam()
+
+    def fake_run(query, params):
+        # one valid row + two poison rows (NULL id, the exact prod shape: codes 3433/3434,
+        # one NaN-float and one None so both missing-value flavors are covered).
+        return pd.DataFrame(
+            {
+                "commodity_id": ["acai", float("nan"), None],
+                "commodity_name": ["Açaí", None, None],
+                "source": ["pevs", "pevs", "pevs"],
+                "code": ["3403", "3433", "3434"],
+            }
+        )
+
+    monkeypatch.setattr(seam.gateway, "run_query", fake_run)
+    monkeypatch.setattr(_base(), "get_settings", lambda: Settings(gcp_project_id="p"))
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        cat = seam.commodity_catalog()
+
+    # only the valid row survives; the id-less rows are dropped, never a key
+    assert set(cat) == {"acai"}
+    assert cat["acai"]["pevs"] == ["3403"]
+    assert not any(pd.isna(k) for k in cat)
+    # the actual failure mode: sort_keys must not raise "'<' not supported
+    # between instances of 'float' and 'str'"
+    json.dumps(cat, sort_keys=True)
 
 
 # ── app: unknown /api paths are JSON 404, never the SPA index.html ─────────────
