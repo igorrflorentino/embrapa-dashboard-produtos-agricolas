@@ -135,6 +135,31 @@ def test_list_log_paths_sorted_newest_first(isolated_log_dir: Path) -> None:
     assert paths[1] == first
 
 
+def test_list_log_paths_tolerates_vanished_candidate(
+    isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A log file pruned between glob() and stat() must not crash
+    `embrapa monitor --list` — the vanished file is skipped, the survivors listed.
+    """
+    old_path = isolated_log_dir / "ibge-20260101T000000Z.jsonl"
+    new_path = isolated_log_dir / "ibge-20260101T000100Z.jsonl"
+    old_path.write_text("", encoding="utf-8")
+    new_path.write_text("", encoding="utf-8")
+    os.utime(old_path, (old_path.stat().st_atime, old_path.stat().st_mtime - 100))
+
+    real_stat = Path.stat
+
+    def flaky_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self == new_path:
+            raise FileNotFoundError(self)
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    # No crash; only the surviving (older) candidate is returned.
+    assert observability.list_log_paths() == [old_path]
+
+
 def test_log_dir_respects_env_var(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EMBRAPA_LOG_DIR", str(tmp_path / "custom"))
     assert observability.log_dir() == tmp_path / "custom"

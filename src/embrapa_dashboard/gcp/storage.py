@@ -31,69 +31,83 @@ logger = logging.getLogger(__name__)
 # bucket-wide so accidental overwrites can be recovered for a month but
 # don't bloat storage.
 _LANDING_PREFIX = "landing/"
-_RAW_PREFIX = "raw/"
+_DEFAULT_RAW_PREFIX = "raw/"
 _BACKUPS_PREFIX = "backups/"
 
-# Both landing/ (legacy filtered Bronze inputs) and raw/ (two-phase verbatim
-# extracts) hold cold audit-trail Parquet: tier down to ARCHIVE, never delete.
-_ARCHIVE_TRAIL_PREFIXES = [_LANDING_PREFIX, _RAW_PREFIX]
 
-_LIFECYCLE_RULES: list[dict] = [
-    # ── landing/ + raw/ — Bronze inputs, archive-at-365d, never delete ─────
-    {
-        "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
-        "condition": {
-            "age": 30,
-            "matchesStorageClass": ["STANDARD"],
-            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
+def _build_lifecycle_rules(raw_prefix: str = _DEFAULT_RAW_PREFIX) -> list[dict]:
+    """The storage-class lifecycle rule set, scoped to the configured raw prefix.
+
+    The raw-zone prefix is operator-tunable (GCS_RAW_PREFIX / settings.gcs_raw_prefix),
+    so the archive-trail tiering must bind to the SAME prefix the raw extracts are
+    written under — a hardcoded ``raw/`` would silently leave every raw object at
+    STANDARD class forever once an operator overrode the prefix.
+    """
+    # Both landing/ (legacy filtered Bronze inputs) and the raw zone (two-phase
+    # verbatim extracts) hold cold audit-trail Parquet: tier down to ARCHIVE,
+    # never delete.
+    archive_trail_prefixes = [_LANDING_PREFIX, raw_prefix]
+    return [
+        # ── landing/ + raw zone — Bronze inputs, archive-at-365d, never delete ─
+        {
+            "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
+            "condition": {
+                "age": 30,
+                "matchesStorageClass": ["STANDARD"],
+                "matchesPrefix": archive_trail_prefixes,
+            },
         },
-    },
-    {
-        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-        "condition": {
-            "age": 90,
-            "matchesStorageClass": ["NEARLINE"],
-            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
+        {
+            "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+            "condition": {
+                "age": 90,
+                "matchesStorageClass": ["NEARLINE"],
+                "matchesPrefix": archive_trail_prefixes,
+            },
         },
-    },
-    {
-        "action": {"type": "SetStorageClass", "storageClass": "ARCHIVE"},
-        "condition": {
-            "age": 365,
-            "matchesStorageClass": ["COLDLINE"],
-            "matchesPrefix": _ARCHIVE_TRAIL_PREFIXES,
+        {
+            "action": {"type": "SetStorageClass", "storageClass": "ARCHIVE"},
+            "condition": {
+                "age": 365,
+                "matchesStorageClass": ["COLDLINE"],
+                "matchesPrefix": archive_trail_prefixes,
+            },
         },
-    },
-    # ── backups/ — Gold cold-storage, delete-at-365d ──────────────────────
-    {
-        "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
-        "condition": {
-            "age": 30,
-            "matchesStorageClass": ["STANDARD"],
-            "matchesPrefix": [_BACKUPS_PREFIX],
+        # ── backups/ — Gold cold-storage, delete-at-365d ──────────────────────
+        {
+            "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
+            "condition": {
+                "age": 30,
+                "matchesStorageClass": ["STANDARD"],
+                "matchesPrefix": [_BACKUPS_PREFIX],
+            },
         },
-    },
-    {
-        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-        "condition": {
-            "age": 90,
-            "matchesStorageClass": ["NEARLINE"],
-            "matchesPrefix": [_BACKUPS_PREFIX],
+        {
+            "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+            "condition": {
+                "age": 90,
+                "matchesStorageClass": ["NEARLINE"],
+                "matchesPrefix": [_BACKUPS_PREFIX],
+            },
         },
-    },
-    {
-        "action": {"type": "Delete"},
-        "condition": {
-            "age": 365,
-            "matchesPrefix": [_BACKUPS_PREFIX],
+        {
+            "action": {"type": "Delete"},
+            "condition": {
+                "age": 365,
+                "matchesPrefix": [_BACKUPS_PREFIX],
+            },
         },
-    },
-    # ── bucket-wide — non-current version cleanup ─────────────────────────
-    {
-        "action": {"type": "Delete"},
-        "condition": {"age": 30, "isLive": False},
-    },
-]
+        # ── bucket-wide — non-current version cleanup ─────────────────────────
+        {
+            "action": {"type": "Delete"},
+            "condition": {"age": 30, "isLive": False},
+        },
+    ]
+
+
+# Default rule set (raw prefix = "raw/"). ensure_bucket rebuilds this per-call
+# from the operator's configured prefix; this constant is the default-prefix form.
+_LIFECYCLE_RULES: list[dict] = _build_lifecycle_rules()
 
 
 def _rule_key(rule: dict) -> tuple:
@@ -118,8 +132,24 @@ def _rule_key(rule: dict) -> tuple:
     )
 
 
-def _apply_protections(bucket: storage.Bucket) -> bool:
+def _normalize_raw_prefix(raw_prefix: str | None) -> str:
+    """Coerce the operator-supplied raw prefix to the ``<prefix>/`` lifecycle form.
+
+    ``settings.gcs_raw_prefix`` is a bare prefix (default ``raw``, no trailing
+    slash) that raw_object_name joins as ``<prefix>/<source>/...``, so the
+    lifecycle ``matchesPrefix`` must carry the trailing slash to match those
+    objects. Falls back to the default when unset/blank.
+    """
+    prefix = (raw_prefix or "").strip().strip("/")
+    if not prefix:
+        return _DEFAULT_RAW_PREFIX
+    return f"{prefix}/"
+
+
+def _apply_protections(bucket: storage.Bucket, lifecycle_rules: list[dict] | None = None) -> bool:
     """Idempotently enable uniform IAM, versioning, lifecycle. Returns True if changed."""
+    if lifecycle_rules is None:
+        lifecycle_rules = _LIFECYCLE_RULES
     changed = False
     if not bucket.iam_configuration.uniform_bucket_level_access_enabled:
         bucket.iam_configuration.uniform_bucket_level_access_enabled = True
@@ -130,14 +160,20 @@ def _apply_protections(bucket: storage.Bucket) -> bool:
     # Compare lifecycle semantically (canonical keys), not by raw dict equality —
     # see _rule_key. Only patch when the rule SET actually differs.
     current = {_rule_key(dict(rule)) for rule in (bucket.lifecycle_rules or [])}
-    desired = {_rule_key(rule) for rule in _LIFECYCLE_RULES}
+    desired = {_rule_key(rule) for rule in lifecycle_rules}
     if current != desired:
-        bucket.lifecycle_rules = _LIFECYCLE_RULES
+        bucket.lifecycle_rules = lifecycle_rules
         changed = True
     return changed
 
 
-def ensure_bucket(client: storage.Client, bucket_name: str, location: str) -> storage.Bucket:
+def ensure_bucket(
+    client: storage.Client,
+    bucket_name: str,
+    location: str,
+    raw_prefix: str | None = None,
+) -> storage.Bucket:
+    lifecycle_rules = _build_lifecycle_rules(_normalize_raw_prefix(raw_prefix))
     bucket = client.bucket(bucket_name)
     if not bucket.exists():
         logger.info(
@@ -148,11 +184,11 @@ def ensure_bucket(client: storage.Client, bucket_name: str, location: str) -> st
         new_bucket = storage.Bucket(client, name=bucket_name)
         new_bucket.iam_configuration.uniform_bucket_level_access_enabled = True
         new_bucket.versioning_enabled = True
-        new_bucket.lifecycle_rules = _LIFECYCLE_RULES
+        new_bucket.lifecycle_rules = lifecycle_rules
         return client.create_bucket(new_bucket, location=location)
 
     bucket.reload()
-    if _apply_protections(bucket):
+    if _apply_protections(bucket, lifecycle_rules):
         logger.info(
             "Updating gs://%s protections (uniform IAM + versioning + lifecycle)",
             bucket_name,

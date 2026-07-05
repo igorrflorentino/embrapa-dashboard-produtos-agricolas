@@ -270,3 +270,41 @@ def test_record_group_rejects_unsluggable_name(monkeypatch):
         cg.record_group(
             "###", _HEADERS, settings=_settings(), client=mock.Mock(), invalidate_cache=False
         )
+
+
+def test_record_group_create_retry_dedupes_before_duplicate_check(monkeypatch):
+    """A retried CREATE whose first attempt landed (group now in `current`) must return the
+    deduped echo via the change_id, NOT fail the 'já existe' duplicate-name check."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    inserted = _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    out = cg.record_group(
+        "Madeira",
+        _HEADERS,
+        change_id="k1",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert out["deduped"] is True and out["group_id"] == "madeira"
+    assert inserted == []  # dedup short-circuits BEFORE any insert
+
+
+def test_delete_group_retry_dedupes_before_missing_check(monkeypatch):
+    """A retried delete (tombstone already landed → group NOT in `current`) must return the
+    deduped echo via the change_id, NOT fail the 'não existe (nada a excluir)' check."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    inserted = _patch_common(monkeypatch, cg, {})  # group already tombstoned → empty current
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    out = cg.delete_group(
+        "madeira",
+        _HEADERS,
+        change_id="k1",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert out["deduped"] is True and out["active"] is False and out["group_id"] == "madeira"
+    assert inserted == []  # dedup short-circuits BEFORE any insert

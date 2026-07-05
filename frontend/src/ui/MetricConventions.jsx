@@ -187,16 +187,6 @@ window.CURRENCY_FX = {
   EUR: { symbol: '€',   long: 'Euro'  },
 };
 
-// Mock nominal-deflation factor: when Nominal correction is picked we
-// scale the *real* values down to a plausible "as-paid-then" figure.
-// Real pipeline: real = nominal × cumulative_inflation; reversing here.
-window.CORRECTION_FACTOR = {
-  IPCA:    1.00,
-  'IGP-M': 1.06,
-  'IGP-DI':1.04,
-  Nominal: 0.22,  // illustrative — shrinks 2024 real values back to ~nominal
-};
-
 // Multiplicative display factor for a server-backed *value*. ALWAYS 1: currency ×
 // correction now select the REAL deflated value column SERVER-side
 // (val_real_{ipca,igpm,igpdi}_{brl,usd,eur}, val_yearfx_{brl,usd,eur} for Nominal —

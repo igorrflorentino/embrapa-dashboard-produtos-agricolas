@@ -65,10 +65,13 @@ Os regimes `DX, FM, MIP, MOP, XIP, XOP` **não estão no Bronze** — exigem re-
   retornam linhas — na base anual HS eles costumam ser raros/vazios (risco de "opção que não
   funciona" de novo). Se vazios, **não** expô-los no filtro (ver Fase 6, opções data-driven).
 
-### Fase 3 — Silver: preservar o regime aduaneiro + mapear os 10 fluxos
+### ✅ Fase 3 — Silver: preservar o regime aduaneiro + mapear os 10 fluxos (FEITO — v1.9.0, PR #189)
 
-`dbt/models/silver/silver_comtrade_flows.sql`. Hoje a linha 122 mantém só `customsCode='C00'`
-(agregado) e descarta os breakdowns. Nova regra de grão **anti-double-count**:
+`dbt/models/silver/silver_comtrade_flows.sql`. **Já shipado:** o modelo preserva os breakdowns de
+regime (`where customsCode != 'C00' or _regime_breakdown_rows = 0`, com a janela anti-double-count
+`_regime_breakdown_rows`), emite `customs_code` como coluna dimensional (`customsCode as
+customs_code`) e junta o seed de natureza de mercado (`on p.customs_code = mn.customs_code`). A
+regra de grão **anti-double-count** que ficou implementada:
 
 - Manter as linhas de breakdown (`customsCode != 'C00'`) **onde existem**, E manter a linha `C00`
   **apenas** para as chaves `(reporter,partner,cmd,flow,year)` que **não têm** nenhum breakdown
@@ -80,16 +83,18 @@ Os regimes `DX, FM, MIP, MOP, XIP, XOP` **não estão no Bronze** — exigem re-
   `national-export`/`foreign-import`/`import-inward-processing`/… para os demais).
 - Manter mos/mot/partner2 ainda somados (só o regime é o eixo novo pedido).
 
-### Fase 4 — Gold: carregar o regime no grão
+### ✅ Fase 4 — Gold: carregar o regime no grão (FEITO — v1.9.0, PR #189)
 
+**Já shipado:** `gold_comtrade_flows.sql` carrega `customs_code` no grão/GROUP BY.
 `dbt/models/gold/gold_comtrade_flows.sql`. Adicionar `customs_code` (+ `customs_label`) ao
 `partition_by`/`cluster_by` conceitual e a TODOS os `group by` (with_dominant, base_flows). O grão
 passa de `(flow, year, reporter, partner, cmd)` para `(flow, customs_code, year, reporter,
 partner, cmd)`. Impacto de linhas medido: **+~16%** (breakdowns são esparsos). Revisar o
 `data_quality_flag` e a deflação (inalterados — operam por linha).
 
-### Fase 5 — Serving marts: propagar regime + fluxos
+### ✅ Fase 5 — Serving marts: propagar regime + fluxos (FEITO — v1.9.0, PR #189)
 
+**Já shipado:** `serving_comtrade_annual.sql` inclui `customs_code` no grão/GROUP BY.
 `dbt/models/serving/serving_comtrade_annual.sql` (+ quaisquer marts Comtrade). Incluir
 `customs_code` no grão do mart; garantir que o snapshot flow-agregado ainda soma corretamente
 quando o regime não é filtrado (default = todos os regimes, inclui C00+breakdowns SEM dupla

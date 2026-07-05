@@ -5,11 +5,16 @@ SPA) imports. It does NOT contain any pages, layouts, or chart components — th
 React frontend lives in ``frontend/`` and the REST host in
 ``embrapa_dashboard.webapi``. What lives here is the data seam:
 
-* ``sql``       — pure, parameterized BigQuery SQL builders (no I/O).
-* ``iap``       — pure parsing of the IAP-injected author email header.
-* ``cache``     — the ``flask-caching`` instance + ``init_cache`` wiring.
-* ``gateway``   — cached, parameterized reads against the ``serving`` marts.
-* ``curation``  — the append-only curation writers behind the editor's "Save".
+* ``sql``                    — pure, parameterized BigQuery SQL builders (no I/O).
+* ``iap``                    — pure parsing of the IAP-injected author email header.
+* ``cache``                  — the ``flask-caching`` instance + ``init_cache`` wiring.
+* ``gateway``                — cached, parameterized reads against the ``serving`` marts.
+* ``curation``               — the append-only curation writers behind the editor's "Save".
+* ``agrupamentos``           — the first-class commodity-group (agrupamento) registry writers.
+* ``catalog_lifecycle``      — orphan → Descontinuado detection + the human-gated purge plan.
+* ``research_inputs``        — the shared append-log primitives (IAP author + change_id dedup).
+* ``attribute_engineering``  — the FROZEN derived-attribute writers (deferred to a future version).
+* ``feedback``               — the ``/api/feedback`` writer + best-effort GitHub-issue forward.
 
 Architecture: the backend is stateless. It never loads a Gold table into a
 Pandas DataFrame held behind a global lock; instead it translates UI filters

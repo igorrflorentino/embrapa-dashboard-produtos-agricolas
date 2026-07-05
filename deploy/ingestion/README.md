@@ -72,7 +72,10 @@ gcloud run jobs execute embrapa-ingest-all --region <INGEST_JOB_REGION> --projec
 `deploy.sh` forwards config to the job via an **explicit allowlist** — only the
 keys `embrapa ingest all` actually reads: `GCP_PROJECT_ID`, `GCS_*`,
 `BQ_LOCATION`, the `BQ_BRONZE_*` dataset/table names, and the per-source scope
-vars `IBGE_*` / `BCB_*` / `COMEX_*`. Everything else in `.env` is **not** shipped
+vars `IBGE_*` / `PAM_*` / `PPM_*` / `BCB_*` / `COMEX_*` (PAM/PPM are forwarded
+even though they are out of `ingest all` — their monthly schedulers override the
+args to `ibge-pam`/`ibge-ppm` and rely on the same allowlist). Everything else in
+`.env` is **not** shipped
 to the Job: the secret `COMTRADE_API_KEY` and `GCP_IMPERSONATION_SA`, all other
 `COMTRADE_*` (COMTRADE is key-gated and excluded from `all`), the serving/cache
 vars (`BQ_SERVING_DATASET`, `BQ_RESEARCH_INPUTS_DATASET`,
@@ -190,6 +193,9 @@ All have sensible defaults; set them in `.env` only to override:
 | `RECONCILE_SCHEDULE_CRON` | `0 3 1 * *` | Monthly deep-refresh cron (1st of month, 03:00) |
 | `RECONCILE_SCHEDULE_NAME` | `<job>-reconcile-monthly` | Scheduler name for the deep-refresh trigger |
 | `RECONCILE_JOB_TASK_TIMEOUT` | `7200s` | Task timeout for the (heavier) reconcile execution |
+| `PAM_SCHEDULE_CRON` / `PAM_SCHEDULE_TZ` / `PAM_SCHEDULE_NAME` | `0 4 2 * *` / `America/Sao_Paulo` / `<job>-pam-monthly` | Monthly PAM trigger (read by `schedule_pam.sh`) |
+| `PPM_SCHEDULE_CRON` / `PPM_SCHEDULE_TZ` / `PPM_SCHEDULE_NAME` | `<see schedule_ppm.sh>` / `America/Sao_Paulo` / `<job>-ppm-monthly` | Monthly PPM trigger (read by `schedule_ppm.sh`) |
+| `COMTRADE_SCHEDULE_CRON` / `COMTRADE_SCHEDULE_TZ` / `COMTRADE_SCHEDULE_NAME` | `<see schedule_comtrade.sh>` | Comtrade backfill trigger (read by `schedule_comtrade.sh`) |
 | `INGEST_ALERT_EMAIL` | _(required for `alert.sh`)_ | Recipient for job-failure alerts |
 | `INGEST_ALERT_CHANNEL_NAME` | `Embrapa ingestion alerts` | Display name of the notification channel |
 

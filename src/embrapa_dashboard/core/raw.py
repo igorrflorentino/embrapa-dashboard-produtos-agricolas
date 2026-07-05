@@ -58,7 +58,12 @@ def _ensure_bucket_once(storage_client: storage.Client, settings: Settings) -> N
         _bucket_ensured[storage_client] = ensured
     if settings.gcs_bucket in ensured:
         return
-    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    ensure_bucket(
+        storage_client,
+        settings.gcs_bucket,
+        settings.bq_location,
+        raw_prefix=settings.gcs_raw_prefix,
+    )
     ensured.add(settings.gcs_bucket)
 
 

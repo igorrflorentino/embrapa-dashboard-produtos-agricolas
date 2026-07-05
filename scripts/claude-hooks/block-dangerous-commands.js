@@ -54,12 +54,20 @@ const PATTERNS = [
   { level: 'high', id: 'git-reset-hard',       regex: /\bgit\s+reset\s+--hard\b/,                                         reason: 'git reset --hard loses uncommitted work' },
   { level: 'high', id: 'git-clean-fd',         regex: /\bgit\s+clean\s+.*-[a-zA-Z]*f[a-zA-Z]*d/,                          reason: 'git clean -fd removes untracked files & dirs' },
   { level: 'high', id: 'chmod-777',            regex: /\bchmod\s+(-R\s+)?777\b/,                                          reason: 'chmod 777 is a security risk' },
-  { level: 'high', id: 'env-print',            regex: /\b(printenv|env\s*$|set\s*$)\b/,                                   reason: 'dumping all environment variables' },
-  { level: 'high', id: 'cat-env',              regex: /\bcat\s+.*\.env\b/,                                                reason: 'printing .env contents to stdout' },
+  // Only a BARE dump (no argument) leaks every variable. `printenv PATH` / `uv run env`
+  // read a single, non-secret var or a subcommand named `env`, so they must pass.
+  { level: 'high', id: 'env-print',            regex: /(^|[;&|]\s*)(printenv|env|set)\s*($|[;&|])/,                       reason: 'dumping all environment variables' },
+  // `.env` is a secret dump; a `*.example`/`*.sample`/`*.template` template (e.g.
+  // `.env.example`, `.env.prod.example`) is safe — exempt when the path token ends in one.
+  { level: 'high', id: 'cat-env',              regex: /\bcat\s+.*\.env\b(?![^\s;&|]*\.(example|sample|template)\b)/,       reason: 'printing .env contents to stdout' },
 
   // ── HIGH – GCP-specific (embrapa project) ───────────────────────────────
-  { level: 'high', id: 'bq-rm',               regex: /\bbq\s+(rm|remove)\b/,                                              reason: 'bq rm deletes BigQuery datasets/tables' },
-  { level: 'high', id: 'bq-drop',             regex: /\bbq\s+query\b.*\bDROP\s+(TABLE|DATASET|SCHEMA)\b/i,                 reason: 'DROP via bq query deletes BigQuery objects' },
+  // Allow optional global flags (`--project_id=X`, `--location US`, …) between `bq` and
+  // the verb — the repo's own docs use exactly that idiom, so a tight anchor bypassed it.
+  { level: 'high', id: 'bq-rm',               regex: /\bbq\s+(--\S+(\s+\S+)?\s+)*(rm|remove)\b/,                          reason: 'bq rm deletes BigQuery datasets/tables' },
+  // DROP objects OR the equally destructive row-loss verbs (DELETE FROM / TRUNCATE TABLE)
+  // via `bq query`, likewise tolerating global flags before `query`.
+  { level: 'high', id: 'bq-drop',             regex: /\bbq\s+(--\S+(\s+\S+)?\s+)*query\b.*\b(DROP\s+(TABLE|DATASET|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+TABLE)\b/i, reason: 'DROP/DELETE/TRUNCATE via bq query destroys BigQuery data' },
   { level: 'high', id: 'gcloud-delete-proj',   regex: /\bgcloud\s+projects\s+delete\b/,                                   reason: 'gcloud projects delete is catastrophic' },
   { level: 'high', id: 'gcloud-delete-svc',    regex: /\bgcloud\s+run\s+services\s+delete\b/,                             reason: 'gcloud run services delete removes Cloud Run service' },
   // The ingestion Job, its schedulers, the COMTRADE secret, the runtime SAs and the
@@ -71,7 +79,10 @@ const PATTERNS = [
   { level: 'high', id: 'gcloud-delete-secret', regex: /\bgcloud\s+secrets\s+delete\b/,                                    reason: 'gcloud secrets delete removes a prod secret (e.g. the COMTRADE key)' },
   { level: 'high', id: 'gcloud-delete-sa',     regex: /\bgcloud\s+iam\s+service-accounts\s+delete\b/,                     reason: 'gcloud iam service-accounts delete removes a runtime SA' },
   { level: 'high', id: 'gcloud-delete-alert',  regex: /\bgcloud\s+(alpha\s+|beta\s+)?monitoring\s+policies\s+delete\b/,    reason: 'gcloud monitoring policies delete removes an alert policy' },
-  { level: 'high', id: 'gcloud-delete-bucket', regex: /\b(gcloud\s+storage|gsutil)\s+(rm|rb)\s+.*gs:\/\//,                 reason: 'deleting GCS bucket or objects' },
+  { level: 'high', id: 'gcloud-delete-bucket', regex: /\b(gcloud\s+(alpha\s+|beta\s+)?storage|gsutil)\s+(rm|rb)\s+.*gs:\/\//, reason: 'deleting GCS bucket or objects' },
+  // Modern spelling: `gcloud storage buckets delete <bucket>` (no gs:// / rm-rb verb).
+  // Destroys the bucket — including the Gold cold-storage backups under gs://…/backups/.
+  { level: 'high', id: 'gcloud-delete-bucket-verb', regex: /\bgcloud\s+(alpha\s+|beta\s+)?storage\s+buckets\s+delete\b/,   reason: 'gcloud storage buckets delete destroys a GCS bucket (incl. Gold backups)' },
   { level: 'high', id: 'gsutil-rm-r',          regex: /\bgsutil\s+(-m\s+)?rm\s+(-r\s+)?gs:\/\//,                          reason: 'recursive GCS deletion' },
 
   // ── HIGH – dbt-specific ─────────────────────────────────────────────────

@@ -80,13 +80,17 @@ def run_query(sql: str, params: list, *, max_bytes: int | None = None) -> object
     Applies a ``maximum_bytes_billed`` ceiling (``Settings.bq_max_bytes_billed``)
     so the /api serving path can't run an unbounded scan — a pathological filter
     or a cold Bronze read is FAILED by BigQuery (visibly) rather than silently
-    billing a runaway query. ``None``/0 disables the cap. ``max_bytes`` overrides the
-    global ceiling with a TIGHTER per-call cap — used by the raw-table inspection path,
-    whose ``SELECT *`` sort/filter scans are bounded well below the global default.
+    billing a runaway query. ``None``/0 disables the cap. ``max_bytes`` is a per-call
+    ceiling — used by the raw-table inspection path, whose ``SELECT *`` sort/filter
+    scans are bounded well below the global default. The EFFECTIVE cap is the TIGHTER
+    of ``max_bytes`` and the global ``Settings.bq_max_bytes_billed``, so an operator
+    who sets a stricter global cost ceiling is honoured even on the per-call paths
+    (0/None on either side means "unset" for that side).
     """
     cfg = get_settings()
     job_config = bigquery.QueryJobConfig(query_parameters=params)
-    cap = max_bytes if max_bytes is not None else cfg.bq_max_bytes_billed
+    caps = [c for c in (max_bytes, cfg.bq_max_bytes_billed) if c]
+    cap = min(caps) if caps else None
     if cap:
         job_config.maximum_bytes_billed = cap
     job = _client().query(sql, job_config=job_config)
@@ -963,13 +967,17 @@ def fetch_product_timeseries(
     value_column: str | None = None,
     uf_codes: Sequence[str] = (),
     flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
 ):
     """Annual per-product series (value + native quantity) for a source (backs productTS).
 
     ``uf_codes`` optionally narrows to the producing/origin UFs (cross-source per-UF
     scoping: PEVS mass/volume + farm-gate price). ``flow`` narrows trade sources to
     one direction (export/import); production sources must leave it ``None`` (their
-    marts have no ``flow`` column).
+    marts have no ``flow`` column). ``customs`` (regime aduaneiro) and ``market`` (tipo
+    de mercado) narrow the COMTRADE mart to one customs procedure / economic purpose;
+    only ``un_comtrade`` carries those columns, so other sources leave them ``None``.
     """
     table_name, code_col, _, default_value = _product_source(source)
     settings = get_settings()
@@ -989,6 +997,8 @@ def fetch_product_timeseries(
         codes=tuple(codes),
         uf_codes=tuple(uf_codes),
         flow=flow,
+        customs=customs,
+        market=market,
         reporter_column=reporter_column,
         reporter_value=reporter_value,
     )

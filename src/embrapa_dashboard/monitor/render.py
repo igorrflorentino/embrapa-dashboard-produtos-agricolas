@@ -258,23 +258,39 @@ def _render(state: MonitorState, log_path: Path) -> Panel:
 def _tail_jsonl(log_path: Path, last_position: int) -> tuple[list[dict[str, Any]], int]:
     """Read new JSONL events since *last_position*; return (events, new_position).
 
-    Silently skips blank lines and ``json.JSONDecodeError`` lines (matches the
-    previous inline behaviour — the monitor must keep rendering even if the
-    producer ever writes a torn line). Raises ``FileNotFoundError`` if the log
-    disappears mid-run so the caller can break the loop cleanly.
+    Consumes only COMPLETE (newline-terminated) lines: the returned position is
+    just past the last newline, so a torn trailing line the producer is still
+    mid-writing is left in place to be re-read (and completed) on the next tick,
+    instead of being permanently skipped and its byte offset consumed. Reads in
+    binary and decodes each line individually, catching ``UnicodeDecodeError`` (a
+    line torn inside a UTF-8 multibyte char — events carry non-ASCII pt-BR text)
+    as well as blank lines and ``json.JSONDecodeError``. Raises
+    ``FileNotFoundError`` if the log disappears mid-run so the caller can break
+    the loop cleanly.
     """
     events: list[dict[str, Any]] = []
-    with log_path.open(encoding="utf-8") as f:
+    with log_path.open("rb") as f:
         f.seek(last_position)
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                events.append(json.loads(stripped))
-            except json.JSONDecodeError:
-                continue
-        return events, f.tell()
+        chunk = f.read()
+
+    # Only advance past complete lines; a trailing fragment (no newline) is left
+    # for the next read.
+    last_newline = chunk.rfind(b"\n")
+    if last_newline == -1:
+        # Nothing complete yet — do not advance the position.
+        return events, last_position
+
+    complete = chunk[: last_newline + 1]
+    new_position = last_position + len(complete)
+    for raw_line in complete.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        try:
+            events.append(json.loads(stripped.decode("utf-8")))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+    return events, new_position
 
 
 def run(

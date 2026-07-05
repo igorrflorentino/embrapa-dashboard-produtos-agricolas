@@ -1,4 +1,4 @@
-# Cost Safety — Budget Alerts and Quotas on GCP
+﻿# Cost Safety — Budget Alerts and Quotas on GCP
 
 Even running manually, **one misbehaving query** (a loop in a dashboard, a full-scan
 without partition, an accidental full-refresh in prod) can generate an unexpected bill
@@ -35,7 +35,7 @@ architecture is **100% scale-to-zero / pay-per-use** — if nobody uses it, it c
 1. **Cloud Console → Billing → Budgets & alerts**
 2. **Create budget**:
    - Name: `embrapa-produtos agrícolas-monthly`
-   - Projects: select `embrapa-dashboard-produtos agrícolas`
+   - Projects: select `embrapa-dashboard-commodities`
    - Services: leave blank (covers everything in the project)
 3. **Budget amount**:
    - Type: **Specified amount**
@@ -91,7 +91,7 @@ The readers consume from their own project; yours stays isolated.
 
 ```bash
 gcloud billing accounts list
-gcloud billing projects describe embrapa-dashboard-produtos agrícolas
+gcloud billing projects describe embrapa-dashboard-commodities
 ```
 
 Or via the Console: **Billing → Reports** — cost-by-SKU chart for the last

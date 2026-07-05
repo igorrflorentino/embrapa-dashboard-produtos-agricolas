@@ -71,8 +71,13 @@ jobs:
   # (not only a CI-green main tip) and ci.yml runs on push/PR to main, NOT on tag
   # refs — so without this, a tag on an un-tested commit would publish a deployable
   # `:latest` that bypassed every check (INFRA-1). Runs the credential-free subset
-  # (ruff + pytest + ESLint + vitest); dbt parse / sqlfluff need a warehouse and stay
-  # in the main-branch CI. build-and-push `needs:` this, so a red gate blocks the image.
+  # (ruff + pytest + ESLint + vitest). sqlfluff and dbt-unit-tests are excluded here
+  # because they need the WIF/BigQuery warehouse connection (dbt *parse* is
+  # credential-free — ci.yml runs it with no warehouse — and could optionally be
+  # added to this gate). This gate is a tag-time lint/test guard for the IMAGE build
+  # only; the image ships no dbt models, so dbt-model correctness is enforced instead
+  # by ci.yml on push/PR to main and by the post-merge dbt-build-prod.
+  # build-and-push `needs:` this, so a red gate blocks the image.
   gate:
     name: Gate (lint + tests)
     if: github.event.repository.fork == false

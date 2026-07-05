@@ -225,6 +225,22 @@ def test_summarize_pipeline_start() -> None:
     assert "2024" in result
 
 
+def test_summarize_pipeline_start_omits_years_for_yearless_params() -> None:
+    """BCB / COMTRADE emit params without start_year/end_year — the summary must
+    not render a bogus 'years=None-None' segment."""
+    ev = _evt(
+        "pipeline_start",
+        pipeline="bcb-inflation",
+        params={"full": False, "from_raw": False},
+        chunks_total=1,
+    )
+    result = _summarize(ev)
+    assert "bcb-inflation" in result
+    assert "None" not in result
+    assert "years=" not in result
+    assert "chunks=1" in result
+
+
 def test_summarize_chunk_start() -> None:
     result = _summarize(_evt("chunk_start", chunk_n=1, chunk_total=3, chunk_id="2020-2022"))
     assert "2020-2022" in result
@@ -527,6 +543,37 @@ def test_tail_jsonl_raises_filenotfound_for_missing_log(tmp_path: Path) -> None:
     log = tmp_path / "does-not-exist.jsonl"
     with pytest.raises(FileNotFoundError):
         _tail_jsonl(log, last_position=0)
+
+
+def test_tail_jsonl_defers_torn_trailing_line(tmp_path: Path) -> None:
+    """A partial (no-newline) trailing line must be left for the next read, not
+    consumed — otherwise the event is permanently lost once the producer
+    completes it (e.g. a torn pipeline_end line → the monitor loops forever)."""
+    log = tmp_path / "run.jsonl"
+    # First read: one complete line + a torn fragment lacking a newline.
+    log.write_bytes(b'{"event": "done"}\n{"event": "par')
+    events, position = _tail_jsonl(log, last_position=0)
+    assert [e["event"] for e in events] == ["done"]
+    # Position advanced only past the complete line, not into the fragment.
+    assert position == len(b'{"event": "done"}\n')
+
+    # Producer finishes the torn line; the next read must recover it.
+    with log.open("ab") as f:
+        f.write(b'tial"}\n')
+    events, new_position = _tail_jsonl(log, last_position=position)
+    assert [e["event"] for e in events] == ["partial"]
+    assert new_position == log.stat().st_size
+
+
+def test_tail_jsonl_survives_torn_multibyte_char(tmp_path: Path) -> None:
+    """A line torn inside a UTF-8 multibyte char (events carry pt-BR text) must
+    not crash the tailer with UnicodeDecodeError."""
+    log = tmp_path / "run.jsonl"
+    # 'ã' is 2 bytes in UTF-8; write only its first byte followed by a newline.
+    log.write_bytes(b'{"event": "ok"}\n\xc3\n{"event": "ok2"}\n')
+    events, position = _tail_jsonl(log, last_position=0)
+    assert [e["event"] for e in events] == ["ok", "ok2"]
+    assert position == log.stat().st_size
 
 
 # ── ETA computations + end-to-end render (coverage for builders) ─────────

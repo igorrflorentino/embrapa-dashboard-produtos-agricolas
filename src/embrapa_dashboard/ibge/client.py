@@ -187,7 +187,17 @@ MAX_PARALLEL_STATE_FETCHES = 4
 
 
 class SidraLimitExceeded(Exception):
-    """Raised when SIDRA refuses the request because it would return too many cells."""
+    """Raised when SIDRA refuses the request because it would return too many cells.
+
+    ``periods`` carries the exact period window of the request that was refused —
+    the recursive halving in ``_fetch_block`` narrows it to a single year before
+    the exception finally propagates, so callers can report the year that actually
+    failed rather than the whole outer window.
+    """
+
+    def __init__(self, *args: object, periods: list[int] | None = None) -> None:
+        super().__init__(*args)
+        self.periods = periods
 
 
 class SidraRequestError(Exception):
@@ -357,13 +367,16 @@ def _fetch_block(
     drain_s, retry_budget_s = _request_deadlines(len(periods), len(products), variables, geo_units)
     try:
         response = _http_get(url, total_deadline_s=drain_s, retry_budget_s=retry_budget_s)
-    except SidraLimitExceeded:
+    except SidraLimitExceeded as exc:
         if len(periods) > 1:
             mid = len(periods) // 2
             args = (table_id, geo_level, geo_filter, classification, products, variables)
             return _fetch_block(args[0], periods[:mid], *args[1:]) + _fetch_block(
                 args[0], periods[mid:], *args[1:]
             )
+        # A single-year request was still refused — record the failing year so
+        # callers can report it instead of the (already-halved-away) outer window.
+        exc.periods = periods
         raise
     return [response.json()]
 
@@ -436,9 +449,15 @@ def _fetch_by_state_parallel(
             try:
                 payloads.extend(future.result())
             except SidraLimitExceeded as exc:
+                # The window was already halved down to a single year before this
+                # propagated (see _fetch_block), so report THAT year, not the outer
+                # window — and since one year for one state still exceeds the limit,
+                # the actionable knob is fewer product codes, not a narrower window.
+                failing = exc.periods if exc.periods is not None else periods
                 raise RuntimeError(
-                    f"State {state_code} for period {_periods_string(periods)} alone exceeds "
-                    f"the SIDRA cell limit. Reduce the period window or split by smaller units."
+                    f"State {state_code} for period {_periods_string(failing)} alone exceeds "
+                    f"the SIDRA cell limit. Reduce the number of product codes "
+                    f"(IBGE_PRODUCT_CODES) for this ingest."
                 ) from exc
             except Exception:
                 logger.exception("State %s failed permanently", state_code)

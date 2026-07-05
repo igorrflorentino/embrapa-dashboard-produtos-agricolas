@@ -168,11 +168,19 @@
 // ── Enrichment analyses (src/data/enrichment.js) ─────────────────────────
 //
 // @typedef {Object} ValueAddedAnalysis  window.valueAddedAnalysis(groupId)
+// Since v1.9.4 the industrialization axis is an open-vocabulary 8-level ordinal scale
+// (no longer the fixed {bruta, processada} pair). The by-level maps are pivoted
+// DYNAMICALLY over `levels`, keyed by each level id — the frontend reads byLevel[l.id]
+// (see enrichment.js / producers.js).
 // @property {boolean}  preview
+// @property {string[]} levels         Ordered level ids present in the analysis (least→most processed).
 // @property {number[]} years
-// @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevel        Value (US$ bi) per level.
-// @property {{bruta:{y:number,v:number}[],processada:{y:number,v:number}[]}} byLevelWeight  Volume (mil t) per level — backs the 100% volume composition.
-// @property {{y:number,brutaV:number,procV:number,brutaW:number,procW:number,procShare:number,procShareW:number,priceBruta:number,priceProc:number,premium:number}[]} series   brutaV/procV = value (US$ bi); brutaW/procW = weight (mil t); procShare/procShareW = processed share by value/weight (%); priceBruta/priceProc = absolute unit price (US$/kg); premium = priceProc ÷ priceBruta.
+// @property {Object.<string,{y:number,v:number}[]>} byLevel        {<levelId>: [{y,v}]} — value (US$ bi) per level, a point per year (0 where absent).
+// @property {Object.<string,{y:number,v:number}[]>} byLevelWeight  {<levelId>: [{y,v}]} — volume (mil t) per level; backs the 100% volume composition.
+// @property {Object.<string,{y:number,v:number}[]>} byLevelPrice   {<levelId>: [{y,v}]} — unit price (US$/kg) per level.
+// @property {Object[]} series          One row per year: {y, levels:{<levelId>:{v,w,price}}} — the raw per-level pivot source.
+// @property {number}   premium         Price premium of the most- vs least-processed level.
+// @property {?string}  predominant     Level id with the largest value share.
 // @property {number}   nCodes   Count of classified COMEX codes included in the analysis (the "Códigos na análise" KPI).
 //
 // @typedef {Object} MarketNatureAnalysis  window.marketNatureAnalysis()

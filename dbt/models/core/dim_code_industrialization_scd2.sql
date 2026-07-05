@@ -15,8 +15,9 @@
 -- ────────────────────────────────────────────────────────────────────────────
 -- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only
 -- per-CODE industrialization log. Classifies each raw Gold CODE (NCM / PEVS
--- product / HS6) as bruta | processada | misturado — the level the value-added
--- analysis needs to split COMEX exports.
+-- product / HS6) on an open-vocabulary 8-level ordinal scale from a raw commodity
+-- (Commodity Pura) to a specialized manufactured good (Manufaturado Especializado)
+-- — the level the value-added analysis needs to split COMEX exports.
 --
 -- Each "Aplicar" in the Curadoria panel appends ONE immutable row to
 -- research_inputs.code_industrialization_log (written by the Python data-access

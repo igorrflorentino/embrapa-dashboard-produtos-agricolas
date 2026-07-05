@@ -22,8 +22,9 @@ Design (honouring the lead's decisions):
     breaks the key, so the writer REJECTS it (fail loud) rather than ignoring it.
   * **Exact code only** (no prefixes): a NEW entry's ``codigo_produto`` must be a
     REAL product code in the source's Gold — the writer validates existence against
-    ``gateway.fetch_products`` and REJECTS a code that doesn't exist (an update to an
-    already-active entry is exempt). ``gold_produto_agrupamento`` / the visibility gate
+    ``gateway.fetch_source_code_stats`` (the Gold code universe, NOT the visibility-gated
+    serving mart) and REJECTS a code that doesn't exist (an update to an already-active
+    entry is exempt). ``gold_produto_agrupamento`` / the visibility gate
     match on ``code = codigo_produto`` (equality, not ``LIKE``), so there is no
     prefix fan-out to double-count.
   * **Per-catalog allowlist** (``research_inputs.catalog_editors`` keyed by resource):
@@ -155,7 +156,8 @@ def _validate_catalog_edit(codigo_produto: str, banco: str, ciclo_de_vida: str |
         )
 
 
-# Catalog banco token → the long source id ``fetch_products`` expects (Gold product list).
+# Catalog banco token → the long source id. Doubles as the allowlist of the 5 valid catalog
+# banco tokens (its keys) that _assert_code_exists validates against before the Gold read.
 _BANCO_TO_SOURCE = {
     "pevs": "ibge_pevs",
     "pam": "ibge_pam",
@@ -199,7 +201,13 @@ def _assert_code_exists(
     already-active entry is always allowed (validated on add; its Gold data may have since
     changed, and you must still be able to edit its ciclo/agrupamento). Degrades to a no-op
     when the source has no product list yet (table not built) rather than blocking. Fail
-    loud (400, pt-BR) with a hint."""
+    loud (400, pt-BR) with a hint.
+
+    Validates against the Gold code universe (``fetch_source_code_stats``, keyed by the
+    short banco token) rather than the serving mart: the mart has the F7 visibility gate
+    baked in at BUILD time, so a code cataloged as *indisponível* then tombstoned could not
+    be re-registered until the next nightly dbt build even though it demonstrably exists in
+    Gold. Reading Gold directly avoids that one-build-cycle re-add lag."""
     if _is_active_entry(bq, table_fqn, codigo_produto, banco):
         return  # update of an existing entry — not a new registration
     source = _BANCO_TO_SOURCE.get(banco)
@@ -209,12 +217,12 @@ def _assert_code_exists(
         # No other layer validates the banco, so reject it loudly here.
         raise ValueError(f"banco {banco!r} inválido — use um de {sorted(_BANCO_TO_SOURCE)}.")
     try:
-        products = gateway.fetch_products(source)
+        stats = gateway.fetch_source_code_stats(banco)
     except NotFound:
-        return  # source products table not built yet — don't block the first catalog write
-    if products is None or products.empty:
+        return  # source Gold table not built yet — don't block the first catalog write
+    if stats is None or stats.empty:
         return
-    codes = {str(p.code) for p in products.itertuples()}
+    codes = {str(r.code) for r in stats.itertuples()}
     if codigo_produto not in codes:
         raise ValueError(
             f"O código {codigo_produto!r} não existe no banco {banco} — cadastre apenas "
@@ -254,7 +262,7 @@ def record_produto_catalog(
     # blank one yields NULLs that fail the nightly prod ``dbt build`` not_null tests —
     # so fail loud HERE (a 400 the researcher can fix), never at build time.
     if not agrupamento_id or not agrupamento:
-        raise ValueError("agrupamento é obrigatório (nomeia a commodity e gera o agrupamento_id).")
+        raise ValueError("agrupamento é obrigatório (nomeia o produto e gera o agrupamento_id).")
     if len(agrupamento) > MAX_NOTE_LEN:
         raise ValueError(f"agrupamento excede {MAX_NOTE_LEN} caracteres.")
     if descricao_produto is not None and len(descricao_produto) > MAX_NOTE_LEN:
@@ -464,8 +472,15 @@ def invalidate_produto_catalog_cache() -> None:
     Also drops ``fetch_orphan_produtos``: the orphan worklist derives its tombstones
     from the SAME produto_catalog_log, so a catalog write (especially a removal) must
     refresh it too — otherwise the Descontinuados view lags read-after-write up to its TTL.
+    Same reasoning for ``fetch_agrupamentos``: each group's ``n_members`` is computed from
+    that same catalog log, so an add/remove must refresh the groups list too — otherwise
+    the delete-blocking hint (n_members) lags read-after-write up to its TTL.
     """
-    for fn in (gateway.fetch_produto_catalog, gateway.fetch_orphan_produtos):
+    for fn in (
+        gateway.fetch_produto_catalog,
+        gateway.fetch_orphan_produtos,
+        gateway.fetch_agrupamentos,
+    ):
         try:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down

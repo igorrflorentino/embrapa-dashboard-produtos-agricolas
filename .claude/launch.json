@@ -9,6 +9,7 @@
     },
     {
       "name": "webapi-prod-data",
+      "comment": "LOCAL-ONLY: run_preview_local.py is git-ignored (serves the built SPA against PROD BigQuery; not for CI). Create it yourself — see the 'Local preview w/ PROD data' recipe — or use the 'webapi' config, which works out of the box.",
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "--extra", "webapi", "python", "run_preview_local.py"],
       "port": 8000

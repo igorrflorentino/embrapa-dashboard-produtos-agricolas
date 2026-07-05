@@ -23,7 +23,7 @@ from embrapa_dashboard.serving import gateway
 from embrapa_dashboard.serving import sql as sqlbuild
 
 from . import format as fmt
-from .registries import Banco, banco_by_id
+from .registries import BANCOS, Banco, banco_by_id
 from .seam_base import (  # noqa: F401  (commodity toolkit re-exported via seam)
     _LIVE_SOURCES,
     _codes,
@@ -31,6 +31,11 @@ from .seam_base import (  # noqa: F401  (commodity toolkit re-exported via seam)
     _xyear,
     produto_catalog,
 )
+
+# The registered banco ids — used to tell an UNKNOWN banco id (which banco_by_id
+# silently maps to PEVS) from a real one, so source_meta never leaks PEVS cobertura
+# for a nonexistent banco.
+_REGISTERED_BANCO_IDS = frozenset(b.id for b in BANCOS)
 
 # Trade bancos are USD-NATIVE (customs values declared in US$ — FOB exports, CIF
 # imports for COMTRADE), but the serving marts now carry the SAME currency matrix
@@ -154,7 +159,7 @@ def _customs_from_summary(summary: dict | None) -> str | None:
     carries ``customs_code``). ``'all'`` / absent → ``None`` = sum every regime (the
     total, C00-equivalent), so an unfiltered request is byte-identical to before the
     regime dimension existed. Only the COMTRADE mart carries ``customs_code``, so the
-    seam passes this ONLY for that source.
+    seam threads this through the COMTRADE productTS + overview readers ONLY.
     """
     if not summary:
         return None
@@ -170,7 +175,8 @@ def _market_from_summary(summary: dict | None) -> str | None:
     Like ``flow``/``customs``, this re-queries the trade snapshot server-side (the COMTRADE
     mart carries the seed-classified ``market_nature`` column). ``'all'`` / absent → ``None``
     = sum every purpose (incl. unmapped), so an unfiltered request is byte-identical to
-    before the dimension existed. Only the COMTRADE mart carries market_nature.
+    before the dimension existed. Only the COMTRADE mart carries market_nature, so the seam
+    threads this through the COMTRADE productTS + overview readers ONLY.
     """
     if not summary:
         return None
@@ -206,8 +212,8 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     # flow, so it re-queries here (None = sum every flow, the historical default).
     flow = _flow_from_summary(summary)
     # Customs procedure (regime aduaneiro) is server-side too, but ONLY the COMTRADE mart
-    # carries customs_code — so it is passed only in the comtrade overview call below
-    # (None = sum every regime = the total).
+    # carries customs_code — so it is threaded through both the COMTRADE productTS and the
+    # overview call below (None = sum every regime = the total).
     customs = _customs_from_summary(summary)
     # Tipo de mercado (consumo/processamento) — same server-side story, COMTRADE-only.
     market = _market_from_summary(summary)
@@ -220,8 +226,19 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
         # now a REAL BRL/USD/EUR (or deflated) column the trade marts carry, so the
         # snapshot value is served IN the requested currency instead of always USD
         # (which the frontend used to cross-convert via a mock FX rate).
+        # customs_code + market_nature live only on the COMTRADE mart, so the regime +
+        # market filters reach the productTS + overview readers ONLY for un_comtrade
+        # (COMEX has neither dimension) — productTS is the series the views actually
+        # render, so it must honour the same server-side filter as the overview.
+        regime_kw = {} if banco_id == "mdic_comex" else {"customs": customs, "market": market}
         product_ts = gateway.fetch_product_timeseries(
-            banco_id, year_start=y0, year_end=y1, codes=codes, value_column=value_col, flow=flow
+            banco_id,
+            year_start=y0,
+            year_end=y1,
+            codes=codes,
+            value_column=value_col,
+            flow=flow,
+            **regime_kw,
         )
         overview_fn = (
             gateway.fetch_comex_overview
@@ -229,9 +246,6 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             else gateway.fetch_comtrade_overview
         )
         code_kw = "ncm_codes" if banco_id == "mdic_comex" else "cmd_codes"
-        # customs_code + market_nature live only on the COMTRADE mart, so the regime + market
-        # filters reach only fetch_comtrade_overview (COMEX has neither dimension).
-        regime_kw = {} if banco_id == "mdic_comex" else {"customs": customs, "market": market}
         overview_ts = overview_fn(
             year_start=y0,
             year_end=y1,
@@ -356,12 +370,14 @@ def _latest_year_completeness(banco_id: str, year_end: int | None) -> dict:
         else {}
     )
     n_months = months_by_year.get(int(year_end))
-    complete = n_months == 12
+    # Fall back to the prior year only when the latest is genuinely partial AND we actually
+    # observed its month count. An UNOBSERVED count (n_months is None — e.g. the monthly mart
+    # lags gold_source_metadata after a partial rebuild) is treated as trivially complete:
+    # we have no evidence the year is partial, so we must NOT blank/shift its YoY anchor.
+    complete = n_months is None or n_months == 12
     return {
         "months_in_latest_year": n_months,
         "latest_year_complete": complete,
-        # Fall back to the prior year only when the latest is genuinely partial AND
-        # we actually observed its month count (n_months is not None).
         "latest_complete_year": year_end if complete else (year_end - 1),
     }
 
@@ -416,7 +432,10 @@ def _apply_banco_metadata(meta: dict, banco_id: str) -> None:
     registry no longer carries a per-banco maturity, so there is no fallback: a
     banco absent from the table reports ``maturity = None``. Coverage still merges
     the registry's static ``cobertura`` with any table override."""
-    banco = banco_by_id(banco_id)
+    # Resolve WITHOUT banco_by_id's PEVS fallback: an UNKNOWN banco id must not inherit
+    # PEVS's static cobertura (which would defeat serialize_source_meta's `if not meta`
+    # empty-payload contract and attribute PEVS provenance to a nonexistent banco).
+    banco = banco_by_id(banco_id) if banco_id in _REGISTERED_BANCO_IDS else None
     ov = banco_metadata_overrides(banco_id)
     meta["maturity"] = ov.get("maturity")
     meta["maturity_note"] = ov.get("maturity_note")
@@ -442,8 +461,13 @@ def product_uf_ranking(
     value_col, _ = effective_value_column(banco, conv)
     y0, y1 = _years_from_summary(summary)
     if banco_id == "mdic_comex":
+        # Pin exports only: SG_UF_NCM is the UF *of the product*, so on import rows the
+        # real direction is country→UF — summing export+import per UF would inflate and
+        # mislabel the ranking (same rationale as flow_data/products_by_uf). Without this
+        # the per-UF ranking would sum both flows while the rest of the screen honours
+        # the selected direction — internally-inconsistent numbers in one session.
         return gateway.fetch_comex_by_uf(
-            year_start=y0, year_end=y1, ncm_codes=(code,), value_column=value_col
+            year_start=y0, year_end=y1, ncm_codes=(code,), value_column=value_col, flow="export"
         )
     return gateway.fetch_production_by_uf(
         year_start=y0, year_end=y1, product_codes=(code,), value_column=value_col, source=banco_id

@@ -307,11 +307,16 @@ class MonitorState:
 
 def _summarize_pipeline_start(ev: dict[str, Any]) -> str:
     p = ev.get("pipeline")
-    params = ev.get("params", {})
-    return (
-        f"{p} years={params.get('start_year')}-{params.get('end_year')} "
-        f"chunks={ev.get('chunks_total', '?')}"
-    )
+    params = ev.get("params", {}) or {}
+    chunks = f"chunks={ev.get('chunks_total', '?')}"
+    # Only show the years segment when the pipeline carries a year window (PEVS/PAM/
+    # PPM). BCB / COMTRADE emit params without start_year/end_year, so rendering
+    # them unconditionally printed a bogus "years=None-None".
+    start_year = params.get("start_year")
+    end_year = params.get("end_year")
+    if start_year is not None or end_year is not None:
+        return f"{p} years={start_year}-{end_year} {chunks}"
+    return f"{p} {chunks}"
 
 
 def _summarize_chunk_start(ev: dict[str, Any]) -> str:

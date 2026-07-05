@@ -4,13 +4,16 @@
 // (current permalink, view, banco, app version, optional user-agent). Exposes
 // window.postFeedback so the ui/ FeedbackModal (a window-global component) can call it.
 
+import pkg from '../../package.json';
+
 const API = '/api';
 
 // App version for feedback diagnostics. The LIVE value is hydrated from the backend
 // (pyproject → /api/source-meta.appVersion → window.APP_VERSION, set in dataStore) — the
-// single source of truth. This literal is only the pre-hydration fallback; keep it at the
-// current release so a report sent before any source-meta resolves isn't mistagged.
-window.APP_VERSION = window.APP_VERSION || '1.7.0';
+// single source of truth. This pre-hydration fallback reads the bundled package.json
+// version (same strategy as ViewAbout.jsx) so a report sent before any source-meta
+// resolves isn't mistagged, and there is no hardcoded literal to drift at release time.
+window.APP_VERSION = window.APP_VERSION || pkg.version;
 
 // POST one feedback report. Resolves with the echoed row (incl. issue_url when the
 // backend forwarded it to GitHub); rejects with an Error carrying the server message.

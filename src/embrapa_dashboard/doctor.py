@@ -41,15 +41,20 @@ class CheckResult:
 def _check_env(settings: Settings) -> CheckResult:
     """The .env parsed and every per-source code mapping is well-formed.
 
-    Touches all the lazily-parsed Settings properties (PEVS, PAM, BCB, COMEX,
-    COMTRADE) — each raises ``ValueError`` on malformed input, and a mapping
-    that only explodes mid-ingest is exactly what doctor exists to pre-empt.
+    Touches all the lazily-parsed Settings properties (PEVS, PAM, PPM, BCB,
+    COMEX, COMTRADE) — each raises ``ValueError`` on malformed input, and a
+    mapping that only explodes mid-ingest is exactly what doctor exists to
+    pre-empt.
     """
     try:
         infl = settings.inflation_series_map
         curr = settings.currency_series_map
         products = settings.product_codes
         pam_codes = settings.pam_product_codes_list
+        ppm_herd_codes = settings.ppm_herd_product_codes_list
+        ppm_animal_codes = settings.ppm_animal_product_codes_list
+        ppm_herd_vars = settings.ppm_herd_variable_codes_list
+        ppm_animal_vars = settings.ppm_animal_variable_codes_list
         comex_flows = settings.comex_flows_list
         comex_codes = {
             **settings.comex_ncm_map,
@@ -58,9 +63,12 @@ def _check_env(settings: Settings) -> CheckResult:
         }
         comtrade_flows = settings.comtrade_flows_list
         comtrade_codes = settings.comtrade_cmd_map
+        ppm_codes = len(ppm_herd_codes) + len(ppm_animal_codes)
+        ppm_vars = len(ppm_herd_vars) + len(ppm_animal_vars)
         detail = (
             f"products={','.join(products)}  inflation={list(infl.keys())}  "
             f"currency={list(curr.keys())}  pam={len(pam_codes)} codes  "
+            f"ppm={ppm_codes} codes/{ppm_vars} vars  "
             f"comex={'/'.join(comex_flows)} {len(comex_codes)} codes  "
             f"comtrade={'/'.join(comtrade_flows)} {len(comtrade_codes)} codes"
         )

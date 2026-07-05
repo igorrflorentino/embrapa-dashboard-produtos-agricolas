@@ -1050,6 +1050,79 @@ def test_snapshot_comtrade_uses_comtrade_overview_and_no_geo(monkeypatch):
     assert float(out["overview_ts"].loc[0, "total_value"]) == 4.0
 
 
+def test_snapshot_comtrade_threads_customs_and_market_to_productts(monkeypatch):
+    """The regime (customs) + tipo-de-mercado (market) filters must reach the COMTRADE
+    productTS reader — NOT only the overview — because the views recompute every
+    displayed value from productTS, so a filter that skipped it would leave the charts
+    showing all-regime totals (audit HIGH finding). COMEX (which has neither dimension)
+    must NOT receive them."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_pts(*a, **k):
+        recorded["customs"] = k.get("customs", "MISSING")
+        recorded["market"] = k.get("market", "MISSING")
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_source", lambda source=None: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", fake_pts)
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comtrade_overview",
+        lambda **k: pd.DataFrame([{"reference_year": 2022, "total_value_usd": 4.0}]),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_overview",
+        lambda **k: pd.DataFrame([{"reference_year": 2022, "total_value_usd": 4.0}]),
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf", lambda **k: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_comex_by_uf_yearly", lambda **k: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_timeseries", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_product", lambda b: pd.DataFrame())
+
+    conv = {"currency": "USD", "correction": "Nominal"}
+    seam.snapshot("un_comtrade", conv, {"customs": "C01", "market": "consumo"})
+    assert recorded["customs"] == "C01"
+    assert recorded["market"] == "consumo"
+
+    # COMEX has neither dimension → the productTS reader must not receive them.
+    seam.snapshot("mdic_comex", conv, {"customs": "C01", "market": "consumo"})
+    assert recorded["customs"] == "MISSING"
+    assert recorded["market"] == "MISSING"
+
+
+def test_snapshot_comtrade_customs_all_and_absent_resolve_to_none(monkeypatch):
+    """'all'/absent customs+market both → None on productTS (sum every regime/purpose),
+    so an unfiltered COMTRADE request is byte-identical to before those dims existed."""
+    seam = _seam()
+    recorded = {}
+
+    def fake_pts(*a, **k):
+        recorded["customs"] = k.get("customs", "MISSING")
+        recorded["market"] = k.get("market", "MISSING")
+        return pd.DataFrame()
+
+    monkeypatch.setattr(seam.gateway, "fetch_products", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_source", lambda source=None: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_product_timeseries", fake_pts)
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comtrade_overview",
+        lambda **k: pd.DataFrame([{"reference_year": 2022, "total_value_usd": 4.0}]),
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_quality_timeseries", lambda b: pd.DataFrame())
+    monkeypatch.setattr(seam.gateway, "fetch_quality_by_product", lambda b: pd.DataFrame())
+
+    conv = {"currency": "USD", "correction": "Nominal"}
+    seam.snapshot("un_comtrade", conv, {"customs": "all", "market": "all"})
+    assert recorded["customs"] is None and recorded["market"] is None
+
+    seam.snapshot("un_comtrade", conv, None)
+    assert recorded["customs"] is None and recorded["market"] is None
+
+
 def test_snapshot_comex_brl_request_serves_real_brl_column_not_usd(monkeypatch):
     """The mock-FX regression fix: a BRL display on COMEX must thread the REAL
     year-FX BRL column into EVERY value reader (overview, productTS, by-UF, year×UF)
@@ -1213,6 +1286,41 @@ def test_source_meta_comex_full_latest_year_is_complete(monkeypatch):
     assert meta["months_in_latest_year"] == 12
     assert meta["latest_year_complete"] is True
     assert meta["latest_complete_year"] == 2024
+
+
+def test_source_meta_unknown_banco_does_not_leak_pevs_cobertura(monkeypatch):
+    """An UNKNOWN banco id must NOT inherit PEVS's static cobertura. banco_by_id silently
+    falls back to PEVS, which previously stamped PEVS's coverage onto a nonexistent banco;
+    the fix resolves WITHOUT that fallback so cobertura stays None (audit finding)."""
+    seam = _seam()
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
+    meta = seam.source_meta("qualquer-coisa-inexistente")
+    assert meta.get("cobertura") is None
+    assert meta.get("maturity") is None
+
+
+def test_source_meta_comex_unobserved_month_count_is_treated_complete(monkeypatch):
+    """When the monthly mart has NO row for year_end (n_months unobserved — e.g. it lags
+    gold_source_metadata after a partial rebuild), we have no evidence the year is partial,
+    so it is treated as trivially complete: latest_complete_year stays year_end and the YoY
+    anchor is NOT shifted back (matches the documented guard, audit finding)."""
+    seam = _seam()
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_source_metadata",
+        lambda source=None: pd.DataFrame([{"source": "mdic_comex", "year_end": 2026}]),
+    )
+    monkeypatch.setattr(seam.gateway, "fetch_banco_metadata", lambda banco_id: pd.DataFrame())
+    # Mart only knows 2025 — 2026 (the metadata year_end) has no month-count row.
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_months_per_year",
+        lambda: pd.DataFrame([{"reference_year": 2025, "n_months": 12}]),
+    )
+    meta = seam.source_meta("mdic_comex")
+    assert meta["months_in_latest_year"] is None
+    assert meta["latest_year_complete"] is True
+    assert meta["latest_complete_year"] == 2026
 
 
 def test_source_meta_override_flips_maturity_and_coverage(monkeypatch):

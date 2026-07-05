@@ -446,6 +446,25 @@ def test_municipio_yearly_requires_nonempty_city_codes(monkeypatch):
     assert client.post(base, json={"cityCodes": "3550308"}).status_code == 400
 
 
+def test_municipio_yearly_400_on_non_object_json_body(monkeypatch):
+    """A non-object JSON body (array/string/number) is client garbage — it must 400 at the
+    route, not AttributeError on ``.get`` → an opaque 500 (audit finding). The seam must not
+    run."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("seam reached despite non-object JSON body")
+
+    monkeypatch.setattr(seam, "geo_municipio_yearly", must_not_run)
+    base = "/api/municipio-yearly?banco=ibge_pevs&currency=BRL&correction=IPCA"
+    # A JSON array body was previously truthy → survived `or {}` → 500 on `.get`.
+    assert client.post(base, json=["3550308"]).status_code == 400
+    # A bare JSON string body is likewise a non-object → 400, never a 500.
+    assert client.post(base, json="3550308").status_code == 400
+
+
 def test_municipio_yearly_caps_city_codes_count(monkeypatch):
     """SEC-1/TEST-2: a cityCodes list past _MAX_MUNICIPIO_CODES must 400 with the pt-BR
     limit message BEFORE the seam runs. The numeric cap added in the prior audit had no
@@ -1217,6 +1236,19 @@ def test_table_route_400_on_nonscalar_filter_value(monkeypatch):
         '/api/table?banco=ibge_ppm&table=x&filters=[{"col":"c","op":"eq","val":[1,2]}]'
     )
     assert resp.status_code == 400
+
+
+def test_table_route_400_on_too_many_filters(monkeypatch):
+    """More than _MAX_TABLE_FILTERS filters is REJECTED (400), not silently truncated —
+    else the rows/count/CSV would under-filter behind an applied chip (audit finding)."""
+    from embrapa_dashboard.webapi import routes
+
+    client = _client(monkeypatch)
+    n = routes._MAX_TABLE_FILTERS + 1
+    items = ",".join(f'{{"col":"c{i}","op":"eq","val":{i}}}' for i in range(n))
+    resp = client.get(f"/api/table?banco=ibge_ppm&table=x&filters=[{items}]")
+    assert resp.status_code == 400
+    assert "máximo" in resp.get_json()["error"]
 
 
 def test_table_route_rejects_out_of_allowlist_table_end_to_end(monkeypatch):
