@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
-## [Unreleased]
+## [1.10.11] - 2026-07-04
 
 Correções de uma auditoria manual profunda de todo o repositório (75 achados
 verificados). Nenhuma mudança de schema; comportamento preservado exceto os
