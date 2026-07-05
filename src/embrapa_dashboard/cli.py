@@ -354,6 +354,15 @@ def _ibge_batch_ingest(settings: Settings, chunk_years: int | None) -> ChunkTrac
     range_start = settings.ibge_start_year
     range_end = settings.ibge_end_year
 
+    # An inverted window yields zero chunks — the loop below would silently report
+    # "All 0 batches complete" and exit 0 (and the reconcile leg would report the
+    # IBGE PEVS leg green having re-ingested nothing). Fail loudly instead.
+    if range_start > range_end:
+        raise typer.BadParameter(
+            f"IBGE_START_YEAR ({range_start}) is after IBGE_END_YEAR ({range_end}) — "
+            "empty window, nothing to ingest."
+        )
+
     chunks = list(range(range_start, range_end + 1, chunk_years))
     total = len(chunks)
     console.print(
@@ -852,10 +861,10 @@ def doctor_cmd() -> None:
     """Quick health-check before running an ingest. ~10 seconds.
 
     Validates: .env parsing (incl. the PAM/COMEX/COMTRADE mappings), the Gold
-    inflation pivot codes, ADC credentials, BigQuery / GCS reachability,
-    source connectivity (IBGE SIDRA, IBGE PAM, BCB SGS, COMEX, COMTRADE),
-    whether Bronze tables and serving marts exist yet, and Gold-backup
-    freshness.
+    inflation pivot codes, the currency-series and PAM-variable code drift,
+    ADC credentials, BigQuery / GCS reachability, source connectivity (IBGE
+    SIDRA, IBGE PAM, IBGE PPM, BCB SGS, COMEX, COMTRADE), whether Bronze tables
+    and serving marts exist yet, and Gold-backup freshness.
 
     Exits 1 if any check fails. Bronze-tables and serving-marts checks are
     informational (never fail); Gold-backup freshness FAILS when no complete

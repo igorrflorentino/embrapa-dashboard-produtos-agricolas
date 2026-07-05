@@ -85,6 +85,16 @@ def emit(event: str, **fields: object) -> None:
     _event_logger.info(json.dumps(record, default=str, ensure_ascii=False))
 
 
+def _mtime_or_none(p: Path) -> float | None:
+    # Log files are explicitly prunable, so a candidate found by glob may vanish
+    # before we stat it. Treat a missing file as absent rather than raising
+    # FileNotFoundError out of the caller (max() / sorted()).
+    try:
+        return p.stat().st_mtime
+    except FileNotFoundError:
+        return None
+
+
 def latest_log_path(pipeline: str | None = None) -> Path | None:
     """Most recently modified log file, optionally filtered by exact pipeline name.
 
@@ -104,15 +114,6 @@ def latest_log_path(pipeline: str | None = None) -> Path | None:
     if not candidates:
         return None
 
-    def _mtime_or_none(p: Path) -> float | None:
-        # Log files are explicitly prunable, so a candidate found by glob may
-        # vanish before we stat it. Treat a missing file as absent rather than
-        # raising FileNotFoundError out of max().
-        try:
-            return p.stat().st_mtime
-        except FileNotFoundError:
-            return None
-
     rated = [(p, mtime) for p in candidates if (mtime := _mtime_or_none(p)) is not None]
     if not rated:
         return None
@@ -123,4 +124,10 @@ def list_log_paths() -> list[Path]:
     directory = log_dir()
     if not directory.exists():
         return []
-    return sorted(directory.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # Guard the same glob→stat prune race latest_log_path handles: a candidate can
+    # vanish between glob and stat, so filter out files that disappeared instead of
+    # crashing embrapa monitor --list with an unhandled FileNotFoundError.
+    rated = [
+        (p, mtime) for p in directory.glob("*.jsonl") if (mtime := _mtime_or_none(p)) is not None
+    ]
+    return [p for p, _ in sorted(rated, key=lambda item: item[1], reverse=True)]

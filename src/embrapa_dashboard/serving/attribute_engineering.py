@@ -141,7 +141,7 @@ def record_code_industrialization(
     table_fqn = sqlbuild.table_ref(
         cfg, "bq_research_inputs_dataset", cfg.bq_code_industrialization_log_table
     )
-    # Self-heal the log table on a fresh project (mirrors record_flow_market).
+    # Self-heal the log table on a fresh project (house auto-create pattern).
     ensure_code_industrialization_log_table(cfg, bq)
 
     if supplied and _change_id_seen(bq, table_fqn, change_id):

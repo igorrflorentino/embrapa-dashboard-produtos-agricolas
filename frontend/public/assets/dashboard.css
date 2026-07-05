@@ -3515,7 +3515,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 /* ---- Narrowest phones (≤480px): condense the topbar so its flex row never overflows,
    and make the perspective dropdown a single readable column. ---- */
 @media (max-width: 480px) {
-  .mode-switch { display: none; }              /* low-frequency single/multi toggle */
   .topnav { margin-left: 8px; flex: 1 1 auto; min-width: 0; }   /* shrink to fit the row */
   .topnav-trigger { padding: 0 8px; gap: 6px; min-width: 0; max-width: 100%; }
   .topnav-trigger-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3572,9 +3571,6 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
    the three actions collapse into one "⋯" overflow menu, and the perspective selector
    takes the freed room. ---- */
 @media (max-width: 768px) {
-  /* Mode toggle leaves the bar (it reappears at the top of the drawer, below). */
-  .topbar .mode-switch { display: none; }
-
   /* Tighten the row gap a touch so the perspective selector can show the full
      "Selecionar perspectiva" placeholder without an ellipsis. */
   .topbar { gap: 6px; }

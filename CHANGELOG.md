@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [Unreleased]
+
+Correções de uma auditoria manual profunda de todo o repositório (75 achados
+verificados). Nenhuma mudança de schema; comportamento preservado exceto os
+defeitos abaixo.
+
+### Fixed
+- **Filtros "Regime aduaneiro" e "Tipo de mercado" (COMTRADE) agora afetam de
+  fato os gráficos.** Antes chegavam só à série de visão geral, que nenhuma view
+  renderiza — o usuário via totais sem filtro achando que estavam filtrados. O
+  filtro passou a ser aplicado no servidor à série de produtos (`productTS`) que
+  as views realmente desenham, e as quantidades da visão geral usam o mesmo
+  escopo filtrado.
+- **Segurança dos hooks de proteção (`scripts/claude-hooks`).** As guardas de
+  deleção deixavam passar `gcloud storage buckets delete`, `bq --flag rm`,
+  `gcloud alpha storage rm` e `bq query … DELETE/TRUNCATE`; chaves de conta de
+  serviço no padrão do repositório (`sa-*-key.json`) não eram protegidas.
+  Fechadas, com testes positivos e negativos para cada regra (antes 30 de 33
+  regras não tinham teste).
+- **IDs de projeto GCP corrompidos na documentação de IAM/auth/custos/Looker** —
+  o find/replace da renomeação v1.10.8 trocara o ID imutável
+  `embrapa-dashboard-commodities` por um nome inválido (com espaço e acento);
+  todo comando `gcloud`/`bq` copiado dessas páginas falhava. Restaurado.
+- **Robustez da API:** endpoints POST com corpo JSON não-objeto agora respondem
+  400 (antes 500); a grade de Dados rejeita mais de 5 filtros em vez de descartá-los
+  em silêncio (afetava o CSV exportado); paginação de tabela filtrada recebeu
+  ordenação determinística; injeção de Markdown no issue de feedback do GitHub via
+  `url`/`view`/`banco` foi neutralizada.
+- **Curadoria:** idempotência de criar/excluir agrupamento corrigida (retry deixou
+  de dar 400); `mark_purged` passou a exigir status *Descontinuado*; caches de
+  catálogo/agrupamentos invalidam juntos.
+- **Configuração e docs:** `COMEX_END_YEAR` deixou de vir fixado no `.env.example`
+  (evita parar a ingestão do ano corrente); `doctor` valida as variáveis do PPM;
+  diversos comentários/documentos desatualizados alinhados ao código
+  (vocabulário de industrialização, taxonomia de flags, CHANGELOG, SECURITY,
+  índices de PLANS).
+
 ## [1.10.10] - 2026-07-03
 
 Melhoria de UI: o alternador de modo foi para a barra lateral.
@@ -70,6 +107,8 @@ Terminologia precisa + renomeação do projeto para **"produtos agrícolas"**.
   Dashboard". O **ID do projeto GCP permanece `embrapa-dashboard-commodities`**
   (imutável; embutido em BigQuery/Cloud Run/IAM) — só o nome de exibição mudou.
 
+## [1.10.7] - 2026-07-02
+
 Correção de um bug de servidor que derrubava as perspectivas multi-fonte com
 seletor de commodity (Coeficiente de exportação, entre outras).
 
@@ -88,6 +127,8 @@ seletor de commodity (Coeficiente de exportação, entre outras).
   views. As duas commodities ficam fora das análises cruzadas até receberem um
   agrupamento (continuam normais nas views de banco único). Teste de regressão
   adicionado. Diagnosticado reproduzindo no preview contra os dados reais de prod.
+
+## [1.10.6] - 2026-07-02
 
 Correção **real** do menu de filtros no celular e no desktop — a v1.10.5 não
 resolveu (e piorou no iPhone). O diagnóstico desta vez foi feito reproduzindo o

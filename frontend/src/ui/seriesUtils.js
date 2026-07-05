@@ -15,10 +15,15 @@ window.VIZ_SCALE = [
   'var(--viz-6)', 'var(--viz-7)', 'var(--viz-8)', 'var(--viz-9)', 'var(--viz-10)',
 ];
 // i-th categorical color, wrapping around the scale.
+// NOTE: test-pinned helper — read only by seriesUtils.cov.test.js. Production consumers
+// paint categorical series from window.VIZ_SCALE directly; no live view calls window.vizColor.
 window.vizColor = (i) => window.VIZ_SCALE[((i % window.VIZ_SCALE.length) + window.VIZ_SCALE.length) % window.VIZ_SCALE.length];
 
 // ── Series statistics ──────────────────────────────────────────────────
 // Year-over-year growth array from a list of points (default value key 'v').
+// NOTE: test-pinned LEGACY helper — read only by seriesUtils.test.js / seriesUtils.cov.test.js.
+// The plain index-pairing it feeds (pearson(seriesGrowth(a), seriesGrowth(b))) silently
+// misaligns on year gaps; the live correlation path is window.pearsonByYear (below), not this.
 window.seriesGrowth = (pts, key = 'v') =>
   (pts || []).slice(1).map((d, i) => (pts[i][key] ? (d[key] - pts[i][key]) / pts[i][key] : 0));
 

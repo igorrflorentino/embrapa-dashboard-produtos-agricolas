@@ -151,13 +151,17 @@ def record_group(
     group_id = (group_id or curation._slug(group_name)).strip() or None
     if not group_id:
         raise ValueError("Não foi possível gerar o group_id a partir do nome.")
+
+    # Dedup FIRST (before the existence validations): a retried CREATE whose first attempt
+    # already landed would otherwise fail the "já existe" check instead of returning the
+    # documented deduped no-op — the change_id the seam plumbs must make the retry idempotent.
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        return _group_row(group_id, group_name, True, edited_by, change_id, deduped=True)
+
     if renaming and group_id not in current:
         raise ValueError(f"O agrupamento {group_id!r} não existe (nada a renomear).")
     if not renaming and group_id in current:
         raise ValueError(f"O agrupamento {group_name!r} já existe.")
-
-    if supplied and _change_id_seen(bq, table_fqn, change_id):
-        return _group_row(group_id, group_name, True, edited_by, change_id, deduped=True)
 
     _insert_group_row(bq, table_fqn, group_id, group_name, True, edited_by, change_id)
     logger.info("Group: %s -> %r by %s", group_id, group_name, edited_by)
@@ -211,19 +215,24 @@ def delete_group(
     table_fqn = _group_log_ref(cfg)
     ensure_agrupamento_log_table(cfg, bq)
 
+    # Dedup FIRST (before the state validations): a retried delete (the tombstone already
+    # landed, the client re-POSTs with the SAME change_id) finds the group no longer in
+    # `current`; without this the retry would fail "não existe (nada a excluir)" instead of
+    # returning the documented deduped no-op — mirroring curation.remove_produto_catalog.
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        return _group_row(group_id, group_id, False, edited_by, change_id, deduped=True)
+
     current = _current_groups(bq, table_fqn)
     if group_id not in current:
         raise ValueError(f"O agrupamento {group_id!r} não existe (nada a excluir).")
     members = _active_member_rows(bq, _catalog_log_ref(cfg), group_id)
     if members:
         raise ValueError(
-            f"O agrupamento {current[group_id]!r} ainda tem {len(members)} commodity(ies) — "
+            f"O agrupamento {current[group_id]!r} ainda tem {len(members)} produto(s) — "
             "reatribua ou remova antes de excluir o agrupamento."
         )
 
     name = current[group_id]
-    if supplied and _change_id_seen(bq, table_fqn, change_id):
-        return _group_row(group_id, name, False, edited_by, change_id, deduped=True)
     _insert_group_row(bq, table_fqn, group_id, name, False, edited_by, change_id)
     logger.info("Group: %s -> deleted (tombstone) by %s", group_id, edited_by)
     if invalidate_cache:

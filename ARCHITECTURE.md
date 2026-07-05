@@ -1,4 +1,4 @@
-# Architecture — Embrapa Produtos Agrícolas Dashboard
+﻿# Architecture — Embrapa Produtos Agrícolas Dashboard
 
 > "Under the hood" technical document: folder structure, stack decisions, data flow, and diagrams.
 
@@ -73,7 +73,7 @@ The project implements a **Medallion architecture** (Bronze → Silver → Gold)
 ## Folder Structure
 
 ```
-embrapa-dashboard-produtos agrícolas/
+embrapa-dashboard-commodities/
 │
 ├── src/embrapa_dashboard/          # Main Python package
 │   ├── __init__.py

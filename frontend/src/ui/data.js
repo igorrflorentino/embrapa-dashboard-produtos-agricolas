@@ -115,6 +115,9 @@ window.unitToBase = (familyId, unitId) => {
   return u ? u.toBase : 1;
 };
 // Convert a quantity from one unit to another WITHIN the same family.
+// NOTE: contract/test-only surface — read solely by data_contracts.cov.test.js. The live
+// unit-conversion path goes through window.unitToBase (via massQtyMul/volumeQtyMul/
+// countQtyMul in MetricConventions.jsx); no production view calls window.convertUnit.
 window.convertUnit = (value, familyId, fromUnit, toUnit) => {
   if (value == null) return null;
   const inBase = value * window.unitToBase(familyId, fromUnit);
@@ -236,6 +239,9 @@ window.QUALITY_FLAGS = [
 // (|n|) and re-applies the sign — aligned with magnitude.js's abs-based kernel (DEDUP-7), so
 // a large negative (e.g. a net balance) abbreviates to "-2,50 bi" instead of falling through
 // to the unabbreviated locale string.
+// NOTE: window.fmtBRL and window.fmtNum below are a contract/test-only surface — read solely
+// by data_contracts.cov.test.js. Live value formatting goes through window.formatValue /
+// window.applyConv (MetricConventions.jsx); no production view reads these two.
 window.fmtBRL = (n) => {
   if (n == null) return '—';
   const a = Math.abs(n);

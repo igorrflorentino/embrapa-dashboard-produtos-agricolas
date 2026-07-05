@@ -133,11 +133,22 @@ def _bind_classification_ttl(timeout: int) -> None:
     classification window — so it must be rebound too. fetch_catalog_editors is the
     SAME pattern for the catalog: it gates POST /api/catalog/* and is Console-edited,
     so the TTL is the sole convergence control for revoking a removed editor — rebind
-    it too. Rebind all four.
+    it too. The Cadastro catalog/group/code-stats/orphan/lifecycle reads share the same
+    short-TTL contract (they back researcher-facing edits that must converge across
+    instances within the classification window), so they must be rebound too. Rebind
+    every read decorated with the classification TTL.
     """
     from embrapa_dashboard.serving import gateway
 
-    gateway.fetch_current_code_industrialization.cache_timeout = timeout
-    gateway.fetch_curators.cache_timeout = timeout
-    gateway.fetch_banco_metadata.cache_timeout = timeout
-    gateway.fetch_catalog_editors.cache_timeout = timeout
+    for fn in (
+        gateway.fetch_current_code_industrialization,
+        gateway.fetch_curators,
+        gateway.fetch_banco_metadata,
+        gateway.fetch_catalog_editors,
+        gateway.fetch_agrupamentos,
+        gateway.fetch_produto_catalog,
+        gateway.fetch_source_code_stats,
+        gateway.fetch_orphan_produtos,
+        gateway.fetch_lifecycle_status,
+    ):
+        fn.cache_timeout = timeout

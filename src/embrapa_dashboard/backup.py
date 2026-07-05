@@ -77,7 +77,12 @@ def run(settings: Settings) -> tuple[str, list[str]]:
     when the user runs ``backup-gold`` before any ``make dbt-build-prod``).
     """
     bq_client, storage_client = resolve_clients(settings)
-    ensure_bucket(storage_client, settings.gcs_bucket, settings.bq_location)
+    ensure_bucket(
+        storage_client,
+        settings.gcs_bucket,
+        settings.bq_location,
+        raw_prefix=settings.gcs_raw_prefix,
+    )
 
     table_fqns = _gold_tables(settings, bq_client)
     if not table_fqns:

@@ -1426,5 +1426,8 @@ function formatMonth(iso) {
 }
 
 window.FilterMenu = FilterMenu;
-// Exposed for unit-testing the SH-prefix grouping independently of the component.
+// Test-only export surface (read solely by FilterMenu.cov.test.jsx): exposes the
+// SH-prefix grouping so it can be unit-tested independently of the component. The
+// live path calls buildProductTree() directly as a local function (see the useMemo
+// above); no production code reads window.buildProductTree.
 window.buildProductTree = buildProductTree;

@@ -816,6 +816,32 @@ def test_product_timeseries_no_flow_adds_no_predicate():
     assert "flow = @flow" not in query.lower()
 
 
+def test_product_timeseries_applies_customs_and_market_for_comtrade():
+    """The COMTRADE per-product series honours the regime (customs) + tipo-de-mercado
+    (market) filters — productTS is the series the views actually render, so it must
+    scope by the SAME server-side filters as the overview (audit high finding)."""
+    query, params = sql.product_timeseries(
+        "p.serving.serving_comtrade_annual",
+        code_column="cmd_code",
+        customs="C01",
+        market="consumo",
+    )
+    assert "customs_code = @customs" in query
+    assert "market_nature = @market" in query
+    by_name = {p.name: p for p in params}
+    assert by_name["customs"].value == "C01"
+    assert by_name["market"].value == "consumo"
+
+
+def test_product_timeseries_no_customs_market_adds_no_predicate():
+    """The default (customs=market=None) sums every regime/purpose — production + COMEX
+    marts (which have neither column) always take this path, so both predicates stay
+    absent (byte-identical to before those dimensions existed)."""
+    query, _ = sql.product_timeseries("p.serving.serving_pevs_annual", code_column="product_code")
+    assert "customs_code = @customs" not in query
+    assert "market_nature = @market" not in query
+
+
 def test_product_columns_allowlist_blocks_injection():
     with pytest.raises(ValueError, match="not allowed"):
         sql.products(
@@ -1586,6 +1612,35 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
     assert "reporter" not in recorded["params"]
 
 
+def test_fetch_product_timeseries_threads_customs_and_market(monkeypatch):
+    """The COMTRADE productTS reader forwards the regime (customs) + tipo-de-mercado
+    (market) filters down to the query, so the series the views render honours the same
+    server-side scope as the overview (audit high finding)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_product_timeseries(
+            "un_comtrade", year_start=2022, codes=("440710",), customs="C01", market="consumo"
+        )
+    assert "customs_code = @customs" in recorded["query"]
+    assert "market_nature = @market" in recorded["query"]
+    assert recorded["params"]["customs"].value == "C01"
+    assert recorded["params"]["market"].value == "consumo"
+
+
 @pytest.mark.parametrize(
     ("call", "expect_table"),
     [
@@ -1983,6 +2038,34 @@ def test_run_query_executes_with_parameterized_job_config(monkeypatch):
     assert to_df.call_args.kwargs["create_bqstorage_client"] is False
 
 
+def test_run_query_uses_tighter_of_per_call_and_global_max_bytes(monkeypatch):
+    """The effective maximum_bytes_billed is the MIN of the per-call cap and the global
+    Settings ceiling — so an operator who sets a stricter global cost cap is honoured even
+    on the raw-table paths that pass their own RAW_TABLE_MAX_BYTES (audit finding)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    fake_client = mock.Mock()
+    fake_client.query.return_value.result.return_value.to_dataframe.return_value = "DF"
+    monkeypatch.setattr(gateway, "_client", lambda: fake_client)
+    # Global ceiling (1 GiB) is TIGHTER than the per-call cap (10 GiB).
+    monkeypatch.setattr(
+        gateway, "get_settings", lambda: _isolated_settings(bq_max_bytes_billed=1 << 30)
+    )
+
+    gateway.run_query("select 1", [], max_bytes=10 << 30)
+    job_config = fake_client.query.call_args.kwargs["job_config"]
+    assert job_config.maximum_bytes_billed == (1 << 30)  # the tighter global wins
+
+    # And when the per-call cap is the tighter one, IT wins.
+    monkeypatch.setattr(
+        gateway, "get_settings", lambda: _isolated_settings(bq_max_bytes_billed=100 << 30)
+    )
+    gateway.run_query("select 1", [], max_bytes=10 << 30)
+    job_config = fake_client.query.call_args.kwargs["job_config"]
+    assert job_config.maximum_bytes_billed == (10 << 30)
+
+
 # ── cache.init_cache: backend selection ───────────────────────────────────────
 
 
@@ -2369,6 +2452,51 @@ def test_raw_table_rows_rejects_bad_op_and_unbindable_value():
         )
 
 
+def test_raw_table_rows_filtered_without_order_gets_stable_tiebreak():
+    """A FILTERED page with no explicit sort still gets a deterministic ORDER BY over every
+    column, so offset pagination is stable across the per-page BigQuery jobs (audit finding —
+    bare LIMIT/OFFSET has no BigQuery ordering guarantee, so pages could duplicate/skip rows)."""
+    cols = {"reference_year": "INTEGER", "product_code": "STRING"}
+    query, _ = sql.raw_table_rows(
+        "p.d.t",
+        columns_types=cols,
+        limit=50,
+        offset=50,
+        filters=[{"col": "product_code", "op": "eq", "val": "casta"}],
+    )
+    assert "order by `reference_year`, `product_code`" in query
+
+
+def test_raw_table_rows_unfiltered_ungated_adds_no_order():
+    """A plain browse (no filter, no gate, no explicit sort) still reaches here in unit tests;
+    it must NOT add a tiebreak — that path is served storage-ordered by the free
+    tabledata.list route, and an ORDER BY would force a needless scan."""
+    cols = {"reference_year": "INTEGER"}
+    query, _ = sql.raw_table_rows("p.d.t", columns_types=cols, limit=10)
+    assert "order by" not in query
+
+
+def test_raw_table_rows_contains_rejects_missing_value():
+    """A 'contains' filter with an absent/None val is rejected (400) like the comparison ops,
+    not silently turned into contains_substr(col, 'None') (which matches rows containing
+    'none') (audit finding)."""
+    cols = {"product_description": "STRING"}
+    with pytest.raises(ValueError):
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "product_description", "op": "contains"}],
+        )
+    with pytest.raises(ValueError):
+        sql.raw_table_rows(
+            "p.d.t",
+            columns_types=cols,
+            limit=10,
+            filters=[{"col": "product_description", "op": "contains", "val": None}],
+        )
+
+
 def test_gateway_inspectable_tables_and_allowlist_boundary():
     from embrapa_dashboard.serving import gateway
 
@@ -2594,12 +2722,13 @@ def test_record_produto_catalog_rejects_nonexistent_code(monkeypatch):
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
-    # The source only has code '4403' — registering '9999' must fail. 'comtrade' is the
-    # catalog banco TOKEN (maps to source 'un_comtrade' via _BANCO_TO_SOURCE).
+    # The source only has code '4403' — registering '9999' must fail. Existence is validated
+    # against the Gold code universe (fetch_source_code_stats, keyed by the SHORT banco
+    # token 'comtrade') rather than the visibility-gated serving mart.
     monkeypatch.setattr(
         curation.gateway,
-        "fetch_products",
-        lambda src: pd.DataFrame([{"code": "4403", "name": "x"}]),
+        "fetch_source_code_stats",
+        lambda banco: pd.DataFrame([{"code": "4403", "n_rows": 1}]),
     )
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     with pytest.raises(ValueError, match="não existe"):
@@ -3021,7 +3150,16 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
     )
     monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda *a, **k: False)
-    monkeypatch.setattr(catalog_lifecycle, "_current_lifecycle", lambda *a, **k: {})
+    # mark_purged now gates on the current lifecycle status being 'descontinuado' (mirrors
+    # purge_plan), so the element must be marked Descontinuado before it can be purged. The
+    # flagged_at value is a datetime (its isoformat() seeds the per-generation change_id).
+    from datetime import datetime as _dt
+
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_current_lifecycle",
+        lambda *a, **k: {("commodity", "comex", "20079926"): ("descontinuado", _dt(2024, 1, 1))},
+    )
     res = catalog_lifecycle.mark_purged(
         "comex", "20079926", edited_by="op", settings=_settings(), client=mock.Mock()
     )

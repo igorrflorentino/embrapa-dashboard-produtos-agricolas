@@ -147,7 +147,7 @@ function readStateFromURL() {
   if (xs) {
     crossState = {
       series: xs.split('|').filter(Boolean).map((s) => { const [b, m] = s.split(':'); return { b, m }; }),
-      mode: q.get('xm') || 'basic',
+      mode: q.get('xm') || 'base100',
       y0: window.urlDecodeNum(q, 'xy0'),
       y1: window.urlDecodeNum(q, 'xy1'),
     };

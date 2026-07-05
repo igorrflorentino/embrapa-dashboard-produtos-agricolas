@@ -70,6 +70,29 @@ def _clip(value: str | None, limit: int) -> str | None:
     return value[:limit] or None
 
 
+def _md_inline(value: str) -> str:
+    """Neutralise a client-controlled string for embedding in a Markdown line: strip
+    newlines/backticks so it can neither break onto a fresh line nor open a code span, and
+    wrap the result in an inline code span so any residual Markdown/@-mention is inert. All
+    whitespace runs collapse to single spaces so a multi-line injection flattens cleanly."""
+    flat = " ".join(value.replace("`", "ʼ").split())
+    return f"`{flat}`" if flat else "`—`"
+
+
+def _safe_http_url(value: str | None) -> str | None:
+    """Return the URL only when it is a plain single-line http(s) URL; else None. Blocks a
+    ``javascript:``/``data:`` scheme or an embedded-newline injection from reaching the
+    GitHub issue body."""
+    if not value:
+        return None
+    candidate = value.strip()
+    if "\n" in candidate or "\r" in candidate:
+        return None
+    if not (candidate.startswith("http://") or candidate.startswith("https://")):
+        return None
+    return candidate
+
+
 def _validate(category: str, message: str) -> str:
     message = (message or "").strip()
     if not message:
@@ -129,12 +152,16 @@ def _forward_to_github(
         f"- **Reportado por:** {submitted_by}",
         f"- **Categoria:** {category}",
     ]
+    # SEC-1 (cont.): view_id / banco / url are ALSO client-controlled — sanitise them the
+    # same way so they cannot inject Markdown or @-mention pings into the issue body. url is
+    # additionally required to be a plain http(s) URL (else it is dropped, not embedded).
     if view_id:
-        body.append(f"- **Perspectiva:** {view_id}")
+        body.append(f"- **Perspectiva:** {_md_inline(view_id)}")
     if banco:
-        body.append(f"- **Banco:** {banco}")
-    if url:
-        body.append(f"- **Reproduzir:** {url}")
+        body.append(f"- **Banco:** {_md_inline(banco)}")
+    safe_url = _safe_http_url(url)
+    if safe_url:
+        body.append(f"- **Reproduzir:** {_md_inline(safe_url)}")
     body.append("\n_Aberto automaticamente pelo canal de feedback do dashboard._")
     try:
         resp = requests.post(

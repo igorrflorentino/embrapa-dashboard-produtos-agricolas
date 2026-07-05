@@ -38,6 +38,7 @@ const LEVEL_ORDER = { critical: 0, high: 1, strict: 2 };
 // ── Allowlist: files explicitly safe to access ────────────────────────────
 // These patterns are checked FIRST; matches bypass all sensitive-file rules.
 const ALLOWLIST = [
+  /\.env\..*\.example$/i,        // *.env.<anything>.example, e.g. .env.prod.example
   /\.env\.example$/i,
   /\.env\.sample$/i,
   /\.env\.template$/i,
@@ -67,6 +68,10 @@ const SENSITIVE_FILES = [
   { level: 'high', id: 'credentials-json',       regex: /(?:^|[/\\])credentials\.json$/i,                  reason: 'Credentials file' },
   { level: 'high', id: 'secrets-file',           regex: /(?:^|[/\\])(secrets?|credentials?)\.(json|ya?ml|toml)$/i, reason: 'Secrets configuration file' },
   { level: 'high', id: 'service-account',        regex: /service[_-]?account.*\.json$/i,                   reason: 'GCP service account key' },
+  // This repo names its SA private keys `sa-*-key.json` (e.g. sa-claude-code-web-dev-key.json,
+  // sa-web-dashboard-prod-key.json) — the highest-value secret here, not caught by the
+  // `service-account` substring rule. Mirrors the `.gitignore` `sa-*.json` pattern.
+  { level: 'high', id: 'sa-keyfile',             regex: /(?:^|[/\\])sa[-_].*key.*\.json$/i,                reason: 'GCP service-account key file (sa-*-key.json)' },
   { level: 'high', id: 'gcloud-creds',           regex: /(?:^|[/\\])\.config[/\\]gcloud[/\\].*(credentials|tokens)/i, reason: 'GCloud credentials' },
   { level: 'high', id: 'azure-creds',            regex: /(?:^|[/\\])\.azure[/\\](credentials|accessTokens)/i,  reason: 'Azure credentials' },
   { level: 'high', id: 'docker-config',          regex: /(?:^|[/\\])\.docker[/\\]config\.json$/,            reason: 'Docker config may contain registry auth' },
@@ -193,4 +198,7 @@ function main() {
   process.exit(0);
 }
 
-main();
+if (require.main === module) main();
+
+// Exported for unit tests (no I/O — deterministic, network-free surface).
+module.exports = { ALLOWLIST, SENSITIVE_FILES, EXFIL_PATTERNS, isAllowlisted, checkFile, checkBashCommand, SAFETY_LEVEL, LEVEL_ORDER };

@@ -7,8 +7,8 @@ Only the latest minor release line receives fixes; older lines are unsupported.
 
 | Version | Support |
 |---|---|
-| 1.5.x | ✅ Actively supported (current) |
-| < 1.5 | ❌ No longer supported |
+| 1.10.x | ✅ Actively supported (current) |
+| < 1.10 | ❌ No longer supported |
 
 ---
 

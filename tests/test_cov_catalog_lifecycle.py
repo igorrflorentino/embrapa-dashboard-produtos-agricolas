@@ -413,3 +413,57 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is False
     assert "não foi possível verificar o backup" in plan["backup_msg"]
+
+
+def test_mark_purged_refuses_when_not_descontinuado(monkeypatch):
+    """mark_purged gate: a code whose current status is neither descontinuado nor purged
+    (e.g. never marked) must raise ValueError, not record a premature terminal event."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import catalog_lifecycle as cl
+
+    monkeypatch.setattr(cl, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "t")
+    # No lifecycle row for this code at all -> status is None -> refuse.
+    monkeypatch.setattr(cl, "_current_lifecycle", lambda cfg: {})
+    seen = []
+    monkeypatch.setattr(cl, "_change_id_seen", lambda *a, **k: seen.append(1) or False)
+    inserted = []
+    monkeypatch.setattr(cl, "_insert_lifecycle_event", lambda *a, **k: inserted.append(k))
+    with pytest.raises(ValueError):
+        cl.mark_purged(
+            "comex",
+            "20079926",
+            edited_by="op@embrapa.br",
+            settings=_settings(),
+            client=mock.Mock(),
+        )
+    assert inserted == []  # nothing recorded
+    assert seen == []  # gate fires BEFORE the dedup/insert path
+
+
+def test_mark_purged_records_when_descontinuado(monkeypatch):
+    """mark_purged happy path: a currently-Descontinuado code records the terminal event."""
+    pytest.importorskip("flask_caching")
+    from datetime import datetime
+
+    from embrapa_dashboard.serving import catalog_lifecycle as cl
+
+    flagged = datetime(2026, 6, 26, 12, 0, 0)
+    monkeypatch.setattr(cl, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "t")
+    monkeypatch.setattr(
+        cl,
+        "_current_lifecycle",
+        lambda cfg: {("commodity", "comex", "20079926"): ("descontinuado", flagged)},
+    )
+    monkeypatch.setattr(cl, "_change_id_seen", lambda *a, **k: False)
+    monkeypatch.setattr(cl, "invalidate_lifecycle_cache", lambda: None)
+    inserted = []
+    monkeypatch.setattr(cl, "_insert_lifecycle_event", lambda *a, **k: inserted.append(k))
+    out = cl.mark_purged(
+        "comex",
+        "20079926",
+        edited_by="op@embrapa.br",
+        settings=_settings(),
+        client=mock.Mock(),
+    )
+    assert out["status"] == "purged" and out["deduped"] is False
+    assert len(inserted) == 1 and inserted[0]["status"] == "purged"

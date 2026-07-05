@@ -113,15 +113,45 @@ def _market_or_400(market: str | None):
     return market, None
 
 
+def _json_object() -> dict:
+    """Return the request's JSON body as a dict, or raise ValueError → HTTP 400.
+
+    ``request.get_json(silent=True) or {}`` alone accepts a JSON array/string/number
+    body (all truthy), which then AttributeErrors on ``.get`` → an opaque 500. A
+    non-object body is client garbage, so 400 it with a pt-BR reason (via the
+    ValueError→400 errorhandler) instead of masquerading as a server fault."""
+    body = request.get_json(silent=True)
+    if body is None:
+        return {}
+    if not isinstance(body, dict):
+        raise ValueError("o corpo da requisição deve ser um objeto JSON")
+    return body
+
+
+def _coerce_str_fields(body: dict, *keys: str) -> None:
+    """Coerce the named body fields to stripped str in place (leaving None/absent as None).
+
+    A non-string scalar (e.g. a numeric code sent as a JSON number — the codes ARE
+    numeric) would AttributeError on ``.strip()`` deep in the serving writers → an opaque
+    500. Coercing to str here keeps the writers' string contract; a truly absent field
+    stays None so the route's own "is required" check still fires a clean 400. A blank
+    string collapses to None so a whitespace-only field reads as absent."""
+    for k in keys:
+        v = body.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        body[k] = s or None
+
+
 @api.errorhandler(ValueError)
 def _api_value_error(exc):
     """Client-input validation errors → HTTP 400 (not 500). The serving writers raise
     ValueError with a caller-facing reason (pt-BR for the catalog writers: a bad key, an
-    over-length field, an OVERLAPPING PREFIX). Surface that reason verbatim so the user
-    can self-correct — a generic "check the fields" hides WHY (e.g. which prefixes clash)
-    and makes the disjoint-prefix rule unusable. ValueError here is always our own
-    validation; an arbitrary internal fault is an Exception → the 500 handler, never this
-    path — so the message is safe to return."""
+    over-length field, an invalid ciclo/banco, a nonexistent code). Surface that reason
+    verbatim so the user can self-correct — a generic "check the fields" hides WHY. ValueError
+    here is always our own validation; an arbitrary internal fault is an Exception → the 500
+    handler, never this path — so the message is safe to return."""
     logger.info("Invalid input on %s: %s", request.path, exc)
     return jsonify(error=str(exc) or "Dados inválidos."), 400
 
@@ -276,11 +306,15 @@ def catalog_status():
 def catalog_entry_upsert():
     """Upsert one commodity-catalog entry (the editable successor to the
     commodity_crosswalk seed). Author captured from the IAP header; 401/403 via the
-    per-catalog editor allowlist. A bad key / over-length / overlapping prefix → 400."""
+    per-catalog editor allowlist. A bad key / over-length / invalid ciclo/banco /
+    nonexistent code → 400."""
     author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    # Coerce the string fields to str so a numeric code sent as a JSON number
+    # (the codes ARE numeric) doesn't AttributeError on ``.strip()`` in the writer.
+    _coerce_str_fields(body, "codigo_produto", "banco", "agrupamento", "ciclo_de_vida")
     if not (body.get("codigo_produto") and body.get("banco")):
         return jsonify(error="codigo_produto and banco are required"), 400
     logger.info(
@@ -297,7 +331,8 @@ def catalog_entry_remove():
     author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    _coerce_str_fields(body, "codigo_produto", "banco")
     if not (body.get("codigo_produto") and body.get("banco")):
         return jsonify(error="codigo_produto and banco are required"), 400
     logger.info(
@@ -329,7 +364,8 @@ def catalog_group_upsert():
     author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    _coerce_str_fields(body, "group_name", "group_id")
     if not body.get("group_name"):
         return jsonify(error="group_name is required"), 400
     logger.info("catalog group upsert by %s: %s", author, body.get("group_name"))
@@ -343,7 +379,8 @@ def catalog_group_remove():
     author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    _coerce_str_fields(body, "group_id")
     if not body.get("group_id"):
         return jsonify(error="group_id is required"), 400
     logger.info("catalog group remove by %s: %s", author, body.get("group_id"))
@@ -386,8 +423,10 @@ _MAX_TABLE_FILTERS = 5
 
 def _parse_table_filters(raw: str | None) -> tuple:
     """Parse the JSON ``filters`` param into a tuple of ``(col, op, val)`` tuples (hashable
-    for the cache key). A malformed filter → ValueError → HTTP 400. Caps the count; the
-    column allowlist + value binding happen in the SQL builder."""
+    for the cache key). A malformed filter → ValueError → HTTP 400. Rejects (not silently
+    truncates) more than ``_MAX_TABLE_FILTERS`` filters, so the rows/count/CSV never
+    under-filter behind an applied chip; the column allowlist + value binding happen in the
+    SQL builder."""
     if not raw:
         return ()
     try:
@@ -396,8 +435,10 @@ def _parse_table_filters(raw: str | None) -> tuple:
         raise ValueError(f"filtro malformado: {exc}") from None
     if not isinstance(data, list):
         raise ValueError("filtro deve ser uma lista de {col, op, val}")
+    if len(data) > _MAX_TABLE_FILTERS:
+        raise ValueError(f"máximo de {_MAX_TABLE_FILTERS} filtros por consulta")
     out = []
-    for f in data[:_MAX_TABLE_FILTERS]:
+    for f in data:
         if not isinstance(f, dict) or "col" not in f:
             raise ValueError("cada filtro precisa de 'col' (e opcionalmente 'op'/'val')")
         val = f.get("val")
@@ -566,7 +607,7 @@ def municipio_yearly():
     conv, err = _conversion_or_400()
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
     raw_codes = body.get("cityCodes")
     # Must be a LIST: a bare string would otherwise char-split into bogus single-char
     # codes (e.g. "3550308" → ['3','5',...]); a non-list is a clean 400, not a silent
@@ -783,7 +824,10 @@ def feedback_submit():
     author is captured server-side from IAP — there is no client-supplied identity.
     A short per-author cooldown debounces double-clicks/abuse (SEC-2). 400 on empty/
     over-length message or bad category; 401/403 on no/forged identity; 429 on cooldown."""
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    _coerce_str_fields(
+        body, "category", "message", "url", "view", "banco", "app_version", "browser_info"
+    )
     cooldown = get_settings().feedback_cooldown_seconds
     author = _peek_author()
     rl_key = f"fb:cooldown:{author.lower()}" if author else None
@@ -846,7 +890,8 @@ def curation_code_level():
     author, err = _authorize_curator()
     if err:
         return err
-    body = request.get_json(silent=True) or {}
+    body = _json_object()
+    _coerce_str_fields(body, "source", "code", "level", "change_id")
     source, code, level = body.get("source"), body.get("code"), body.get("level")
     change_id = body.get("change_id")
     if not (source and code and level):

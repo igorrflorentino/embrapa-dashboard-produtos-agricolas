@@ -1035,6 +1035,8 @@ def product_timeseries(
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
     flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     reporter_column: str | None = None,
     reporter_value: str | None = None,
 ) -> tuple[str, list]:
@@ -1058,6 +1060,12 @@ def product_timeseries(
     (the seam's trade branch); production marts always receive ``None``, leaving the
     predicate absent. ``None`` sums every flow (the historical default).
 
+    ``customs`` (regime aduaneiro) and ``market`` (tipo de mercado) optionally narrow
+    to one customs procedure / economic purpose — ONLY the COMTRADE mart carries
+    ``customs_code`` and ``market_nature``, so callers pass them solely for
+    ``un_comtrade``. ``None`` sums every regime / purpose (the total), so a request
+    without them stays byte-identical to before those dimensions existed.
+
     ``reporter_*`` optionally pins ``reporter_iso_a3`` to one country (Brazil) for
     the multi-reporter COMTRADE mart, so the banco's OWN per-product series is
     Brazil's view rather than a sum over every reporter (which would conflate the
@@ -1072,6 +1080,8 @@ def product_timeseries(
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _flow(conditions, params, flow)
+    _customs(conditions, params, customs)
+    _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
         select
@@ -1229,9 +1239,14 @@ def _raw_filter_predicate(
     pname = f"f{i}"
     if op == "contains":
         # Case-insensitive substring match on any column type — CONTAINS_SUBSTR takes the
-        # search as a plain bound literal (no LIKE wildcards to escape / over-match).
+        # search as a plain bound literal (no LIKE wildcards to escape / over-match). A
+        # missing/None value is rejected with 400 (like the comparison ops), not silently
+        # turned into the literal string "None" (which would match rows containing 'none').
+        val = f.get("val")
+        if val is None:
+            raise ValueError("filter value is required for this operator")
         conditions.append(f"contains_substr(`{col}`, @{pname})")
-        params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(f.get("val", ""))))
+        params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(val)))
         return
     sqlop = _RAW_FILTER_OPS.get(op)
     if sqlop is None:
@@ -1277,6 +1292,17 @@ def raw_table_rows(
         col = _validate_column(order_by, frozenset(columns_types), "order_by column")
         direction = "desc" if str(order_dir).lower() == "desc" else "asc"
         order_clause = f"order by `{col}` {direction}"
+    elif conditions:
+        # This filtered/gated path runs one BigQuery job PER PAGE, and BigQuery guarantees
+        # NO result ordering without ORDER BY — so a bare LIMIT/OFFSET can duplicate/skip
+        # rows across pages (a researcher filtering + paging would see the same row twice
+        # and miss others). When the caller requests no explicit sort, order by every column
+        # (schema order) as a deterministic tiebreak so offset pagination is stable. The
+        # column names come from the live schema (the allowlist), never request-derived. (A
+        # truly unfiltered/ungated browse never reaches here — it uses the free tabledata.list
+        # storage-ordered path — so this only stabilises the query path that needs it.)
+        tiebreak = ", ".join(f"`{c}`" for c in columns_types)
+        order_clause = f"order by {tiebreak}" if tiebreak else ""
     lim = max(1, min(int(limit), RAW_TABLE_MAX_LIMIT))
     off = max(0, int(offset))
     sql = f"""

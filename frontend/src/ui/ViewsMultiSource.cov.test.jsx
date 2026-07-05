@@ -276,4 +276,13 @@ describe('ViewMirror', () => {
     // Renders the window fallback safely.
     expect(container.textContent).toContain('Divergência média');
   });
+
+  it('an empty mirror series renders the "Exportação MDIC" KPI without leaking "undefined"', () => {
+    // Reachable payload: an agrupamento with no Comtrade-mirror rows → series: [].
+    // The KPI year-sub must fall back to the em dash, never the literal "undefined".
+    window.tradeMirror = () => ({ series: [], discrepancy: [] });
+    const { container } = render(<ViewMirror />);
+    expect(container.textContent).toContain('Exportação MDIC');
+    expect(container.textContent).not.toContain('undefined');
+  });
 });

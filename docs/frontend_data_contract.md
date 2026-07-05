@@ -285,6 +285,7 @@ The flags the macro emits (the frontend color map must cover **these**). The las
 | `INCOMPLETE` | neither | all |
 | `OUTLIER_VALUE` / `OUTLIER_QUANTITY` | high-magnitude but price-consistent — a valid large value | all (gated) |
 | `PROBLEMATIC_VALUE` / `PROBLEMATIC_QUANTITY` | implied price >100× or <1/100× the product median ⇒ likely typo | all (gated) |
+| `INFERRED_QUANTITY` / `INFERRED_VALUE` | **reserved** auto-fill tiers (accepted-but-absent) — plumbed through `contracts.js` / `_gold.yml` but always 0 today; no Gold CASE emits them yet | all (reserved) |
 
 ### 7.3 `region` — Gold is full names
 Gold `region` ∈ {Norte, Nordeste, Centro-Oeste, Sudeste, Sul}. The brief's `ufData`
@@ -324,7 +325,7 @@ status-agnostic; what follows is what the BFF must report and how to derive it.
 
 | Axis | What | Source |
 |---|---|---|
-| `maturity` | backend readiness, one of `planejado · desenvolvimento · beta · estavel · manutencao · descontinuado` (+ optional `implNote`, `implDate`) | BFF/`bancos.js` runtime config |
+| `maturity` | backend readiness, one of `planejado · desenvolvimento · ingestao · beta · estavel · manutencao · descontinuado` (+ optional `implNote`, `implDate`) | BFF/`bancos.js` runtime config |
 | `visible` | bool — hide the bank from the whole UI when false | BFF/`bancos.js` |
 | *uso* (active) | derived at runtime (the bank feeding the current view) | not a field |
 
@@ -336,7 +337,7 @@ Per-source `maturity` for this project (config, not data):
 | `mdic_comex` | `estavel` | — |
 | `un_comtrade` | `beta` | — |
 | `ibge_pam` | `beta` | — |
-| `sefaz_nfe` | `planejado` (planned, no deadline; no Gold table yet) | none |
+| `sefaz_nf` | `planejado` (planned, no deadline; no Gold table yet) | none |
 
 `status:'live'` is derived from `MATURITY[b.maturity].hasData`; `crossSeries.preview` derives
 from the **source banks' maturity** — true if any source lacks real data (`MATURITY[b.maturity].hasData` is false).

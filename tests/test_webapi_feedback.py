@@ -239,6 +239,60 @@ def test_forward_to_github_fences_user_message(monkeypatch):
     assert "```rm -rf```" not in seen["body"]  # the breakout fence was neutralised
 
 
+def test_forward_to_github_fences_url_view_banco(monkeypatch):
+    """SEC-1 (cont.): url / view_id / banco are ALSO client-controlled — they must be
+    sanitised (no newline breakout, no @-mention, no bad scheme) before being embedded."""
+    import requests
+
+    seen = {}
+
+    def _fake_post(url, **kw):
+        seen["body"] = kw["json"]["body"]
+        return _FakeResp({"html_url": "https://x/1"})
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    fb._forward_to_github(
+        _cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+        category="bug",
+        message="ok",
+        submitted_by="u@e.br",
+        url="javascript:alert(1)",  # non-http scheme → dropped entirely
+        view_id="v\n\n@maintainer **injected**",  # newline breakout attempt
+        banco="ibge`code`",  # inline-code breakout attempt
+    )
+    body = seen["body"]
+    # The dropped url must not appear at all.
+    assert "javascript:alert(1)" not in body
+    assert "**Reproduzir:**" not in body
+    # view_id/banco are flattened (no fresh line) and code-span-wrapped, so the @-mention
+    # and injected Markdown are inert text inside a code span, not a rendered ping / bold run.
+    assert "\n\n@maintainer" not in body  # no fresh-line breakout
+    assert "`v @maintainer **injected**`" in body  # flattened + fenced inline (inert)
+
+
+def test_forward_to_github_keeps_valid_http_url(monkeypatch):
+    """A well-formed https URL survives (inside an inline code span)."""
+    import requests
+
+    seen = {}
+
+    def _fake_post(url, **kw):
+        seen["body"] = kw["json"]["body"]
+        return _FakeResp({"html_url": "https://x/1"})
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    fb._forward_to_github(
+        _cfg(feedback_github_repo="o/r", feedback_github_token="t"),
+        category="bug",
+        message="ok",
+        submitted_by="u@e.br",
+        url="https://app/?v=grafico",
+        view_id=None,
+        banco=None,
+    )
+    assert "**Reproduzir:** `https://app/?v=grafico`" in seen["body"]
+
+
 def test_record_feedback_writes_then_stamps_issue_url(monkeypatch):
     """FB-1: with GitHub configured, the row is INSERTed first then UPDATEd with the
     issue_url — two DML calls (durable write before the forward)."""

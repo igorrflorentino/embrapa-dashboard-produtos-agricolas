@@ -1,4 +1,4 @@
-# Looker Studio — Dashboard Setup
+﻿# Looker Studio — Dashboard Setup
 
 ## Prerequisite: run `make dbt-build-prod`
 
@@ -9,7 +9,7 @@ not the dev ones (`dbt_dev_silver`, `dbt_dev_gold`). Make sure you have run:
 make dbt-build-prod
 ```
 
-This creates `embrapa-dashboard-produtos agrícolas.gold.gold_pevs_production` with the complete data.
+This creates `embrapa-dashboard-commodities.gold.gold_pevs_production` with the complete data.
 
 ---
 
@@ -25,7 +25,7 @@ BI Engine is a caching technology that speeds up BigQuery queries.
 > explicitly-instructed decision if the dashboard ever sees heavy steady use.
 
 If (and only if) that future arrives, the steps are: **BigQuery → BI Engine →
-Reservations → Create Reservation** (project `embrapa-dashboard-produtos agrícolas`,
+Reservations → Create Reservation** (project `embrapa-dashboard-commodities`,
 location `us-central1`, capacity e.g. 1 GB; ~US$ 30/month/GB). First configure the
 budget + quota in [cost_safety.md](cost_safety.md) so any unexpected cost alerts.
 (Looker Studio also exposes a small free BI Engine allotment in some cases, but a
@@ -57,7 +57,7 @@ Connect:
 
 1. Under "Add data to report", select **BigQuery**
 2. Sign in with the account that has access to the project
-3. Navigate: **My projects → embrapa-dashboard-produtos agrícolas → gold → gold_pevs_production**
+3. Navigate: **My projects → embrapa-dashboard-commodities → gold → gold_pevs_production**
 4. Click **Add** → **Add to report**
 
 > **Important:** connect directly to the table, not via "Custom Query".

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 from embrapa_dashboard.gcp.storage import (
     _LIFECYCLE_RULES,
     _apply_protections,
+    _build_lifecycle_rules,
+    _normalize_raw_prefix,
     ensure_bucket,
 )
 
@@ -174,3 +176,47 @@ def test_lifecycle_transitions_are_prefix_scoped() -> None:
         assert prefix_set <= archive_trail or prefix_set <= backups, (
             f"transition rule mixes retention groups: {prefixes}"
         )
+
+
+def test_normalize_raw_prefix_forms() -> None:
+    """A bare operator prefix is coerced to the `<prefix>/` lifecycle form."""
+    assert _normalize_raw_prefix("rawzone") == "rawzone/"
+    assert _normalize_raw_prefix("raw/") == "raw/"
+    assert _normalize_raw_prefix("/raw/") == "raw/"
+    # Unset / blank falls back to the default.
+    assert _normalize_raw_prefix(None) == "raw/"
+    assert _normalize_raw_prefix("") == "raw/"
+
+
+def test_lifecycle_rules_follow_configured_raw_prefix() -> None:
+    """A non-default GCS_RAW_PREFIX must scope the archive-trail tiering to it —
+    otherwise raw extracts stay STANDARD-class forever (silent cost drift)."""
+    rules = _build_lifecycle_rules("rawzone/")
+    transition_prefixes = {
+        p
+        for r in rules
+        if r["action"]["type"] == "SetStorageClass"
+        for p in r["condition"].get("matchesPrefix", [])
+    }
+    assert "rawzone/" in transition_prefixes
+    assert "raw/" not in transition_prefixes
+    # landing/ still shares the archive-trail tiering; backups/ stays isolated.
+    assert "landing/" in transition_prefixes
+
+
+def test_ensure_bucket_threads_raw_prefix_into_lifecycle() -> None:
+    """ensure_bucket must build the lifecycle from the caller's raw_prefix."""
+    client = MagicMock()
+    client.bucket.return_value = _make_bucket_mock(exists=False)
+
+    ensure_bucket(client, "test-bucket", "us-central1", raw_prefix="rawzone")
+
+    created = client.create_bucket.call_args.args[0]
+    transition_prefixes = {
+        p
+        for r in created.lifecycle_rules
+        if r["action"]["type"] == "SetStorageClass"
+        for p in r["condition"].get("matchesPrefix", [])
+    }
+    assert "rawzone/" in transition_prefixes
+    assert "raw/" not in transition_prefixes

@@ -313,8 +313,9 @@ def mark_purged(
     auto_mark_orphans: a retry within one generation dedups, but a code that was re-added,
     re-removed (a NEW descontinuado generation) and re-purged records its OWN terminal event
     instead of being silently collapsed onto the first purge's audit row. An element whose
-    CURRENT status is already ``purged`` (no fresh removal) is a no-op. A missing/unreadable log
-    falls back to the legacy un-versioned id (``gen=0``), so this never fails closed."""
+    CURRENT status is already ``purged`` (no fresh removal) is a no-op; one that is NOT currently
+    Descontinuado raises ValueError (mirrors purge_plan's gate) rather than recording a premature
+    terminal event that would lock the purge plan out while Gold data still lingers."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
     table_fqn = _lifecycle_log_ref(cfg)
@@ -323,6 +324,15 @@ def mark_purged(
     if status == "purged":
         # Already purged for the current generation — nothing fresh to record.
         return {"banco": banco, "code": code, "status": "purged", "deduped": True}
+    if status != "descontinuado":
+        # Mirror purge_plan's gate: a terminal 'purged' event may only be recorded for an
+        # element the lifecycle currently marks Descontinuado. Recording it for anything else
+        # (never-marked → gen falls back to '0') would falsely lock the purge plan out while
+        # Gold data still lingers, and auto_mark_orphans would not re-mark it.
+        raise ValueError(
+            f"{banco}:{code} não está marcada como Descontinuada — recuse registrar a purga "
+            "(só órfãos detectados + marcados podem ser purgados)."
+        )
     # Generation = the descontinuado event's flagged_at (stable for the whole purge window), so a
     # later re-removal (a new descontinuado, new flagged_at) is NOT collapsed onto this change_id.
     gen = flagged_at.isoformat() if (status == "descontinuado" and flagged_at is not None) else "0"

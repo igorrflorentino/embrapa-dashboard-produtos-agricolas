@@ -1,4 +1,4 @@
-# Enterprise Cloud Architecture
+﻿# Enterprise Cloud Architecture
 
 Modern GCP authentication using **Service Account Impersonation** (OAuth) instead of sharing JSON keyfiles.
 
@@ -47,7 +47,7 @@ OAuth 2.0 with service account impersonation:
                         │ (Service Account Token Creator)
                         ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Google Cloud Project (embrapa-dashboard-produtos agrícolas)           │
+│ Google Cloud Project (embrapa-dashboard-commodities)           │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │ Four-Tier Service Account Architecture                  │  │
@@ -146,7 +146,7 @@ embrapa_dashboard:
     dev:
       type: bigquery
       method: oauth                    # Modern: OAuth
-      project: embrapa-dashboard-produtos agrícolas
+      project: embrapa-dashboard-commodities
       impersonate_service_account: sa-secret-reader-prod@{project}.iam.gserviceaccount.com
       dataset: dbt_dev
       # ... rest of config
@@ -184,7 +184,7 @@ client = bigquery.Client(credentials=credentials, project=project)
 **For service account impersonation to work, each developer must have:**
 
 ```
-Project: embrapa-dashboard-produtos agrícolas
+Project: embrapa-dashboard-commodities
 
 Role on sa-secret-reader-prod:
   - roles/iam.serviceAccountTokenCreator
@@ -309,7 +309,7 @@ their daily work.
 ```bash
 # Grant a new developer permission to impersonate the service account
 gcloud iam service-accounts add-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --member=user:florenciaitalo@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 ```
@@ -348,7 +348,7 @@ If a developer leaves:
 ```bash
 # Remove their impersonation permission
 gcloud iam service-accounts remove-iam-policy-binding \
-  sa-secret-reader-prod@embrapa-dashboard-produtos agrícolas.iam.gserviceaccount.com \
+  sa-secret-reader-prod@embrapa-dashboard-commodities.iam.gserviceaccount.com \
   --member=user:departed@gmail.com \
   --role=roles/iam.serviceAccountTokenCreator
 

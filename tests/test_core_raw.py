@@ -63,7 +63,9 @@ def test_land_raw_writes_parquet_and_returns_uri(settings: Settings, df: pd.Data
             dataset="comex_flows",
             basename="EXP_2023",
         )
-    ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
+    ensure_bucket.assert_called_once_with(
+        gcs, settings.gcs_bucket, settings.bq_location, raw_prefix=settings.gcs_raw_prefix
+    )
     gcs.bucket.return_value.blob.assert_called_once_with("raw/comex/comex_flows/EXP_2023.parquet")
     blob.upload_from_file.assert_called_once()
     assert uri == "gs://test-bucket/raw/comex/comex_flows/EXP_2023.parquet"
@@ -85,7 +87,9 @@ def test_land_raw_ensures_bucket_only_once_per_client(settings: Settings, df: pd
                 basename=f"EXP_{year}",
             )
     # 3 chunks, same client → exactly ONE ensure_bucket round-trip.
-    ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
+    ensure_bucket.assert_called_once_with(
+        gcs, settings.gcs_bucket, settings.bq_location, raw_prefix=settings.gcs_raw_prefix
+    )
     assert gcs.bucket.return_value.blob.call_count == 3  # but every chunk still uploaded
 
 
@@ -201,7 +205,9 @@ def test_land_raw_file_uploads_from_filename_with_provenance(settings: Settings)
             provenance={"source_etag": "v9"},
             rows=42,
         )
-    ensure_bucket.assert_called_once_with(gcs, settings.gcs_bucket, settings.bq_location)
+    ensure_bucket.assert_called_once_with(
+        gcs, settings.gcs_bucket, settings.bq_location, raw_prefix=settings.gcs_raw_prefix
+    )
     gcs.bucket.return_value.blob.assert_called_once_with("raw/comex/comex_flows/EXP_2023.parquet")
     blob.upload_from_filename.assert_called_once_with(
         "/tmp/EXP_2023.parquet",

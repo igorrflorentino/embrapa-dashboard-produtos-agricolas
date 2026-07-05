@@ -268,7 +268,7 @@ function ViewMirror() {
       <div className="kpi-row">
         <window.KpiCardSpark label="Divergência média" value={msPct(avgDisc)} sub="entre MDIC e Comtrade" />
         <window.KpiCardSpark label="Maior reporte" value="Parceiros" sub="tendem a registrar mais que a origem" />
-        <window.KpiCardSpark label="Exportação MDIC" value={'US$ ' + msNum(last?.mdic, 1) + ' bi'} sub={`${last?.y}`} />
+        <window.KpiCardSpark label="Exportação MDIC" value={'US$ ' + msNum(last?.mdic, 1) + ' bi'} sub={`${last?.y ?? '—'}`} />
         <window.KpiCardSpark label="Janela" value={mirrorWindow} sub="cobertura comparável" />
       </div>
 
