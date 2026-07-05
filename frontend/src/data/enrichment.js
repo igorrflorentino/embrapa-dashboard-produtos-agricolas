@@ -254,7 +254,10 @@ window.enrichment = {
       .map((code) => {
         const d = FLOW_DESC[code];
         const base = labelOf[code] || (d && d.label) || `Fluxo ${code}`;
-        const name = `${base} (${code})`; // keep the token, like the customs rows
+        // Header shows ONLY the pt-BR name — unlike the regime rows (which append a short,
+        // meaningful UN code like "(C01)"), the flow token is an internal normalized string
+        // (e.g. "import-inward-processing") that adds no reader value and bloats the column.
+        const name = base;
         const meaning = (d && d.hint) || `Fluxo comercial ${code} (UN Comtrade).`;
         return { id: code, term: name, label: name, hint: meaning };
       });

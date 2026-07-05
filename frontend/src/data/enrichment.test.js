@@ -101,7 +101,7 @@ describe('enrichment — flow-market matrix', () => {
       'import-outward-processing', 're-import', 're-export', 'export-inward-processing',
       'export-outward-processing',
     ]);
-    expect(e.flowTypes().find((f) => f.id === 'import').term).toBe('Importação (import)');
+    expect(e.flowTypes().find((f) => f.id === 'import').term).toBe('Importação'); // pt-BR name only, no token
 
     await vi.waitFor(() => expect(e.pairMarket('C04', 'import')).toBe('consumo')); // data loaded
     // Regimes that move value sort to the top; the zero-value canonical tail follows.
