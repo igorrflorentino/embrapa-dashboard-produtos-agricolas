@@ -481,18 +481,6 @@ function AppShell({
             )}
           </div>
 
-          {sessionUser && sessionUser.email && (
-            <div className="util-user"
-                 title={`Sessão autenticada via IAP como ${sessionUser.email}`}
-                 style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6,
-                          maxWidth: 220, opacity: 0.92 }}>
-              <window.Icon name="person" size={16}/>
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                             fontSize: 13 }}>
-                {sessionUser.email}
-              </span>
-            </div>
-          )}
         </div>
       </header>
 
@@ -524,11 +512,14 @@ function AppShell({
                            : `${b.short} fora do cruzamento atual`}>
                       <span className="side-src-dot"></span>
                       <span className="side-src-name">{b.short}</span>
-                      {incl
-                        ? (seriesCountByBanco[b.id]
-                            ? <span className="side-src-count tnum" title={`${seriesCountByBanco[b.id]} série(s)`}>{seriesCountByBanco[b.id]}</span>
-                            : <span className="side-src-in">incluída</span>)
-                        : <window.MaturityTag banco={b} size="sm" />}
+                      {/* Included: show the series-count (or "incluída") badge. The maturity tag
+                          ALWAYS renders after it, so a selected banco never hides its maturity —
+                          both margin-left:auto, so the count absorbs the free space and the
+                          maturity tag stays in the same far-right column for every row. */}
+                      {incl && (seriesCountByBanco[b.id]
+                        ? <span className="side-src-count tnum" title={`${seriesCountByBanco[b.id]} série(s)`}>{seriesCountByBanco[b.id]}</span>
+                        : <span className="side-src-in">incluída</span>)}
+                      <window.MaturityTag banco={b} size="sm" />
                     </div>
                   );
                 })}
@@ -572,7 +563,7 @@ function AppShell({
           </div>
           <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_market'))}>
-            <window.Icon name="hub"/>Tipo de Mercado
+            <window.Icon name="storefront"/>Tipo de Mercado
           </div>
 
           <div className="side-section">Informações</div>
@@ -592,6 +583,16 @@ function AppShell({
                {...clickable(() => onInfo('health'))}>
             <window.Icon name="pulse"/>Saúde do sistema
           </div>
+
+          {/* Session identity — the IAP-authenticated user. Non-interactive indicator,
+              anchored below Informações so the researcher always sees who the dashboard
+              considers the current user (edits are attributed to this email). */}
+          {sessionUser && sessionUser.email && (
+            <div className="side-user" title={`Sessão autenticada via IAP como ${sessionUser.email}`}>
+              <window.Icon name="person" size={16}/>
+              <span className="side-user-email">{sessionUser.email}</span>
+            </div>
+          )}
           <SidebarResizer />
         </aside>
 

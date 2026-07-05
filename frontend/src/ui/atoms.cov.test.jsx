@@ -371,21 +371,23 @@ describe('ViewComingSoon', () => {
     ],
   };
 
-  it('renders the planned schema, coverage + perspective label', () => {
-    const { container } = render(h(window.ViewComingSoon, { banco: BANCO, view: 'overview' }));
-    expect(container.textContent).toContain('IBGE PAM');
-    expect(container.textContent).toContain('reference_year');
-    expect(container.textContent).toContain('1986–2024');
-    expect(container.textContent).toContain('gold_ibge_pam');
-    expect(container.textContent).toContain('Perspectiva overview');
-    expect(container.querySelectorAll('.cs-col-row').length).toBe(2);
+  it('renders a generic, detail-free "Em breve" message', () => {
+    const { container } = render(h(window.ViewComingSoon, { banco: BANCO }));
+    expect(container.querySelector('.cs-simple')).toBeTruthy();
+    expect(container.textContent).toContain('Em breve');
+    expect(container.textContent).toContain('ainda não foi implementado');
+    // GENERIC: no per-banco schema/coverage detail leaks (so it serves any planned banco).
+    expect(container.querySelector('.cs-col-row, .cs-cols, .cs-cov')).toBeNull();
+    expect(container.textContent).not.toContain('reference_year');
+    expect(container.textContent).not.toContain('gold_ibge_pam');
   });
 
-  it('shows the "sem prazo definido" caption for a planejado banco', () => {
+  it('renders the same window regardless of the banco (planejado, no plannedScope)', () => {
     const { container } = render(
-      h(window.ViewComingSoon, { banco: { ...BANCO, maturity: 'planejado', plannedScope: [] }, view: 'map' })
+      h(window.ViewComingSoon, { banco: { ...BANCO, maturity: 'planejado', plannedScope: [] } })
     );
-    expect(container.textContent).toContain('sem prazo definido');
+    expect(container.querySelector('.cs-simple')).toBeTruthy();
+    expect(container.textContent).toContain('Em breve');
   });
 
   it('renders nothing with no banco', () => {

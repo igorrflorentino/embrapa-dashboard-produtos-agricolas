@@ -496,6 +496,19 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   color: var(--fg-3);
   font-weight: 500;
 }
+/* Session identity anchored at the sidebar foot (below Informações). Non-interactive,
+   separated by a hairline, email truncated with an ellipsis (full email in the title). */
+.side-user {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding: 12px 18px 4px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--fg-3); cursor: default;
+}
+.side-user svg { opacity: 0.75; flex-shrink: 0; }
+.side-user-email {
+  font: 500 12px var(--font-body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .side-item {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 18px;
@@ -544,6 +557,16 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
    ViewComingSoon — placeholder for bancos awaiting backend
    ==================================================================== */
 .cs-stack { display: flex; flex-direction: column; gap: 18px; }
+
+/* Generic "coming soon" window for a non-live (planejado) banco — a single centered,
+   detail-free message; the SAME for every perspective. */
+.cs-simple {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 12px; padding: 56px 24px; max-width: 620px; margin: 0 auto;
+}
+.cs-simple svg { color: var(--fg-3); opacity: 0.7; }
+.cs-simple-title { margin: 0; font: 600 18px var(--font-display); color: var(--fg-1); }
+.cs-simple-msg { margin: 0; max-width: 460px; font-size: 14px; line-height: 1.6; color: var(--fg-2); }
 
 .cs-hero {
   display: grid;
@@ -3143,14 +3166,16 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .side-src-name { font: 500 12.5px var(--font-body); }
 .side-src.incl .side-src-name { color: var(--fg-1); font-weight: 600; }
 .side-src.excl .side-src-name { color: var(--fg-3); }
+/* The count / "incluída" badge sits LEFT, right next to the banco name (no margin-left:auto).
+   Only the maturity tag carries margin-left:auto, so IT absorbs the free space and stays
+   in the far-right column across every row. */
 .side-src-count {
-  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px;
+  min-width: 18px; height: 18px; padding: 0 5px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-pill);
   background: var(--embrapa-green); color: #fff; font: 700 10px var(--font-body);
 }
 .side-src-in {
-  margin-left: auto;
   font: 600 9.5px var(--font-body); letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--embrapa-green);
 }
