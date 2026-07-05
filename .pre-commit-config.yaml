@@ -20,6 +20,20 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # Guard the immutable GCP project id against the bulk-rename corruption that hit it
+  # in v1.10.8 (an agent find/replaced it into `embrapa-…-produtos agrícolas` — a space
+  # + accent form that is not a valid GCP id and broke every IAM/bq command). Fails the
+  # commit if any file reintroduces an `embrapa-…agrícolas` id-shaped token (accented).
+  # The valid GitHub repo name uses ASCII `agricolas` (no accent) and does NOT match.
+  - repo: local
+    hooks:
+      - id: forbid-corrupted-gcp-id
+        name: forbid corrupted GCP project id (accented embrapa-* identifier)
+        language: pygrep
+        entry: 'embrapa[a-z]*-[a-z0-9 -]*agrícolas'
+        types: [text]
+        exclude: '^\.pre-commit-config\.yaml$'
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

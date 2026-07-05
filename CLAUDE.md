@@ -160,6 +160,7 @@ Medallion pipeline: data sources (today IBGE PEVS + BCB SGS; see `cli.INGESTS` r
 For the full technical deep-dive (folder structure, data flow diagrams, stack decisions, Bronze/Silver/Gold details, configuration model, dev/prod separation), see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 Key facts for AI context:
+- **⚠ The GCP project id `embrapa-dashboard-commodities` is a FROZEN, IMMUTABLE legacy label — treat it as an opaque string with NO domain meaning.** It predates the "produtos agrícolas" rename; GCP project ids cannot be renamed (only the display name, which is already "Embrapa Produtos Agrícolas Dashboard"). Do **not** read "commodity trading" semantics into it, do **not** propose migrating/recreating the project to change it, and **never** find/replace it in bulk (a bulk rename once corrupted it into an invalid form with a space and an accent, breaking every IAM/bq command; see the v1.10.8 incident). The GitHub repo (`embrapa-dashboard-produtos-agricolas`) and the domain are "produtos agrícolas"; only this one infra identifier keeps the old token, on purpose. In the terminology model **commodity** is a narrow, specific word (an *undifferentiated* produto) — it is not a synonym for the subject.
 - **Bronze is append-only**; Silver dedupes on natural key by `ingestion_timestamp desc`.
 - All Bronze columns are `STRING` except `ingestion_timestamp`.
 - The seed `historical_currency_factors` absorbs currency reforms; without it, pre-1994 values are 10⁶–10⁹× too large.

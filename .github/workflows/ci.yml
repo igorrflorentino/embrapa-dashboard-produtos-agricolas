@@ -66,6 +66,21 @@ jobs:
       - name: Lint (ruff check + ruff format --check)
         run: make lint
 
+      # Guard the immutable GCP project id against the bulk-rename corruption that hit
+      # it in v1.10.8 (find/replaced into `embrapa-…-produtos agrícolas` — a space+accent
+      # form that is not a valid GCP id and broke every IAM/bq command). Fails if any file
+      # reintroduces an accented `embrapa-…agrícolas` id-shaped token. The valid GitHub
+      # repo name uses ASCII `agricolas` (no accent) and does NOT match.
+      - name: Guard immutable GCP project id (no accented embrapa-* corruption)
+        run: |
+          if grep -rnE 'embrapa[a-z]*-[a-z0-9 -]*agrícolas' \
+               --include='*.md' --include='*.yml' --include='*.yaml' --include='*.sh' \
+               --include='*.py' --include='*.toml' --include='*.json' --include='*.example' \
+               --exclude-dir='.git' . ; then
+            echo "::error::Corrupted GCP project-id token found (space/accent in an embrapa-* identifier). The project id is IMMUTABLE: embrapa-dashboard-commodities — do not bulk-rename it. See CLAUDE.md." >&2
+            exit 1
+          fi
+
       - name: Test (pytest)
         run: make test
 
