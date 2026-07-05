@@ -271,8 +271,13 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                # TOTALS-ONLY: only the two direction totals are kept (export/import).
-                values: ["export", "import"]
+                # TOTALS-ONLY: the model now PRODUCES only export/import. The re-export/
+                # re-import are listed as a TRANSITION allowance — existing prod Silver still
+                # holds those rows until the one-time totals-only `--full-refresh`; a plain
+                # post-merge incremental build only reprocesses years with new Bronze, so the
+                # old rows linger briefly (expand-contract). Tighten to ["export","import"]
+                # in a follow-up once prod is fully refreshed.
+                values: ["export", "import", "re-export", "re-import"]
       - name: customs_code
         description: "UN Comtrade customs procedure (regime aduaneiro). TOTALS-ONLY: always C00 (todos os regimes / total) — the base ingests only customsCode=C00, so the per-regime detail (C01/C03/C20/…) is not present."
       - name: reference_year
