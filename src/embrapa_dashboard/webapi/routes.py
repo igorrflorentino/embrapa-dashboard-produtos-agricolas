@@ -244,11 +244,22 @@ def _authorize_curator():
     return author, None
 
 
+def _catalog_editor_allowlist(resource: str) -> set[str]:
+    """The effective editor allowlist for ``resource``: the UNION of the env override
+    (``CATALOG_EDITORS_ALLOWED_EMAILS``) and the Console-managed
+    ``research_inputs.catalog_editors`` table — exact parity with the curator path.
+    Empty (both absent) → open by default."""
+    return set(get_settings().catalog_editors_allowed_emails_list) | seam.catalog_editor_emails(
+        resource
+    )
+
+
 def _authorize_catalog_editor(resource: str):
     """Resolve the IAP author and enforce the PER-CATALOG editor allowlist
-    (``research_inputs.catalog_editors`` scoped to ``resource``) — each cadastro has
-    its OWN list (the lead's decision). Same 401/403 contract as ``_authorize_curator``;
-    an empty/absent allowlist preserves "any IAP-authenticated caller may edit"."""
+    (``research_inputs.catalog_editors`` scoped to ``resource``, UNIONed with the env
+    override ``CATALOG_EDITORS_ALLOWED_EMAILS``) — each cadastro has its OWN list (the
+    lead's decision). Same 401/403 contract as ``_authorize_curator``; an empty/absent
+    allowlist preserves "any IAP-authenticated caller may edit"."""
     try:
         author = current_author()
     except InvalidIapAssertionError as exc:
@@ -256,10 +267,27 @@ def _authorize_catalog_editor(resource: str):
     except PermissionError as exc:
         return None, (jsonify(error=str(exc)), 401)
     _ensure_catalog_editors_table()
-    allowed = seam.catalog_editor_emails(resource)
+    allowed = _catalog_editor_allowlist(resource)
     if allowed and author.lower() not in allowed:
         return None, (jsonify(error=f"{author} is not an authorized editor of {resource}"), 403)
     return author, None
+
+
+def _catalog_can_edit(resource: str) -> bool:
+    """Whether the current IAP caller MAY edit this catalog — the same union the write
+    path enforces (env override | ``catalog_editors`` table). Purely a UX affordance for
+    the SPA (disable/hide controls); the POST handlers stay authoritative (they 403 on a
+    stale ``true``). Best-effort: no trustworthy identity or a lookup fault → ``False``
+    (hide the controls). An empty allowlist means open → any IAP caller returns ``True``."""
+    try:
+        author = current_author()
+    except Exception:
+        return False
+    try:
+        allowed = _catalog_editor_allowlist(resource)
+    except Exception:
+        return False
+    return (not allowed) or (author.lower() in allowed)
 
 
 # ── catalog + provenance ──────────────────────────────────────────────────────
@@ -283,7 +311,11 @@ def catalog_entries():
     Optionally scoped to one banco (?banco=). Empty (not an error) before the catalog
     exists. Reading is open behind IAP; only WRITES require the editor allowlist."""
     banco = request.args.get("banco") or None
-    return jsonify(serializers.serialize_catalog_worklist(seam.catalog_worklist(banco)))
+    payload = serializers.serialize_catalog_worklist(seam.catalog_worklist(banco))
+    # UX affordance: tell the SPA whether to enable the edit controls. The write
+    # endpoints stay authoritative (403 on a stale true), so this can never widen access.
+    payload["can_edit"] = _catalog_can_edit(seam.PRODUTO_CATALOG_RESOURCE)
+    return jsonify(payload)
 
 
 @api.get("/catalog/source-codes")

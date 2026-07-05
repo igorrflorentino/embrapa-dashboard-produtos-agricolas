@@ -159,18 +159,55 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     expect(postBody.banco).toBe('comex');
   });
 
-  it('blocks a NONEXISTENT code: bad-hint shown, Salvar disabled, no POST', async () => {
+  it('accepts a NOT-YET-INGESTED code as pendente de ingestão: soft warning, Salvar enabled, POST fires', async () => {
     const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const codeInput = await openAddForm(container, getByText);
-    // 9999 is NOT in the source's real codes → hard-blocked client-side.
+    // 9999 is NOT in the source's real codes — no longer blocked: the catalog drives
+    // ingestion, so it registers as pending and the next run will fetch it.
     fireEvent.change(codeInput, { target: { value: '9999' } });
     fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
-    await waitFor(() => expect(container.querySelector('.cc-hint-bad')).toBeTruthy());
+    // A soft warning appears (not a hard block) and Salvar un-disables.
+    await waitFor(() => expect(container.textContent).toContain('ainda não ingerido'));
+    const saveBtn = getByText('Salvar produto');
+    expect(saveBtn.disabled).toBe(false);
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(postBody).toBeTruthy());
+    expect(postUrl).toContain('/api/catalog/entry');
+    expect(postBody.codigo_produto).toBe('9999');
+  });
+
+  it('PPM requires the sidra_tabela sub-select and sends it in the POST', async () => {
+    const { container, getByText } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    const codeInput = await openAddForm(container, getByText);
+    // Switch banco to IBGE PPM → the "Tabela PPM" sub-select appears.
+    fireEvent.change(container.querySelectorAll('.cc-add-card select')[0], { target: { value: 'ppm' } });
+    await waitFor(() => expect(container.textContent).toContain('Tabela PPM'));
+    fireEvent.change(codeInput, { target: { value: '2670' } });
+    fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
+    // Without the table chosen, Salvar stays disabled (the tag is mandatory for PPM).
     expect(getByText('Salvar produto').disabled).toBe(true);
+    // Pick "Rebanho" (SIDRA 3939) → Salvar enables and the POST carries sidra_tabela.
+    const tabelaSelect = [...container.querySelectorAll('.cc-add-card select')].find(
+      (s) => [...s.options].some((o) => o.value === '3939'),
+    );
+    fireEvent.change(tabelaSelect, { target: { value: '3939' } });
+    await waitFor(() => expect(getByText('Salvar produto').disabled).toBe(false));
     fireEvent.click(getByText('Salvar produto'));
-    // A disabled button fires nothing; the invalid code never reaches the API.
-    expect(postBody).toBeNull();
+    await waitFor(() => expect(postBody).toBeTruthy());
+    expect(postBody.banco).toBe('ppm');
+    expect(postBody.sidra_tabela).toBe('3939');
+  });
+
+  it('read-only when can_edit is false: banner shown, edit controls disabled', async () => {
+    mockFetch({ entries: { ...ENTRIES, can_edit: false } });
+    const { container, getByText } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    expect(container.textContent).toContain('Modo somente leitura');
+    expect(getByText('+ Adicionar produto').disabled).toBe(true);
+    // The inline row controls (remove) are disabled too.
+    expect(container.querySelector('.cc-remove').disabled).toBe(true);
   });
 
   it('requires an agrupamento: with a valid code but no group, Salvar stays disabled', async () => {

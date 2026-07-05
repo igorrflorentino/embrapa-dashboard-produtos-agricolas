@@ -46,6 +46,7 @@ from embrapa_dashboard.gcp.bigquery import (
     load_dataframe,
 )
 from embrapa_dashboard.gcp.clients import resolve_clients
+from embrapa_dashboard.ibge import catalog_resolver
 from embrapa_dashboard.ibge.client import fetch_sidra_dataframe
 from embrapa_dashboard.ibge.pipeline import _bronze_schema, _order_by_fetched_at
 
@@ -81,14 +82,28 @@ class _Spec:
         return f"ppm_{self.key}"
 
 
-def _specs(settings: Settings) -> list[_Spec]:
-    """The two PPM SIDRA tables, built from settings."""
+def _specs(settings: Settings, bq_client: bigquery.Client | None = None) -> list[_Spec]:
+    """The two PPM SIDRA tables, built from settings.
+
+    Each table's product codes come from the Curadoria catalog when
+    ``catalog_authoritative_ingestion`` is set — routed by ``sidra_tabela`` (the
+    SIDRA table id) so herd (3939) and animal (74) codes never cross — else from
+    the env fields (see ``catalog_resolver``). ``bq_client`` is reused when given.
+    """
     return [
         _Spec(
             key="herd",
             table_id=settings.ppm_herd_table_id,
             classification_id=settings.ppm_herd_classification_id,
-            product_codes=tuple(settings.ppm_herd_product_codes_list),
+            product_codes=tuple(
+                catalog_resolver.resolve_product_codes(
+                    settings,
+                    "ppm",
+                    env_fallback=settings.ppm_herd_product_codes_list,
+                    sidra_tabela=settings.ppm_herd_table_id,
+                    bq_client=bq_client,
+                )
+            ),
             variable_codes=settings.ppm_herd_variable_codes,
             bronze_table=settings.bq_bronze_ppm_herd_table,
         ),
@@ -96,7 +111,15 @@ def _specs(settings: Settings) -> list[_Spec]:
             key="animal",
             table_id=settings.ppm_animal_table_id,
             classification_id=settings.ppm_animal_classification_id,
-            product_codes=tuple(settings.ppm_animal_product_codes_list),
+            product_codes=tuple(
+                catalog_resolver.resolve_product_codes(
+                    settings,
+                    "ppm",
+                    env_fallback=settings.ppm_animal_product_codes_list,
+                    sidra_tabela=settings.ppm_animal_table_id,
+                    bq_client=bq_client,
+                )
+            ),
             variable_codes=settings.ppm_animal_variable_codes,
             bronze_table=settings.bq_bronze_ppm_animal_table,
         ),
@@ -326,7 +349,7 @@ def run(
 
     destinations = [
         dest
-        for spec in _specs(settings)
+        for spec in _specs(settings, bq_client=bq_client)
         if (
             dest := _run_spec(
                 settings,

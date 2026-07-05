@@ -82,6 +82,52 @@ def ensure_curators_table(
     return table_fqn
 
 
+def add_curator(
+    email: str,
+    *,
+    added_by: str = "cli",
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Authorize ``email`` to curate (attribute engineering) — append a row. Idempotent by
+    effect (the allowlist read DISTINCTs). Returns the normalized email. Backs
+    ``embrapa curators add`` (the no-Console alternative)."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = ensure_curators_table(cfg, bq)
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        raise ValueError("email é obrigatório.")
+    sql = (
+        f"insert into `{table_fqn}` (email, added_by, added_at) "
+        "values (@email, @added_by, current_timestamp())"
+    )
+    p = bigquery.ScalarQueryParameter
+    params = [p("email", "STRING", email_norm), p("added_by", "STRING", added_by)]
+    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    logger.info("Curator authorized: %s (by %s)", email_norm, added_by)
+    return email_norm
+
+
+def remove_curator(
+    email: str,
+    *,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> int:
+    """De-authorize ``email`` (delete matching rows, case-insensitive). Returns the number
+    of rows removed. Backs ``embrapa curators remove``."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = ensure_curators_table(cfg, bq)
+    email_norm = (email or "").strip().lower()
+    sql = f"delete from `{table_fqn}` where lower(trim(email)) = @email"
+    params = [bigquery.ScalarQueryParameter("email", "STRING", email_norm)]
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    job.result()
+    return int(getattr(job, "num_dml_affected_rows", 0) or 0)
+
+
 def ensure_banco_metadata_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,

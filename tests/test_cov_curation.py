@@ -68,6 +68,97 @@ def test_validate_catalog_edit_rejects_invalid_ciclo_enum():
         curation._validate_catalog_edit("4403", "un_comtrade", "Talvez disponível")
 
 
+def test_validate_catalog_edit_rejects_non_numeric_code():
+    from embrapa_dashboard.serving import curation
+
+    # Every source code (SIDRA/NCM/HS) is numeric — a non-numeric code is a typo.
+    with pytest.raises(ValueError, match="apenas dígitos"):
+        curation._validate_catalog_edit("44O3", "un_comtrade", None)  # letter O
+
+
+# ── _validate_sidra_tabela: PPM herd/animal discriminator ─────────────────────
+
+
+def test_validate_sidra_tabela_required_for_ppm():
+    from embrapa_dashboard.serving import curation
+
+    with pytest.raises(ValueError, match="obrigatória"):
+        curation._validate_sidra_tabela("ppm", None, _settings())
+
+
+def test_validate_sidra_tabela_rejects_bad_value_for_ppm():
+    from embrapa_dashboard.serving import curation
+
+    with pytest.raises(ValueError, match="inválida"):
+        curation._validate_sidra_tabela("ppm", "9999", _settings())
+
+
+def test_validate_sidra_tabela_accepts_valid_ppm():
+    from embrapa_dashboard.serving import curation
+
+    # Both configured PPM SIDRA tables (herd 3939 / animal 74) are accepted.
+    curation._validate_sidra_tabela("ppm", "3939", _settings())
+    curation._validate_sidra_tabela("ppm", "74", _settings())
+
+
+def test_validate_sidra_tabela_rejected_for_non_ppm():
+    from embrapa_dashboard.serving import curation
+
+    with pytest.raises(ValueError, match="só se aplica"):
+        curation._validate_sidra_tabela("pevs", "3939", _settings())
+
+
+def test_validate_sidra_tabela_optional_for_ppm_update():
+    from embrapa_dashboard.serving import curation
+
+    # On an UPDATE (require_for_ppm=False) a missing tag is allowed (the caller preserves it).
+    curation._validate_sidra_tabela("ppm", None, _settings(), require_for_ppm=False)
+
+
+def test_record_produto_catalog_new_ppm_requires_sidra_tabela(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # NEW entry
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
+    with pytest.raises(ValueError, match="obrigatória"):
+        curation.record_produto_catalog(
+            "2670",
+            "ppm",
+            _HEADERS,
+            agrupamento="Bovino",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
+def test_record_produto_catalog_ppm_update_preserves_sidra_tabela(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)  # UPDATE
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_current_sidra_tabela", lambda *a, **k: "3939")  # stored tag
+    client = mock.Mock()
+    client.query.return_value.result.return_value = []
+    # Inline ciclo edit re-sends no sidra_tabela → the stored '3939' must be preserved.
+    curation.record_produto_catalog(
+        "2670",
+        "ppm",
+        _HEADERS,
+        agrupamento="Bovino",
+        ciclo_de_vida="Fazer Ingestão e deixar disponível",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["sidra_tabela"] == "3939"
+
+
 # ── _is_active_entry: NotFound fall-through (log table absent) ────────────────
 
 
@@ -128,7 +219,7 @@ def test_record_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
     # A client-supplied change_id already present in the log → the write is a no-op.
     monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
     client = mock.Mock()
@@ -163,7 +254,7 @@ def test_record_produto_catalog_invalidates_cache_on_save(monkeypatch):
     from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
     client = mock.Mock()
     client.query.return_value.result.return_value = []
 
@@ -274,3 +365,111 @@ def test_invalidate_produto_catalog_cache_swallows_unbound_backend(monkeypatch):
     monkeypatch.setattr(curation.cache, "delete_memoized", _boom)
     # Must not raise.
     curation.invalidate_produto_catalog_cache()
+
+
+# ── add/remove_catalog_editor + add/remove_curator (CLI-backed writers) ───────
+
+
+def test_add_catalog_editor_inserts_normalized_row(monkeypatch):
+    from embrapa_dashboard.serving import curation
+
+    monkeypatch.setattr(
+        curation, "ensure_catalog_editors_table", lambda *a, **k: "p.ds.catalog_editors"
+    )
+    client = mock.Mock()
+    e = curation.add_catalog_editor(
+        "produto_catalog",
+        "  Alice@Embrapa.BR ",
+        added_by="boss@x",
+        settings=_settings(),
+        client=client,
+    )
+    assert e == "alice@embrapa.br"  # trimmed + lower-cased
+    sql = client.query.call_args.args[0].lower()
+    assert "insert into" in sql
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["resource"] == "produto_catalog" and params["email"] == "alice@embrapa.br"
+
+
+def test_remove_catalog_editor_returns_affected_rows(monkeypatch):
+    from embrapa_dashboard.serving import curation
+
+    monkeypatch.setattr(
+        curation, "ensure_catalog_editors_table", lambda *a, **k: "p.ds.catalog_editors"
+    )
+    client = mock.Mock()
+    client.query.return_value.num_dml_affected_rows = 2
+    n = curation.remove_catalog_editor(
+        "produto_catalog", "alice@embrapa.br", settings=_settings(), client=client
+    )
+    assert n == 2
+    assert "delete from" in client.query.call_args.args[0].lower()
+
+
+def test_add_and_remove_curator(monkeypatch):
+    from embrapa_dashboard.serving import research_inputs
+
+    monkeypatch.setattr(research_inputs, "ensure_curators_table", lambda *a, **k: "p.ds.curators")
+    client = mock.Mock()
+    e = research_inputs.add_curator(" Bob@X.BR ", settings=_settings(), client=client)
+    assert e == "bob@x.br"
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["email"] == "bob@x.br"
+
+    client.query.return_value.num_dml_affected_rows = 1
+    assert research_inputs.remove_curator("bob@x.br", settings=_settings(), client=client) == 1
+
+
+# ── seed_catalog_from_env (the CATALOG_AUTHORITATIVE_INGESTION cutover backfill) ──
+
+
+def test_seed_catalog_from_env_routes_and_reuses(monkeypatch):
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_dashboard.serving import curation
+    from tests.test_serving import _isolated_settings
+
+    cfg = _isolated_settings(
+        gcp_project_id="test-project",
+        ibge_product_codes="3405",
+        pam_product_codes="40124",
+        ppm_herd_product_codes="2670",
+        ppm_animal_product_codes="2682",
+    )
+    # One pre-existing entry (pam:40124) → its agrupamento must be reused, not overwritten.
+    monkeypatch.setattr(
+        curation.gateway,
+        "fetch_produto_catalog",
+        lambda banco=None: pd.DataFrame(
+            [
+                {
+                    "codigo_produto": "40124",
+                    "banco": "pam",
+                    "agrupamento": "Soja",
+                    "agrupamento_id": "soja",
+                    "descricao_produto": None,
+                    "ciclo_de_vida": None,
+                }
+            ]
+        ),
+    )
+    calls = []
+
+    def _rec(code, banco, headers, **k):
+        calls.append({"code": code, "banco": banco, **k})
+        return {"deduped": False}
+
+    monkeypatch.setattr(curation, "record_produto_catalog", _rec)
+    monkeypatch.setattr(curation, "invalidate_produto_catalog_cache", lambda: None)
+
+    res = curation.seed_catalog_from_env({}, settings=cfg, client=mock.Mock())
+    assert res == {"seeded": 4, "skipped": 0}
+    by_code = {c["code"]: c for c in calls}
+    # PEVS/PAM carry no sidra_tabela; PPM herd→3939, animal→74.
+    assert by_code["3405"]["banco"] == "pevs" and by_code["3405"]["sidra_tabela"] is None
+    assert by_code["2670"]["sidra_tabela"] == "3939"
+    assert by_code["2682"]["sidra_tabela"] == "74"
+    # New codes fall back to the code as its own agrupamento; existing ones are reused.
+    assert by_code["3405"]["agrupamento"] == "3405"
+    assert by_code["40124"]["agrupamento"] == "Soja"

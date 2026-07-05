@@ -495,6 +495,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "COMTRADE reachable",
         "Bronze tables",
         "Serving marts",
+        "Catalog↔env product codes",
         "Gold backup freshness",
     ]
 
@@ -557,6 +558,66 @@ def test_pam_variable_codes_parity_fails_when_a_dbt_code_is_dropped(settings_fac
     result = doctor._check_pam_variable_codes(s)
     assert result.ok is False
     assert "215" in result.detail
+
+
+def _small_codes(settings_factory):
+    return settings_factory(
+        ibge_product_codes="3405",
+        pam_product_codes="40124",
+        ppm_herd_product_codes="2670",
+        ppm_animal_product_codes="2682",
+    )
+
+
+def test_catalog_parity_empty_uses_env(monkeypatch, settings_factory) -> None:
+    """An empty/absent catalog → the check reports env fallback, no drift, never fails."""
+    from embrapa_dashboard.ibge import catalog_resolver
+
+    monkeypatch.setattr(catalog_resolver, "read_catalog_codes", lambda *a, **k: [])
+    r = doctor._check_catalog_resolver_parity(_small_codes(settings_factory))
+    assert r.ok is True
+    assert "vazio" in r.detail and "DRIFT" not in r.detail
+
+
+def test_catalog_parity_matches_env(monkeypatch, settings_factory) -> None:
+    """Catalog codes equal to the .env codes per banco → OK, no drift."""
+    from embrapa_dashboard.ibge import catalog_resolver
+
+    codes = {
+        ("pevs", None): ["3405"],
+        ("pam", None): ["40124"],
+        ("ppm", "3939"): ["2670"],
+        ("ppm", "74"): ["2682"],
+    }
+    monkeypatch.setattr(
+        catalog_resolver,
+        "read_catalog_codes",
+        lambda s, banco, *, sidra_tabela=None, bq_client=None: codes[(banco, sidra_tabela)],
+    )
+    r = doctor._check_catalog_resolver_parity(_small_codes(settings_factory))
+    assert r.ok is True
+    assert "OK" in r.detail and "DRIFT" not in r.detail
+
+
+def test_catalog_parity_reports_drift_without_failing(monkeypatch, settings_factory) -> None:
+    """An extra catalog code is reported as DRIFT but the check still passes (intended
+    change, not an error) — an operator sees what the next run would pull."""
+    from embrapa_dashboard.ibge import catalog_resolver
+
+    codes = {
+        ("pevs", None): ["3405", "9999"],
+        ("pam", None): ["40124"],
+        ("ppm", "3939"): ["2670"],
+        ("ppm", "74"): ["2682"],
+    }
+    monkeypatch.setattr(
+        catalog_resolver,
+        "read_catalog_codes",
+        lambda s, banco, *, sidra_tabela=None, bq_client=None: codes[(banco, sidra_tabela)],
+    )
+    r = doctor._check_catalog_resolver_parity(_small_codes(settings_factory))
+    assert r.ok is True  # never fails on intended drift
+    assert "DRIFT" in r.detail and "9999" in r.detail
 
 
 def test_bronze_targets_reference_real_settings_fields(settings: Settings) -> None:

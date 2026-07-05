@@ -38,6 +38,7 @@ from embrapa_dashboard.gcp.bigquery import (
     load_dataframe,
 )
 from embrapa_dashboard.gcp.clients import resolve_clients
+from embrapa_dashboard.ibge import catalog_resolver
 from embrapa_dashboard.ibge.client import fetch_sidra_dataframe
 from embrapa_dashboard.ibge.pipeline import _bronze_schema, _order_by_fetched_at
 
@@ -59,24 +60,33 @@ RAW_DATASET = "pam"
 CLUSTERING_FIELDS = ["municipio_codigo", "ano", "variavel_codigo"]
 
 
-def _basename(settings: Settings) -> str:
+def _basename(settings: Settings, product_codes: list[str]) -> str:
     """Raw object basename encoding the crops + window — re-running the same
-    config overwrites a single object (idempotent extract)."""
-    return (
-        f"products_{'_'.join(settings.pam_product_codes_list)}_"
-        f"{settings.pam_start_year}_{settings.pam_end_year}"
-    )
+    resolved code set overwrites one object; a catalog-driven code change yields a
+    new basename (a new archive), which Silver dedups by ``ingestion_timestamp``."""
+    return f"products_{'_'.join(product_codes)}_{settings.pam_start_year}_{settings.pam_end_year}"
 
 
-def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | None:
+def extract_raw(
+    settings: Settings,
+    *,
+    storage_client: storage.Client,
+    bq_client: bigquery.Client | None = None,
+) -> str | None:
     """Phase 1: fetch SIDRA 5457 and archive the verbatim response. Returns the
-    raw basename, or ``None`` when SIDRA had no rows (nothing archived)."""
+    raw basename, or ``None`` when SIDRA had no rows (nothing archived).
+
+    The crop-code list comes from the Curadoria catalog when
+    ``catalog_authoritative_ingestion`` is set (else the env codes) — see
+    ``catalog_resolver``; ``bq_client`` lets it reuse the caller's client."""
     if settings.pam_start_year is None:
         raise RuntimeError(
             "PAM_START_YEAR is empty. Run `embrapa discover ibge-periods "
             f"--table-id {settings.pam_table_id}` to find the first available year."
         )
-    product_codes = settings.pam_product_codes_list
+    product_codes = catalog_resolver.resolve_product_codes(
+        settings, "pam", env_fallback=settings.pam_product_codes_list, bq_client=bq_client
+    )
     started = time.monotonic()
     logger.info(
         "Ingesting PAM table=%s classification=%s products=%s years=%d-%d",
@@ -119,7 +129,7 @@ def extract_raw(settings: Settings, *, storage_client: storage.Client) -> str | 
         )
         return None
 
-    basename = _basename(settings)
+    basename = _basename(settings, product_codes)
     land_raw(
         df.astype(str),
         settings=settings,
@@ -260,7 +270,7 @@ def run(
                 # Bronze already current — clean no-op (see _delta_start_year).
                 return ""
             settings = delta_settings
-        basename = extract_raw(settings, storage_client=storage_client)
+        basename = extract_raw(settings, storage_client=storage_client, bq_client=bq_client)
         if basename is None:
             return ""
         basenames = [basename]

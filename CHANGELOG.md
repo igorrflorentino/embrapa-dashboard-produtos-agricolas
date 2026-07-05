@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.11.0] - 2026-07-05
+
+A **Curadoria** vira a fonte única de verdade que **dirige a ingestão** dos bancos
+IBGE (PEVS/PAM/PPM): a lista de códigos baixados do SIDRA passa a sair do catálogo
+editável em "Cadastro de produtos", não mais do `.env`. Tudo atrás de uma flag
+reversível (`CATALOG_AUTHORITATIVE_INGESTION`, default `false`) — o resolver sempre
+cai no `.env` se o catálogo estiver ausente/vazio/inacessível, então nada quebra.
+
+### Added
+- **Ingestão dirigida pelo catálogo** (`ibge/catalog_resolver.py`): quando a flag está
+  ligada, os pipelines IBGE resolvem os códigos de produto a partir de
+  `research_inputs.produto_catalog_log` (lido cru, antes do dbt), com **fallback para o
+  `.env`** e um **cap de segurança** (`CATALOG_RESOLVER_MAX_CODES`, default 500) contra
+  um cadastro acidental gigante. Metadados de engenharia (tabela/classificação/variáveis/
+  janelas) permanecem no `.env`.
+- **Coluna `sidra_tabela`** no log do catálogo: o PPM (rebanho SIDRA 3939 / produção
+  animal 74) é roteado por ela na ingestão; auto-migrada via `ALTER TABLE ADD COLUMN IF
+  NOT EXISTS`. Sub-select "Tabela PPM" no formulário de cadastro.
+- **Autorização**: env override `CATALOG_EDITORS_ALLOWED_EMAILS` (paridade com
+  `CURATION_ALLOWED_EMAILS`), flag `can_edit` em `GET /api/catalog/entries` (a UI esconde/
+  desabilita os controles para não-autorizados; o servidor continua autoritativo com 403),
+  e comandos CLI `embrapa editors|curators add|remove` para gerenciar as duas listas.
+- **`embrapa catalog-seed-from-env`**: semeia os códigos atuais do `.env` no catálogo
+  (idempotente; marca o `sidra_tabela` do PPM) — o backfill de cutover.
+- **`embrapa doctor`**: checagem "Catalog↔env product codes" que mostra o drift entre o
+  catálogo e o `.env` por banco (informativa — nunca falha).
+
+### Changed
+- **Cadastro de produtos aceita produto "pendente de ingestão"**: um código ainda não
+  presente no Gold não é mais bloqueado (o catálogo agora dirige a ingestão; a próxima
+  execução o busca) — vira um aviso suave em vez de erro. Um typo grosseiro (código não
+  numérico) continua rejeitado.
+- `deploy/ingestion/deploy.sh`: a allowlist de env do Job passa a encaminhar `CATALOG_*` +
+  o dataset/tabela do log do catálogo, para a flag chegar ao Job de ingestão.
+
 ## [1.10.11] - 2026-07-04
 
 Correções de uma auditoria manual profunda de todo o repositório (75 achados

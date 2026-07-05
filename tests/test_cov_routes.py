@@ -108,6 +108,49 @@ def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):
     assert resp.status_code == 403
 
 
+# ── _authorize_catalog_editor: CATALOG_EDITORS_ALLOWED_EMAILS env union ───────────
+
+
+def test_catalog_editor_env_allowlist_denies_non_member(monkeypatch):
+    """CATALOG_EDITORS_ALLOWED_EMAILS is UNIONed with the table (parity with the curator
+    env allowlist): an author outside it (empty table) gets 403 — no seam write."""
+    from embrapa_dashboard.webapi import routes, seam
+
+    client = _client(
+        monkeypatch,
+        curation_dev_author="alice@embrapa.br",
+        catalog_editors_allowed_emails="bob@embrapa.br",
+    )
+    monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # empty table
+    resp = client.post(
+        "/api/catalog/entry",
+        json={"codigo_produto": "4403", "banco": "comtrade", "agrupamento": "Madeira"},
+    )
+    assert resp.status_code == 403
+
+
+def test_catalog_editor_env_allowlist_allows_member(monkeypatch):
+    """An author present in CATALOG_EDITORS_ALLOWED_EMAILS is authorized even with an
+    empty table (the union), and the seam write runs."""
+    from embrapa_dashboard.webapi import routes, seam
+
+    client = _client(
+        monkeypatch,
+        curation_dev_author="alice@embrapa.br",
+        catalog_editors_allowed_emails="alice@embrapa.br",
+    )
+    monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    monkeypatch.setattr(seam, "record_catalog_entry", lambda body: {"ok": True})
+    resp = client.post(
+        "/api/catalog/entry",
+        json={"codigo_produto": "4403", "banco": "comtrade", "agrupamento": "Madeira"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+
+
 # ── _parse_table_filters malformed shapes → 400 (lines 296, 300) ──────────────────
 
 
