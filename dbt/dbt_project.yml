@@ -101,3 +101,11 @@ vars:
   quality_outlier_k: 4.0      # magnitude log-fence for the OUTLIER (valid-but-large) tier
   quality_min_obs: 100        # per-product sample floor — fewer rows ⇒ never flag (untrustworthy)
   quality_value_floor: 100000 # skip rows below this (deflated BRL / USD) — low-stakes rounding noise
+
+  # Engenharia de Atributos (researcher-editable derived attributes). Gates the SCD2
+  # view(s) over the research_inputs curation logs — today dim_code_industrialization_scd2
+  # (per-code industrialization). The feature is UNFROZEN, so this stays TRUE (prod also
+  # passes it via the DBT_ENABLE_CURATION repo var). Prerequisite: the log table the SCD2
+  # reads must exist (auto-created on the first editor write / an ensure step) — a build
+  # with the source table absent fails on the SCD2 model.
+  enable_curation: true
