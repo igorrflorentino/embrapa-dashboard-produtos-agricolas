@@ -96,13 +96,17 @@ select
     date(ct.reference_year, 12, 31) as reference_date,
     ct.flow,
     ct.customs_code,
-    -- Tipo de mercado (consumo/processamento) — a function of (customs_code, flow),
-    -- now EDIT-DRIVEN: the current classification from the researcher-editable
-    -- dim_flow_market_scd2 (reverted from the comtrade_market_nature seed, v1.9.0).
-    -- NULL where the pair is unclassified. Materialized here, so the "Tipo de mercado"
-    -- filter + "Finalidade econômica" analysis reflect an edit after the next build
-    -- (the matrix editor itself reads the live view and is instant).
+    -- Tipo de mercado (consumo/processamento) — a function of (customs_code, flow) from the
+    -- researcher-editable dim_flow_market_scd2. FROZEN (2026-07, totals-only): the feature is
+    -- UI-hidden and, with customs_code now a constant C00, the classification is inert. The
+    -- column is KEPT (dormant scaffold) but its source join is guarded behind enable_curation
+    -- so this LIVE mart never hard-depends on the gated SCD2 (a false flag would otherwise make
+    -- ref() a parse-time error that breaks the WHOLE prod build). NULL when curation is off.
+    {% if var('enable_curation', false) -%}
     fm.market                       as market_nature,
+    {%- else -%}
+    cast(null as string)            as market_nature,
+    {%- endif %}
     ct.cmd_code,
     ct.hs_chapter,
     ct.cmd_description,
@@ -135,9 +139,13 @@ select
 from comtrade ct
 left join {{ ref('gold_produto_agrupamento') }} x
     on x.source = 'comtrade' and x.code = ct.cmd_code
--- Edit-driven market-nature (the current classification per customs procedure × flow).
--- ct is grouped by (customs_code, flow), so this join stays at grain (one fm row per
--- pair via is_current). Depends on dim_flow_market_scd2 → requires enable_curation
--- (default true in dbt_project.yml; prod passes DBT_ENABLE_CURATION=true permanently).
+-- Edit-driven market-nature (current classification per customs procedure × flow). GUARDED
+-- behind enable_curation: only ref() the gated dim_flow_market_scd2 when curation is on, so a
+-- future build with the flag off degrades market_nature to NULL rather than failing to compile
+-- (the model is a view disabled by the flag; a hard ref() to a disabled model is a parse error
+-- that breaks the whole prod build). ct is grouped by (customs_code, flow), so the join stays
+-- at grain (one fm row per pair via is_current).
+{% if var('enable_curation', false) -%}
 left join {{ ref('dim_flow_market_scd2') }} fm
     on fm.customs_code = ct.customs_code and fm.flow_code = ct.flow and fm.is_current
+{%- endif %}

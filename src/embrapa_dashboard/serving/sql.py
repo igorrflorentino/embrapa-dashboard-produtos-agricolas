@@ -158,15 +158,36 @@ def _latest_year_condition(table: str, conditions: list[str]) -> str:
     return f"reference_year = (select max(reference_year) from `{table}` {inner})"
 
 
+# The two PRIMARY UN Comtrade flows. re-export/re-import (and, if ingested, the other
+# processing sub-flows) are SUBSETS of export/import — X already includes RX, M includes RM
+# — so an "all flows" TOTAL must sum only these two, never add the sub-flows on top (that
+# double-counts re-exports/re-imports). Verified in prod: summing every flow inflates the
+# world total by ~0.3% (Brazil = 0, it reports no re-exports). COMTRADE readers pass this as
+# ``sum_flows``; COMEX (no overlapping sub-flow) / PEVS (no flow column) pass None.
+COMTRADE_TOTAL_FLOWS = ("export", "import")
+
+
 def _flow(
     conditions: list[str],
     params: list[bigquery.ScalarQueryParameter],
     flow: str | None,
+    *,
+    sum_flows: tuple[str, ...] | None = None,
 ) -> None:
-    """Optional `flow = @flow` predicate ('export' / 'import'), bound as a param."""
+    """Flow predicate for the trade marts.
+
+    - ``flow`` given → ``flow = @flow`` (the user picked one direction / sub-flow).
+    - ``flow`` None + ``sum_flows`` → ``flow in (…)``: sum ONLY those flows (for COMTRADE,
+      the primary totals :data:`COMTRADE_TOTAL_FLOWS`, so the re-export/re-import SUBSETS are
+      not double-counted in an "all flows" total).
+    - ``flow`` None + no ``sum_flows`` → no predicate (historical default; PEVS/COMEX).
+    """
     if flow is not None:
         conditions.append("flow = @flow")
         params.append(bigquery.ScalarQueryParameter("flow", "STRING", flow))
+    elif sum_flows:
+        conditions.append("flow in unnest(@__sum_flows)")
+        params.append(bigquery.ArrayQueryParameter("__sum_flows", "STRING", list(sum_flows)))
 
 
 def _customs(
@@ -191,7 +212,7 @@ def _market_nature(
     market: str | None,
 ) -> None:
     """Optional `market_nature = @market` predicate — the tipo de mercado (economic
-    purpose: consumo/processamento), seed-classified per (customs_code × flow). None/absent
+    purpose: consumo/processamento), edit-driven per (customs_code × flow). None/absent
     references market_nature at all → sums over every purpose (incl. the unmapped NULL rows),
     so a request without this param is byte-identical to before the dimension existed. Only
     the COMTRADE mart carries market_nature."""
@@ -644,6 +665,7 @@ def trade_overview(
     value_column: str = "val_yearfx_usd",
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    sum_flows: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
     """Annual trade value + weight from a trade annual mart (backs overviewTS).
 
@@ -665,7 +687,7 @@ def trade_overview(
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
-    _flow(conditions, params, flow)
+    _flow(conditions, params, flow, sum_flows=sum_flows)
     _customs(conditions, params, customs)
     _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
@@ -871,6 +893,7 @@ def trade_flows(
     uf_codes: Sequence[str] = (),
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    sum_flows: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
     """Origin->destination links for the Sankey (backs flowData).
 
@@ -902,7 +925,7 @@ def trade_flows(
     params: list = []
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
-    _flow(conditions, params, flow)
+    _flow(conditions, params, flow, sum_flows=sum_flows)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _reporter(conditions, params, reporter_column, reporter_value)
     sql = f"""
@@ -965,9 +988,14 @@ def market_nature_series(table: str, *, codes: Sequence[str] = ()) -> tuple[str,
     (LEFT JOIN dim_flow_market_scd2, reverted from the comtrade_market_nature seed; NULL where
     the customs×flow pair is unclassified — excluded). Optional ``codes`` narrows to one
     commodity's HS codes (cmd_code). The mart already dedups + preserves customs/flow, so this
-    is a plain grouped sum (no Bronze scan). Reflects a matrix edit after the next dbt build."""
-    conditions = ["market_nature is not null"]
-    params: list = []
+    is a plain grouped sum (no Bronze scan). Reflects a matrix edit after the next dbt build.
+    Sums only the PRIMARY flows (export/import): re-export/re-import are SUBSETS of those (X ⊇
+    RX, M ⊇ RM), so including them would double-count re-exported/re-imported value — this
+    reader is NOT reporter-pinned, so it sees every reporter's re-exports (Brazil has none)."""
+    conditions = ["market_nature is not null", "flow in unnest(@__sum_flows)"]
+    params: list = [
+        bigquery.ArrayQueryParameter("__sum_flows", "STRING", list(COMTRADE_TOTAL_FLOWS))
+    ]
     if codes:
         conditions.append("cmd_code IN UNNEST(@cmd_codes)")
         params.append(bigquery.ArrayQueryParameter("cmd_codes", "STRING", list(codes)))

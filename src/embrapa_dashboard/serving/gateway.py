@@ -406,6 +406,10 @@ def fetch_comtrade_overview(
         # reporter (which conflates the whole world's trade in the all-reporters years).
         reporter_column="reporter_iso_a3",
         reporter_value=settings.comtrade_brazil_iso,
+        # "All flows" sums only the primary totals (export/import): re-export/re-import are
+        # subsets (X ⊇ RX, M ⊇ RM), so adding them would double-count. (Brazil reports none
+        # today, but keep it correct for widened reporters / mirror analysis.)
+        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
     )
     return run_query(sql, params)
 
@@ -619,6 +623,8 @@ def fetch_comtrade_flows(
         # otherwise surface non-Brazil origin nodes in a Brazil-perspective view).
         reporter_column="reporter_iso_a3",
         reporter_value=settings.comtrade_brazil_iso,
+        # "All flows" sums only export/import (re-export/re-import are subsets → no double-count).
+        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
     )
     return run_query(sql, params)
 

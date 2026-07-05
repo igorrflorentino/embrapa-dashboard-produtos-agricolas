@@ -82,3 +82,8 @@ select
     valid_to,
     valid_to is null as is_current
 from versioned
+-- A cleared pair (market='') must read as UNCLASSIFIED, not as an is_current row with an
+-- empty market. Dropping the '' rows here means a cleared pair has NO is_current row → the
+-- serving mart's LEFT JOIN yields NULL market_nature (matching the "unclassified → NULL"
+-- contract) AND the live current_flow_market read agrees — one symmetric source of truth.
+where market != ''

@@ -1099,7 +1099,7 @@ def flow_market_seed_cmd(
     author: str = typer.Option("system:flow-market-seed", help="Audit author for the seeded rows."),
 ) -> None:
     """Backfill the (customs procedure × flow) market-nature log from the retired
-    comtrade_market_nature seed's 24 pairs — the cutover for reverting market-nature to the
+    comtrade_market_nature seed's 25 pairs — the cutover for reverting market-nature to the
     editable matrix. Idempotent (a pair already set to the same market is skipped). Run
     against prod BEFORE the dbt build so serving_comtrade_annual.market_nature stays
     populated. Requires the `webapi` extra."""

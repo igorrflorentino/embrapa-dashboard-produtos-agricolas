@@ -517,6 +517,40 @@ def test_trade_overview_sums_value_and_weight_by_year():
     assert by_name["year_start"].value == 2018
 
 
+def test_trade_overview_sum_flows_limits_all_flows_to_primary_totals():
+    # flow=None + sum_flows → "all flows" sums ONLY export/import (re-export/re-import are
+    # subsets of those, so adding them would double-count). Verified for COMTRADE readers.
+    query, params = sql.trade_overview(
+        "p.serving.serving_comtrade_annual",
+        code_column="cmd_code",
+        flow=None,
+        sum_flows=sql.COMTRADE_TOTAL_FLOWS,
+    )
+    assert "flow in unnest(@__sum_flows)" in query.lower()
+    assert "flow = @flow" not in query
+    by_name = {p.name: p for p in params}
+    assert list(by_name["__sum_flows"].values) == ["export", "import"]
+
+
+def test_trade_overview_explicit_flow_overrides_sum_flows():
+    # A specific flow selection wins over sum_flows (the user picked one direction/sub-flow).
+    query, params = sql.trade_overview(
+        "p.serving.serving_comtrade_annual",
+        code_column="cmd_code",
+        flow="re-export",
+        sum_flows=sql.COMTRADE_TOTAL_FLOWS,
+    )
+    assert "flow = @flow" in query
+    assert "flow in unnest" not in query.lower()
+    assert {p.name for p in params} == {"flow"}
+
+
+def test_trade_overview_no_sum_flows_adds_no_flow_predicate():
+    # PEVS/COMEX callers pass neither flow nor sum_flows → no flow predicate (unchanged).
+    query, _ = sql.trade_overview("p.serving.serving_comex_annual", code_column="ncm_code")
+    assert "flow" not in query.lower()
+
+
 def test_trade_overview_comtrade_uses_cmd_code():
     query, params = sql.trade_overview(
         "p.serving.serving_comtrade_annual", code_column="cmd_code", codes=("440710",)
@@ -2516,13 +2550,18 @@ def test_market_nature_series_sums_by_market_and_year_from_serving_mart():
     assert "market_nature is not null" in low  # unmapped/NULL rows excluded
     assert "sum(val_yearfx_usd) as value_usd" in low
     assert "group by market_nature, reference_year" in low
-    assert params == []  # no code scope → no params
+    # Sums only export/import — re-export/re-import are subsets (no double-count).
+    assert "flow in unnest(@__sum_flows)" in low
+    assert [p.name for p in params] == ["__sum_flows"]
+    assert list(params[0].values) == ["export", "import"]
 
 
 def test_market_nature_series_scopes_to_cmd_codes_when_given():
     query, params = sql.market_nature_series("t", codes=("0801", "44"))
     assert "cmd_code in unnest(@cmd_codes)" in query.lower()
-    assert params[0].values == ["0801", "44"]
+    assert "flow in unnest(@__sum_flows)" in query.lower()
+    cmd = next(p for p in params if p.name == "cmd_codes")
+    assert list(cmd.values) == ["0801", "44"]
 
 
 # ── gateway: PAM rides the PEVS-shaped production registries ───────────────────

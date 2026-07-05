@@ -1,10 +1,33 @@
 # UN Comtrade world (all-reporters) backfill — runbook
 
-How to fill the full COMTRADE history at **maximum granularity** (`reporters=all`), the
-last remaining gap to "every source at max granularity, commodity-filtered only".
-Everything here was measured against live prod BigQuery + verified against the code
-(adversarially reviewed). Storage/compute cost is trivial; the only real constraint
-is the UN API daily quota (calendar time).
+How to fill the COMTRADE history for **all reporters × all partners**, from **2000**, at the
+**totals-only** grain — now the default ingest scope. Everything here was measured against live
+prod BigQuery + verified against the code (adversarially reviewed). Storage/compute cost is
+trivial; the only real constraint is the UN API daily quota (calendar time).
+
+> ### ⚠ 2026-07 — totals-only redesign (v1.13.0): read this first
+>
+> The scope this runbook targets is now the **config default**, and the grain changed. The
+> ingest downloads **only the totals of every dimension** — `customsCode=C00`, `flowCode ∈
+> {X, M}` — from `COMTRADE_START_YEAR=2000`, with `COMTRADE_REPORTERS=all`. This makes the
+> base homogeneous (every country reports the C00/X/M totals) and kills the double-counts.
+>
+> **What this changes vs. the measured anchors below** (which were taken 2026-06-17 on the
+> OLD 1989+ scope *with* customs/mode breakdown rows):
+> - **No breakdown rows.** Bronze was ~7× Silver *because of* the per-regime/mode breakdowns.
+>   With `customsCode=C00` at the request, Bronze ≈ Silver — the "~29.7M Bronze / ~5.9 GB"
+>   figures **over-estimate by several ×**. Real Bronze/GCS/BigQuery add is far smaller.
+> - **Fewer years** (2000→now ≈ 25, not 35 from 1989) and **half the flows** (X/M only, no
+>   RX/RM) → fewer API calls and rows still.
+> - So the time/volume table below is a **safe upper bound**, not a forecast.
+>
+> **Cutover (no mandatory DELETE).** The re-ingest APPENDs to append-only Bronze; the Silver
+> `latest_batch` dedup (per `reference_year, reporterCode`) makes the new totals-only batch
+> REPLACE each re-fetched reporter-year, and the Silver year-floor (`comtrade_min_year=2000`)
+> drops pre-2000. A `dbt build --select silver_comtrade_flows+ --full-refresh` then propagates
+> totals-only to Silver/Gold/serving. The old detail/pre-2000 Bronze rows are left orphaned
+> (never selected) — optionally purge them for storage (a **human-run** `bq query … DELETE`;
+> the safety hook blocks the agent from running it). See `docs/operations_runbook.md`.
 
 ## Current state (measured 2026-06-17)
 
@@ -27,7 +50,7 @@ exist and serve as the measured "pilot" — no separate pilot run is needed.
 | IAM grant — Job runtime SA reads the secret | ✅ Done: `sa-data-pipeline-prod` has `roles/secretmanager.secretAccessor` on `comtrade-un-key`. |
 | IAM grant — scheduler SA overrides Job args | ✅ Done: `sa-data-pipeline-prod` has `roles/run.jobsExecutorWithOverrides` (+ `run.invoker`) on job `embrapa-ingest-all`. |
 | Job has the key mounted | ✅ `COMTRADE_API_KEY` mounted via `secretKeyRef` → `comtrade-un-key`. |
-| Job has the all-reporters **scope** | ❌ **Not yet** — the deployed job carries NO `COMTRADE_*` scope env (no `COMTRADE_REPORTERS`), so it would run on `config.py` defaults = `reporters=76` (Brazil). **A redeploy with `COMTRADE_REPORTERS=all` is required for the Job path** (the scope is baked at deploy time). |
+| Job has the all-reporters **scope** | ⚠ As of v1.13.0 the `config.py` **defaults are `reporters=all`, `customs=C00`, `flows=X,M`, `start_year=2000`**, so a job carrying NO `COMTRADE_*` scope env now runs the totals-only all-reporters pull by default. Still **redeploy the Job** so its baked defaults match the current image (and pin `COMTRADE_*` explicitly if you want to override). |
 
 ## Expected volume / time / cost (measured anchors)
 

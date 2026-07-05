@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.0] - 2026-07-05
+
+**COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**
+Decisão de produto após a auditoria (1.12.1): a base COMTRADE passa a carregar **apenas os
+totais de cada dimensão**, para todos os países como reportador *e* parceiro, a partir de
+2000. Isso torna a base **homogênea** (todo país reporta os totais, mesmo os que nunca
+detalham) e **estruturalmente livre de dupla contagem** (regime C00-vs-detalhe, hierarquia de
+fluxo X⊇RX, modais). Como o detalhe de regime aduaneiro deixa de existir na base, a
+subfuncionalidade **"Tipo de Mercado"** (natureza econômica) fica **congelada**.
+
+### Changed — ingestão totais-só
+- **`COMTRADE_FLOWS` = `X,M`** (só os dois totais de direção — exportação/importação). Os
+  sub-fluxos RX/RM/DX/FM/… são subconjuntos de X/M e passariam a duplicar; não são mais
+  ingeridos.
+- **Novo `COMTRADE_CUSTOMS_CODE` = `C00`** — o request agora manda `customsCode=C00`, baixando
+  só o agregado "todos os regimes / total". Onde um reportador também detalha, `C00 =
+  Σ(detalhes)`, então C00 sozinho é *lossless* para o total. Vazio ⇒ baixa todos os regimes
+  (comportamento pré-2026-07).
+- **`COMTRADE_REPORTERS` = `all`** — todos os reportadores × todos os parceiros (a matriz
+  bilateral completa: comércio do Brasil + o espelho + market-share mundial). A duplicação é
+  contida a jusante (readers do serving fixam o reportador; o Silver derruba o parceiro World
+  e mantém só os totais; dedup por lote mais recente).
+- **`COMTRADE_START_YEAR` = `2000`** — a base all-reporters é ancorada no marco de 2000.
+- **`silver_comtrade_flows`**: mantém só `customsCode=C00` + fluxo em `X/M` +
+  `reference_year >= var('comtrade_min_year', 2000)`; removida a lógica de exclusão-mútua
+  C00-vs-detalhe (não há mais detalhe). Requer **um `--full-refresh`** no cutover para expurgar
+  as linhas de detalhe/pré-2000 do incremental.
+
+### Frozen — "Tipo de Mercado" (congelado, NÃO removido)
+- Escondidos da UI (andaime mantido, dormível): o item de sidebar **"Tipo de Mercado"**, a rota
+  `enrich_market` (editor da matriz), a análise curada **"Finalidade econômica"**, o filtro
+  **"Tipo de mercado"** e — como consequência do totais-só (customs_code vira constante C00) —
+  o filtro **"Regime aduaneiro"**. O picker de **Fluxo** passa a oferecer só exportação/importação.
+- Motivo (gravado na memória do projeto): a natureza econômica se infere do regime aduaneiro,
+  que a maioria dos países (Brasil: 100%) só reporta como C00. Reviver só faria sentido para o
+  subconjunto de países que detalham — uma feature de cobertura parcial, adiada.
+
+### Migration / operação de dados (operador)
+- Requer **re-ingest total** com o novo escopo (all-reporters, 2000+, totais-só) — ver
+  `docs/comtrade_world_backfill.md`. O re-ingest APENDA no Bronze; a dedup por lote-mais-recente
+  + o floor de ano do Silver fazem a base virar totais-só sem DELETE obrigatório. As linhas de
+  detalhe/pré-2000 antigas no Bronze ficam órfãs (nunca selecionadas); podem ser deletadas para
+  economizar armazenamento (DELETE rodado por humano — hook de segurança). Depois, um
+  `dbt build --full-refresh` no `silver_comtrade_flows` propaga para Silver/Gold/serving.
+
+## [1.12.1] - 2026-07-05
+
+Remediação dos achados de uma **auditoria profunda do banco UN COMTRADE** (ingestão →
+Silver → Gold → mart de serving → "Tipo de Mercado" → frontend), verificados
+adversarialmente. NÃO inclui o achado crítico de produto (o C00 — ~94% do valor — é
+inclassificável por regime, e o Brasil reporta só C00, então "Tipo de Mercado" cobre ~5% do
+valor e 0% do Brasil; decisão de produto pendente).
+
+### Fixed
+- **`market=''` (limpar par) agora lê como NULL, não como classificação vazia.**
+  `dim_flow_market_scd2` filtra `market != ''`, então um par limpo não tem linha is_current →
+  o LEFT JOIN do mart devolve `market_nature` NULL (contrato "não classificado → NULL") e a
+  leitura ao vivo concorda — uma fonte de verdade simétrica.
+- **Todas as classificações de tipo de mercado renderizam na matriz.** `flow_market_worklist`
+  emite uma célula (valor 0) para todo par CLASSIFICADO mesmo sem dado COMTRADE — antes, uma
+  classificação salva para um par sem dado sumia silenciosamente da UI e do KPI.
+- **Anos COMTRADE recém-publicados são recuperados.** Um ano recente cujo Bronze é um
+  sentinela vazio (buscado antes de o UN publicar) é RE-buscado dentro de uma janela
+  (`COMTRADE_RECENT_REFETCH_YEARS`, default 2) — antes o sentinela fazia o chunk pular para
+  sempre e o `reconcile` exclui o COMTRADE, então o ano nunca era ingerido.
+- **`val_yearfx_eur` é NULL antes de 1999** (o euro não existia): a média-ano de EUR é
+  guardada em `annual_deflation_ctes` para `reference_year >= 1999`, eliminando um valor 1998
+  espúrio (afeta todos os golds — correto em todos).
+
+### Changed
+- **`COMTRADE_FLOWS` aceita os 10 regimes** (os 6 de aperfeiçoamento além de X/M/RX/RM) — o
+  default ainda ingere 4, mas a allowlist não rejeita mais os outros, que o Silver já
+  normaliza; alinha o comentário do Silver com o comportamento real.
+- Correções de doc/rótulo: `24 → 25` pares em todo lugar; comentários "seed-driven" →
+  "edit-driven" pós-v1.12.0; hints de valor-vs-registro (C00 é ~86% dos registros / 94% do
+  valor); grão do Gold com `customs_code`; contagem do gap de qualidade (~830 → ~56,5k).
+
 ## [1.12.0] - 2026-07-05
 
 **Engenharia de Atributos 100% descongelada.** As "Análises curadas" voltam ao topnav
@@ -28,7 +105,7 @@ atrás do mesmo `enable_curation` (default `true`; prod via `DBT_ENABLE_CURATION
   US$ realmente transacionado por par (materialidade). Escrita append-only autenticada por
   IAP (`POST /api/attributes/flow-market`), guardada pela mesma allowlist de editores de
   atributos; leitura ao vivo (`GET /api/attributes/flow-worklist`, view SCD2, TTL curto).
-- **`embrapa flow-market-seed`** (+ `make ensure-flow-market`): backfill idempotente dos 24
+- **`embrapa flow-market-seed`** (+ `make ensure-flow-market`): backfill idempotente dos 25
   pares do seed retirado para o log editável — o cutover (nada regride).
 
 ### Changed

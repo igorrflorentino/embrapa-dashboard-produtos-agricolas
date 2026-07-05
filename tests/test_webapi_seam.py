@@ -120,6 +120,34 @@ def test_flow_market_worklist_joins_mart_values_with_current_mapping(monkeypatch
     assert {"code": "export", "label": "Exportação"} in out["flows"]
 
 
+def test_flow_market_worklist_surfaces_classified_pairs_with_no_data(monkeypatch):
+    # A pair classified in the SCD2 view but with NO COMTRADE value (e.g. a regime absent
+    # from the data) must still render as a cell (value 0), else the researcher's saved
+    # classification silently disappears from the matrix + KPI.
+    cur = _curation()
+    values = pd.DataFrame([{"customs_code": "C01", "flow_code": "import", "value_usd": 2e9}])
+    mapping = pd.DataFrame(
+        [
+            {"customs_code": "C01", "flow_code": "import", "market": "consumo"},
+            {"customs_code": "C09", "flow_code": "import", "market": "processamento"},  # no data
+        ]
+    )
+    monkeypatch.setattr(cur.gateway, "fetch_flow_market_values", lambda: values)
+    monkeypatch.setattr(cur.gateway, "fetch_current_flow_market", lambda: mapping)
+
+    out = cur.flow_market_worklist()
+
+    assert out["total"] == 2  # the data cell AND the no-data classified cell
+    assert out["classified"] == 2
+    c09 = next(c for c in out["cells"] if c["customs_code"] == "C09")
+    assert c09 == {
+        "customs_code": "C09",
+        "flow_code": "import",
+        "value_usd": 0.0,
+        "market": "processamento",
+    }
+
+
 def test_flow_market_worklist_empty_when_view_absent(monkeypatch):
     # Before activation (SCD2 view / mart absent → NotFound) the matrix renders empty,
     # not a 500 — the classification just isn't available yet.

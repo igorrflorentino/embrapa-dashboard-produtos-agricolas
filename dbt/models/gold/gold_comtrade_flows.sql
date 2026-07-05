@@ -15,9 +15,11 @@
 -- (naming: gold_<source>_<form>; `flows` = origin→destination trade). The global
 -- complement to gold_comex_flows (Brazil-only).
 --
--- Grain: one row per (flow, reference_year, reporter_code, partner_code,
--- cmd_code). The Silver source grain (which also splits by partner2 / customs /
--- mode-of-supply / mode-of-transport / qty-unit) is summed up to this grain.
+-- Grain: one row per (flow, customs_code, reference_year, reporter_code,
+-- partner_code, cmd_code) — customs_code (regime aduaneiro) IS part of the grain
+-- (C00 and its per-regime breakdowns are mutually exclusive per key, so SUM over
+-- customs_code stays a clean total). The Silver source grain (which also splits by
+-- partner2 / mode-of-supply / mode-of-transport / qty-unit) is summed up to this grain.
 -- Coarser cuts (by region, by chapter, reporter totals) are derived at query
 -- time via GROUP BY — ONE comprehensive table per source. The World partner
 -- (partner_code='0') is already dropped in Silver, so SUM over partner_code is
@@ -221,8 +223,9 @@ select
     -- uses net_weight_kg ONLY. qty_native mixes units across an HS code (kg / litres / items), so
     -- value/qty_native is not a comparable implied price, while value/net_weight_kg (USD/kg) is. A
     -- weight-null but qty-present row is therefore "complete" yet unscored (falls to OK) rather
-    -- than risk a mixed-unit false PROBLEMATIC — a deliberate conservative gap (~830 weight-null
-    -- typos stay OK; revisit only with a per-unit-normalised quantity).
+    -- than risk a mixed-unit false PROBLEMATIC — a deliberate conservative gap (~56.5k weight-null
+    -- rows stay OK, mostly chapter-44 wood in non-mass units; revisit only with a
+    -- per-unit-normalised quantity).
     {{ data_quality_flag('coalesce(qty_native, net_weight_kg)', 'primary_value_usd',
          quality_qty_level('primary_value_usd', 'net_weight_kg'),
          quality_val_level('primary_value_usd', 'net_weight_kg')) }} as data_quality_flag,

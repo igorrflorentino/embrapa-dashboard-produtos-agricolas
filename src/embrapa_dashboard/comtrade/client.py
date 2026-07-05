@@ -282,6 +282,7 @@ def fetch_chunk(
     years: list[int],
     cmd_codes: list[str],
     flows: list[str],
+    customs_code: str = "",
 ) -> pd.DataFrame:
     """One keyed call: annual bilateral trade for ``reporters`` × all partners,
     over ``years`` × ``cmd_codes`` × ``flows``. Returns a string-typed DataFrame
@@ -289,6 +290,11 @@ def fetch_chunk(
 
     ``partnerCode`` is omitted on purpose → every partner (the bilateral matrix,
     incl. ``0`` = World). The key goes in the header only.
+
+    ``customs_code`` (UN Comtrade customsCode) restricts the pull to a single
+    customs-procedure code — the totals-only design passes ``"C00"`` so only the
+    "todos os regimes / total" aggregate is downloaded (no per-regime breakdowns).
+    Empty ⇒ the filter is omitted (every customsCode, the pre-2026-07 behaviour).
     """
     # Client-side throttle: keep a minimum gap between keyed calls so bursts of
     # fast (small/past-year) chunks don't trip APIM's per-second rate limit.
@@ -299,6 +305,8 @@ def fetch_chunk(
         "cmdCode": ",".join(cmd_codes),
         "flowCode": ",".join(flows),
     }
+    if customs_code:
+        params["customsCode"] = customs_code
     url = f"{base_url.rstrip('/')}/C/A/HS?" + "&".join(f"{k}={v}" for k, v in params.items())
     headers = {**core_http.DEFAULT_HEADERS, "Ocp-Apim-Subscription-Key": api_key}
     # context omits the key and the (long) reporter list — just the shape.
@@ -365,6 +373,7 @@ def fetch_chunk_adaptive(
     years: list[int],
     cmd_codes: list[str],
     flows: list[str],
+    customs_code: str = "",
 ) -> pd.DataFrame:
     """:func:`fetch_chunk` that guarantees completeness despite the per-call cap.
 
@@ -395,7 +404,13 @@ def fetch_chunk_adaptive(
             f"single year (got {years!r}) or add 'years' to the split dimensions first."
         )
     df = fetch_chunk(
-        base_url, api_key, reporters=reporters, years=years, cmd_codes=cmd_codes, flows=flows
+        base_url,
+        api_key,
+        reporters=reporters,
+        years=years,
+        cmd_codes=cmd_codes,
+        flows=flows,
+        customs_code=customs_code,
     )
     # Strict `<`: a result of EXACTLY PER_CALL_ROW_CAP rows is treated as truncated. The API
     # exposes no count/hasMore field, so a genuinely-complete leaf of exactly the cap is
@@ -414,6 +429,9 @@ def fetch_chunk_adaptive(
                 "years": years,
                 "cmd_codes": cmd_codes,
                 "flows": flows,
+                # customsCode is a single fixed value (not a split dimension) — it
+                # rides through every recursive half unchanged.
+                "customs_code": customs_code,
             }
             kwargs[name] = seq[:mid]
             left = fetch_chunk_adaptive(base_url, api_key, **kwargs)

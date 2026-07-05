@@ -1023,7 +1023,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
                   <span className="fm-section-label">Regime aduaneiro</span>
-                  <span className="fm-cascade-hint">C00 = todos os regimes · ~86% do comércio só é reportado nesse nível</span>
+                  <span className="fm-cascade-hint">C00 = todos os regimes · ~86% dos registros (94% do valor) só é reportado nesse nível</span>
                 </div>
                 <span className="fm-section-meta">
                   {customs === 'all'
@@ -1054,7 +1054,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
               <div className="fm-section-head">
                 <div className="fm-section-head-l">
                   <span className="fm-section-label">Tipo de mercado</span>
-                  <span className="fm-cascade-hint">natureza econômica classificada por regime × fluxo (seed Contrato de Dados)</span>
+                  <span className="fm-cascade-hint">natureza econômica classificada por regime × fluxo, editável em Tipo de Mercado (Engenharia de atributos)</span>
                 </div>
                 <span className="fm-section-meta">
                   {market === 'all'

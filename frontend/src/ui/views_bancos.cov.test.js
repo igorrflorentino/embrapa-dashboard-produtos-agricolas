@@ -323,9 +323,11 @@ describe('views.js — VIEW_GROUPS registry shape', () => {
   it('VIEW_BY_ID flattens every view and attaches its group', () => {
     expect(window.VIEW_BY_ID.overview.group.id).toBe('aggregate');
     expect(window.VIEW_BY_ID.cross_source.group.id).toBe('crosssource');
-    // The "curated" group (Análises curadas) is now live → its views are flattened.
+    // The "curated" group (Análises curadas) is live → its views are flattened. Note
+    // curated_market_nature ("Finalidade econômica") is FROZEN (2026-07, totals-only base) —
+    // removed from the registry, so it is intentionally NOT in VIEW_BY_ID.
     expect(window.VIEW_BY_ID.curated_value_added.group.id).toBe('curated');
-    expect(window.VIEW_BY_ID.curated_market_nature.group.id).toBe('curated');
+    expect(window.VIEW_BY_ID.curated_market_nature).toBeUndefined();
   });
 });
 

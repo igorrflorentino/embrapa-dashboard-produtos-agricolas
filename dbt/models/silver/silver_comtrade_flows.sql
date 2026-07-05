@@ -16,26 +16,37 @@
     UN Comtrade annual reporter→partner flows, cleaned, typed, deduplicated to the
     canonical bilateral grain — one row per (flow, year, reporter, partner, cmd).
 
+    TOTALS-ONLY (2026-07): the base keeps ONLY the fully-aggregated record on every
+    dimension, for HOMOGENEITY (every country reports the totals, even those that
+    never break them down) and to be structurally free of double-counts.
+
     Filters vs the verbatim Bronze:
       • partner_code = '0' (World) is DROPPED — it is the reporter's
         pre-aggregated total over all partners and would double-count any
         SUM over partners. The total is recoverable at query time as
         GROUP BY reporter (the medallion principle: no pre-aggregated rows).
-      • flowCode is normalised to a readable `flow`: X→export, M→import,
-        RX→re-export, RM→re-import — the four primary regimes the frontend's
-        `flow` filter exposes. Other regimes (DX/FM/MIP/…) are not requested.
+      • flow: ONLY the two direction TOTALS are kept and normalised — X→export,
+        M→import. The sub-flows (RX re-export, RM re-import, DX/FM/MIP/…) are
+        SUBSETS of X/M — neither ingested (config.comtrade_flows='X,M') nor kept —
+        so X+M never double-counts a re-export against its parent export.
       • only HS6 rows are kept (length(cmdCode)=6): the ingest requests the
         6-digit leaves of the scope chapters, so any legacy HS4 aggregate row
         (0801/44) is excluded — keeping both would double-count in Gold.
       • KEEP ONLY THE FULLY-AGGREGATED RECORD (motCode=0, customsCode=C00,
         partner2Code=0, mosCode=0). The keyed API returns, per
-        (reporter,partner,cmd,flow), one aggregate row PLUS breakdown rows by
-        transport mode / customs procedure / second partner; the aggregate value
-        equals the sum of its breakdowns. Summing all of them (the old behaviour)
-        double-counted ~2.5×. Every group has exactly one aggregate row, so this
-        filter is LOSSLESS and collapses the grain to one row per
-        (reporter,partner,cmd,flow,year). If a future mode-of-transport / customs
-        analysis is wanted, read the verbatim breakdowns from Bronze.
+        (reporter,partner,cmd,flow), one aggregate row PLUS optional breakdown rows
+        by transport mode / customs procedure / second partner; the aggregate value
+        equals the sum of its breakdowns. Keeping ONLY C00 (the "todos os regimes /
+        total") is LOSSLESS for the total and collapses the grain to one row per
+        (reporter,partner,cmd,flow,year). The ingest also requests customsCode=C00
+        so the breakdowns are not even downloaded; this filter is the belt-and-
+        suspenders guarantee for any historical Bronze that still holds them. The
+        customs-procedure detail this discards is exactly what the FROZEN "tipo de
+        mercado" feature needed — see that feature's memo. If a future analysis
+        wants the mode/customs breakdowns, read the verbatim rows from Bronze.
+      • reference_year is floored at var('comtrade_min_year', 2000): the base is
+        anchored at the year-2000 boundary (config.comtrade_start_year), so a stale
+        pre-2000 Bronze row the ingest no longer refreshes never reaches Silver.
 
     Quantity sentinels: chapter-44 rows routinely report qty = netWgt = '0.0'
     (quantity not collected). 0 is mapped to NULL so it reads as "no reading"
@@ -113,33 +124,26 @@ with latest_batch as (
 
 deduplicated as (
 
-    -- PRESERVE the customs procedure (regime aduaneiro) as a real dimension. Still keep
-    -- the fully-aggregated record over transport / supply / second-partner (those
-    -- breakdowns sum INTO the '0' record), but for CUSTOMS keep the per-regime breakdowns
-    -- (customsCode != 'C00') where the reporter provides them, and keep the C00 aggregate
-    -- ONLY for keys with no breakdown. Breakdowns sum EXACTLY to C00 (verified: 100%
-    -- reconciliation over 306k keys), so C00 and breakdown are MUTUALLY EXCLUSIVE per
-    -- (reporter, partner, cmd, flow, year) → SUM over customs_code in Gold never
-    -- double-counts and total value is preserved. (C00 = "todos os regimes / total".)
-    select * except (_regime_breakdown_rows)
-    from (
-        select
-            *,
-            countif(customsCode != 'C00') over (
-                partition by refYear, reporterCode, partnerCode, cmdCode, flowCode
-            ) as _regime_breakdown_rows
-        from latest_batch
-        where partnerCode != '0'                       -- drop the World aggregate
-          -- The ten UN Comtrade trade regimes. Only X/M/RX/RM are ingested today
-          -- (config.comtrade_flows); the other six join automatically once a
-          -- re-ingestion with the widened COMTRADE_FLOWS lands their rows in Bronze.
-          and flowCode in ('X', 'M', 'RX', 'RM', 'DX', 'FM', 'MIP', 'MOP', 'XIP', 'XOP')
-          and length(cmdCode) = 6                       -- HS6 only (exclude legacy HS4)
-          and motCode = '0'                             -- ┐ still aggregate over
-          and partner2Code = '0'                        -- │ transport / supply /
-          and mosCode = '0'                             -- ┘ second-partner
-    ) as regime_scan
-    where customsCode != 'C00' or _regime_breakdown_rows = 0
+    -- TOTALS-ONLY grain (2026-07). Keep ONLY the fully-aggregated record on EVERY
+    -- dimension: customsCode = C00 ("todos os regimes / total"), the two direction
+    -- TOTALS X/M (their RX/RM/DX/… sub-flows are subsets — neither ingested nor kept),
+    -- and the transport / supply / second-partner aggregates (mot/mos/partner2 = '0').
+    -- Where a reporter also breaks C00 into per-regime rows, C00 = Σ(breakdowns)
+    -- (verified: 100% reconciliation over 306k keys), so keeping only C00 is LOSSLESS
+    -- for the total. This makes the base HOMOGENEOUS across reporters (every country
+    -- reports the C00/X/M totals) and structurally free of the customs / flow / mode
+    -- double-counts. reference_year is floored at the ingest start year (2000) so a
+    -- re-anchored window doesn't keep stale pre-2000 rows the ingest no longer refreshes.
+    select *
+    from latest_batch
+    where partnerCode != '0'                        -- drop the World partner aggregate
+      and flowCode in ('X', 'M')                     -- the two direction TOTALS only
+      and customsCode = 'C00'                         -- the all-regimes TOTAL only
+      and length(cmdCode) = 6                         -- HS6 only (exclude legacy HS4)
+      and motCode = '0'                               -- ┐ aggregate over transport /
+      and partner2Code = '0'                          -- │ supply / second-partner
+      and mosCode = '0'                               -- ┘
+      and cast(refYear as int64) >= {{ var('comtrade_min_year', 2000) }}
     qualify row_number() over (
         partition by
             refYear, reporterCode, partnerCode, partner2Code,
@@ -164,21 +168,13 @@ deduplicated as (
 parsed as (
 
     select
-        -- The ten UN Comtrade trade regimes → readable, stable `flow` tokens (the
-        -- filter values the backend allowlist + frontend send). X/M/RX/RM carry data
-        -- today; the six processing regimes map here so they surface automatically once
-        -- re-ingested (a code not in this CASE → NULL flow → dropped by the final WHERE).
+        -- The two direction TOTALS → readable, stable `flow` tokens (the filter values
+        -- the backend allowlist + frontend send). TOTALS-ONLY: only X/M reach here (the
+        -- `deduplicated` WHERE already restricts to them); any other code → NULL flow →
+        -- dropped by the final WHERE, a defensive backstop for stray historical rows.
         case flowCode
             when 'X'   then 'export'
             when 'M'   then 'import'
-            when 'RX'  then 're-export'
-            when 'RM'  then 're-import'
-            when 'DX'  then 'national-export'
-            when 'FM'  then 'foreign-import'
-            when 'MIP' then 'import-inward-processing'
-            when 'MOP' then 'import-outward-processing'
-            when 'XIP' then 'export-inward-processing'
-            when 'XOP' then 'export-outward-processing'
         end                                                 as flow,
         cast(refYear as int64)                              as reference_year,
         reporterCode                                        as reporter_code,

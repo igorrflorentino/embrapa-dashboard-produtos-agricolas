@@ -56,26 +56,26 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
     );
   }
 
-  // Engenharia de atributos — the "Tipo de Mercado" regime × flow matrix editor (reverted
-  // from the comtrade_market_nature seed). Researcher-editable, gated by enable_curation.
-  if (infoPage === 'enrich_market') {
-    return (
-      <div className="screen" data-screen-label="Engenharia de atributos · Tipo de Mercado">
-        <div className="page-hero">
-          <div>
-            <div className="overline">Engenharia de atributos</div>
-            <h1 className="page-title">Tipo de Mercado</h1>
-            <p className="page-sub">
-              Classifique cada combinação de regime aduaneiro × fluxo pela finalidade econômica
-              (consumo ou processamento). As edições exigem autorização e ficam registradas com
-              o seu e-mail; nada é salvo até você aplicar à base.
-            </p>
-          </div>
-        </div>
-        <window.ViewEnrichmentMarketNature />
-      </div>
-    );
-  }
+  // FROZEN (2026-07): the "Tipo de Mercado" (regime × flow market-nature) matrix editor.
+  // The totals-only COMTRADE base (customsCode=C00) carries no customs-procedure detail to
+  // classify, so this route is retired from the menu; the component + store stay as
+  // scaffold. A stale ?ip=enrich_market falls through to the generic "em preparação"
+  // fallback below. See the frozen-feature memo. To revive, un-comment this branch + the
+  // sidebar item + the filter/analysis surfaces.
+  // if (infoPage === 'enrich_market') {
+  //   return (
+  //     <div className="screen" data-screen-label="Engenharia de atributos · Tipo de Mercado">
+  //       <div className="page-hero">
+  //         <div>
+  //           <div className="overline">Engenharia de atributos</div>
+  //           <h1 className="page-title">Tipo de Mercado</h1>
+  //           <p className="page-sub">…</p>
+  //         </div>
+  //       </div>
+  //       <window.ViewEnrichmentMarketNature />
+  //     </div>
+  //   );
+  // }
 
   if (infoPage) {
     const _INFO_TITLES = {

@@ -70,52 +70,46 @@ window.FLOW_OPTIONS = {
     { value: 'export', label: 'Exportação' },
     { value: 'import', label: 'Importação' },
   ],
-  // Values are the readable `flow` tokens Gold/serving carry verbatim (silver_comtrade_flows
-  // maps flowCode X/M/RX/RM → export/import/re-export/re-import). The re-flows MUST use the
-  // HYPHEN form ('re-export') to match the data and the backend allowlist — the earlier
-  // underscore form filtered zero rows and 400'd. The six detailed UN regimes
-  // (DX/FM/MIP/MOP/XIP/XOP) are added here once a re-ingestion lands their rows.
+  // TOTALS-ONLY (2026-07): the base ingests only the two direction TOTALS — X→export,
+  // M→import. The sub-flows (re-export/re-import/…) are subsets of X/M and are no longer
+  // ingested (they would double-count), so the picker offers only the two totals; 'all'
+  // sums export+import (total turnover). Values are the readable `flow` tokens Gold/serving
+  // carry verbatim (silver_comtrade_flows maps X/M → export/import).
   un_comtrade: [
     { value: 'all',        label: 'Todos' },
     { value: 'export',     label: 'Exportação' },
     { value: 'import',     label: 'Importação' },
-    { value: 're-export',  label: 'Reexportação' },
-    { value: 're-import',  label: 'Reimportação' },
   ],
 };
 
 // Customs-procedure (regime aduaneiro) options for the COMTRADE server-side regime
-// filter. `value` is the Gold/serving `customs_code` the query binds; 'all' sums every
-// regime (the bilateral total = C00-equivalent). Labels are the raw UN codes (no
-// authoritative pt-BR customs-procedure reference in the repo yet — a follow-up); C00 is
-// the "total" bucket that holds ~86% of trade. Only Comtrade carries customs_code.
+// Customs-procedure (regime aduaneiro) options for the COMTRADE server-side regime filter.
+// FROZEN (2026-07, totals-only): the base now ingests ONLY customsCode=C00, so customs_code
+// is a constant — a regime filter would offer a single value. Empty ⇒ customsOptionsFor()
+// returns null ⇒ FilterMenu never renders the "Regime aduaneiro" segment (it gates on the
+// options, not the schema dim). The option list is kept, commented, for easy revival.
 window.CUSTOMS_OPTIONS = {
-  un_comtrade: [
-    { value: 'all', label: 'Todos os regimes' },
-    { value: 'C00', label: 'C00 · Total' },
-    { value: 'C01', label: 'C01' },
-    { value: 'C02', label: 'C02' },
-    { value: 'C03', label: 'C03' },
-    { value: 'C04', label: 'C04' },
-    { value: 'C05', label: 'C05' },
-    { value: 'C06', label: 'C06' },
-    { value: 'C07', label: 'C07' },
-    { value: 'C08', label: 'C08' },
-    { value: 'C14', label: 'C14' },
-    { value: 'C15', label: 'C15' },
-    { value: 'C20', label: 'C20' },
-  ],
+  // un_comtrade: [
+  //   { value: 'all', label: 'Todos os regimes' },
+  //   { value: 'C00', label: 'C00 · Total' }, { value: 'C01', label: 'C01' },
+  //   { value: 'C02', label: 'C02' }, { value: 'C03', label: 'C03' },
+  //   { value: 'C04', label: 'C04' }, { value: 'C05', label: 'C05' },
+  //   { value: 'C06', label: 'C06' }, { value: 'C07', label: 'C07' },
+  //   { value: 'C08', label: 'C08' }, { value: 'C14', label: 'C14' },
+  //   { value: 'C15', label: 'C15' }, { value: 'C20', label: 'C20' },
+  // ],
 };
 
 // Tipo de mercado (economic purpose) options for the COMTRADE server-side market filter.
-// `value` is the seed-classified market_nature the query binds; 'all' sums every purpose
-// (incl. the unmapped rows). Only Comtrade carries market_nature.
+// FROZEN (2026-07): "Tipo de mercado" needs the customs-procedure detail the totals-only
+// base no longer carries. Empty ⇒ marketOptionsFor() returns null ⇒ FilterMenu never renders
+// the "Tipo de mercado" segment. See the frozen-feature memo. Kept, commented, for revival.
 window.MARKET_OPTIONS = {
-  un_comtrade: [
-    { value: 'all', label: 'Todos' },
-    { value: 'consumo', label: 'Consumo' },
-    { value: 'processamento', label: 'Processamento' },
-  ],
+  // un_comtrade: [
+  //   { value: 'all', label: 'Todos' },
+  //   { value: 'consumo', label: 'Consumo' },
+  //   { value: 'processamento', label: 'Processamento' },
+  // ],
 };
 
 window.FILTER_SCHEMAS = {
@@ -231,7 +225,7 @@ window.FILTER_SCHEMAS = {
       { id: 'periodo',  tier: 'universal', type: 'date-range',
         requires: null, backed: true,
         label: 'Período',                  column: 'ano',
-        hint: 'Anual, de 1989 ao presente.' },
+        hint: 'Anual, de 2000 ao presente.' },
       { id: 'hs6',      tier: 'shared',    type: 'multi-tree',
         requires: 'product', backed: true,
         label: 'Produto · HS6',            column: 'hs6',
@@ -240,14 +234,21 @@ window.FILTER_SCHEMAS = {
         requires: 'flow', backed: true, serverParam: 'flow',
         label: 'Fluxo',                    column: 'flow',
         hint: 'Direção do fluxo internacional.' },
-      { id: 'regime',   tier: 'specific',  type: 'segment',
-        requires: 'flow', backed: true, serverParam: 'customs',
-        label: 'Regime aduaneiro',         column: 'customs_code',
-        hint: 'Procedimento aduaneiro (customsCode). C00 = todos os regimes / total — ~86% do comércio só é reportado nesse nível.' },
-      { id: 'mercado',  tier: 'specific',  type: 'segment',
-        requires: 'flow', backed: true, serverParam: 'market',
-        label: 'Tipo de mercado',          column: 'market_nature',
-        hint: 'Natureza econômica (consumo/processamento) classificada por regime×fluxo (seed Contrato de Dados). Pares sem natureza ficam de fora.' },
+      // FROZEN (2026-07, totals-only): the base now ingests ONLY the customsCode=C00
+      // ("todos os regimes / total") aggregate, so customs_code is a constant — a filter
+      // over it would offer a single value. Hidden until/unless the base carries the
+      // per-regime customs breakdown again. Kept as scaffold; CUSTOMS_OPTIONS stays defined.
+      // { id: 'regime',   tier: 'specific',  type: 'segment',
+      //   requires: 'flow', backed: true, serverParam: 'customs',
+      //   label: 'Regime aduaneiro',         column: 'customs_code',
+      //   hint: 'Procedimento aduaneiro (customsCode). C00 = todos os regimes / total.' },
+      // FROZEN (2026-07): "Tipo de mercado" (natureza econômica consumo/processamento) —
+      // needs the customs-procedure detail the totals-only base no longer carries. See the
+      // frozen-feature memo. Scaffold (MARKET_OPTIONS, the matrix editor) kept dormant.
+      // { id: 'mercado',  tier: 'specific',  type: 'segment',
+      //   requires: 'flow', backed: true, serverParam: 'market',
+      //   label: 'Tipo de mercado',          column: 'market_nature',
+      //   hint: 'Natureza econômica (consumo/processamento) classificada por regime×fluxo.' },
       // reporter/partner are only resolved in the partner-level endpoints, not as
       // snapshot filter axes.
       { id: 'reporter', tier: 'specific',  type: 'multi-search',
