@@ -4,7 +4,7 @@ The dashboard runs behind Identity-Aware Proxy (direct Cloud Run IAP). Read-only
 endpoints don't need the identity — IAP already gated the request. The curation
 WRITE endpoint does: it records ``edited_by`` in the append-only audit log, so the
 author must come from the IAP-verified header (the signed JWT when ``iap_audience``
-is configured; the plaintext header + ``curation_dev_author`` fallback in local
+is configured; the plaintext header + ``dev_author`` fallback in local
 dev). This is a thin wrapper over the already-tested ``serving.iap`` logic.
 """
 
@@ -30,7 +30,7 @@ def current_author() -> str:
     # With it unset, ``author_email_from_headers`` would silently fall back to the
     # spoofable plaintext ``X-Goog-Authenticated-User-Email`` header, so refuse to
     # record a forgeable identity rather than trust it. (Local dev has no K_SERVICE,
-    # so the ``curation_dev_author`` fallback still works there.) This is the one
+    # so the ``dev_author`` fallback still works there.) This is the one
     # defense that holds regardless of the platform IAP/IAM ingress posture.
     if os.environ.get("K_SERVICE") and not cfg.iap_audience:
         raise InvalidIapAssertionError(
@@ -40,6 +40,6 @@ def current_author() -> str:
         )
     return author_email_from_headers(
         request.headers,
-        dev_fallback=cfg.curation_dev_author,
+        dev_fallback=cfg.dev_author,
         audience=cfg.iap_audience,
     )

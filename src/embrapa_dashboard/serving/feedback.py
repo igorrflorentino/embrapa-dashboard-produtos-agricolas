@@ -216,7 +216,7 @@ def record_feedback(
     # Identity first — a missing/forged author raises here, before any write. Use the
     # caller-supplied author when given (the route captures it once for the rate-limit).
     submitted_by = author or author_email_from_headers(
-        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+        headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
     feedback_id = uuid.uuid4().hex
     bq = client or resolve_bq_client(cfg)

@@ -43,7 +43,7 @@ def test_catalog_editor_without_identity_is_401(monkeypatch):
     on the catalog-editor authz path (never writes)."""
     from embrapa_dashboard.webapi import routes
 
-    client = _client(monkeypatch)  # curation_dev_author=None, iap_audience=None
+    client = _client(monkeypatch)  # dev_author=None, iap_audience=None
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     resp = client.post(
         "/api/catalog/entry/remove",
@@ -78,7 +78,7 @@ def test_catalog_entry_remove_missing_fields_is_400(monkeypatch):
     """Authorized (open allowlist) but an incomplete remove body → 400 before any write."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
 
     def must_not_run(*a, **k):
@@ -118,7 +118,7 @@ def test_catalog_editor_env_allowlist_denies_non_member(monkeypatch):
 
     client = _client(
         monkeypatch,
-        curation_dev_author="alice@embrapa.br",
+        dev_author="alice@embrapa.br",
         catalog_editors_allowed_emails="bob@embrapa.br",
     )
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
@@ -137,7 +137,7 @@ def test_catalog_editor_env_allowlist_allows_member(monkeypatch):
 
     client = _client(
         monkeypatch,
-        curation_dev_author="alice@embrapa.br",
+        dev_author="alice@embrapa.br",
         catalog_editors_allowed_emails="alice@embrapa.br",
     )
     monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)

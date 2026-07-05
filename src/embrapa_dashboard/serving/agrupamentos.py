@@ -139,7 +139,7 @@ def record_group(
         raise ValueError(f"O nome do agrupamento excede {MAX_NOTE_LEN} caracteres.")
 
     edited_by = author_email_from_headers(
-        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+        headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
@@ -208,7 +208,7 @@ def delete_group(
     if not group_id:
         raise ValueError("group_id é obrigatório.")
     edited_by = author_email_from_headers(
-        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+        headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)

@@ -402,7 +402,7 @@ def record_produto_catalog(
         raise ValueError(f"descricao_produto excede {MAX_NOTE_LEN} caracteres.")
 
     edited_by = author_email_from_headers(
-        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+        headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)
@@ -489,7 +489,7 @@ def remove_produto_catalog(
     banco = (banco or "").strip()
     _validate_catalog_edit(codigo_produto, banco, None)
     edited_by = author_email_from_headers(
-        headers, dev_fallback=cfg.curation_dev_author, audience=cfg.iap_audience
+        headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
     change_id, supplied = _resolve_change_id(change_id)
     bq = client or _bq_client(cfg)

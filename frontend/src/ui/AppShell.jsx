@@ -89,6 +89,20 @@ function AppShell({
   // Referências "report a value" action); null = the generic "Enviar feedback" button.
   const [reportPrefill, setReportPrefill] = React.useState(null);
 
+  // The IAP-authenticated session identity, surfaced in the topbar so the researcher
+  // sees WHO the dashboard attributes their edits to. Best-effort GET /api/me; null =
+  // anonymous (local dev with no DEV_AUTHOR). Display-only — writes re-check server-side.
+  const [sessionUser, setSessionUser] = React.useState(null);
+  React.useEffect(() => {
+    if (typeof fetch !== 'function') return undefined;
+    let alive = true;
+    fetch('/api/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setSessionUser(d); })
+      .catch(() => { /* anonymous — leave null */ });
+    return () => { alive = false; };
+  }, []);
+
   // a11y: Escape closes the citation modal (mirrors its backdrop click + Fechar).
   React.useEffect(() => {
     if (!citeOpen) return undefined;
@@ -466,6 +480,19 @@ function AppShell({
               </>
             )}
           </div>
+
+          {sessionUser && sessionUser.email && (
+            <div className="util-user"
+                 title={`Sessão autenticada via IAP como ${sessionUser.email}`}
+                 style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6,
+                          maxWidth: 220, opacity: 0.92 }}>
+              <window.Icon name="person" size={16}/>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                             fontSize: 13 }}>
+                {sessionUser.email}
+              </span>
+            </div>
+          )}
         </div>
       </header>
 
