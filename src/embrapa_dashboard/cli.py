@@ -56,6 +56,18 @@ discover_app = typer.Typer(
 )
 app.add_typer(discover_app, name="discover")
 
+editors_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage the per-catalog editor allowlist (Curadoria — research_inputs.catalog_editors)",
+)
+app.add_typer(editors_app, name="editors")
+
+curators_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage the curator allowlist (Engenharia de atributos — research_inputs.curators)",
+)
+app.add_typer(curators_app, name="curators")
+
 
 # ─── ingest registry ──────────────────────────────────────────────────────────
 # ★ The single extension point for `ingest all`. Each @ingest_app.command()
@@ -1003,6 +1015,82 @@ def purge_orphan_cmd(
     console.print(
         f"\n  After running, record it: "
         f"[cyan]embrapa purge-orphan --banco {banco} --code {code} --mark-purged[/cyan]"
+    )
+
+
+# ─── authorization allowlists (Curadoria editors + Engenharia curators) ───────
+# The no-Console alternative to hand-editing the research_inputs allowlist tables.
+
+
+@editors_app.command("add")
+def editors_add(
+    email: str = typer.Option(..., help="Email to authorize as a catalog editor."),
+    resource: str = typer.Option("produto_catalog", help="Catalog resource id."),
+    added_by: str = typer.Option("cli", help="Who is granting (audit)."),
+) -> None:
+    """Authorize an editor of the Curadoria catalog. Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.curation import add_catalog_editor
+
+    e = _with_webapp_context(lambda: add_catalog_editor(resource, email, added_by=added_by))
+    console.print(f"[green]✓[/green] editor authorized: {e} on {resource}")
+
+
+@editors_app.command("remove")
+def editors_remove(
+    email: str = typer.Option(..., help="Email to de-authorize."),
+    resource: str = typer.Option("produto_catalog", help="Catalog resource id."),
+) -> None:
+    """De-authorize a catalog editor. Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.curation import remove_catalog_editor
+
+    n = _with_webapp_context(lambda: remove_catalog_editor(resource, email))
+    console.print(f"[green]✓[/green] removed {n} row(s) for {email.strip().lower()} on {resource}")
+
+
+@curators_app.command("add")
+def curators_add(
+    email: str = typer.Option(..., help="Email to authorize as a curator."),
+    added_by: str = typer.Option("cli", help="Who is granting (audit)."),
+) -> None:
+    """Authorize a curator (Engenharia de atributos). Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.research_inputs import add_curator
+
+    e = _with_webapp_context(lambda: add_curator(email, added_by=added_by))
+    console.print(f"[green]✓[/green] curator authorized: {e}")
+
+
+@curators_app.command("remove")
+def curators_remove(
+    email: str = typer.Option(..., help="Email to de-authorize."),
+) -> None:
+    """De-authorize a curator. Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.research_inputs import remove_curator
+
+    n = _with_webapp_context(lambda: remove_curator(email))
+    console.print(f"[green]✓[/green] removed {n} row(s) for {email.strip().lower()}")
+
+
+@app.command("catalog-seed-from-env")
+def catalog_seed_from_env_cmd(
+    author: str = typer.Option("system:catalog-seed", help="Audit author for the seeded rows."),
+    agrupamento_default: str | None = typer.Option(
+        None, help="agrupamento for codes not yet cataloged (defaults to the code itself)."
+    ),
+) -> None:
+    """Seed the Curadoria catalog with the current IBGE *_PRODUCT_CODES env codes so the
+    catalog-driven ingestion resolver reproduces them exactly — the cutover backfill for
+    CATALOG_AUTHORITATIVE_INGESTION. Idempotent (a re-run is a no-op). PPM codes are tagged
+    with their sidra_tabela (herd/animal). Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.curation import seed_catalog_from_env
+    from embrapa_dashboard.serving.iap import IAP_EMAIL_HEADER
+
+    headers = {IAP_EMAIL_HEADER: f"accounts.google.com:{author}"}
+    res = _with_webapp_context(
+        lambda: seed_catalog_from_env(headers, agrupamento_default=agrupamento_default)
+    )
+    console.print(
+        f"[green]✓[/green] catalog seeded from env: seeded={res['seeded']} "
+        f"skipped(already)={res['skipped']}"
     )
 
 

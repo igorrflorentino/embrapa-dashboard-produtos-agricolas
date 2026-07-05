@@ -25,9 +25,15 @@ const _CC_BANCOS = [
   { v: 'comtrade', label: 'UN COMTRADE' },
 ];
 const _CC_BANCO_LABEL = Object.fromEntries(_CC_BANCOS.map((b) => [b.v, b.label]));
+// PPM stores herd (SIDRA 3939) + animal production (SIDRA 74) under one banco token; a
+// ppm entry tags which so catalog-driven ingestion routes it. Empty/NA for other bancos.
+const _CC_PPM_TABELAS = [
+  { v: '3939', label: 'Rebanho (efetivo)' },
+  { v: '74', label: 'Produção animal' },
+];
 const _CC_EMPTY_DRAFT = {
   codigo_produto: '', banco: 'comex', agrupamento_id: '',
-  descricao_produto: '', ciclo_de_vida: _CC_CICLO[0].v,
+  descricao_produto: '', ciclo_de_vida: _CC_CICLO[0].v, sidra_tabela: '',
 };
 
 function _ccCicloShort(v) {
@@ -54,7 +60,7 @@ function CcGroupSelect({ value, onChange, placeholder, groups, busy }) {
 }
 
 function ViewCadastroProdutos() {
-  const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null });
+  const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null, canEdit: true });
   const [statusMap, setStatusMap] = useCcState({}); // "banco:code" -> {n_rows, year_start, year_end, has_data}
   const [status, setStatus] = useCcState(null); // { kind: 'ok' | 'err', msg }
   const [busy, setBusy] = useCcState(false);
@@ -65,14 +71,20 @@ function ViewCadastroProdutos() {
   // The source's REAL codes for the add form's banco (autocomplete + existence check).
   const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false });
 
+  // Server-authoritative edit permission (from /api/catalog/entries' can_edit). The UI
+  // merely REFLECTS it — the POST handlers still 403 on a stale true, so this only ever
+  // hides controls, never widens access. `locked` = a write is in flight OR not allowed.
+  const canEdit = data.canEdit !== false;
+  const locked = busy || !canEdit;
+
   const load = () => {
     setData((d) => ({ ...d, loading: true, error: null }));
     Promise.all([
       fetch('/api/catalog/entries').then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))),
       fetch('/api/catalog/groups').then((r) => (r.ok ? r.json() : { groups: [] })),
     ])
-      .then(([e, g]) => setData({ entries: e.entries || [], groups: g.groups || [], loading: false, error: null }))
-      .catch((err) => setData({ entries: [], groups: [], loading: false, error: String(err.message || err) }));
+      .then(([e, g]) => setData({ entries: e.entries || [], groups: g.groups || [], loading: false, error: null, canEdit: e.can_edit !== false }))
+      .catch((err) => setData({ entries: [], groups: [], loading: false, error: String(err.message || err), canEdit: true }));
     // Orphans (removed from the catalog, Gold data lingering) — shown as Descontinuados.
     fetch('/api/catalog/orphans')
       .then((r) => (r.ok ? r.json() : { orphans: [] }))
@@ -196,7 +208,12 @@ function ViewCadastroProdutos() {
   const codeMatch = (draft.codigo_produto && codeLoadedForBanco)
     ? codeIndex.has(draft.codigo_produto) : null;
   const groupChosen = !!data.groups.find((x) => x.group_id === draft.agrupamento_id);
-  const canSubmit = !!draft.codigo_produto && groupChosen && codeMatch === true && !busy;
+  // PPM entries MUST tag their SIDRA table (herd/animal); other bancos never do.
+  const ppmTagged = draft.banco !== 'ppm' || !!draft.sidra_tabela;
+  // A code the source doesn't (yet) list is no longer blocked — it registers as *pendente
+  // de ingestão* (the catalog now drives ingestion). We only need a code, a group, the PPM
+  // tag when applicable, and edit permission.
+  const canSubmit = !!draft.codigo_produto && groupChosen && ppmTagged && !locked;
 
   const submitAdd = async () => {
     if (!draft.codigo_produto || !draft.banco) {
@@ -208,9 +225,8 @@ function ViewCadastroProdutos() {
       setStatus({ kind: 'err', msg: 'Escolha um agrupamento (ou crie um novo acima).' });
       return;
     }
-    // Existence guard (the server enforces this too — belt and suspenders).
-    if (codeLoadedForBanco && !codeIndex.has(draft.codigo_produto)) {
-      setStatus({ kind: 'err', msg: `O código ${draft.codigo_produto} não existe em ${_CC_BANCO_LABEL[draft.banco]}. Use um código real da fonte.` });
+    if (draft.banco === 'ppm' && !draft.sidra_tabela) {
+      setStatus({ kind: 'err', msg: 'Escolha a tabela PPM (rebanho ou produção animal).' });
       return;
     }
     // Reset + close ONLY on a successful write; a 400/403 keeps the form open with the
@@ -257,10 +273,10 @@ function ViewCadastroProdutos() {
                 </td>
                 <td data-label="Agrupamento">
                   <CcGroupSelect value={e.agrupamento_id} onChange={(gid) => moveEntry(e, gid)}
-                                 groups={groupsSorted} busy={busy} />
+                                 groups={groupsSorted} busy={locked} />
                 </td>
                 <td data-label="Ciclo de vida">
-                  <select disabled={busy} value={e.ciclo_de_vida || ''}
+                  <select disabled={locked} value={e.ciclo_de_vida || ''}
                           title={e.ciclo_de_vida || ''}
                           onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
                     {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
@@ -270,7 +286,7 @@ function ViewCadastroProdutos() {
                   </select>
                 </td>
                 <td className="cc-cell-actions" data-label="Ações">
-                  <button type="button" className="cc-remove" disabled={busy}
+                  <button type="button" className="cc-remove" disabled={locked}
                           title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_produto}`}
                           onClick={() => removeEntry(e)}
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
@@ -298,6 +314,17 @@ function ViewCadastroProdutos() {
           exigem autorização e ficam registradas com seu e-mail.
         </p>
       </div>
+
+      {!canEdit && (
+        <p className="caption" role="status"
+           style={{ padding: '8px 10px', borderRadius: 6, marginBottom: 10,
+                    background: 'var(--warn-bg, #fff8e1)', color: 'var(--warn, #8a6d00)',
+                    border: '1px solid var(--warn, #b8860b)' }}>
+          <strong>Modo somente leitura</strong> — você não está autorizado a editar este
+          cadastro. Peça a um editor autorizado (ou a um operador) para incluir seu e-mail
+          na lista de editores.
+        </p>
+      )}
 
       {status && (
         <p className="caption" role="status"
@@ -344,14 +371,14 @@ function ViewCadastroProdutos() {
         </span>
         <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           Novo agrupamento:
-          <input type="text" value={newGroup} placeholder="Ex.: Castanha"
+          <input type="text" value={newGroup} placeholder="Ex.: Castanha" disabled={locked}
                  onChange={(e) => setNewGroup(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Enter') createGroup(); }} />
-          <button type="button" className="seg-opt" onClick={createGroup} disabled={busy || !newGroup.trim()}>
+          <button type="button" className="seg-opt" onClick={createGroup} disabled={locked || !newGroup.trim()}>
             + Criar
           </button>
         </label>
-        <button type="button" className="seg-opt" onClick={() => setShowAdd((v) => !v)} disabled={busy}>
+        <button type="button" className="seg-opt" onClick={() => setShowAdd((v) => !v)} disabled={locked}>
           {showAdd ? 'Cancelar' : '+ Adicionar produto'}
         </button>
       </div>
@@ -363,14 +390,26 @@ function ViewCadastroProdutos() {
           <div className="cc-add-grid">
             <label className="cc-field">
               <span className="cc-field-label">Banco (fonte)</span>
-              <select value={draft.banco} onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value, codigo_produto: '' }))}>
+              <select value={draft.banco} disabled={locked}
+                      onChange={(e) => setDraft((d) => ({ ...d, banco: e.target.value, codigo_produto: '', sidra_tabela: '' }))}>
                 {_CC_BANCOS.map((b) => <option key={b.v} value={b.v}>{b.label}</option>)}
               </select>
             </label>
 
+            {draft.banco === 'ppm' && (
+              <label className="cc-field">
+                <span className="cc-field-label">Tabela PPM</span>
+                <select value={draft.sidra_tabela} disabled={locked}
+                        onChange={(e) => setDraft((d) => ({ ...d, sidra_tabela: e.target.value }))}>
+                  <option value="">Escolha rebanho ou produção…</option>
+                  {_CC_PPM_TABELAS.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+              </label>
+            )}
+
             <label className="cc-field">
               <span className="cc-field-label">Código do produto</span>
-              <input type="text" list="cc-code-options" value={draft.codigo_produto}
+              <input type="text" list="cc-code-options" value={draft.codigo_produto} disabled={locked}
                      placeholder={srcCodes.loading && srcCodes.banco === draft.banco ? 'carregando códigos…' : 'digite ou escolha um código real'}
                      autoComplete="off"
                      onChange={(e) => setDraft((d) => ({ ...d, codigo_produto: e.target.value.trim() }))} />
@@ -383,7 +422,11 @@ function ViewCadastroProdutos() {
                 codeMatch === true ? (
                   <small className="cc-hint cc-hint-ok">✓ {codeIndex.get(draft.codigo_produto) || 'código válido'}</small>
                 ) : codeLoadedForBanco ? (
-                  <small className="cc-hint cc-hint-bad">✗ este código não existe em {_CC_BANCO_LABEL[draft.banco]}</small>
+                  // Not (yet) in the source list → allowed as *pendente de ingestão* (the catalog
+                  // now drives ingestion); a soft warning, no longer a block.
+                  <small className="cc-hint" style={{ color: 'var(--warn, #b8860b)' }}>
+                    ⚠ ainda não ingerido em {_CC_BANCO_LABEL[draft.banco]} — será buscado na próxima ingestão
+                  </small>
                 ) : (
                   <small className="cc-hint">verificando…</small>
                 )
@@ -398,21 +441,21 @@ function ViewCadastroProdutos() {
 
             <label className="cc-field">
               <span className="cc-field-label">Agrupamento</span>
-              <CcGroupSelect value={draft.agrupamento_id} groups={groupsSorted} busy={busy}
+              <CcGroupSelect value={draft.agrupamento_id} groups={groupsSorted} busy={locked}
                            onChange={(gid) => setDraft((d) => ({ ...d, agrupamento_id: gid }))}
                            placeholder={data.groups.length ? 'Escolha um agrupamento…' : 'Crie um agrupamento primeiro'} />
             </label>
 
             <label className="cc-field">
               <span className="cc-field-label">Ciclo de vida</span>
-              <select value={draft.ciclo_de_vida} onChange={(e) => setDraft((d) => ({ ...d, ciclo_de_vida: e.target.value }))}>
+              <select value={draft.ciclo_de_vida} disabled={locked} onChange={(e) => setDraft((d) => ({ ...d, ciclo_de_vida: e.target.value }))}>
                 {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
               </select>
             </label>
 
             <label className="cc-field cc-field-wide">
               <span className="cc-field-label">Descrição <small className="pc-cap">(opcional — anotação sua)</small></span>
-              <input type="text" value={draft.descricao_produto} placeholder="ex.: Castanha-do-pará com casca"
+              <input type="text" value={draft.descricao_produto} disabled={locked} placeholder="ex.: Castanha-do-pará com casca"
                      onChange={(e) => setDraft((d) => ({ ...d, descricao_produto: e.target.value }))} />
             </label>
           </div>
@@ -423,8 +466,8 @@ function ViewCadastroProdutos() {
             <button type="button" className="btn-secondary" onClick={() => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); }} disabled={busy}>
               Cancelar
             </button>
-            {!canSubmit && draft.codigo_produto && codeMatch !== true && codeLoadedForBanco && (
-              <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>código inexistente</span>
+            {draft.banco === 'ppm' && !draft.sidra_tabela && draft.codigo_produto && (
+              <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>escolha a tabela PPM</span>
             )}
           </div>
         </div>
@@ -446,9 +489,9 @@ function ViewCadastroProdutos() {
               <div className="card" key={g.group_id} style={{ marginBottom: 10 }}>
                 <div className="cc-group-head" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                   <strong style={{ flex: 1, minWidth: 160 }}>{g.group_name} <small className="pc-cap">({g.n_members})</small></strong>
-                  <button type="button" className="seg-opt" disabled={busy}
+                  <button type="button" className="seg-opt" disabled={locked}
                           onClick={() => renameGroup(g)} title="Renomear agrupamento">✎ Renomear</button>
-                  <button type="button" className="seg-opt" disabled={busy || g.n_members > 0}
+                  <button type="button" className="seg-opt" disabled={locked || g.n_members > 0}
                           onClick={() => deleteGroup(g)}
                           title={g.n_members > 0 ? 'Reatribua ou remova os produtos antes de excluir' : 'Excluir agrupamento vazio'}>
                     🗑 Excluir
@@ -456,7 +499,7 @@ function ViewCadastroProdutos() {
                   {g.n_members > 0 && (
                     <label className="caption" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       Ciclo de vida:
-                      <select disabled={busy} defaultValue=""
+                      <select disabled={locked} defaultValue=""
                               onChange={(e) => { if (e.target.value) setCicloForGroup(g, e.target.value); e.target.value = ''; }}>
                         <option value="">aplicar a todos…</option>
                         {_CC_CICLO.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}

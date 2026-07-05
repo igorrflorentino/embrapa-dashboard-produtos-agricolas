@@ -2672,8 +2672,8 @@ def test_record_produto_catalog_inserts_active_row_with_author(monkeypatch):
     from embrapa_dashboard.serving import curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
-    # The code-existence gate is exercised separately; skip it here (this asserts the INSERT).
-    monkeypatch.setattr(curation, "_assert_code_exists", lambda *a, **k: None)
+    # The code-status check is exercised separately; skip it here (this asserts the INSERT).
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
     client = mock.Mock()
     client.query.return_value.result.return_value = []  # insert ok
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
@@ -2712,9 +2712,11 @@ def test_record_produto_catalog_rejects_blank_key():
         )
 
 
-def test_record_produto_catalog_rejects_nonexistent_code(monkeypatch):
-    """A NEW entry whose code isn't a real product in the source's Gold is rejected — you
-    can't register a code that doesn't exist. An UPDATE to an already-active entry is exempt."""
+def test_record_produto_catalog_accepts_pending_code(monkeypatch):
+    """A NEW entry whose code isn't in the source's Gold yet is ACCEPTED as *pendente de
+    ingestão* — the catalog now DRIVES ingestion, so a researcher registers a code precisely
+    so the next run fetches it. The old hard 'não existe' rejection is gone; only a gross
+    (non-numeric) typo is still blocked, by the format guard in _validate_catalog_edit."""
     pytest.importorskip("flask_caching")
     import pandas as pd
 
@@ -2722,29 +2724,15 @@ def test_record_produto_catalog_rejects_nonexistent_code(monkeypatch):
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)  # a NEW entry
-    # The source only has code '4403' — registering '9999' must fail. Existence is validated
-    # against the Gold code universe (fetch_source_code_stats, keyed by the SHORT banco
-    # token 'comtrade') rather than the visibility-gated serving mart.
+    # The source only has code '4403'; registering '9999' (not yet in Gold) must still succeed.
     monkeypatch.setattr(
         curation.gateway,
         "fetch_source_code_stats",
         lambda banco: pd.DataFrame([{"code": "4403", "n_rows": 1}]),
     )
-    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
-    with pytest.raises(ValueError, match="não existe"):
-        curation.record_produto_catalog(
-            "9999",
-            "comtrade",
-            headers,
-            agrupamento="Madeira",
-            settings=_settings(),
-            client=mock.Mock(),
-            invalidate_cache=False,
-        )
-    # An UPDATE to an already-active entry is allowed even if the code is missing from Gold.
-    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
     client = mock.Mock()
     client.query.return_value.result.return_value = []
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
     rec = curation.record_produto_catalog(
         "9999",
         "comtrade",
@@ -2755,6 +2743,17 @@ def test_record_produto_catalog_rejects_nonexistent_code(monkeypatch):
         invalidate_cache=False,
     )
     assert rec["active"] is True and rec["codigo_produto"] == "9999"
+    # A non-numeric code is still rejected loudly (cheap typo guard).
+    with pytest.raises(ValueError, match="apenas dígitos"):
+        curation.record_produto_catalog(
+            "44O3",  # letter O, not zero
+            "comtrade",
+            headers,
+            agrupamento="Madeira",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
 
 
 def test_record_produto_catalog_rejects_unknown_banco(monkeypatch):

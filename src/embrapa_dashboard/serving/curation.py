@@ -69,6 +69,11 @@ PRODUTO_CATALOG_LOG_SCHEMA = [
     bigquery.SchemaField("descricao_produto", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("ciclo_de_vida", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("agrupamento_id", "STRING", mode="NULLABLE"),
+    # PPM only: which SIDRA table this code belongs to ('3939' herd headcount /
+    # '74' animal production) so catalog-driven ingestion routes it to the right
+    # table. NULL for every other (single-table) banco. See catalog_resolver +
+    # config.ppm_*_table_id. Added late → self-healed via ALTER on existing tables.
+    bigquery.SchemaField("sidra_tabela", "STRING", mode="NULLABLE"),
     # active=false is a tombstone: the entry has left the catalog (→ Gold orphan).
     bigquery.SchemaField("active", "BOOL", mode="REQUIRED"),
     bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
@@ -102,6 +107,13 @@ def ensure_produto_catalog_log_table(
     table = bigquery.Table(table_fqn, schema=PRODUTO_CATALOG_LOG_SCHEMA)
     table.clustering_fields = ["banco", "codigo_produto"]
     bq.create_table(table, exists_ok=True)
+    # Self-heal a table that predates the sidra_tabela column: create_table(exists_ok)
+    # never widens an existing schema, so add it idempotently. Best-effort — a
+    # transient DDL/permission fault must not block the (rare) curation write.
+    try:
+        bq.query(f"alter table `{table_fqn}` add column if not exists sidra_tabela STRING").result()
+    except Exception as exc:
+        logger.warning("Could not ensure sidra_tabela column on %s: %s", table_fqn, exc)
     logger.info("Commodity-catalog log ready at %s", table_fqn)
     return table_fqn
 
@@ -124,6 +136,59 @@ def ensure_catalog_editors_table(
     return table_fqn
 
 
+def add_catalog_editor(
+    resource: str,
+    email: str,
+    *,
+    added_by: str = "cli",
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Authorize ``email`` to edit the ``resource`` catalog (append a row). Idempotent by
+    effect — duplicates are harmless (the allowlist read DISTINCTs). Returns the normalized
+    email. Backs ``embrapa editors add`` (the no-Console alternative)."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = ensure_catalog_editors_table(cfg, bq)
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        raise ValueError("email é obrigatório.")
+    sql = (
+        f"insert into `{table_fqn}` (resource, email, added_by, added_at) "
+        "values (@resource, @email, @added_by, current_timestamp())"
+    )
+    p = bigquery.ScalarQueryParameter
+    params = [
+        p("resource", "STRING", resource),
+        p("email", "STRING", email_norm),
+        p("added_by", "STRING", added_by),
+    ]
+    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    logger.info("Catalog editor authorized: %s on %s (by %s)", email_norm, resource, added_by)
+    return email_norm
+
+
+def remove_catalog_editor(
+    resource: str,
+    email: str,
+    *,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> int:
+    """De-authorize ``email`` from the ``resource`` catalog (delete matching rows,
+    case-insensitive). Returns the number of rows removed. Backs ``embrapa editors remove``."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = ensure_catalog_editors_table(cfg, bq)
+    email_norm = (email or "").strip().lower()
+    sql = f"delete from `{table_fqn}` where resource = @resource and lower(trim(email)) = @email"
+    p = bigquery.ScalarQueryParameter
+    params = [p("resource", "STRING", resource), p("email", "STRING", email_norm)]
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    job.result()
+    return int(getattr(job, "num_dml_affected_rows", 0) or 0)
+
+
 def _slug(name: str | None) -> str:
     """ASCII slug of an agrupamento → agrupamento_id (matches the seed's slugs:
     'Castanha-do-pará' → 'castanha_do_para', 'Açaí' → 'acai')."""
@@ -143,10 +208,18 @@ _CICLO_DE_VIDA_VALUES = frozenset({CICLO_DE_VIDA_VISIVEL, CICLO_DE_VIDA_OCULTO})
 
 def _validate_catalog_edit(codigo_produto: str, banco: str, ciclo_de_vida: str | None) -> None:
     """The composite key (codigo_produto, banco) is required — a blank either breaks
-    the key, so we REJECT (fail loud) instead of silently dropping the row. Messages are
-    pt-BR: a researcher reads them (the route surfaces ``str(exc)`` on a 400)."""
+    the key, so we REJECT (fail loud) instead of silently dropping the row. The code
+    must be all-digits (every source code — SIDRA, NCM, HS — is numeric), a cheap
+    typo guard now that a NEW code need NOT already exist in Gold (pending ingestion,
+    see ``_check_code_status``). Messages are pt-BR: a researcher reads them (the
+    route surfaces ``str(exc)`` on a 400)."""
     if not codigo_produto or not banco:
         raise ValueError("codigo_produto e banco são obrigatórios (a chave do catálogo).")
+    if not re.fullmatch(r"[0-9]+", codigo_produto):
+        raise ValueError(
+            f"O código {codigo_produto!r} deve conter apenas dígitos — os códigos de "
+            "todas as fontes (SIDRA, NCM, HS) são numéricos."
+        )
     if ciclo_de_vida is not None and len(ciclo_de_vida) > MAX_STAGE_LEN:
         raise ValueError(f"ciclo_de_vida excede {MAX_STAGE_LEN} caracteres.")
     if ciclo_de_vida and ciclo_de_vida not in _CICLO_DE_VIDA_VALUES:
@@ -193,40 +266,92 @@ def _is_active_entry(bq: bigquery.Client, table_fqn: str, codigo_produto: str, b
     return bool(rows) and bool(rows[0].active)
 
 
-def _assert_code_exists(
-    bq: bigquery.Client, table_fqn: str, codigo_produto: str, banco: str
+def _validate_sidra_tabela(
+    banco: str, sidra_tabela: str | None, cfg: Settings, *, require_for_ppm: bool = True
 ) -> None:
-    """A NEW catalog entry's code MUST be a real product code in the source's Gold — you
-    can't register a commodity whose code doesn't exist in the data. An UPDATE to an
-    already-active entry is always allowed (validated on add; its Gold data may have since
-    changed, and you must still be able to edit its ciclo/agrupamento). Degrades to a no-op
-    when the source has no product list yet (table not built) rather than blocking. Fail
-    loud (400, pt-BR) with a hint.
+    """PPM spans two SIDRA tables (herd 3939 / animal 74) under the single banco token
+    ``'ppm'``, so a ppm entry tags which table its code belongs to — the catalog-driven
+    ingestion resolver routes by it (``catalog_resolver``). Every other (single-table)
+    banco must NOT carry one. ``require_for_ppm`` is True for a NEW ppm entry (the tag is
+    mandatory) and False for an UPDATE (the caller preserves the stored tag, or leaves an
+    entry that predates the column untagged). Fail loud (400, pt-BR)."""
+    valid = {cfg.ppm_herd_table_id, cfg.ppm_animal_table_id}
+    if banco == "ppm":
+        if not sidra_tabela:
+            if require_for_ppm:
+                raise ValueError(
+                    "sidra_tabela é obrigatória para o banco 'ppm' — informe "
+                    f"{sorted(valid)} (rebanho / produção animal)."
+                )
+            return  # update of an entry that predates the column — leave it as-is
+        if sidra_tabela not in valid:
+            raise ValueError(f"sidra_tabela {sidra_tabela!r} inválida — use um de {sorted(valid)}.")
+    elif sidra_tabela:
+        raise ValueError(f"sidra_tabela só se aplica ao banco 'ppm' (recebido para {banco!r}).")
 
-    Validates against the Gold code universe (``fetch_source_code_stats``, keyed by the
-    short banco token) rather than the serving mart: the mart has the F7 visibility gate
-    baked in at BUILD time, so a code cataloged as *indisponível* then tombstoned could not
-    be re-registered until the next nightly dbt build even though it demonstrably exists in
-    Gold. Reading Gold directly avoids that one-build-cycle re-add lag."""
-    if _is_active_entry(bq, table_fqn, codigo_produto, banco):
+
+def _current_sidra_tabela(
+    bq: bigquery.Client, table_fqn: str, codigo_produto: str, banco: str
+) -> str | None:
+    """The active entry's stored ``sidra_tabela`` — reused to PRESERVE it on a PPM update
+    that doesn't re-send it (the admin table's inline ciclo/agrupamento edits). Returns None
+    when absent / the column doesn't exist yet — wrapped so a pre-migration table can't break
+    the write."""
+    sql = f"""
+        select sidra_tabela from (
+          select sidra_tabela, row_number() over (
+            partition by codigo_produto, banco order by edited_at desc, change_id desc
+          ) as _rn
+          from `{table_fqn}`
+          where codigo_produto = @codigo and banco = @banco
+        ) where _rn = 1
+    """
+    params = [
+        bigquery.ScalarQueryParameter("codigo", "STRING", codigo_produto),
+        bigquery.ScalarQueryParameter("banco", "STRING", banco),
+    ]
+    try:
+        rows = list(
+            bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+        )
+    except Exception:
+        return None
+    return rows[0].sidra_tabela if rows else None
+
+
+def _check_code_status(
+    bq: bigquery.Client, table_fqn: str, codigo_produto: str, banco: str, *, is_active: bool
+) -> None:
+    """Validate the banco (HARD) and NOTE (advisorily) whether the code already has Gold data.
+
+    Hard rejection — an UNKNOWN banco token: it would write a junk row that never joins in
+    gold_produto_agrupamento (source ∈ pevs/pam/ppm/comex/comtrade) → silent orphaned data.
+    No other layer validates the banco, so reject it loudly here.
+
+    Advisory only (does NOT raise) — a code with no Gold data yet: now that the Curadoria
+    catalog DRIVES ingestion (``catalog_authoritative_ingestion``), a researcher registers a
+    product precisely so the next run fetches it, so a not-yet-ingested code is legitimately
+    "pendente de ingestão" (the catalog status view's ``has_data`` surfaces it). An UPDATE to
+    an already-active entry (``is_active``) is likewise fine. We only LOG the pending state —
+    the cheap numeric-format guard in ``_validate_catalog_edit`` is what catches gross typos."""
+    if is_active:
         return  # update of an existing entry — not a new registration
     source = _BANCO_TO_SOURCE.get(banco)
     if source is None:
-        # An unknown banco token would otherwise write a junk row that never joins in
-        # gold_produto_agrupamento (source ∈ pevs/comex/comtrade) — silent orphaned data.
-        # No other layer validates the banco, so reject it loudly here.
         raise ValueError(f"banco {banco!r} inválido — use um de {sorted(_BANCO_TO_SOURCE)}.")
     try:
         stats = gateway.fetch_source_code_stats(banco)
     except NotFound:
-        return  # source Gold table not built yet — don't block the first catalog write
+        return  # source Gold table not built yet — nothing to check against
     if stats is None or stats.empty:
         return
     codes = {str(r.code) for r in stats.itertuples()}
     if codigo_produto not in codes:
-        raise ValueError(
-            f"O código {codigo_produto!r} não existe no banco {banco} — cadastre apenas "
-            f"códigos reais da fonte (o banco tem {len(codes):,} códigos disponíveis)."
+        logger.info(
+            "Catalog: %s:%s has no Gold data yet — registering as pendente de ingestão "
+            "(the next ingestion run will attempt to fetch it).",
+            banco,
+            codigo_produto,
         )
 
 
@@ -239,6 +364,7 @@ def record_produto_catalog(
     descricao_produto: str | None = None,
     ciclo_de_vida: str | None = None,
     agrupamento_id: str | None = None,
+    sidra_tabela: str | None = None,
     change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
@@ -247,14 +373,21 @@ def record_produto_catalog(
     """Append one commodity-catalog edit (upsert by latest-wins). IAP author capture +
     read-after-write + optional ``change_id`` idempotency, mirroring the
     attribute-engineering writers. Each commodity is registered by its EXACT source code
-    (no prefixes); ``agrupamento_id`` defaults to the agrupamento slug. Validates the key,
-    the agrupamento, and — for a NEW entry — that the code actually EXISTS in the source's
-    Gold; raises ValueError on a bad key / over-length / a code that doesn't exist."""
+    (no prefixes); ``agrupamento_id`` defaults to the agrupamento slug. ``sidra_tabela``
+    (PPM only: '3939' herd / '74' animal) routes catalog-driven ingestion. Validates the
+    key (numeric code), the agrupamento, and the sidra_tabela rule; a NEW code need NOT yet
+    exist in Gold — it registers as *pendente de ingestão*. Raises ValueError on a bad key /
+    over-length / a bad sidra_tabela."""
     cfg = settings or get_settings()
     codigo_produto = (codigo_produto or "").strip()
     banco = (banco or "").strip()
     ciclo_de_vida = ciclo_de_vida.strip() if ciclo_de_vida else ciclo_de_vida
     _validate_catalog_edit(codigo_produto, banco, ciclo_de_vida)
+    sidra_tabela = sidra_tabela.strip() if sidra_tabela else None
+    # A non-ppm banco must never carry a sidra_tabela — reject early (no BQ). The PPM
+    # requirement is enforced below, once we know whether this is a new entry or an update.
+    if banco != "ppm" and sidra_tabela:
+        raise ValueError(f"sidra_tabela só se aplica ao banco 'ppm' (recebido para {banco!r}).")
     agrupamento = agrupamento.strip() if agrupamento else agrupamento
     agrupamento_id = (agrupamento_id or _slug(agrupamento)).strip() or None
     # agrupamento names the commodity (agrupamento_nome) AND seeds agrupamento_id; both
@@ -276,9 +409,18 @@ def record_produto_catalog(
     table_fqn = _catalog_log_ref(cfg)
     ensure_produto_catalog_log_table(cfg, bq)
 
-    # A new entry's code must be a real product code in the source's Gold (an update to
-    # an already-active entry is exempt). Read current state AFTER ensure (table exists).
-    _assert_code_exists(bq, table_fqn, codigo_produto, banco)
+    # Whether this write UPDATES an already-active entry (vs a new registration).
+    is_active = _is_active_entry(bq, table_fqn, codigo_produto, banco)
+    # Validate the banco and note whether the code already has Gold data (a not-yet-
+    # ingested code is accepted as *pendente de ingestão*). Read state AFTER ensure.
+    _check_code_status(bq, table_fqn, codigo_produto, banco, is_active=is_active)
+    if banco == "ppm":
+        # PRESERVE the stored sidra_tabela on an update that doesn't re-send it (the admin
+        # table's inline ciclo/agrupamento edits) so the append-only overwrite can't drop it;
+        # a NEW ppm entry must supply it.
+        if sidra_tabela is None and is_active:
+            sidra_tabela = _current_sidra_tabela(bq, table_fqn, codigo_produto, banco)
+        _validate_sidra_tabela(banco, sidra_tabela, cfg, require_for_ppm=not is_active)
 
     if supplied and _change_id_seen(bq, table_fqn, change_id):
         logger.info(
@@ -294,6 +436,7 @@ def record_produto_catalog(
             True,
             edited_by,
             change_id,
+            sidra_tabela=sidra_tabela,
             deduped=True,
         )
     _insert_catalog_row(
@@ -308,6 +451,7 @@ def record_produto_catalog(
         True,
         edited_by,
         change_id,
+        sidra_tabela=sidra_tabela,
     )
     logger.info("Catalog: %s:%s -> active by %s", banco, codigo_produto, edited_by)
     if invalidate_cache:
@@ -322,6 +466,7 @@ def record_produto_catalog(
         True,
         edited_by,
         change_id,
+        sidra_tabela=sidra_tabela,
         deduped=False,
     )
 
@@ -412,15 +557,17 @@ def _insert_catalog_row(
     active,
     edited_by,
     change_id,
+    *,
+    sidra_tabela=None,
 ) -> None:
     """Append one catalog row with a server-side timestamp (parameterized DML)."""
     sql = f"""
         insert into `{table_fqn}`
             (codigo_produto, banco, agrupamento, descricao_produto,
-             ciclo_de_vida, agrupamento_id, active, edited_by, edited_at, change_id)
+             ciclo_de_vida, agrupamento_id, sidra_tabela, active, edited_by, edited_at, change_id)
         values
             (@codigo_produto, @banco, @agrupamento, @descricao_produto,
-             @ciclo_de_vida, @agrupamento_id, @active, @edited_by,
+             @ciclo_de_vida, @agrupamento_id, @sidra_tabela, @active, @edited_by,
              current_timestamp(), @change_id)
     """
     p = bigquery.ScalarQueryParameter
@@ -431,6 +578,7 @@ def _insert_catalog_row(
         p("descricao_produto", "STRING", descricao_produto),
         p("ciclo_de_vida", "STRING", ciclo_de_vida),
         p("agrupamento_id", "STRING", agrupamento_id),
+        p("sidra_tabela", "STRING", sidra_tabela),
         p("active", "BOOL", active),
         p("edited_by", "STRING", edited_by),
         p("change_id", "STRING", change_id),
@@ -450,6 +598,7 @@ def _catalog_row(
     change_id,
     *,
     deduped,
+    sidra_tabela=None,
 ) -> dict:
     """The written/echoed catalog row dict (shared by the write + dedup paths)."""
     return {
@@ -459,6 +608,7 @@ def _catalog_row(
         "descricao_produto": descricao_produto,
         "ciclo_de_vida": ciclo_de_vida,
         "agrupamento_id": agrupamento_id,
+        "sidra_tabela": sidra_tabela,
         "active": active,
         "edited_by": edited_by,
         "change_id": change_id,
@@ -485,3 +635,65 @@ def invalidate_produto_catalog_cache() -> None:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down
             logger.warning("Could not invalidate commodity-catalog cache: %s", exc)
+
+
+# The env → catalog banco/sidra_tabela plan for catalog_authoritative_ingestion cutover.
+def _seed_plan(cfg: Settings) -> list[tuple[str, str, str | None]]:
+    """(banco, codigo_produto, sidra_tabela) for every configured IBGE env code — the
+    exact set the catalog-driven resolver must reproduce on day one."""
+    plan: list[tuple[str, str, str | None]] = []
+    plan += [("pevs", c, None) for c in cfg.product_codes]
+    plan += [("pam", c, None) for c in cfg.pam_product_codes_list]
+    plan += [("ppm", c, cfg.ppm_herd_table_id) for c in cfg.ppm_herd_product_codes_list]
+    plan += [("ppm", c, cfg.ppm_animal_table_id) for c in cfg.ppm_animal_product_codes_list]
+    return plan
+
+
+def seed_catalog_from_env(
+    headers: Mapping[str, str],
+    *,
+    agrupamento_default: str | None = None,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> dict:
+    """Seed the catalog with the current IBGE ``*_PRODUCT_CODES`` env codes so the
+    catalog-driven ingestion resolver reproduces them exactly (the cutover backfill for
+    ``catalog_authoritative_ingestion``). Idempotent: a deterministic per-code ``change_id``
+    makes a re-run a no-op. An already-cataloged code keeps its agrupamento; a NEW code uses
+    ``agrupamento_default`` or falls back to the code itself (the researcher renames/groups
+    it later). PPM codes are tagged with their ``sidra_tabela`` (herd/animal). Returns
+    ``{seeded, skipped}``."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    existing: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    try:
+        df = gateway.fetch_produto_catalog(None)
+    except NotFound:
+        df = None
+    if df is not None and not df.empty:
+        for r in df.itertuples():
+            existing[(str(r.banco), str(r.codigo_produto))] = (r.agrupamento, r.agrupamento_id)
+
+    seeded = skipped = 0
+    for banco, code, sidra_tabela in _seed_plan(cfg):
+        agr, agr_id = existing.get((banco, code), (None, None))
+        agrupamento = agr or agrupamento_default or code
+        rec = record_produto_catalog(
+            code,
+            banco,
+            headers,
+            agrupamento=agrupamento,
+            agrupamento_id=agr_id,
+            ciclo_de_vida=CICLO_DE_VIDA_VISIVEL,
+            sidra_tabela=sidra_tabela,
+            change_id=f"seed-from-env:{banco}:{code}:{sidra_tabela or '-'}",
+            settings=cfg,
+            client=bq,
+            invalidate_cache=False,
+        )
+        if rec.get("deduped"):
+            skipped += 1
+        else:
+            seeded += 1
+    invalidate_produto_catalog_cache()
+    return {"seeded": seeded, "skipped": skipped}

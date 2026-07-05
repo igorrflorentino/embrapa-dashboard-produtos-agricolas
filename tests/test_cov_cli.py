@@ -432,3 +432,67 @@ def test_with_webapp_context_missing_extra_exits_1(monkeypatch: pytest.MonkeyPat
         cli._with_webapp_context(lambda: "unused")
 
     assert excinfo.value.exit_code == 1
+
+
+# ─── authorization allowlists CLI (editors / curators) + catalog-seed-from-env ──
+
+
+def test_editors_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`editors add` dispatches to curation.add_catalog_editor (resource defaults to
+    produto_catalog) and reports the authorized email."""
+    from embrapa_dashboard.serving import curation
+
+    _bypass_webapp_context(monkeypatch)
+    seen: dict = {}
+    monkeypatch.setattr(
+        curation,
+        "add_catalog_editor",
+        lambda resource, email, added_by="cli": (
+            seen.update(resource=resource, email=email) or email.strip().lower()
+        ),
+    )
+    result = runner.invoke(cli.app, ["editors", "add", "--email", "Alice@Embrapa.BR"])
+    assert result.exit_code == 0, result.output
+    assert "editor authorized" in result.output
+    assert seen["resource"] == "produto_catalog"
+
+
+def test_editors_remove_reports_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    from embrapa_dashboard.serving import curation
+
+    _bypass_webapp_context(monkeypatch)
+    monkeypatch.setattr(curation, "remove_catalog_editor", lambda resource, email: 1)
+    result = runner.invoke(cli.app, ["editors", "remove", "--email", "alice@embrapa.br"])
+    assert result.exit_code == 0, result.output
+    assert "removed 1 row" in result.output
+
+
+def test_curators_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from embrapa_dashboard.serving import research_inputs
+
+    _bypass_webapp_context(monkeypatch)
+    monkeypatch.setattr(
+        research_inputs, "add_curator", lambda email, added_by="cli": email.strip().lower()
+    )
+    result = runner.invoke(cli.app, ["curators", "add", "--email", "bob@x.br"])
+    assert result.exit_code == 0, result.output
+    assert "curator authorized" in result.output
+
+
+def test_catalog_seed_from_env_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`catalog-seed-from-env` builds an IAP-author header and prints the seeded/skipped
+    summary from curation.seed_catalog_from_env."""
+    from embrapa_dashboard.serving import curation
+
+    _bypass_webapp_context(monkeypatch)
+    seen: dict = {}
+
+    def _seed(headers, agrupamento_default=None):
+        seen["headers"] = headers
+        return {"seeded": 28, "skipped": 0}
+
+    monkeypatch.setattr(curation, "seed_catalog_from_env", _seed)
+    result = runner.invoke(cli.app, ["catalog-seed-from-env", "--author", "me@x.br"])
+    assert result.exit_code == 0, result.output
+    assert "seeded=28" in result.output
+    assert "me@x.br" in seen["headers"]["X-Goog-Authenticated-User-Email"]

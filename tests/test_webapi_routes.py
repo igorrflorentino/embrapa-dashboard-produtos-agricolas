@@ -1353,6 +1353,40 @@ def test_catalog_entries_route_returns_worklist(monkeypatch):
     assert body["total"] == 1 and body["entries"][0]["codigo_produto"] == "4403"
 
 
+def test_catalog_entries_can_edit_true_when_open(monkeypatch):
+    """GET /api/catalog/entries reports can_edit=True in open mode (empty allowlist) for
+    an identified caller — the SPA then enables the edit controls."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="alice@embrapa.br")
+    monkeypatch.setattr(
+        seam,
+        "catalog_worklist",
+        lambda banco=None: {"entries": [], "total": 0, "by_agrupamento": []},
+    )
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
+    resp = client.get("/api/catalog/entries")
+    assert resp.status_code == 200
+    assert resp.get_json()["can_edit"] is True
+
+
+def test_catalog_entries_can_edit_false_when_not_allowed(monkeypatch):
+    """can_edit=False when a non-empty allowlist excludes the caller — the SPA hides the
+    controls (the POST would 403 anyway; the server stays authoritative)."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, curation_dev_author="alice@embrapa.br")
+    monkeypatch.setattr(
+        seam,
+        "catalog_worklist",
+        lambda banco=None: {"entries": [], "total": 0, "by_agrupamento": []},
+    )
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: {"bob@embrapa.br"})
+    resp = client.get("/api/catalog/entries")
+    assert resp.status_code == 200
+    assert resp.get_json()["can_edit"] is False
+
+
 def test_catalog_source_codes_route_forwards_banco(monkeypatch):
     """GET /api/catalog/source-codes?banco= returns the source's real codes for the add
     form's autocomplete + existence check."""

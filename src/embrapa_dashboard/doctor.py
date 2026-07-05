@@ -199,6 +199,54 @@ def _check_pam_variable_codes(settings: Settings) -> CheckResult:
         return CheckResult("PAM variable codes", False, str(exc)[:120])
 
 
+def _check_catalog_resolver_parity(settings: Settings) -> CheckResult:
+    """Diff the catalog-resolved product codes vs the .env codes per IBGE banco.
+
+    When ``catalog_authoritative_ingestion`` is on, the nightly ingestion pulls whatever the
+    Curadoria catalog resolves — so before a run an operator wants to SEE any drift from the
+    .env baseline (and confirm ``catalog-seed-from-env`` reproduced it). Informational
+    (ok=True) even on drift: a researcher intentionally changing the catalog is the whole
+    point, not an error. Reads the catalog directly (independent of the flag) so it also
+    previews what a cutover WOULD change; also flags a banco that would trip the safety cap.
+    """
+    try:
+        from embrapa_dashboard.ibge import catalog_resolver
+
+        plan = [
+            ("pevs", None, settings.product_codes),
+            ("pam", None, settings.pam_product_codes_list),
+            ("ppm", settings.ppm_herd_table_id, settings.ppm_herd_product_codes_list),
+            ("ppm", settings.ppm_animal_table_id, settings.ppm_animal_product_codes_list),
+        ]
+        parts: list[str] = []
+        drift = False
+        for banco, sidra_tabela, env_codes in plan:
+            cat = set(
+                catalog_resolver.read_catalog_codes(settings, banco, sidra_tabela=sidra_tabela)
+            )
+            label = banco + (f":{sidra_tabela}" if sidra_tabela else "")
+            if not cat:
+                parts.append(f"{label} vazio→.env({len(env_codes)})")
+                continue
+            added = sorted(cat - set(env_codes))
+            removed = sorted(set(env_codes) - cat)
+            if added or removed:
+                drift = True
+                parts.append(f"{label} +{added} -{removed}")
+            else:
+                parts.append(f"{label} OK({len(cat)})")
+            if len(cat) > settings.catalog_resolver_max_codes:
+                drift = True
+                parts.append(f"{label} ACIMA-DO-CAP({len(cat)})")
+        flag = "ON" if settings.catalog_authoritative_ingestion else "off"
+        prefix = "DRIFT — " if drift else ""
+        return CheckResult(
+            "Catalog↔env product codes", True, f"[authoritative={flag}] {prefix}{' · '.join(parts)}"
+        )
+    except Exception as exc:  # never fail — this is an advisory diff
+        return CheckResult("Catalog↔env product codes", True, f"skipped: {str(exc)[:100]}")
+
+
 def _check_adc(settings: Settings) -> CheckResult:
     """Application Default Credentials are present; reports impersonation target when set."""
     try:
@@ -642,6 +690,7 @@ BRONZE_TARGETS: list[tuple[str, str]] = [
 _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("bronze", _check_bronze_tables),
     ("serving", _check_serving_marts),
+    ("catalog-parity", _check_catalog_resolver_parity),
     ("backup", _check_backup_freshness),
 ]
 

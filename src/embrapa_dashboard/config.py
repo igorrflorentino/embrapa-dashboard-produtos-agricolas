@@ -181,6 +181,25 @@ class Settings(BaseSettings):
     ppm_end_year: int = Field(default_factory=_current_year)
     ppm_delta_overlap_years: int = Field(default=1, ge=0)
 
+    # ─── Catalog-driven ingestion (Curadoria as source of truth) ──────────────
+    # When TRUE, the IBGE/SIDRA pipelines resolve their product-code list from the
+    # editable Curadoria catalog (research_inputs.produto_catalog_log, active rows
+    # per banco) instead of the *_product_codes env fields — making the "Cadastro
+    # de produtos" admin view the single source of truth for WHAT is ingested. The
+    # engineering metadata (table/classification/variable ids, delta windows) stays
+    # here regardless. Default FALSE keeps the current env-driven behaviour, so the
+    # inversion is a one-flag, fully reversible cutover: flip it per environment
+    # only after `embrapa catalog-seed-from-env` + a green `embrapa doctor` parity
+    # check. Even when TRUE the resolver ALWAYS falls back to the env codes if the
+    # catalog is absent/empty/unreachable, so a missing catalog never breaks a run.
+    catalog_authoritative_ingestion: bool = Field(default=False)
+    # Safety cap for the catalog-driven resolver: if the catalog resolves MORE than
+    # this many codes for a single banco, the resolver refuses it (logs + falls back
+    # to the env codes) instead of firing an accidental huge/expensive SIDRA pull —
+    # a fat-finger guard, since a researcher edit now drives the nightly job. Well
+    # above the real ~6-8 codes per banco, below a runaway. ge=1.
+    catalog_resolver_max_codes: int = Field(default=500, ge=1)
+
     # ─── BCB ──────────────────────────────────────────────────────────────────
     bcb_inflation_series: str = Field(default="433:IPCA,189:IGPM,190:IGPDI")
     # The 3 series codes the Gold pivot wires into val_real_{ipca,igpm,igpdi}_*.
@@ -435,6 +454,12 @@ class Settings(BaseSettings):
     # of editors, keyed by (resource, email). Empty/absent → no allowlist (any
     # IAP-authenticated caller may edit that catalog). Console-managed, auto-created.
     bq_catalog_editors_table: str = Field(default="catalog_editors")
+    # Catalog-editor allowlist ENV override — the env-var twin of the
+    # `catalog_editors` table, mirroring CURATION_ALLOWED_EMAILS for the attribute-
+    # engineering curators. NON-EMPTY → the effective editor allowlist is the UNION of
+    # this and the table; EMPTY (default) + empty table preserves current behaviour
+    # (any IAP-authenticated caller may edit). CATALOG_EDITORS_ALLOWED_EMAILS=a@x,b@y.
+    catalog_editors_allowed_emails: str = Field(default="")
     # Append-only catalog LIFECYCLE log: orphan→Descontinuado events + the eventual
     # human purge. An orphan is a commodity that WAS in the catalog, was removed
     # (tombstoned), and whose Gold data still lingers ("ficou órfão") — auto-marked
@@ -451,6 +476,14 @@ class Settings(BaseSettings):
     def curation_allowed_emails_list(self) -> list[str]:
         """Parsed, lower-cased curator allowlist (empty → any authed caller may curate)."""
         return [e.strip().lower() for e in self.curation_allowed_emails.split(",") if e.strip()]
+
+    @property
+    def catalog_editors_allowed_emails_list(self) -> list[str]:
+        """Parsed, lower-cased catalog-editor allowlist ENV override (unioned with the
+        `catalog_editors` table; empty → any authed caller may edit the catalog)."""
+        return [
+            e.strip().lower() for e in self.catalog_editors_allowed_emails.split(",") if e.strip()
+        ]
 
     @model_validator(mode="after")
     def _default_bucket(self) -> Settings:
