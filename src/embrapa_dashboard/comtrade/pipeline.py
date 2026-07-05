@@ -177,6 +177,7 @@ def sync_raw(
         years=[year],
         cmd_codes=cmd_codes,
         flows=settings.comtrade_flows_list,
+        customs_code=settings.comtrade_customs_code,
     )
     provenance = {
         "source": "un-comtrade",
@@ -188,6 +189,8 @@ def sync_raw(
         "cmd_scope": ",".join(settings.comtrade_cmd_map),
         "cmd_hs6_count": str(len(cmd_codes)),
         "flows": ",".join(settings.comtrade_flows_list),
+        # "C00" for the totals-only pull, "" when unfiltered — auditable per object.
+        "customs_code": settings.comtrade_customs_code or "all",
     }
     if df.empty:
         # A latest-year empty chunk is re-fetched every run anyway (revisions),

@@ -315,33 +315,53 @@ class Settings(BaseSettings):
             "1006:arroz"
         )
     )
-    # Flow codes (UN Comtrade flowCode): X=export, M=import, RX=re-export,
-    # RM=re-import. The four primary regimes the frontend's `flow` filter exposes.
-    comtrade_flows: str = Field(default="X,M,RX,RM")
+    # Flow codes (UN Comtrade flowCode). TOTALS-ONLY design (2026-07): only the two
+    # direction TOTALS are ingested — X=export (grand total, INCLUDES its DX/RX
+    # sub-flows) and M=import (grand total, INCLUDES FM/RM/MIP…). The sub-flows
+    # (RX/RM/DX/FM/…) are deliberately NOT requested: they are subsets of X/M, so
+    # summing them alongside X/M double-counts. Keeping only the totals makes every
+    # country's data homogeneous (all report X/M) — see the totals-only rationale on
+    # comtrade_customs_code below and the frozen "tipo de mercado" memory.
+    comtrade_flows: str = Field(default="X,M")
+    # Customs procedure (UN Comtrade customsCode) to pull. TOTALS-ONLY: request ONLY
+    # the aggregate C00 ("todos os regimes / total"). Most reporters (Brazil: 100%)
+    # provide ONLY C00; where a reporter also breaks C00 into per-regime rows (C01…),
+    # C00 = Σ(breakdowns), so keeping only C00 is lossless for the total and avoids the
+    # C00-vs-breakdown double-count. This also FREEZES the "tipo de mercado" feature:
+    # with no customs-procedure detail in the base, there is nothing to classify. Empty
+    # string ⇒ omit the filter (pull every customsCode — the pre-2026-07 behaviour).
+    # silver_comtrade_flows also hard-filters customs_code = C00, so this is a
+    # download-reduction knob, not the correctness guarantee.
+    comtrade_customs_code: str = Field(default="C00")
     # Reporters to pull ("all" = every reporting country, expanded by the client
     # from the Comtrade Reporters reference; or a comma list of M49 codes). The
     # keyed endpoint rejects "all" literally, so the client enumerates and batches.
-    # DEFAULT = "76" (Brazil): the pipeline fetches reporter × ALL partners, so a
-    # Brazil-only pull gives Brazil's COMPLETE export/import history (every partner)
-    # cheaply and within quota. The cross-source MIRROR (what partners declare about
-    # Brazil) + world market-share need every reporter's partner=Brazil rows — set
-    # "all" for the (expensive) global pull, or add a partnerCode-filtered mirror
-    # pass to the client/pipeline (it omits partnerCode today — client.fetch_chunk).
-    comtrade_reporters: str = Field(default="76")
+    # DEFAULT = "all" (2026-07): every reporter × ALL partners, so the base carries the
+    # complete bilateral matrix (Brazil's own trade AND the mirror — what every partner
+    # declares about Brazil — AND world market-share). Duplication is guarded downstream:
+    # the serving readers reporter-pin (never sum a country's exports AND another's
+    # imports of the same trade), Silver drops the World partner + keeps only the
+    # customs/flow/mode totals, and latest-batch dedup replaces re-published years. A
+    # global pull is expensive/slow (multi-day, quota-bounded) — see
+    # docs/comtrade_world_backfill.md; narrow to "76" (Brazil) for a cheap partial pull.
+    comtrade_reporters: str = Field(default="all")
     # ISO-A3 of the reporter treated as "home" (Brazil) when the serving layer
     # splits Brazil's own trade from the world total — COMTRADE ingests ALL
     # reporters, so this filter is applied at query time (serving), never at
     # ingestion. Backs crossSeries: exp_value/imp_value filter to this reporter;
     # world_exp sums over all reporters.
     comtrade_brazil_iso: str = Field(default="BRA")
-    # Full history. Brazil reports to UN Comtrade from ~1989; the END floats with
-    # the current year (the pipeline always re-fetches the latest year — Comtrade
-    # revises it — and lands an empty sentinel for past years with no data so they
-    # resume-skip without re-billing quota). Retired pre-revision codes are fetched
-    # (the combined HS reference enumerates them under the 4-digit prefixes, plus
-    # the explicit castanha 080120) and then mapped to their current equivalent in
-    # silver_comtrade_flows — see comtrade_cmd_codes above.
-    comtrade_start_year: int = Field(default=1989)
+    # History window. START = 2000 (2026-07 decision): the all-reporters × all-partners
+    # totals-only base is anchored at the year-2000 boundary — earlier years add little
+    # for a homogeneous cross-country panel and multiply the (already multi-day) global
+    # pull. The END floats with the current year (the pipeline always re-fetches the
+    # latest year — Comtrade revises it — and lands an empty sentinel for past years with
+    # no data so they resume-skip without re-billing quota). Retired pre-revision codes
+    # are fetched (the combined HS reference enumerates them under the 4-digit prefixes,
+    # plus the explicit castanha 080120) and then mapped to their current equivalent in
+    # silver_comtrade_flows — see comtrade_cmd_codes above. silver_comtrade_flows also
+    # floors reference_year at var('comtrade_min_year', 2000) — keep the two in sync.
+    comtrade_start_year: int = Field(default=2000)
     comtrade_end_year: int = Field(default_factory=_current_year)
     # How many recent years (below comtrade_end_year) whose Bronze is an EMPTY sentinel
     # get RE-FETCHED on a plain nightly run. UN Comtrade publishes an annual year with a
@@ -616,11 +636,12 @@ class Settings(BaseSettings):
 
     @property
     def comtrade_flows_list(self) -> list[str]:
-        """Validated UN Comtrade flow (trade regime) codes. The DEFAULT ingests the four
-        primary regimes (X=export, M=import, RX=re-export, RM=re-import); the six processing
-        regimes (DX/FM/MIP/MOP/XIP/XOP) are ALSO permitted so an operator can widen
-        COMTRADE_FLOWS and re-ingest — Silver already normalizes all ten to readable flow
-        tokens, so they surface end-to-end without further code changes."""
+        """Validated UN Comtrade flow (trade regime) codes. The DEFAULT ingests ONLY the two
+        direction TOTALS (X=export, M=import) — the totals-only design (the sub-flows RX/RM/
+        DX/FM/… are subsets of X/M and would double-count). The eight sub-flows stay in the
+        allowed set so an operator CAN widen COMTRADE_FLOWS and re-ingest for a bespoke
+        analysis — but note silver_comtrade_flows then keeps only X/M anyway (totals-only),
+        so a widened flow set surfaces nothing extra without also relaxing Silver."""
         allowed = {"X", "M", "RX", "RM", "DX", "FM", "MIP", "MOP", "XIP", "XOP"}
         flows = [f.strip().upper() for f in self.comtrade_flows.split(",") if f.strip()]
         if not flows:

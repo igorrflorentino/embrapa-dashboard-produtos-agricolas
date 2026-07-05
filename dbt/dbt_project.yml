@@ -102,6 +102,12 @@ vars:
   quality_min_obs: 100        # per-product sample floor — fewer rows ⇒ never flag (untrustworthy)
   quality_value_floor: 100000 # skip rows below this (deflated BRL / USD) — low-stakes rounding noise
 
+  # COMTRADE totals-only floor. silver_comtrade_flows drops any Bronze row with
+  # reference_year below this, so a re-anchored ingest window (config.comtrade_start_year
+  # = 2000) doesn't keep stale pre-2000 rows the delta ingest no longer refreshes. Keep in
+  # sync with COMTRADE_START_YEAR (.env / config.py).
+  comtrade_min_year: 2000
+
   # Engenharia de Atributos (researcher-editable derived attributes). Gates the SCD2
   # view(s) over the research_inputs curation logs — today dim_code_industrialization_scd2
   # (per-code industrialization). The feature is UNFROZEN, so this stays TRUE (prod also

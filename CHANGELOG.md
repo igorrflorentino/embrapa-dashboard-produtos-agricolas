@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.0] - 2026-07-05
+
+**COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**
+Decisão de produto após a auditoria (1.12.1): a base COMTRADE passa a carregar **apenas os
+totais de cada dimensão**, para todos os países como reportador *e* parceiro, a partir de
+2000. Isso torna a base **homogênea** (todo país reporta os totais, mesmo os que nunca
+detalham) e **estruturalmente livre de dupla contagem** (regime C00-vs-detalhe, hierarquia de
+fluxo X⊇RX, modais). Como o detalhe de regime aduaneiro deixa de existir na base, a
+subfuncionalidade **"Tipo de Mercado"** (natureza econômica) fica **congelada**.
+
+### Changed — ingestão totais-só
+- **`COMTRADE_FLOWS` = `X,M`** (só os dois totais de direção — exportação/importação). Os
+  sub-fluxos RX/RM/DX/FM/… são subconjuntos de X/M e passariam a duplicar; não são mais
+  ingeridos.
+- **Novo `COMTRADE_CUSTOMS_CODE` = `C00`** — o request agora manda `customsCode=C00`, baixando
+  só o agregado "todos os regimes / total". Onde um reportador também detalha, `C00 =
+  Σ(detalhes)`, então C00 sozinho é *lossless* para o total. Vazio ⇒ baixa todos os regimes
+  (comportamento pré-2026-07).
+- **`COMTRADE_REPORTERS` = `all`** — todos os reportadores × todos os parceiros (a matriz
+  bilateral completa: comércio do Brasil + o espelho + market-share mundial). A duplicação é
+  contida a jusante (readers do serving fixam o reportador; o Silver derruba o parceiro World
+  e mantém só os totais; dedup por lote mais recente).
+- **`COMTRADE_START_YEAR` = `2000`** — a base all-reporters é ancorada no marco de 2000.
+- **`silver_comtrade_flows`**: mantém só `customsCode=C00` + fluxo em `X/M` +
+  `reference_year >= var('comtrade_min_year', 2000)`; removida a lógica de exclusão-mútua
+  C00-vs-detalhe (não há mais detalhe). Requer **um `--full-refresh`** no cutover para expurgar
+  as linhas de detalhe/pré-2000 do incremental.
+
+### Frozen — "Tipo de Mercado" (congelado, NÃO removido)
+- Escondidos da UI (andaime mantido, dormível): o item de sidebar **"Tipo de Mercado"**, a rota
+  `enrich_market` (editor da matriz), a análise curada **"Finalidade econômica"**, o filtro
+  **"Tipo de mercado"** e — como consequência do totais-só (customs_code vira constante C00) —
+  o filtro **"Regime aduaneiro"**. O picker de **Fluxo** passa a oferecer só exportação/importação.
+- Motivo (gravado na memória do projeto): a natureza econômica se infere do regime aduaneiro,
+  que a maioria dos países (Brasil: 100%) só reporta como C00. Reviver só faria sentido para o
+  subconjunto de países que detalham — uma feature de cobertura parcial, adiada.
+
+### Migration / operação de dados (operador)
+- Requer **re-ingest total** com o novo escopo (all-reporters, 2000+, totais-só) — ver
+  `docs/comtrade_world_backfill.md`. O re-ingest APENDA no Bronze; a dedup por lote-mais-recente
+  + o floor de ano do Silver fazem a base virar totais-só sem DELETE obrigatório. As linhas de
+  detalhe/pré-2000 antigas no Bronze ficam órfãs (nunca selecionadas); podem ser deletadas para
+  economizar armazenamento (DELETE rodado por humano — hook de segurança). Depois, um
+  `dbt build --full-refresh` no `silver_comtrade_flows` propaga para Silver/Gold/serving.
+
 ## [1.12.1] - 2026-07-05
 
 Remediação dos achados de uma **auditoria profunda do banco UN COMTRADE** (ingestão →

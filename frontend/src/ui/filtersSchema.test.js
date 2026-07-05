@@ -78,28 +78,29 @@ describe('isMonetaryBanco — gates the currency/correction conventions', () => 
 describe('flowOptionsFor — server-side flow universe', () => {
   it('returns the direction options for trade bancos, null for production bancos', () => {
     expect(window.flowOptionsFor('mdic_comex').map((o) => o.value)).toContain('export');
-    // The re-flows use the HYPHEN token that matches the Gold/serving data + the backend
-    // allowlist (the underscore form filtered zero rows and 400'd).
-    expect(window.flowOptionsFor('un_comtrade').map((o) => o.value)).toContain('re-export');
-    expect(window.flowOptionsFor('un_comtrade').map((o) => o.value)).not.toContain('re_export');
+    // TOTALS-ONLY (2026-07): COMTRADE ingests only the two direction totals (export/import).
+    // The sub-flows (re-export/re-import) are subsets of X/M — no longer ingested nor offered.
+    const comtradeFlows = window.flowOptionsFor('un_comtrade').map((o) => o.value);
+    expect(comtradeFlows).toEqual(['all', 'export', 'import']);
+    expect(comtradeFlows).not.toContain('re-export');
     expect(window.flowOptionsFor('ibge_pevs')).toBeNull();
   });
 });
 
 describe('customsOptionsFor — server-side regime (customs procedure) universe', () => {
-  it('returns the regime options for COMTRADE (C00=total), null for other bancos', () => {
-    const opts = window.customsOptionsFor('un_comtrade');
-    expect(opts.map((o) => o.value)).toContain('all');
-    expect(opts.map((o) => o.value)).toContain('C00');
+  it('is FROZEN (2026-07): null for every banco under the totals-only base', () => {
+    // Totals-only ingests only customsCode=C00, so customs_code is a constant → the
+    // "Regime aduaneiro" filter is hidden (FilterMenu gates on non-null options).
+    expect(window.customsOptionsFor('un_comtrade')).toBeNull();
     expect(window.customsOptionsFor('mdic_comex')).toBeNull(); // COMEX has no customs_code
     expect(window.customsOptionsFor('ibge_pevs')).toBeNull();
   });
 });
 
 describe('marketOptionsFor — server-side tipo-de-mercado universe', () => {
-  it('returns consumo/processamento for COMTRADE, null for other bancos', () => {
-    const opts = window.marketOptionsFor('un_comtrade');
-    expect(opts.map((o) => o.value)).toEqual(['all', 'consumo', 'processamento']);
+  it('is FROZEN (2026-07): null for every banco (Tipo de mercado hidden)', () => {
+    // Needs the customs-procedure detail the totals-only base no longer carries.
+    expect(window.marketOptionsFor('un_comtrade')).toBeNull();
     expect(window.marketOptionsFor('mdic_comex')).toBeNull(); // no market_nature
     expect(window.marketOptionsFor('ibge_pevs')).toBeNull();
   });

@@ -551,20 +551,25 @@ function AppShell({
             <window.Icon name="inventory_2"/>Cadastro de produtos
           </div>
 
-          {/* Engenharia de Atributos — TWO researcher-editable editors (gated by the
-              `enable_curation` dbt var): per-code industrialization + the (customs × flow)
-              market-nature matrix (reverted from the comtrade_market_nature seed). Both accept
-              ?ip=enrich_industrial / ?ip=enrich_market (?ip=curation is the legacy alias for
-              industrialization), so any stale deep link resolves rather than 404s. */}
+          {/* Engenharia de Atributos — the per-code industrialization editor (gated by the
+              `enable_curation` dbt var); accepts ?ip=enrich_industrial (?ip=curation is the
+              legacy alias), so any stale deep link resolves rather than 404s.
+              FROZEN (2026-07): the "Tipo de Mercado" (customs × flow market-nature) matrix
+              is hidden — the totals-only COMTRADE base (customsCode=C00) carries no
+              customs-procedure detail to classify. Scaffold (route, component, store) kept;
+              a stale ?ip=enrich_market degrades to the generic "em preparação" fallback.
+              See the frozen-feature memo. */}
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>
             <window.Icon name="factory"/>Nível de industrialização
           </div>
+          {/* FROZEN — see the section comment above.
           <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_market'))}>
             <window.Icon name="storefront"/>Tipo de Mercado
           </div>
+          */}
 
           <div className="side-section">Informações</div>
           <div className={'side-item ' + (infoPage === 'about' ? 'active' : '')}

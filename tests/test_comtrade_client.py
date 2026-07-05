@@ -227,6 +227,26 @@ def test_fetch_chunk_builds_comma_lists_and_omits_partner_code() -> None:
     assert "cmdCode=0801,44" in url
     assert "flowCode=X,M" in url
     assert "partnerCode" not in url  # omitted → every partner (bilateral matrix)
+    assert "customsCode" not in url  # omitted when customs_code=="" (pull every regime)
+
+
+@responses.activate
+def test_fetch_chunk_adds_customs_code_filter_when_set() -> None:
+    """The totals-only pull passes customs_code="C00" → customsCode=C00 in the URL, so
+    only the "todos os regimes / total" aggregate is downloaded (no per-regime breakdowns)."""
+    responses.add(
+        responses.GET, re.compile(rf"{re.escape(BASE_URL)}/C/A/HS.*"), json=DATA_PAYLOAD, status=200
+    )
+    client.fetch_chunk(
+        BASE_URL,
+        API_KEY,
+        reporters=["76"],
+        years=[2023],
+        cmd_codes=["0801"],
+        flows=["X", "M"],
+        customs_code="C00",
+    )
+    assert "customsCode=C00" in responses.calls[0].request.url
 
 
 @responses.activate
@@ -373,26 +393,36 @@ def test_fetch_chunk_adaptive_splits_reporters_until_under_cap(monkeypatch) -> N
     """A capped multi-reporter call is split by reporter until each leaf call is
     under the cap; the leaves are concatenated into the complete frame."""
     seen: list[tuple[str, ...]] = []
+    customs_seen: set[str] = set()
 
-    def fake_fetch(base, key, *, reporters, years, cmd_codes, flows):
+    def fake_fetch(base, key, *, reporters, years, cmd_codes, flows, customs_code=""):
         seen.append(tuple(reporters))
+        customs_seen.add(customs_code)
         # >1 reporter saturates the cap (forces a split); a lone reporter is small.
         return _frame(client.PER_CALL_ROW_CAP if len(reporters) > 1 else 10)
 
     monkeypatch.setattr(client, "fetch_chunk", fake_fetch)
     df = client.fetch_chunk_adaptive(
-        "u", "k", reporters=["1", "2", "3", "4"], years=[2023], cmd_codes=["0801"], flows=["X"]
+        "u",
+        "k",
+        reporters=["1", "2", "3", "4"],
+        years=[2023],
+        cmd_codes=["0801"],
+        flows=["X"],
+        customs_code="C00",
     )
     assert len(df) == 40  # 4 single-reporter leaves × 10 rows
     assert ("1", "2", "3", "4") in seen  # the initial capped call
     assert ("1",) in seen and ("4",) in seen  # split down to single reporters
+    # customsCode is a single fixed value, threaded unchanged through every split.
+    assert customs_seen == {"C00"}
 
 
 def test_fetch_chunk_adaptive_falls_back_to_flows_then_cmd(monkeypatch) -> None:
     """With a single dense reporter, the split moves on to flows, then cmd codes."""
     leaf_dims: list[tuple[int, int]] = []
 
-    def fake_fetch(base, key, *, reporters, years, cmd_codes, flows):
+    def fake_fetch(base, key, *, reporters, years, cmd_codes, flows, customs_code=""):
         # Stay capped until BOTH flows and cmd are down to one each.
         if len(flows) > 1 or len(cmd_codes) > 1:
             return _frame(client.PER_CALL_ROW_CAP)

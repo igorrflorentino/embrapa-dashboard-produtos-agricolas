@@ -236,15 +236,15 @@ models:
     description: |
       UN Comtrade annual bilateral flows cleaned, typed, reduced to the canonical
       bilateral grain: one row per (flow, customs_code, year, reporter, partner, cmd).
-      The transport/second-partner/mode-of-supply breakdowns are still aggregated
-      (motCode=0, partner2Code=0, mosCode=0), but the CUSTOMS PROCEDURE (regime
-      aduaneiro) is PRESERVED as a dimension: the per-regime breakdowns are kept where
-      the reporter provides them, and the C00 aggregate is kept only for keys with no
-      breakdown — breakdowns sum EXACTLY to C00 (verified 100% over 306k keys), so C00
-      and breakdowns are mutually exclusive per key and SUM over customs_code never
-      double-counts. primary/cif/fob values are nominal US$. Products are HS6. The World
-      partner (0) is dropped; flowCode is normalised to the ten UN trade regimes
-      (X/M/RX/RM + DX/FM/MIP/MOP/XIP/XOP → readable tokens). Zero-quantity sentinels → NULL.
+      TOTALS-ONLY (2026-07, v1.13.0): keeps ONLY the fully-aggregated record on every
+      dimension — customs_code = C00 ("todos os regimes / total"), flow in {export, import}
+      (the two direction totals; the RX/RM/… sub-flows are subsets and are dropped), and the
+      transport/second-partner/mode-of-supply aggregates (motCode=0, partner2Code=0,
+      mosCode=0). This makes the base homogeneous across reporters and structurally free of
+      the customs/flow/mode double-counts. reference_year is floored at var('comtrade_min_year',
+      2000). primary/cif/fob values are nominal US$. Products are HS6. The World partner (0) is
+      dropped. (customs_code is now a constant C00 — the per-regime detail the frozen "tipo de
+      mercado" feature needed is no longer in the base.) Zero-quantity sentinels → NULL.
     tests:
       # Uniqueness is on cmd_code_REPORTED (the genuine natural key of a Comtrade
       # record), not the normalized cmd_code: two retired/current codes can map to
@@ -271,14 +271,10 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                # The ten UN trade regimes. Only the first four carry data until a
-                # re-ingestion with the widened COMTRADE_FLOWS lands the rest.
-                values: ["export", "import", "re-export", "re-import",
-                         "national-export", "foreign-import",
-                         "import-inward-processing", "import-outward-processing",
-                         "export-inward-processing", "export-outward-processing"]
+                # TOTALS-ONLY: only the two direction totals are kept (export/import).
+                values: ["export", "import"]
       - name: customs_code
-        description: "UN Comtrade customs procedure (regime aduaneiro). C00 = todos os regimes / total (kept only where the reporter gives no per-regime breakdown); C01/C03/C20/… = specific procedures. ~86% of trade is reported only at C00."
+        description: "UN Comtrade customs procedure (regime aduaneiro). TOTALS-ONLY: always C00 (todos os regimes / total) — the base ingests only customsCode=C00, so the per-regime detail (C01/C03/C20/…) is not present."
       - name: reference_year
         tests:
           - not_null

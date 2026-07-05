@@ -118,9 +118,14 @@ window.VIEW_GROUPS = [
       { id: 'curated_value_added', label: 'Valor agregado', status: 'live', requires: [], crossBanco: true, curated: true, align: 'nível de industrialização',
         sources: ['mdic_comex', 'un_comtrade'],
         desc: 'Exportação distribuída pelos 8 níveis de industrialização (do bruto ao manufaturado), a partir da classificação curada dos códigos. Valor, volume e preço por nível, com prêmio de processamento.' },
-      { id: 'curated_market_nature', label: 'Finalidade econômica', status: 'live', requires: [], crossBanco: true, curated: true, align: 'finalidade (consumo/processamento)',
-        sources: ['mdic_comex', 'un_comtrade'],
-        desc: 'Valor comercializado por finalidade econômica (consumo × processamento), classificado por par regime aduaneiro × fluxo na matriz "Tipo de Mercado" (Engenharia de atributos). Cruzada com a direção, separa comprar/vender para consumir ou processar.' },
+      // FROZEN (2026-07): "Finalidade econômica" (consumo × processamento) — depends on the
+      // "Tipo de Mercado" market-nature classification, which needs the customs-procedure
+      // detail the totals-only COMTRADE base (customsCode=C00) no longer carries. Removed
+      // from the curated-analyses menu; the ViewMarketNature component + data fn stay as
+      // scaffold. See the frozen-feature memo. Revive with the matrix editor.
+      // { id: 'curated_market_nature', label: 'Finalidade econômica', status: 'live', requires: [], crossBanco: true, curated: true, align: 'finalidade (consumo/processamento)',
+      //   sources: ['mdic_comex', 'un_comtrade'],
+      //   desc: 'Valor comercializado por finalidade econômica (consumo × processamento)…' },
     ],
   },
   {
