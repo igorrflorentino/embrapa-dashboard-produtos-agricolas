@@ -367,7 +367,7 @@ def test_invalidate_produto_catalog_cache_swallows_unbound_backend(monkeypatch):
     curation.invalidate_produto_catalog_cache()
 
 
-# ── add/remove_catalog_editor + add/remove_curator (CLI-backed writers) ───────
+# ── add/remove_catalog_editor + add/remove_attribute_editor (CLI-backed writers) ───────
 
 
 def test_add_catalog_editor_inserts_normalized_row(monkeypatch):
@@ -406,18 +406,23 @@ def test_remove_catalog_editor_returns_affected_rows(monkeypatch):
     assert "delete from" in client.query.call_args.args[0].lower()
 
 
-def test_add_and_remove_curator(monkeypatch):
+def test_add_and_remove_attribute_editor(monkeypatch):
     from embrapa_dashboard.serving import research_inputs
 
-    monkeypatch.setattr(research_inputs, "ensure_curators_table", lambda *a, **k: "p.ds.curators")
+    monkeypatch.setattr(
+        research_inputs, "ensure_attribute_editors_table", lambda *a, **k: "p.ds.attribute_editors"
+    )
     client = mock.Mock()
-    e = research_inputs.add_curator(" Bob@X.BR ", settings=_settings(), client=client)
+    e = research_inputs.add_attribute_editor(" Bob@X.BR ", settings=_settings(), client=client)
     assert e == "bob@x.br"
     params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
     assert params["email"] == "bob@x.br"
 
     client.query.return_value.num_dml_affected_rows = 1
-    assert research_inputs.remove_curator("bob@x.br", settings=_settings(), client=client) == 1
+    assert (
+        research_inputs.remove_attribute_editor("bob@x.br", settings=_settings(), client=client)
+        == 1
+    )
 
 
 # ── seed_catalog_from_env (the CATALOG_AUTHORITATIVE_INGESTION cutover backfill) ──

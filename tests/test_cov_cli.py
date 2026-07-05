@@ -434,7 +434,7 @@ def test_with_webapp_context_missing_extra_exits_1(monkeypatch: pytest.MonkeyPat
     assert excinfo.value.exit_code == 1
 
 
-# ─── authorization allowlists CLI (editors / curators) + catalog-seed-from-env ──
+# ─── authorization allowlists CLI (editors / attribute editors) + catalog-seed-from-env ──
 
 
 def test_editors_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -467,16 +467,16 @@ def test_editors_remove_reports_count(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "removed 1 row" in result.output
 
 
-def test_curators_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_attribute_editors_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> None:
     from embrapa_dashboard.serving import research_inputs
 
     _bypass_webapp_context(monkeypatch)
     monkeypatch.setattr(
-        research_inputs, "add_curator", lambda email, added_by="cli": email.strip().lower()
+        research_inputs, "add_attribute_editor", lambda email, added_by="cli": email.strip().lower()
     )
-    result = runner.invoke(cli.app, ["curators", "add", "--email", "bob@x.br"])
+    result = runner.invoke(cli.app, ["attribute-editors", "add", "--email", "bob@x.br"])
     assert result.exit_code == 0, result.output
-    assert "curator authorized" in result.output
+    assert "attribute editor authorized" in result.output
 
 
 def test_catalog_seed_from_env_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:

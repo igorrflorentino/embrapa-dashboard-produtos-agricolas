@@ -39,7 +39,7 @@ def _restore_classification_ttls():
 
     ``init_cache`` / ``_bind_classification_ttl`` mutate the ``cache_timeout``
     attribute of three module-level memoized singletons (the curation reads + the
-    curator allowlist). The TTL-binding tests call ``init_cache`` with a non-default
+    attribute editor allowlist). The TTL-binding tests call ``init_cache`` with a non-default
     value, so without teardown they leave the singleton pinned to that value,
     leaking into every later test (e.g. ``test_classification_cache_uses_short_ttl``
     would see a stray TTL). Snapshot before, restore after — independent of import
@@ -53,7 +53,7 @@ def _restore_classification_ttls():
         return
     names = (
         "fetch_current_code_industrialization",
-        "fetch_curators",
+        "fetch_attribute_editors",
     )
     saved = {n: getattr(gateway, n).cache_timeout for n in names}
     try:
@@ -1078,17 +1078,17 @@ def test_record_code_industrialization_inserts_when_change_id_is_new(monkeypatch
     assert params["change_id"] == "fresh-key-9"
 
 
-def test_ensure_curators_table_creates_with_explicit_schema(monkeypatch):
-    """The Console-managed curator allowlist table is auto-created with the
+def test_ensure_attribute_editors_table_creates_with_explicit_schema(monkeypatch):
+    """The Console-managed attribute editor allowlist table is auto-created with the
     explicit (email, added_by, added_at) schema — never autodetected."""
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import research_inputs as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     client = mock.Mock()
-    fqn = curation.ensure_curators_table(settings=_settings(), client=client)
+    fqn = curation.ensure_attribute_editors_table(settings=_settings(), client=client)
 
-    assert fqn.endswith(".curators")
+    assert fqn.endswith(".attribute_editors")
     table_arg = client.create_table.call_args.args[0]
     assert {f.name for f in table_arg.schema} == {"email", "added_by", "added_at"}
     assert client.create_table.call_args.kwargs["exists_ok"] is True
@@ -1161,11 +1161,11 @@ def test_init_cache_binds_classification_ttl_from_settings():
     assert effective == settings.cache_classification_timeout
 
 
-def test_init_cache_binds_classification_ttl_to_curator_allowlist():
-    """The curator-allowlist read honors CACHE_CLASSIFICATION_TIMEOUT too.
+def test_init_cache_binds_classification_ttl_to_attribute_editor_allowlist():
+    """The attribute editor-allowlist read honors CACHE_CLASSIFICATION_TIMEOUT too.
 
-    fetch_curators gates POST /api/curation/* authorization, so lowering the TTL to
-    revoke a removed curator faster must actually take effect — it must not stay
+    fetch_attribute_editors gates POST /api/attributes/* authorization, so lowering the TTL to
+    revoke a removed attribute editor faster must actually take effect — it must not stay
     pinned at the decoration-time DEFAULT_CLASSIFICATION_TTL.
     """
     pytest.importorskip("flask_caching")
@@ -1178,8 +1178,8 @@ def test_init_cache_binds_classification_ttl_to_curator_allowlist():
     app = Flask(__name__)
     init_cache(app, settings)
 
-    assert gateway.fetch_curators.cache_timeout == 7
-    assert gateway.fetch_curators.cache_timeout == settings.cache_classification_timeout
+    assert gateway.fetch_attribute_editors.cache_timeout == 7
+    assert gateway.fetch_attribute_editors.cache_timeout == settings.cache_classification_timeout
 
 
 def test_init_cache_binds_classification_ttl_to_catalog_editors():
@@ -1267,10 +1267,10 @@ def test_quality_readers_return_none_for_unknown_source_without_querying(monkeyp
         assert gateway.fetch_quality_by_product("not_a_real_source") is None
 
 
-def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
-    """fetch_curators gates curation AUTHORIZATION, so pin its SQL exactly: distinct
+def test_fetch_attribute_editors_queries_allowlist_table_distinct_lowered(monkeypatch):
+    """fetch_attribute_editors gates curation AUTHORIZATION, so pin its SQL exactly: distinct
     lower(trim(email)) with NULLs excluded, from the research_inputs allowlist table.
-    A typo here would silently widen or empty the curator allowlist."""
+    A typo here would silently widen or empty the attribute editor allowlist."""
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import gateway
 
@@ -1287,11 +1287,11 @@ def test_fetch_curators_queries_allowlist_table_distinct_lowered(monkeypatch):
 
     with app.app_context():
         cache.clear()
-        out = gateway.fetch_curators()
+        out = gateway.fetch_attribute_editors()
 
     assert out == "df"
     q = recorded["query"].lower()
-    assert "p.research_inputs.curators" in q
+    assert "p.research_inputs.attribute_editors" in q
     assert "distinct lower(trim(email))" in q
     assert "where email is not null" in q
     assert recorded["params"] == []  # constant table FQN only — no bound params

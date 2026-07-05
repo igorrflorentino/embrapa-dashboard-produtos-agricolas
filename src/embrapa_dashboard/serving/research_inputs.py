@@ -10,7 +10,7 @@ This is the NEUTRAL layer common to BOTH researcher-facing features, so neither
 
 It owns the cross-cutting primitives: BigQuery client resolution, the
 append-only idempotency helpers (``change_id``), the free-text length caps, the
-curator ALLOWLIST table, and the operator-editable banco-metadata override table.
+attribute editor ALLOWLIST table, and the operator-editable banco-metadata override table.
 Schemas are always EXPLICIT — autodetect drifts silently across runs.
 """
 
@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 MAX_STAGE_LEN = 200
 MAX_NOTE_LEN = 2000
 
-# The curator ALLOWLIST — who may POST an edit (authorization, distinct from IAP
-# authentication). Console-managed: add/remove a curator by INSERT/DELETE here, no
+# The attribute editor ALLOWLIST — who may POST an edit (authorization, distinct from IAP
+# authentication). Console-managed: add/remove an attribute editor by INSERT/DELETE here, no
 # redeploy. Empty/absent table → no allowlist (any IAP-authenticated caller may write).
-CURATORS_SCHEMA = [
+ATTRIBUTE_EDITORS_SCHEMA = [
     bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("added_by", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("added_at", "TIMESTAMP", mode="NULLABLE"),
@@ -64,25 +64,27 @@ def _bq_client(settings: Settings) -> bigquery.Client:
     return resolve_bq_client(settings)
 
 
-def ensure_curators_table(
+def ensure_attribute_editors_table(
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> str:
-    """Create the curator allowlist table if missing; return its FQN. Idempotent.
+    """Create the attribute editor allowlist table if missing; return its FQN. Idempotent.
 
-    Tiny (one row per curator), so no clustering. Manage rows in the BigQuery
+    Tiny (one row per attribute editor), so no clustering. Manage rows in the BigQuery
     Console (or via SQL) to control who may curate — no redeploy needed.
     """
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
-    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_curators_table)
+    table_fqn = sqlbuild.table_ref(
+        cfg, "bq_research_inputs_dataset", cfg.bq_attribute_editors_table
+    )
     ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
-    bq.create_table(bigquery.Table(table_fqn, schema=CURATORS_SCHEMA), exists_ok=True)
-    logger.info("Curators allowlist table ready at %s", table_fqn)
+    bq.create_table(bigquery.Table(table_fqn, schema=ATTRIBUTE_EDITORS_SCHEMA), exists_ok=True)
+    logger.info("Attribute editors allowlist table ready at %s", table_fqn)
     return table_fqn
 
 
-def add_curator(
+def add_attribute_editor(
     email: str,
     *,
     added_by: str = "cli",
@@ -91,10 +93,10 @@ def add_curator(
 ) -> str:
     """Authorize ``email`` to curate (attribute engineering) — append a row. Idempotent by
     effect (the allowlist read DISTINCTs). Returns the normalized email. Backs
-    ``embrapa curators add`` (the no-Console alternative)."""
+    ``embrapa attribute-editors add`` (the no-Console alternative)."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
-    table_fqn = ensure_curators_table(cfg, bq)
+    table_fqn = ensure_attribute_editors_table(cfg, bq)
     email_norm = (email or "").strip().lower()
     if not email_norm:
         raise ValueError("email é obrigatório.")
@@ -105,21 +107,21 @@ def add_curator(
     p = bigquery.ScalarQueryParameter
     params = [p("email", "STRING", email_norm), p("added_by", "STRING", added_by)]
     bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-    logger.info("Curator authorized: %s (by %s)", email_norm, added_by)
+    logger.info("Attribute editor authorized: %s (by %s)", email_norm, added_by)
     return email_norm
 
 
-def remove_curator(
+def remove_attribute_editor(
     email: str,
     *,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> int:
     """De-authorize ``email`` (delete matching rows, case-insensitive). Returns the number
-    of rows removed. Backs ``embrapa curators remove``."""
+    of rows removed. Backs ``embrapa attribute-editors remove``."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
-    table_fqn = ensure_curators_table(cfg, bq)
+    table_fqn = ensure_attribute_editors_table(cfg, bq)
     email_norm = (email or "").strip().lower()
     sql = f"delete from `{table_fqn}` where lower(trim(email)) = @email"
     params = [bigquery.ScalarQueryParameter("email", "STRING", email_norm)]

@@ -4,7 +4,7 @@ Targets the currently-uncovered branches in the seam readers
 (``webapi/seam_attribute_engineering.py``) and the serving writers
 (``serving/attribute_engineering.py``):
 
-  * seam: the empty-DataFrame degrade paths of ``curator_emails`` /
+  * seam: the empty-DataFrame degrade paths of ``attribute_editor_emails`` /
     ``_current_code_levels`` (and the latter's success row-mapping), the
     commodity-scope ``continue`` in ``_value_added_codes_by_level``, the
     empty-value ``continue`` in ``_value_added_accumulate``, and the seed-driven
@@ -36,21 +36,21 @@ def _writer():
     return attribute_engineering
 
 
-# ── seam line 64: curator_emails returns empty set on an empty DataFrame ────────
+# ── seam line 64: attribute_editor_emails returns empty set on an empty DataFrame ────────
 
 
-def test_curator_emails_empty_when_table_empty(monkeypatch):
+def test_attribute_editor_emails_empty_when_table_empty(monkeypatch):
     seam = _curation()
     # The allowlist table EXISTS (no NotFound) but holds no rows → empty set, which
     # makes routes fall back to "any IAP-authenticated caller may curate".
-    monkeypatch.setattr(seam.gateway, "fetch_curators", lambda: pd.DataFrame())
-    assert seam.curator_emails() == set()
+    monkeypatch.setattr(seam.gateway, "fetch_attribute_editors", lambda: pd.DataFrame())
+    assert seam.attribute_editor_emails() == set()
 
 
-def test_curator_emails_empty_when_none(monkeypatch):
+def test_attribute_editor_emails_empty_when_none(monkeypatch):
     seam = _curation()
-    monkeypatch.setattr(seam.gateway, "fetch_curators", lambda: None)
-    assert seam.curator_emails() == set()
+    monkeypatch.setattr(seam.gateway, "fetch_attribute_editors", lambda: None)
+    assert seam.attribute_editor_emails() == set()
 
 
 # ── seam lines 78-80: _current_code_levels empty + success row mapping ──────────

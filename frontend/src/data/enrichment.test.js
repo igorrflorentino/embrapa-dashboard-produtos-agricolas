@@ -32,7 +32,7 @@ async function load(fetchImpl) {
 // GET-only fetch that serves the code worklist; everything else 404s.
 function worklistFetch() {
   return vi.fn((url) => {
-    if (url.includes('/curation/worklist')) return jsonRes(WORKLIST);
+    if (url.includes('/attributes/worklist')) return jsonRes(WORKLIST);
     return jsonRes({}, { ok: false, status: 404 });
   });
 }
@@ -74,7 +74,7 @@ describe('enrichment — apply() commit lifecycle', () => {
     let worklistGets = 0;
     let worklistPayload = WORKLIST;
     const fetchImpl = vi.fn((url, opts) => {
-      if (url.includes('/curation/worklist')) {
+      if (url.includes('/attributes/worklist')) {
         worklistGets += 1;
         return jsonRes(worklistPayload);
       }
@@ -100,7 +100,7 @@ describe('enrichment — apply() commit lifecycle', () => {
 
     expect(done).toBe(true);
     expect(e.lastError()).toBe(null);
-    const codePost = posts.find((p) => p.url.includes('/curation/code-level')).body;
+    const codePost = posts.find((p) => p.url.includes('/attributes/code-level')).body;
     expect(codePost).toMatchObject({ source: 'ibge_pevs', code: '1.1', level: 'bruta' });
     // the staged edit carries an idempotency key (a string)
     expect(typeof codePost.change_id).toBe('string');
@@ -115,7 +115,7 @@ describe('enrichment — apply() commit lifecycle', () => {
 
   it('surfaces a write failure and KEEPS the draft, then discard() clears it (the silent-401 regression)', async () => {
     const fetchImpl = vi.fn((url, opts) => {
-      if (url.includes('/curation/worklist')) return jsonRes(WORKLIST);
+      if (url.includes('/attributes/worklist')) return jsonRes(WORKLIST);
       if (opts && opts.method === 'POST') return jsonRes({}, { ok: false, status: 401 });
       return jsonRes({}, { ok: false, status: 404 });
     });
@@ -138,7 +138,7 @@ describe('enrichment — apply() commit lifecycle', () => {
     const posts = [];
     let postCalls = 0;
     const fetchImpl = vi.fn((url, opts) => {
-      if (url.includes('/curation/worklist')) return jsonRes(WORKLIST);
+      if (url.includes('/attributes/worklist')) return jsonRes(WORKLIST);
       if (opts && opts.method === 'POST') {
         postCalls += 1;
         posts.push(JSON.parse(opts.body));

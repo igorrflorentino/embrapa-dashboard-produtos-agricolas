@@ -117,17 +117,17 @@ def test_bq_client_delegates_to_resolve_bq_client(monkeypatch):
     assert ri._bq_client(_cfg()) is resolved
 
 
-def test_ensure_curators_table_resolves_client_via_bq_client(monkeypatch):
-    """With no explicit client, ensure_curators_table goes through _bq_client (line 64)."""
+def test_ensure_attribute_editors_table_resolves_client_via_bq_client(monkeypatch):
+    """With no explicit client, ensure_attribute_editors_table goes through _bq_client (line 64)."""
     from embrapa_dashboard.serving import research_inputs as ri
 
     resolved = mock.Mock()
     monkeypatch.setattr(ri, "resolve_bq_client", lambda settings: resolved)
     monkeypatch.setattr(ri, "ensure_dataset", lambda *a, **k: None)
 
-    fqn = ri.ensure_curators_table(settings=_cfg())
+    fqn = ri.ensure_attribute_editors_table(settings=_cfg())
 
-    assert fqn.endswith(".curators")
+    assert fqn.endswith(".attribute_editors")
     resolved.create_table.assert_called_once()
 
 

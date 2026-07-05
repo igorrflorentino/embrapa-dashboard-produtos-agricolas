@@ -24,7 +24,7 @@ from tests.test_webapi_routes import _client
 
 def test_catalog_editor_invalid_iap_assertion_is_403(monkeypatch):
     """An audience is configured but no signed JWT is present → InvalidIapAssertion →
-    403 on the catalog-editor authz path (distinct from the curator path)."""
+    403 on the catalog-editor authz path (distinct from the attribute editor path)."""
     from embrapa_dashboard.webapi import routes
 
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
@@ -112,7 +112,7 @@ def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):
 
 
 def test_catalog_editor_env_allowlist_denies_non_member(monkeypatch):
-    """CATALOG_EDITORS_ALLOWED_EMAILS is UNIONed with the table (parity with the curator
+    """CATALOG_EDITORS_ALLOWED_EMAILS is UNIONed with the table (parity with the attribute editor
     env allowlist): an author outside it (empty table) gets 403 — no seam write."""
     from embrapa_dashboard.webapi import routes, seam
 

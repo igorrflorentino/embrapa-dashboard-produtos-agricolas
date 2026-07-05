@@ -5,32 +5,32 @@ things you don't do every day and that bite you on a fresh machine. Day-to-day
 commands live in [`README.md`](../README.md) / [`CLAUDE.md`](../CLAUDE.md); this
 is the "how do I safely do X against prod" reference.
 
-## Managing curators (who may save curation edits)
+## Managing attribute editors (who may save curation edits)
 
-The curation write endpoints (`POST /api/curation/*`) are gated by an
+The curation write endpoints (`POST /api/attributes/*`) are gated by an
 **authorization allowlist**, distinct from IAP authentication. The effective
 allowlist is the **union** of:
 
-- the `CURATION_ALLOWED_EMAILS` env var (comma-separated), and
-- the Console-managed BigQuery table `<dataset>.curators`
+- the `ATTRIBUTE_EDITORS_ALLOWED_EMAILS` env var (comma-separated), and
+- the Console-managed BigQuery table `<dataset>.attribute_editors`
   (`<dataset>` = `BQ_RESEARCH_INPUTS_DATASET`, default `research_inputs`; table
-  name = `BQ_CURATORS_TABLE`, default `curators`).
+  name = `BQ_ATTRIBUTE_EDITORS_TABLE`, default `attribute editors`).
 
 If **both** are empty/absent, any IAP-authenticated caller may curate (open mode).
 
-**Add/remove a curator without a redeploy** — edit the table in the BigQuery
+**Add/remove an attribute editor without a redeploy** — edit the table in the BigQuery
 Console (or via SQL). No deploy, no code change:
 
 ```sql
 -- add
-INSERT INTO `<project>.research_inputs.curators` (email, added_by, added_at)
-VALUES ('new.curator@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
+INSERT INTO `<project>.research_inputs.attribute_editors` (email, added_by, added_at)
+VALUES ('new.attribute editor@embrapa.br', 'you@embrapa.br', CURRENT_TIMESTAMP());
 
 -- remove
-DELETE FROM `<project>.research_inputs.curators` WHERE email = 'old@embrapa.br';
+DELETE FROM `<project>.research_inputs.attribute_editors` WHERE email = 'old@embrapa.br';
 
 -- list current
-SELECT email FROM `<project>.research_inputs.curators` ORDER BY email;
+SELECT email FROM `<project>.research_inputs.attribute_editors` ORDER BY email;
 ```
 
 Notes:
@@ -38,8 +38,8 @@ Notes:
   (`CACHE_CLASSIFICATION_TIMEOUT`, ~30s) — no instant invalidation needed.
 - Emails are matched case-insensitively (lower + trim).
 - The table auto-creates on the **first curation write attempt**: the curation
-  POST authorization path (`routes._authorize_curator`) calls
-  `serving.research_inputs.ensure_curators_table` (idempotent), so it exists for the
+  POST authorization path (`routes._authorize_attribute_editor`) calls
+  `serving.research_inputs.ensure_attribute_editors_table` (idempotent), so it exists for the
   Console INSERT above the first time anyone tries to save an edit. The runtime SA
   needs write access to the dataset to create it — the prod web SA
   `sa-web-dashboard-prod` already has WRITER on `research_inputs`. (If you prefer
@@ -52,7 +52,7 @@ Notes:
 ## Managing catalog editors (the "Cadastro de produtos agrícolas" admin view)
 
 The **live Curadoria catalog** edits (the "Cadastro de produtos agrícolas" admin view → the catalog
-write routes) are gated by a **per-catalog** allowlist, separate from the curation curators
+write routes) are gated by a **per-catalog** allowlist, separate from the curation attribute editors
 above: the Console-managed table `<dataset>.catalog_editors` (`<dataset>` =
 `BQ_RESEARCH_INPUTS_DATASET`, default `research_inputs`; table = `BQ_CATALOG_EDITORS_TABLE`,
 default `catalog_editors`), keyed by `(resource, email)` where `resource` is the catalog id
@@ -73,7 +73,7 @@ SELECT email FROM `<project>.research_inputs.catalog_editors`
 WHERE resource = 'produto_catalog' ORDER BY email;
 ```
 
-Like the curators table: changes take effect within the ~30s classification cache TTL, emails are
+Like the attribute editors table: changes take effect within the ~30s classification cache TTL, emails are
 matched case-insensitively, and the table **auto-creates on the first catalog write attempt**
 (`routes._ensure_catalog_editors_table` → `serving.curation.ensure_catalog_editors_table`,
 idempotent; the prod web SA `sa-web-dashboard-prod` already has WRITER on `research_inputs`).

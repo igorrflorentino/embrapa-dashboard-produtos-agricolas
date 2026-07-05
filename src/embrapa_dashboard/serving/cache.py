@@ -103,7 +103,7 @@ def init_cache_safely(server) -> Cache:
         logger.error(
             "init_cache failed — CACHING IS DISABLED: binding a no-op NullCache so "
             "the app still boots, but gateway memoization is OFF (the mart, "
-            "curator-allowlist, and classification TTLs do nothing) and the "
+            "attribute editor-allowlist, and classification TTLs do nothing) and the "
             "curation-cache invalidation guarantees are VOID until this is fixed — "
             "every data endpoint runs UNCACHED and re-queries BigQuery. In prod this "
             "must be treated as a misconfiguration, not a steady state. Most often it "
@@ -122,12 +122,12 @@ def _bind_classification_ttl(timeout: int) -> None:
     Imported lazily (gateway imports this module) to dodge a circular import.
     flask-caching reads ``decorated_fn.cache_timeout`` on every call, so updating
     it here overrides the decoration-time default with the authoritative value.
-    All the curation reads (per-code industrialization, the curator allowlist AND the
+    All the curation reads (per-code industrialization, the attribute editor allowlist AND the
     banco-maturity metadata) must use the short classification TTL — that short
     window is what bounds cross-instance staleness on per-process SimpleCache. The
-    curator allowlist gates POST /api/curation/* authorization, so its read must also
+    attribute editor allowlist gates POST /api/attributes/* authorization, so its read must also
     honor the configured value: an operator who lowers CACHE_CLASSIFICATION_TIMEOUT to
-    revoke a removed curator faster would otherwise see no effect (the allowlist would
+    revoke a removed attribute editor faster would otherwise see no effect (the allowlist would
     stay pinned at the decoration-time default). fetch_banco_metadata is the same
     class — its docstring promises a Console maturity flip reflects within the
     classification window — so it must be rebound too. fetch_catalog_editors is the
@@ -142,7 +142,7 @@ def _bind_classification_ttl(timeout: int) -> None:
 
     for fn in (
         gateway.fetch_current_code_industrialization,
-        gateway.fetch_curators,
+        gateway.fetch_attribute_editors,
         gateway.fetch_banco_metadata,
         gateway.fetch_catalog_editors,
         gateway.fetch_agrupamentos,

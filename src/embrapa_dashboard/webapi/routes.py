@@ -24,8 +24,8 @@ from embrapa_dashboard.serving.curation import ensure_catalog_editors_table
 from embrapa_dashboard.serving.feedback import FeedbackValidationError, record_feedback
 from embrapa_dashboard.serving.iap import InvalidIapAssertionError
 from embrapa_dashboard.serving.research_inputs import (
+    ensure_attribute_editors_table,
     ensure_banco_metadata_table,
-    ensure_curators_table,
 )
 
 from . import seam, serializers
@@ -167,12 +167,12 @@ def _api_error(exc):
     return jsonify(error="internal server error"), 500
 
 
-def _ensure_curators_table() -> None:
-    """Self-heal the Console-managed curator allowlist table (best-effort).
+def _ensure_attribute_editors_table() -> None:
+    """Self-heal the Console-managed attribute editor allowlist table (best-effort).
 
-    The allowlist read (``seam.curator_emails``) treats a missing table as "no
+    The allowlist read (``seam.attribute_editor_emails``) treats a missing table as "no
     allowlist configured" (open mode), so an operator following the runbook's
-    documented INSERT to add the first curator would otherwise hit "table not
+    documented INSERT to add the first attribute editor would otherwise hit "table not
     found". Create it idempotently on the first authorization check — mirroring how
     the append-only log writers self-heal their own tables — so the runbook's
     "auto-creates on first use" promise actually holds. Best-effort: a transient
@@ -180,9 +180,9 @@ def _ensure_curators_table() -> None:
     table is still open mode, so swallowing the error preserves current behaviour.
     """
     try:
-        ensure_curators_table()
+        ensure_attribute_editors_table()
     except Exception:  # pragma: no cover - BQ unavailable / perms; never block the write
-        logger.warning("Could not ensure curators allowlist table", exc_info=True)
+        logger.warning("Could not ensure attribute editors allowlist table", exc_info=True)
 
 
 def _ensure_banco_metadata_table() -> None:
@@ -191,7 +191,7 @@ def _ensure_banco_metadata_table() -> None:
     The override read (``seam.banco_metadata_overrides``) treats a missing table as
     "no overrides" (registry defaults stand), so an operator following the runbook's
     documented MERGE to flip a maturity would otherwise hit "table not found". Create
-    it idempotently on the first source-meta read — like the curators table — so the
+    it idempotently on the first source-meta read — like the attribute editors table — so the
     "auto-creates on first use" promise holds. Best-effort: a transient BQ/permission
     fault must never break the provenance read (an absent table is just no overrides).
     """
@@ -214,14 +214,14 @@ def _ensure_catalog_editors_table() -> None:
         logger.warning("Could not ensure catalog editors allowlist table", exc_info=True)
 
 
-def _authorize_curator():
-    """Resolve the IAP author and enforce the curator allowlist (authorization).
+def _authorize_attribute_editor():
+    """Resolve the IAP author and enforce the attribute editor allowlist (authorization).
 
     Returns ``(author, None)`` when authorized, else ``(None, (response, status))``:
     403 for a forged/invalid IAP assertion or a non-allowlisted author, 401 when
     no trustworthy identity is present at all. The effective allowlist is the
-    UNION of the env var (``Settings.curation_allowed_emails``) and the
-    Console-managed ``research_inputs.curators`` table; BOTH empty/absent (default)
+    UNION of the env var (``Settings.attribute_editors_allowed_emails``) and the
+    Console-managed ``research_inputs.attribute_editors`` table; BOTH empty/absent (default)
     preserves the current "any IAP-authenticated caller may curate" behaviour.
     """
     try:
@@ -237,17 +237,19 @@ def _authorize_curator():
         return None, (jsonify(error=str(exc)), 401)
     # Auto-create the allowlist table on first use so the runbook's Console INSERT
     # path is real (the read below then finds an empty table → open mode).
-    _ensure_curators_table()
-    allowed = set(get_settings().curation_allowed_emails_list) | seam.curator_emails()
+    _ensure_attribute_editors_table()
+    allowed = (
+        set(get_settings().attribute_editors_allowed_emails_list) | seam.attribute_editor_emails()
+    )
     if allowed and author.lower() not in allowed:
-        return None, (jsonify(error=f"{author} is not an authorized curator"), 403)
+        return None, (jsonify(error=f"{author} is not an authorized attribute editor"), 403)
     return author, None
 
 
 def _catalog_editor_allowlist(resource: str) -> set[str]:
     """The effective editor allowlist for ``resource``: the UNION of the env override
     (``CATALOG_EDITORS_ALLOWED_EMAILS``) and the Console-managed
-    ``research_inputs.catalog_editors`` table — exact parity with the curator path.
+    ``research_inputs.catalog_editors`` table — exact parity with the attribute editor path.
     Empty (both absent) → open by default."""
     return set(get_settings().catalog_editors_allowed_emails_list) | seam.catalog_editor_emails(
         resource
@@ -258,7 +260,7 @@ def _authorize_catalog_editor(resource: str):
     """Resolve the IAP author and enforce the PER-CATALOG editor allowlist
     (``research_inputs.catalog_editors`` scoped to ``resource``, UNIONed with the env
     override ``CATALOG_EDITORS_ALLOWED_EMAILS``) — each cadastro has its OWN list (the
-    lead's decision). Same 401/403 contract as ``_authorize_curator``; an empty/absent
+    lead's decision). Same 401/403 contract as ``_authorize_attribute_editor``; an empty/absent
     allowlist preserves "any IAP-authenticated caller may edit"."""
     try:
         author = current_author()
@@ -852,7 +854,7 @@ def _peek_author():
 @api.post("/feedback")
 def feedback_submit():
     """Append one user feedback report (bug/dúvida/sugestão) and best-effort open a
-    GitHub issue. ANY IAP-authenticated user may submit (no curator allowlist); the
+    GitHub issue. ANY IAP-authenticated user may submit (no attribute editor allowlist); the
     author is captured server-side from IAP — there is no client-supplied identity.
     A short per-author cooldown debounces double-clicks/abuse (SEC-2). 400 on empty/
     over-length message or bad category; 401/403 on no/forged identity; 429 on cooldown."""
@@ -908,18 +910,18 @@ def cross_market_nature():
 # ── curation (read + write) ────────────────────────────────────────────────────
 
 
-@api.get("/curation/worklist")
+@api.get("/attributes/worklist")
 def curation_worklist():
     """Gold DISTINCT codes ⟕ current industrialization levels (the editor worklist)."""
     return jsonify(seam.curation_worklist())
 
 
-@api.post("/curation/code-level")
+@api.post("/attributes/code-level")
 def curation_code_level():
     """Append one per-code classification edit. Author captured from the IAP
     header (dev fallback per config); 401 (no identity) / 403 (invalid assertion
-    or not an allowlisted curator)."""
-    author, err = _authorize_curator()
+    or not an allowlisted attribute editor)."""
+    author, err = _authorize_attribute_editor()
     if err:
         return err
     body = _json_object()
