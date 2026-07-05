@@ -671,8 +671,16 @@ def seed_catalog_from_env(
     except NotFound:
         df = None
     if df is not None and not df.empty:
+        # Coerce pandas nulls (NaN floats / pd.NA) to None — a NULL agrupamento_id would
+        # otherwise reach record_produto_catalog as a float and blow up on ``.strip()``.
+        def _clean(v: object) -> str | None:
+            return v.strip() or None if isinstance(v, str) else None
+
         for r in df.itertuples():
-            existing[(str(r.banco), str(r.codigo_produto))] = (r.agrupamento, r.agrupamento_id)
+            existing[(str(r.banco), str(r.codigo_produto))] = (
+                _clean(r.agrupamento),
+                _clean(r.agrupamento_id),
+            )
 
     seeded = skipped = 0
     for banco, code, sidra_tabela in _seed_plan(cfg):

@@ -473,3 +473,48 @@ def test_seed_catalog_from_env_routes_and_reuses(monkeypatch):
     # New codes fall back to the code as its own agrupamento; existing ones are reused.
     assert by_code["3405"]["agrupamento"] == "3405"
     assert by_code["40124"]["agrupamento"] == "Soja"
+
+
+def test_seed_catalog_from_env_coerces_null_agrupamento_id(monkeypatch):
+    """A NULL agrupamento_id/agrupamento (NaN float from BigQuery→pandas) must not crash the
+    seed on ``.strip()`` — it is coerced to None (record_produto_catalog then re-slugs)."""
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_dashboard.serving import curation
+    from tests.test_serving import _isolated_settings
+
+    cfg = _isolated_settings(
+        gcp_project_id="test-project",
+        ibge_product_codes="3405",
+        pam_product_codes="40124",
+        ppm_herd_product_codes="2670",
+        ppm_animal_product_codes="2682",
+    )
+    monkeypatch.setattr(
+        curation.gateway,
+        "fetch_produto_catalog",
+        lambda banco=None: pd.DataFrame(
+            [
+                {
+                    "codigo_produto": "3405",
+                    "banco": "pevs",
+                    "agrupamento": "Castanha",
+                    "agrupamento_id": float("nan"),
+                    "descricao_produto": None,
+                    "ciclo_de_vida": None,
+                }
+            ]
+        ),
+    )
+    calls = []
+    monkeypatch.setattr(
+        curation,
+        "record_produto_catalog",
+        lambda code, banco, headers, **k: calls.append({"code": code, **k}) or {"deduped": False},
+    )
+    monkeypatch.setattr(curation, "invalidate_produto_catalog_cache", lambda: None)
+    curation.seed_catalog_from_env({}, settings=cfg, client=mock.Mock())  # must not raise
+    p = {c["code"]: c for c in calls}["3405"]
+    assert p["agrupamento"] == "Castanha"  # valid string preserved
+    assert p["agrupamento_id"] is None  # NaN coerced to None
