@@ -21,7 +21,7 @@ def _client(monkeypatch, **settings_over):
 
     base = {
         "gcp_project_id": "test-project",
-        "curation_dev_author": None,
+        "dev_author": None,
         "iap_audience": None,
         "attribute_editors_allowed_emails": "",
     }
@@ -947,7 +947,7 @@ def test_unknown_api_get_path_is_json_404(monkeypatch):
 
 def test_curation_post_without_identity_is_401(monkeypatch):
     """No IAP header + no dev fallback → MissingAuthorError → 401 JSON (never writes)."""
-    client = _client(monkeypatch)  # curation_dev_author=None, iap_audience=None
+    client = _client(monkeypatch)  # dev_author=None, iap_audience=None
     resp = client.post(
         "/api/attributes/code-level", json={"source": "x", "code": "1", "level": "bruta"}
     )
@@ -957,7 +957,7 @@ def test_curation_post_without_identity_is_401(monkeypatch):
 
 def test_curation_post_missing_fields_is_400(monkeypatch):
     """Authenticated (dev fallback) but an incomplete body → 400 before any write."""
-    client = _client(monkeypatch, curation_dev_author="dev@embrapa.br")
+    client = _client(monkeypatch, dev_author="dev@embrapa.br")
     resp = client.post("/api/attributes/code-level", json={"source": "x"})  # no code/level
     assert resp.status_code == 400
 
@@ -966,7 +966,7 @@ def test_curation_post_not_in_allowlist_is_403(monkeypatch):
     """A real identity that is NOT on the attribute editor allowlist → 403 (authorization)."""
     client = _client(
         monkeypatch,
-        curation_dev_author="intruder@embrapa.br",
+        dev_author="intruder@embrapa.br",
         attribute_editors_allowed_emails="attribute editor@embrapa.br",
     )
     resp = client.post(
@@ -991,7 +991,7 @@ def test_curation_post_on_cloud_run_without_audience_is_403(monkeypatch):
     IAP JWT verification is disarmed, so the curation author would come from the
     spoofable plaintext header — refuse the write (403) even with a dev fallback."""
     monkeypatch.setenv("K_SERVICE", "embrapa-dashboard")
-    client = _client(monkeypatch, curation_dev_author="dev@embrapa.br")  # iap_audience=None
+    client = _client(monkeypatch, dev_author="dev@embrapa.br")  # iap_audience=None
     resp = client.post(
         "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
@@ -1039,7 +1039,7 @@ def test_curation_post_authorized_via_bq_attribute_editors_table(monkeypatch):
     # Env allowlist names someone else; the author is only in the BQ table.
     client = _client(
         monkeypatch,
-        curation_dev_author="researcher@embrapa.br",
+        dev_author="researcher@embrapa.br",
         attribute_editors_allowed_emails="someone.else@embrapa.br",
     )
     monkeypatch.setattr(seam, "attribute_editor_emails", lambda: {"researcher@embrapa.br"})
@@ -1056,7 +1056,7 @@ def test_curation_post_forwards_change_id_to_seam(monkeypatch):
     """The client-supplied idempotency key reaches the seam writer verbatim."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     captured = {}
 
     def fake_record(source, code, level, change_id=None):
@@ -1078,7 +1078,7 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     surfaced verbatim so the user can self-correct (not a generic 'check the fields')."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
 
     def raise_overlong(*a, **k):
         raise ValueError("industrialization_level excede 200 caracteres.")
@@ -1100,7 +1100,7 @@ def test_attributes_post_auto_creates_attribute_editors_allowlist_table(monkeypa
     the runbook's documented INSERT path is real (auto-creates on first use)."""
     from embrapa_dashboard.webapi import routes, seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     called = {"n": 0}
     monkeypatch.setattr(
         routes, "ensure_attribute_editors_table", lambda: called.__setitem__("n", 1)
@@ -1120,7 +1120,7 @@ def test_auto_create_attribute_editors_failure_does_not_block_write(monkeypatch)
     block an otherwise-authorized write (best-effort; empty table = open mode)."""
     from embrapa_dashboard.webapi import routes, seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
 
     def boom():
         raise RuntimeError("BQ down")
@@ -1360,7 +1360,7 @@ def test_catalog_entries_can_edit_true_when_open(monkeypatch):
     an identified caller — the SPA then enables the edit controls."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="alice@embrapa.br")
+    client = _client(monkeypatch, dev_author="alice@embrapa.br")
     monkeypatch.setattr(
         seam,
         "catalog_worklist",
@@ -1377,7 +1377,7 @@ def test_catalog_entries_can_edit_false_when_not_allowed(monkeypatch):
     controls (the POST would 403 anyway; the server stays authoritative)."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="alice@embrapa.br")
+    client = _client(monkeypatch, dev_author="alice@embrapa.br")
     monkeypatch.setattr(
         seam,
         "catalog_worklist",
@@ -1387,6 +1387,25 @@ def test_catalog_entries_can_edit_false_when_not_allowed(monkeypatch):
     resp = client.get("/api/catalog/entries")
     assert resp.status_code == 200
     assert resp.get_json()["can_edit"] is False
+
+
+def test_me_returns_authenticated_identity(monkeypatch):
+    """GET /api/me returns the resolved IAP author (here the DEV_AUTHOR fallback) so the
+    SPA can show who the session is attributed to."""
+    client = _client(monkeypatch, dev_author="alice@embrapa.br")
+    resp = client.get("/api/me")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["authenticated"] is True and body["email"] == "alice@embrapa.br"
+
+
+def test_me_anonymous_when_no_identity(monkeypatch):
+    """No IAP header + no DEV_AUTHOR → /api/me is anonymous (email=null), not an error."""
+    client = _client(monkeypatch)  # dev_author=None, iap_audience=None
+    resp = client.get("/api/me")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["authenticated"] is False and body["email"] is None
 
 
 def test_catalog_source_codes_route_forwards_banco(monkeypatch):
@@ -1439,7 +1458,7 @@ def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
     """POST /api/catalog/entry threads the body to the seam writer (open allowlist)."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
     captured = {}
     monkeypatch.setattr(
@@ -1463,7 +1482,7 @@ def test_catalog_entry_upsert_threads_body_to_seam(monkeypatch):
 def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
     resp = client.post("/api/catalog/entry", json={"banco": "un_comtrade"})  # no codigo_produto
     assert resp.status_code == 400
@@ -1474,7 +1493,7 @@ def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
     author absent from it is refused 403 — distinct from the attribute-engineering editors."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(
         seam, "catalog_editor_emails", lambda resource=None: {"someone.else@embrapa.br"}
     )
@@ -1489,7 +1508,7 @@ def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
     with the REASON forwarded so the UI can tell the researcher the code isn't real."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
 
     def raise_missing(body):
@@ -1509,7 +1528,7 @@ def test_catalog_entry_remove_threads_to_seam(monkeypatch):
     """POST /api/catalog/entry/remove appends a tombstone via the seam writer."""
     from embrapa_dashboard.webapi import seam
 
-    client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
     captured = {}
     monkeypatch.setattr(

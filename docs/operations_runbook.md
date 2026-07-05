@@ -158,7 +158,7 @@ come from two places, and **which one is active depends on `IAP_AUDIENCE`**:
   every request and **overwrites** the `X-Goog-Authenticated-User-Email` header, so
   author capture stays trustworthy — the in-app check is defense-in-depth. The
   header is only spoofable when IAP is **not** in front (e.g. local dev), which is
-  why this mode is paired with `CURATION_DEV_AUTHOR` for local dev only.
+  why this mode is paired with `DEV_AUTHOR` for local dev only.
 
 > **Note (2026-06):** with **Curadoria frozen**, the live consumer of this verified
 > identity is the **feedback channel** — `submitted_by` in `feedback_log` flows

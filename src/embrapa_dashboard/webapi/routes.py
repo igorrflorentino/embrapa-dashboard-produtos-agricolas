@@ -292,6 +292,22 @@ def _catalog_can_edit(resource: str) -> bool:
     return (not allowed) or (author.lower() in allowed)
 
 
+@api.get("/me")
+def me():
+    """The session identity the dashboard attributes this user's writes to — the
+    IAP-authenticated email (the cryptographically verified JWT in prod behind IAP;
+    the ``DEV_AUTHOR`` fallback locally). Best-effort: returns
+    ``{email: null, authenticated: false}`` when no trustworthy identity is present
+    (e.g. local dev with no DEV_AUTHOR set) rather than erroring — the SPA just shows
+    an anonymous state. This is display-only; every write still re-resolves the author
+    server-side and is authoritative."""
+    try:
+        author = current_author()
+    except Exception:
+        return jsonify(email=None, authenticated=False)
+    return jsonify(email=author, authenticated=True)
+
+
 # ── catalog + provenance ──────────────────────────────────────────────────────
 
 

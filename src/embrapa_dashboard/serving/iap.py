@@ -148,7 +148,7 @@ def author_email_from_headers(
         return dev_fallback
 
     raise MissingAuthorError(
-        f"No {IAP_EMAIL_HEADER} header and no curation_dev_author fallback configured. "
+        f"No {IAP_EMAIL_HEADER} header and no dev_author fallback configured. "
         "Refusing to write an un-attributed curation row."
     )
 

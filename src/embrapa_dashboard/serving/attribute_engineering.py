@@ -133,7 +133,7 @@ def record_code_industrialization(
 
     edited_by = author_email_from_headers(
         headers,
-        dev_fallback=cfg.curation_dev_author,
+        dev_fallback=cfg.dev_author,
         audience=cfg.iap_audience,
     )
     change_id, supplied = _resolve_change_id(change_id)

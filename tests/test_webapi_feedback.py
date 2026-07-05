@@ -15,7 +15,7 @@ def _cfg(**over):
     base = {
         "gcp_project_id": "test-project",
         "iap_audience": None,
-        "curation_dev_author": None,
+        "dev_author": None,
         "feedback_github_repo": None,
         "feedback_github_token": None,
     }
@@ -93,7 +93,7 @@ def _client(monkeypatch, *, dev_author="dev@embrapa.br", record=None):
     from embrapa_dashboard.webapi import app as app_mod
     from embrapa_dashboard.webapi import auth, routes
 
-    cfg = _cfg(curation_dev_author=dev_author)
+    cfg = _cfg(dev_author=dev_author)
     monkeypatch.setattr(auth, "get_settings", lambda: cfg)
     monkeypatch.setattr(routes, "get_settings", lambda: cfg)
     monkeypatch.setattr(fb, "get_settings", lambda: cfg)

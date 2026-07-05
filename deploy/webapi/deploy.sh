@@ -110,14 +110,15 @@ fi
 
 # 3) Runtime env from .env via an EXPLICIT ALLOWLIST (only what the webapi reads).
 #    Runs AS the SA (ADC, no impersonation) → GCP_IMPERSONATION_SA NOT forwarded.
-#    CURATION_DEV_AUTHOR is dev-only and omitted (prod identity comes from IAP).
+#    DEV_AUTHOR is dev-only and omitted (prod identity comes from IAP).
 #    SPA_DIST_DIR is baked into the image (not from .env).
 #    BQ_GOLD_DATASET / BQ_SERVING_DATASET deliberately NOT forwarded — a dev .env
 #    often points them at the auto-expiring dev datasets; forced to prod below.
-#    CURATION_ALLOWED_EMAILS (the curation write lockdown) and BQ_MAX_BYTES_BILLED
-#    (the serving-path cost ceiling) ARE forwarded — both are read by the deployed
-#    webapi, and omitting them silently left prod on the open/default behaviour.
-WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO|CURATION_ALLOWED_EMAILS|BQ_MAX_BYTES_BILLED|FEEDBACK_GITHUB_REPO)='
+#    The two editor-allowlist ENV overrides — CATALOG_EDITORS_ALLOWED_EMAILS (Curadoria)
+#    and ATTRIBUTE_EDITORS_ALLOWED_EMAILS (Engenharia de Atributos) — plus BQ_MAX_BYTES_BILLED
+#    (the serving-path cost ceiling) ARE forwarded: all read by the deployed webapi, and
+#    omitting them silently left prod on the open/default behaviour.
+WEBAPI_ALLOWLIST='^(GCP_PROJECT_ID|BQ_LOCATION|CACHE_[A-Z0-9_]+|IAP_AUDIENCE|COMTRADE_BRAZIL_ISO|CATALOG_EDITORS_ALLOWED_EMAILS|ATTRIBUTE_EDITORS_ALLOWED_EMAILS|BQ_MAX_BYTES_BILLED|FEEDBACK_GITHUB_REPO)='
 ENV_YAML="$(mktemp)"; trap 'rm -f "$ENV_YAML"' EXIT
 grep -E "$WEBAPI_ALLOWLIST" "$ENV_FILE" \
   | while IFS='=' read -r key val; do

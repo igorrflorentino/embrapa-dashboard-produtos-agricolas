@@ -402,7 +402,7 @@ class Settings(BaseSettings):
     # Author email used when the IAP header is absent (local dev only). Leave
     # unset in production — IAP always supplies the header, and an unset fallback
     # makes an un-attributed write fail loudly instead of writing 'unknown'.
-    curation_dev_author: str | None = Field(default=None)
+    dev_author: str | None = Field(default=None)
     # IAP backend audience for verifying the signed X-Goog-IAP-JWT-Assertion.
     # When SET (production behind IAP), the curation author is taken from the
     # cryptographically verified JWT, not the spoofable plaintext email header —
@@ -411,7 +411,7 @@ class Settings(BaseSettings):
     # audience code (Console → Security → IAP → ⋮ → "Get JWT audience code"); only
     # the future external-LB topology would use the backendServices form
     # /projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>.
-    # Leave UNSET for local dev (no IAP): the plaintext header + curation_dev_author
+    # Leave UNSET for local dev (no IAP): the plaintext header + dev_author
     # path is used. See src/embrapa_dashboard/serving/iap.py.
     iap_audience: str | None = Field(default=None)
 
