@@ -34,7 +34,7 @@ architecture is **100% scale-to-zero / pay-per-use** — if nobody uses it, it c
 
 1. **Cloud Console → Billing → Budgets & alerts**
 2. **Create budget**:
-   - Name: `embrapa-produtos agrícolas-monthly`
+   - Name: `embrapa-produtos-agricolas-monthly`
    - Projects: select `embrapa-dashboard-commodities`
    - Services: leave blank (covers everything in the project)
 3. **Budget amount**:
