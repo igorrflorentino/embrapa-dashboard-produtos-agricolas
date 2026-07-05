@@ -3051,9 +3051,13 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
 .cur-legend { display: inline-flex; gap: 14px; }
 .cur-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-2); }
 .cur-legend-dot { width: 9px; height: 9px; border-radius: 50%; }
-.cur-corner { vertical-align: bottom; }
-.cur-corner-col { display: block; font: 600 9.5px var(--font-body); letter-spacing: 0.06em; color: var(--embrapa-green-darker); margin-bottom: 3px; }
-.cur-corner-row { display: block; font: 700 10px var(--font-body); letter-spacing: 0.06em; color: var(--fg-2); }
+/* min-width + nowrap so the corner NEVER collapses: the matrix is wider than its
+   container (it scrolls horizontally), and without these the browser crushes this
+   no-min-width cell to ~1 char, breaking its label vertically char-by-char and
+   ballooning the header to ~340px tall. */
+.cur-corner { vertical-align: bottom; min-width: 132px; white-space: nowrap; }
+.cur-corner-col { display: block; font: 600 9.5px var(--font-body); letter-spacing: 0.06em; color: var(--embrapa-green-darker); margin-bottom: 3px; white-space: nowrap; }
+.cur-corner-row { display: block; font: 700 10px var(--font-body); letter-spacing: 0.06em; color: var(--fg-2); white-space: nowrap; }
 .cur-hashint { text-decoration: underline dotted var(--border-strong); text-underline-offset: 3px; cursor: help; }
 /* Fast custom hover tooltip for the regime × fluxo matrix (body-level, fixed
    position so it escapes the table's overflow clipping; ~90 ms show delay). */
