@@ -137,6 +137,39 @@ def test_flow_market_worklist_empty_when_view_absent(monkeypatch):
     assert out == {"customs": [], "flows": [], "cells": [], "classified": 0, "total": 0}
 
 
+def test_flow_market_map_empty_when_reader_returns_empty(monkeypatch):
+    # An empty SCD2 frame (nobody classified yet) → empty mapping, not a crash.
+    cur = _curation()
+    monkeypatch.setattr(cur.gateway, "fetch_current_flow_market", lambda: pd.DataFrame())
+    assert cur._flow_market_map() == {}
+
+
+def test_seam_record_flow_market_forwards_to_writer_without_request_context(monkeypatch):
+    # The seam wrapper works outside a Flask request (headers={}), delegating to the BFF
+    # writer verbatim — the path a CLI-driven write (flow-market-seed) takes.
+    cur = _curation()
+    from embrapa_dashboard.serving import attribute_engineering
+
+    captured = {}
+
+    def _writer(customs_code, flow_code, market, headers, change_id=None):
+        captured.update(
+            customs_code=customs_code,
+            flow_code=flow_code,
+            market=market,
+            headers=headers,
+            change_id=change_id,
+        )
+        return {"deduped": False}
+
+    monkeypatch.setattr(attribute_engineering, "record_flow_market", _writer)
+    out = cur.record_flow_market("C04", "export", "processamento", change_id="k-9")
+    assert out == {"deduped": False}
+    assert captured["customs_code"] == "C04" and captured["flow_code"] == "export"
+    assert captured["market"] == "processamento" and captured["change_id"] == "k-9"
+    assert captured["headers"] == {}  # no request context → empty headers
+
+
 def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):
     # A commodity scoped by the selector that has NO COMTRADE HS codes must return
     # empty — NOT silently fall through to the unscoped all-commodities total

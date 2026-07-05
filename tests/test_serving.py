@@ -1006,6 +1006,171 @@ def test_ensure_code_industrialization_log_table_creates_with_explicit_schema(mo
     assert client.create_table.call_args.kwargs["exists_ok"] is True
 
 
+# ── flow-market writer (customs × flow → market) ──────────────────────────────
+def test_ensure_flow_market_log_table_creates_with_schema_and_clustering(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    client = mock.Mock()
+    fqn = curation.ensure_flow_market_log_table(settings=_settings(), client=client)
+
+    assert fqn.endswith(".flow_market_log")
+    table_arg = client.create_table.call_args.args[0]
+    assert {f.name for f in table_arg.schema} == {
+        "customs_code",
+        "flow_code",
+        "market",
+        "edited_by",
+        "edited_at",
+        "change_id",
+    }
+    assert table_arg.clustering_fields == ["customs_code", "flow_code"]
+    assert client.create_table.call_args.kwargs["exists_ok"] is True
+
+
+def test_record_flow_market_inserts_parameterized_row_with_author(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)  # writer self-heals
+    client = mock.Mock()
+    client.query.return_value.result.return_value = None
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_flow_market(
+        "C04",
+        "export",
+        "processamento",
+        headers,
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record == {
+        "customs_code": "C04",
+        "flow_code": "export",
+        "market": "processamento",
+        "edited_by": "alice@embrapa.br",
+        "change_id": record["change_id"],
+        "deduped": False,
+    }
+    sql_text = client.query.call_args.args[0].lower()
+    assert "insert into" in sql_text
+    assert "current_timestamp()" in sql_text  # server-side stamp
+    params = {p.name: p.value for p in client.query.call_args.kwargs["job_config"].query_parameters}
+    assert params["customs_code"] == "C04"
+    assert params["flow_code"] == "export"
+    assert params["market"] == "processamento"
+    assert params["edited_by"] == "alice@embrapa.br"
+
+
+def test_record_flow_market_invalidates_cache_by_default(monkeypatch):
+    """The default path (invalidate_cache=True) drops the cached mapping so the editor's
+    next live read reflects the write."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    spy = mock.Mock()
+    monkeypatch.setattr(curation, "invalidate_flow_market_cache", spy)
+    client = mock.Mock()
+    client.query.return_value.result.return_value = None
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    curation.record_flow_market(
+        "C04", "export", "consumo", headers, settings=_settings(), client=client
+    )
+    spy.assert_called_once()
+
+
+def test_record_flow_market_rejects_empty_pair():
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):
+        curation.record_flow_market(
+            "C04", "", "consumo", headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_record_flow_market_rejects_overlong_market():
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ValueError):
+        curation.record_flow_market(
+            "C04", "export", "x" * 5000, headers, settings=_settings(), client=mock.Mock()
+        )
+
+
+def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)  # already recorded
+    client = mock.Mock()
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+
+    record = curation.record_flow_market(
+        "C04",
+        "export",
+        "processamento",
+        headers,
+        change_id="dup-1",
+        settings=_settings(),
+        client=client,
+        invalidate_cache=False,
+    )
+
+    assert record["deduped"] is True
+    # A duplicate change_id must NOT run the INSERT.
+    assert "insert into" not in " ".join(str(c) for c in client.query.call_args_list).lower()
+
+
+def test_invalidate_flow_market_cache_is_best_effort(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    # No app-bound cache → delete_memoized raises; the helper swallows it (no crash).
+    monkeypatch.setattr(
+        curation.cache, "delete_memoized", mock.Mock(side_effect=RuntimeError("unbound"))
+    )
+    curation.invalidate_flow_market_cache()  # must not raise
+
+
+def test_seed_flow_market_from_seed_seeds_pairs_and_skips_present(monkeypatch):
+    """The cutover backfill appends every seed pair NOT already set to the same market,
+    skips the ones already present, and returns the tally."""
+    pytest.importorskip("flask_caching")
+    import pandas as pd
+
+    from embrapa_dashboard.serving import attribute_engineering as curation
+
+    monkeypatch.setattr(curation, "ensure_flow_market_log_table", lambda *a, **k: "t")
+    # One pair (C01×import→consumo) is already classified → skipped; the rest are seeded.
+    existing = pd.DataFrame([{"customs_code": "C01", "flow_code": "import", "market": "consumo"}])
+    monkeypatch.setattr(curation.gateway, "fetch_current_flow_market", lambda: existing)
+    monkeypatch.setattr(curation, "invalidate_flow_market_cache", lambda: None)
+    calls: list = []
+    monkeypatch.setattr(
+        curation,
+        "record_flow_market",
+        lambda c, f, m, h, **k: calls.append((c, f, m)),
+    )
+
+    res = curation.seed_flow_market_from_seed({}, settings=_settings(), client=mock.Mock())
+
+    total = len(curation._SEED_FLOW_MARKET_PAIRS)
+    assert res == {"seeded": total - 1, "skipped": 1, "total": total}
+    assert ("C01", "import", "consumo") not in calls  # the already-present pair was skipped
+    assert len(calls) == total - 1
+
+
 # ── curation: idempotency key (client-supplied change_id) ─────────────────────
 
 
@@ -1266,6 +1431,60 @@ def test_fetch_production_overview_queries_correct_table_and_params(monkeypatch)
     assert recorded["params"]["year_start"].value == 2000
     assert recorded["params"]["year_end"].value == 2010
     assert recorded["params"]["product_codes"].values == ["3405"]
+
+
+def test_fetch_current_flow_market_reads_scd2_view(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+    monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_current_flow_market()
+
+    assert out == "df"
+    assert "dim_flow_market_scd2" in recorded["query"]
+    assert "is_current" in recorded["query"].lower()
+
+
+def test_fetch_flow_market_values_reads_serving_mart(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+    monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_flow_market_values()
+
+    assert out == "df"
+    assert "serving_comtrade_annual" in recorded["query"]
+    assert "sum(val_yearfx_usd)" in recorded["query"].lower()
+
+
+def test_fetch_agrupamentos_joins_groups_to_member_counts(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+    monkeypatch.setattr(gateway, "run_query", lambda q, p, **kw: recorded.update(query=q) or "df")
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_agrupamentos()
+
+    assert out == "df"
+    low = recorded["query"].lower()
+    assert "n_members" in low and "left join" in low
 
 
 def test_quality_readers_return_none_for_unknown_source_without_querying(monkeypatch):

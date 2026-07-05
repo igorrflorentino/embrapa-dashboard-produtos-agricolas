@@ -70,6 +70,15 @@ function fakeEnrichment(over = {}) {
     { id: 'ibge_pevs:1.2', group: 'acai', source: 'ibge_pevs', code: '1.2', desc: 'Açaí proc.', level: '' }, // todo
     { id: 'mdic_comex:4407', group: 'madeira', source: 'mdic_comex', code: '4407', desc: 'Madeira', level: 'manufaturado_industrial' },
   ];
+  // regime × flow matrix fixtures (flow ids are the NORMALIZED tokens the mart exposes).
+  const regimes = [
+    { id: 'C03', term: 'Exportação definitiva (C03)', label: 'Exportação definitiva (C03)', hint: 'saída definitiva.' },
+    { id: 'C04', term: 'Entreposto aduaneiro (C04)', label: 'Entreposto aduaneiro (C04)', hint: 'armazenada.' },
+  ];
+  const flowTypes = [
+    { id: 'import', term: 'Importação (import)', label: 'Importação (import)', hint: 'entrada.' },
+    { id: 'export', term: 'Exportação (export)', label: 'Exportação (export)', hint: 'saída.' },
+  ];
   const base = {
     codes: () => codes,
     worklist: () => codes,
@@ -77,10 +86,18 @@ function fakeEnrichment(over = {}) {
       codesTotal: 3,
       unclassified: 1,
       byLevel: { commodity_pura: 1, commodity_acondicionada: 0, manufaturado_industrial: 1 },
+      flowsTotal: 4,
+      flowsClassified: 1,
     }),
     levelDesc: (id) => (window.ENRICH_LEVELS.find((l) => l.id === id) || {}).description || '',
     chapterOf: (src, code) => (src === 'ibge_pevs' ? 'Produtos alimentícios' : '44 · Madeira'),
     setCode: vi.fn(),
+    // matrix accessors
+    regimes: () => regimes,
+    flowTypes: () => flowTypes,
+    pairMarket: (c, f) => (c === 'C04' && f === 'import' ? 'consumo' : null),
+    pairValueLabel: (c, f) => (c === 'C03' && f === 'export' ? 'US$ 3 bi' : ''),
+    setPair: vi.fn(),
     apply: vi.fn((cb) => cb && cb()),
     discard: vi.fn(),
     isCommitting: () => false,
@@ -208,6 +225,49 @@ describe('EnrichmentApplyBar states', () => {
     const alert = container.querySelector('.cur-write-error');
     expect(alert).toBeTruthy();
     expect(alert.textContent).toContain('HTTP 401');
+  });
+});
+
+// ── ViewEnrichmentMarketNature (the regime × flow matrix editor) ──────────────
+describe('ViewEnrichmentMarketNature', () => {
+  it('renders the matrix with regime rows, flow columns + per-cell values', () => {
+    const { container } = render(<window.ViewEnrichmentMarketNature />);
+    // matrix legend uses ENRICH_MARKETS shorts
+    expect(container.textContent).toContain('Consumo');
+    expect(container.textContent).toContain('Processamento');
+    // regime/flow header terms + the per-pair value label (materiality)
+    expect(container.textContent).toContain('Exportação definitiva (C03)');
+    expect(container.textContent).toContain('Importação (import)');
+    expect(container.textContent).toContain('US$ 3 bi');
+    // 2 regimes × 2 flows = 4 cell selects
+    expect(container.querySelectorAll('select.cur-cell').length).toBe(4);
+  });
+
+  it('a matrix cell change calls enrichment.setPair with the chosen market', () => {
+    const setPair = vi.fn();
+    fakeEnrichment({ setPair });
+    const { container } = render(<window.ViewEnrichmentMarketNature />);
+    fireEvent.change(container.querySelector('select.cur-cell'), { target: { value: 'consumo' } });
+    expect(setPair).toHaveBeenCalled();
+    expect(setPair.mock.calls[0][2]).toBe('consumo');
+  });
+
+  it('the CurHint fast-tooltip machinery fires on hover (enter/move/leave)', () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<window.ViewEnrichmentMarketNature />);
+      const hint = container.querySelector('.cur-hashint').closest('th, td');
+      fireEvent.mouseEnter(hint, { clientX: 10, clientY: 10 });
+      vi.advanceTimersByTime(120);
+      const tip = document.querySelector('.cur-tip-pop');
+      expect(tip).toBeTruthy();
+      expect(tip.classList.contains('on')).toBe(true);
+      fireEvent.mouseMove(hint, { clientX: 600, clientY: 400 });
+      fireEvent.mouseLeave(hint);
+      expect(tip.classList.contains('on')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
