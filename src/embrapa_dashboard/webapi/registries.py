@@ -685,31 +685,37 @@ VIEW_GROUPS: list[ViewGroup] = [
             ),
         ),
     ),
-    # ─── FROZEN FEATURE: "Análises curadas" (data-curation perspectives) ──────────
-    # Postponed to the "Versão Futura" roadmap phase (leadership decision, 2026-06): HIDDEN
-    # from the topnav, the app runs decoupled from them. Kept verbatim as scaffold and
-    # COMMENTED OUT to mirror the frontend views.js (DO NOT delete). To revive: un-comment
-    # here + in views.js, restore the AppShell sidebar section, and build dbt with
-    # `--vars 'enable_curation: true'`.
-    # ViewGroup(
-    #     "curated",
-    #     "Análises curadas",
-    #     "enriquecidas",
-    #     (
-    #         View(
-    #             "curated_value_added", "Valor agregado", "live", cross_banco=True,
-    #             curated=True, align="nível de industrialização",
-    #             sources=("mdic_comex", "un_comtrade"),
-    #             desc="Exportação separada entre bruta e processada, da classificação curada.",
-    #         ),
-    #         View(
-    #             "curated_market_nature", "Finalidade econômica", "live", cross_banco=True,
-    #             curated=True, align="finalidade (consumo/processamento)",
-    #             sources=("mdic_comex", "un_comtrade"),
-    #             desc="Valor comercializado por finalidade econômica (consumo × processamento).",
-    #         ),
-    #     ),
-    # ),
+    # ─── "Análises curadas" (Engenharia de Atributos — UNFROZEN) ─────────────────
+    # Live in the topnav (mirrors the frontend views.js). Fed by the researcher-editable
+    # attribute-engineering classifications (per-code industrialization → Valor agregado;
+    # regime×flow market-nature → Finalidade econômica), gated by the enable_curation dbt var.
+    ViewGroup(
+        "curated",
+        "Análises curadas",
+        "enriquecidas",
+        (
+            View(
+                "curated_value_added",
+                "Valor agregado",
+                "live",
+                cross_banco=True,
+                curated=True,
+                align="nível de industrialização",
+                sources=("mdic_comex", "un_comtrade"),
+                desc="Exportação separada entre bruta e processada, da classificação curada.",
+            ),
+            View(
+                "curated_market_nature",
+                "Finalidade econômica",
+                "live",
+                cross_banco=True,
+                curated=True,
+                align="finalidade (consumo/processamento)",
+                sources=("mdic_comex", "un_comtrade"),
+                desc="Valor comercializado por finalidade econômica (consumo × processamento).",
+            ),
+        ),
+    ),
     ViewGroup(
         "documentation",
         "Documentação do banco",
