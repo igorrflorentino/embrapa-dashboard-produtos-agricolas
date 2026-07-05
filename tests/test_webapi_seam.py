@@ -1815,42 +1815,42 @@ def test_trade_mirror_partners_none_when_no_partner_data(monkeypatch):
     assert out["series"][0] == {"y": 2022, "mdic": 4.0, "comtrade": 6.0, "partners": None}
 
 
-# ── Curadoria reads: curator_emails, worklist, current code levels ────────────
+# ── Curadoria reads: attribute_editor_emails, worklist, current code levels ────────────
 
 
-def test_curator_emails_lowercases_and_strips(monkeypatch):
+def test_attribute_editor_emails_lowercases_and_strips(monkeypatch):
     seam = _seam()
     # The gateway query filters `where email is not null`, so emails arrive as
     # non-null strings; the seam lowercases + strips them.
     monkeypatch.setattr(
         seam.gateway,
-        "fetch_curators",
+        "fetch_attribute_editors",
         lambda: pd.DataFrame([{"email": " Alice@EMBRAPA.br "}, {"email": "bob@x.org"}]),
     )
-    assert seam.curator_emails() == {"alice@embrapa.br", "bob@x.org"}
+    assert seam.attribute_editor_emails() == {"alice@embrapa.br", "bob@x.org"}
 
 
-def test_curator_emails_empty_on_notfound(monkeypatch):
+def test_attribute_editor_emails_empty_on_notfound(monkeypatch):
     seam = _seam()
     from google.api_core.exceptions import NotFound
 
     def boom():
         raise NotFound("no allowlist table")
 
-    monkeypatch.setattr(seam.gateway, "fetch_curators", boom)
-    assert seam.curator_emails() == set()
+    monkeypatch.setattr(seam.gateway, "fetch_attribute_editors", boom)
+    assert seam.attribute_editor_emails() == set()
 
 
-def test_curator_emails_propagates_other_errors(monkeypatch):
+def test_attribute_editor_emails_propagates_other_errors(monkeypatch):
     """A transient/permission fault must NOT be swallowed into 'open gate'."""
     seam = _seam()
 
     def boom():
         raise RuntimeError("transient BQ")
 
-    monkeypatch.setattr(seam.gateway, "fetch_curators", boom)
+    monkeypatch.setattr(seam.gateway, "fetch_attribute_editors", boom)
     with pytest.raises(RuntimeError):
-        seam.curator_emails()
+        seam.attribute_editor_emails()
 
 
 def test_current_code_levels_empty_on_notfound(monkeypatch):

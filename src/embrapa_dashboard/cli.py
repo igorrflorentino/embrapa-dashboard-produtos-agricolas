@@ -62,11 +62,11 @@ editors_app = typer.Typer(
 )
 app.add_typer(editors_app, name="editors")
 
-curators_app = typer.Typer(
+attribute_editors_app = typer.Typer(
     no_args_is_help=True,
-    help="Manage the curator allowlist (Engenharia de atributos — research_inputs.curators)",
+    help="Engenharia de Atributos editor allowlist (research_inputs.attribute_editors)",
 )
-app.add_typer(curators_app, name="curators")
+app.add_typer(attribute_editors_app, name="attribute-editors")
 
 
 # ─── ingest registry ──────────────────────────────────────────────────────────
@@ -1018,7 +1018,7 @@ def purge_orphan_cmd(
     )
 
 
-# ─── authorization allowlists (Curadoria editors + Engenharia curators) ───────
+# ─── authorization allowlists (Curadoria editors + Engenharia attribute editors) ───────
 # The no-Console alternative to hand-editing the research_inputs allowlist tables.
 
 
@@ -1047,26 +1047,26 @@ def editors_remove(
     console.print(f"[green]✓[/green] removed {n} row(s) for {email.strip().lower()} on {resource}")
 
 
-@curators_app.command("add")
-def curators_add(
-    email: str = typer.Option(..., help="Email to authorize as a curator."),
+@attribute_editors_app.command("add")
+def attribute_editors_add(
+    email: str = typer.Option(..., help="Email to authorize as an attribute editor."),
     added_by: str = typer.Option("cli", help="Who is granting (audit)."),
 ) -> None:
-    """Authorize a curator (Engenharia de atributos). Requires the `webapi` extra."""
-    from embrapa_dashboard.serving.research_inputs import add_curator
+    """Authorize an attribute editor (Engenharia de atributos). Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.research_inputs import add_attribute_editor
 
-    e = _with_webapp_context(lambda: add_curator(email, added_by=added_by))
-    console.print(f"[green]✓[/green] curator authorized: {e}")
+    e = _with_webapp_context(lambda: add_attribute_editor(email, added_by=added_by))
+    console.print(f"[green]✓[/green] attribute editor authorized: {e}")
 
 
-@curators_app.command("remove")
-def curators_remove(
+@attribute_editors_app.command("remove")
+def attribute_editors_remove(
     email: str = typer.Option(..., help="Email to de-authorize."),
 ) -> None:
-    """De-authorize a curator. Requires the `webapi` extra."""
-    from embrapa_dashboard.serving.research_inputs import remove_curator
+    """De-authorize an attribute editor. Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.research_inputs import remove_attribute_editor
 
-    n = _with_webapp_context(lambda: remove_curator(email))
+    n = _with_webapp_context(lambda: remove_attribute_editor(email))
     console.print(f"[green]✓[/green] removed {n} row(s) for {email.strip().lower()}")
 
 

@@ -28,7 +28,7 @@ Return-value contract (TRI-STATE — callers must handle all three):
     ``fetch_quality_by_product``) return ``None`` for an UNKNOWN/unsupported source
     (not in ``_GOLD_TABLE`` / ``_GOLD_PRODUCT``) — a deliberate "this source has no
     such reader", distinct from "the query ran and was empty";
-  * the curation reads (``fetch_current_*`` / ``fetch_curators`` /
+  * the curation reads (``fetch_current_*`` / ``fetch_attribute_editors`` /
     ``fetch_banco_metadata``) RAISE ``NotFound`` when the backing table does not
     exist yet, which the seam catches and treats as "nothing configured".
 The webapi serializers normalize ``None`` and an empty DataFrame identically (see
@@ -693,15 +693,17 @@ def fetch_market_nature_series(codes: tuple = ()):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
-def fetch_curators():
-    """Distinct curator emails from the allowlist table (research_inputs.<curators>).
+def fetch_attribute_editors():
+    """Distinct attribute-editor emails from the allowlist (research_inputs.<attribute_editors>).
 
     Short TTL (like the classification reads) so a Console add/remove takes effect
     within the window. Raises NotFound when the table doesn't exist — the seam
     treats that as 'no allowlist configured'. Bounded by maximum_bytes_billed.
     """
     settings = get_settings()
-    table = sqlbuild.table_ref(settings, "bq_research_inputs_dataset", settings.bq_curators_table)
+    table = sqlbuild.table_ref(
+        settings, "bq_research_inputs_dataset", settings.bq_attribute_editors_table
+    )
     sql = f"select distinct lower(trim(email)) as email from `{table}` where email is not null"
     return run_query(sql, [])
 
@@ -709,7 +711,7 @@ def fetch_curators():
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_banco_metadata(banco_id: str):
     """Operator-editable maturity/coverage overrides for one banco
-    (research_inputs.<banco_metadata>). Short TTL (like the curators read) so a
+    (research_inputs.<banco_metadata>). Short TTL (like the attribute editors read) so a
     Console flip — e.g. beta→estavel — takes effect within the window. Raises
     NotFound when the table doesn't exist — the seam treats that as 'no overrides'
     and uses the registry defaults. Bounded by maximum_bytes_billed."""

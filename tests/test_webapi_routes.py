@@ -3,7 +3,7 @@
 These sit beneath the pure ``test_webapi_seam`` / ``test_webapi_serializers``
 unit tests and exercise the request → auth → JSON contract that nothing else
 guards: the curation-write authentication (401) / authorization (403), input
-validation (400), the JSON error handler, and the curator allowlist. No
+validation (400), the JSON error handler, and the attribute editor allowlist. No
 BigQuery — Settings is stubbed and seam functions are monkeypatched.
 """
 
@@ -23,23 +23,23 @@ def _client(monkeypatch, **settings_over):
         "gcp_project_id": "test-project",
         "curation_dev_author": None,
         "iap_audience": None,
-        "curation_allowed_emails": "",
+        "attribute_editors_allowed_emails": "",
     }
     base.update(settings_over)
     # _env_file=None: never read the developer's .env. The auth/allowlist behaviour
-    # under test (dev-author fallback, IAP audience, the curator allowlist) is driven
+    # under test (dev-author fallback, IAP audience, the attribute editor allowlist) is driven
     # entirely by these explicit fields, so a real .env at repo root must not leak in.
     cfg = Settings(_env_file=None, **base)  # type: ignore[arg-type]
     # Auth + allowlist read get_settings from their own module namespaces.
     monkeypatch.setattr(auth, "get_settings", lambda: cfg)
     monkeypatch.setattr(routes, "get_settings", lambda: cfg)
-    # Stub the BQ-table curator read empty by default so authorization tests
+    # Stub the BQ-table attribute editor read empty by default so authorization tests
     # exercise only the env allowlist and never touch BigQuery; the table-backed
     # test overrides this.
-    monkeypatch.setattr(seam, "curator_emails", lambda: set())
+    monkeypatch.setattr(seam, "attribute_editor_emails", lambda: set())
     # Stub the allowlist-table auto-create so authorization tests never touch
     # BigQuery; the dedicated test overrides this to assert it is invoked.
-    monkeypatch.setattr(routes, "ensure_curators_table", lambda: None)
+    monkeypatch.setattr(routes, "ensure_attribute_editors_table", lambda: None)
     app = app_mod.create_app()
     app.config.update(TESTING=True)
     return app.test_client()
@@ -911,7 +911,7 @@ def test_curation_worklist_get_returns_seam_payload(monkeypatch):
     monkeypatch.setattr(
         seam, "curation_worklist", lambda: {"rows": [], "total": 0, "classified": 0}
     )
-    resp = client.get("/api/curation/worklist")
+    resp = client.get("/api/attributes/worklist")
     assert resp.status_code == 200
     assert resp.get_json() == {"rows": [], "total": 0, "classified": 0}
 
@@ -949,7 +949,7 @@ def test_curation_post_without_identity_is_401(monkeypatch):
     """No IAP header + no dev fallback → MissingAuthorError → 401 JSON (never writes)."""
     client = _client(monkeypatch)  # curation_dev_author=None, iap_audience=None
     resp = client.post(
-        "/api/curation/code-level", json={"source": "x", "code": "1", "level": "bruta"}
+        "/api/attributes/code-level", json={"source": "x", "code": "1", "level": "bruta"}
     )
     assert resp.status_code == 401
     assert "error" in resp.get_json()
@@ -958,19 +958,19 @@ def test_curation_post_without_identity_is_401(monkeypatch):
 def test_curation_post_missing_fields_is_400(monkeypatch):
     """Authenticated (dev fallback) but an incomplete body → 400 before any write."""
     client = _client(monkeypatch, curation_dev_author="dev@embrapa.br")
-    resp = client.post("/api/curation/code-level", json={"source": "x"})  # no code/level
+    resp = client.post("/api/attributes/code-level", json={"source": "x"})  # no code/level
     assert resp.status_code == 400
 
 
 def test_curation_post_not_in_allowlist_is_403(monkeypatch):
-    """A real identity that is NOT on the curator allowlist → 403 (authorization)."""
+    """A real identity that is NOT on the attribute editor allowlist → 403 (authorization)."""
     client = _client(
         monkeypatch,
         curation_dev_author="intruder@embrapa.br",
-        curation_allowed_emails="curator@embrapa.br",
+        attribute_editors_allowed_emails="attribute editor@embrapa.br",
     )
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 403
@@ -980,7 +980,7 @@ def test_curation_post_invalid_iap_assertion_is_403(monkeypatch):
     """An audience is configured but no signed JWT is present → InvalidIapAssertion → 403."""
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 403
@@ -993,7 +993,7 @@ def test_curation_post_on_cloud_run_without_audience_is_403(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "embrapa-dashboard")
     client = _client(monkeypatch, curation_dev_author="dev@embrapa.br")  # iap_audience=None
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 403
@@ -1007,7 +1007,7 @@ def test_curation_post_on_cloud_run_with_audience_passes_auth(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "embrapa-dashboard")
     client = _client(monkeypatch, iap_audience="/projects/1/global/backendServices/2")
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 403
@@ -1031,21 +1031,21 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     assert resp.get_json()["error"] == "internal server error"
 
 
-def test_curation_post_authorized_via_bq_curators_table(monkeypatch):
+def test_curation_post_authorized_via_bq_attribute_editors_table(monkeypatch):
     """An author absent from the ENV allowlist but present in the Console-managed
-    BQ curators table is authorized — the effective allowlist is their UNION."""
+    BQ attribute editors table is authorized — the effective allowlist is their UNION."""
     from embrapa_dashboard.webapi import seam
 
     # Env allowlist names someone else; the author is only in the BQ table.
     client = _client(
         monkeypatch,
         curation_dev_author="researcher@embrapa.br",
-        curation_allowed_emails="someone.else@embrapa.br",
+        attribute_editors_allowed_emails="someone.else@embrapa.br",
     )
-    monkeypatch.setattr(seam, "curator_emails", lambda: {"researcher@embrapa.br"})
+    monkeypatch.setattr(seam, "attribute_editor_emails", lambda: {"researcher@embrapa.br"})
     monkeypatch.setattr(seam, "record_code_level", lambda *a, **k: {"ok": True, "deduped": False})
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 200
@@ -1065,7 +1065,7 @@ def test_curation_post_forwards_change_id_to_seam(monkeypatch):
 
     monkeypatch.setattr(seam, "record_code_level", fake_record)
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "mdic_comex", "code": "0801", "level": "bruta", "change_id": "k-42"},
     )
     assert resp.status_code == 200
@@ -1085,7 +1085,7 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
 
     monkeypatch.setattr(seam, "record_code_level", raise_overlong)
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "y" * 300},
     )
     assert resp.status_code == 400
@@ -1095,25 +1095,27 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     assert "excede" in body["error"]
 
 
-def test_curation_post_auto_creates_curators_allowlist_table(monkeypatch):
+def test_attributes_post_auto_creates_attribute_editors_allowlist_table(monkeypatch):
     """First authorization check self-heals the Console-managed allowlist table so
     the runbook's documented INSERT path is real (auto-creates on first use)."""
     from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")
     called = {"n": 0}
-    monkeypatch.setattr(routes, "ensure_curators_table", lambda: called.__setitem__("n", 1))
+    monkeypatch.setattr(
+        routes, "ensure_attribute_editors_table", lambda: called.__setitem__("n", 1)
+    )
     monkeypatch.setattr(seam, "record_code_level", lambda *a, **k: {"deduped": False})
 
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 200
     assert called["n"] == 1
 
 
-def test_auto_create_curators_failure_does_not_block_write(monkeypatch):
+def test_auto_create_attribute_editors_failure_does_not_block_write(monkeypatch):
     """A transient BQ/permission fault while ensuring the allowlist table must not
     block an otherwise-authorized write (best-effort; empty table = open mode)."""
     from embrapa_dashboard.webapi import routes, seam
@@ -1123,10 +1125,10 @@ def test_auto_create_curators_failure_does_not_block_write(monkeypatch):
     def boom():
         raise RuntimeError("BQ down")
 
-    monkeypatch.setattr(routes, "ensure_curators_table", boom)
+    monkeypatch.setattr(routes, "ensure_attribute_editors_table", boom)
     monkeypatch.setattr(seam, "record_code_level", lambda *a, **k: {"deduped": False})
     resp = client.post(
-        "/api/curation/code-level",
+        "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
     assert resp.status_code == 200
@@ -1469,7 +1471,7 @@ def test_catalog_entry_upsert_400_on_missing_key(monkeypatch):
 
 def test_catalog_entry_upsert_403_for_non_allowlisted_editor(monkeypatch):
     """The PER-CATALOG allowlist (research_inputs.catalog_editors, resource-scoped): an
-    author absent from it is refused 403 — distinct from the attribute-engineering curators."""
+    author absent from it is refused 403 — distinct from the attribute-engineering editors."""
     from embrapa_dashboard.webapi import seam
 
     client = _client(monkeypatch, curation_dev_author="researcher@embrapa.br")

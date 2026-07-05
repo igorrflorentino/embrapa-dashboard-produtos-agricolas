@@ -416,17 +416,17 @@ class Settings(BaseSettings):
     iap_audience: str | None = Field(default=None)
 
     # ─── Authorization + serving-path cost ceiling ────────────────────────────
-    # Curator ALLOWLIST — authorization (may you curate), distinct from IAP
+    # Attribute editor ALLOWLIST — authorization (may you curate), distinct from IAP
     # authentication (who you are). NON-EMPTY → only these emails may POST a
     # curation edit (others get 403); EMPTY (default) preserves current behaviour:
-    # any IAP-authenticated caller may curate. CURATION_ALLOWED_EMAILS=a@x,b@y.
-    curation_allowed_emails: str = Field(default="")
-    # Curator allowlist TABLE (research_inputs.<this>) — the Console-managed
-    # alternative to the env var above: add/remove curators by INSERT/DELETE rows
+    # any IAP-authenticated caller may curate. ATTRIBUTE_EDITORS_ALLOWED_EMAILS=a@x,b@y.
+    attribute_editors_allowed_emails: str = Field(default="")
+    # Attribute editor allowlist TABLE (research_inputs.<this>) — the Console-managed
+    # alternative to the env var above: add/remove attribute editors by INSERT/DELETE rows
     # in the BigQuery Console, no redeploy. The effective allowlist is the UNION of
-    # this table and CURATION_ALLOWED_EMAILS; if BOTH are empty/absent, any
+    # this table and ATTRIBUTE_EDITORS_ALLOWED_EMAILS; if BOTH are empty/absent, any
     # IAP-authenticated caller may curate (current behaviour). Auto-created.
-    bq_curators_table: str = Field(default="curators")
+    bq_attribute_editors_table: str = Field(default="attribute_editors")
     # Operator-editable banco metadata OVERRIDES (research_inputs.<this>) — the
     # Console-managed way to change a banco's maturity stage / note / planned date /
     # coverage labels WITHOUT a rebuild+redeploy of the SPA. Sparse: a row overrides
@@ -450,13 +450,13 @@ class Settings(BaseSettings):
     # members). Latest-wins per group_id; active=false is a tombstone. Auto-created.
     bq_agrupamento_log_table: str = Field(default="agrupamento_log")
     # Per-CATALOG authorization allowlist (research_inputs.<this>) — distinct from the
-    # attribute-engineering `curators` table: each cadastro (resource) has its OWN list
+    # attribute-engineering `attribute editors` table: each cadastro (resource) has its OWN list
     # of editors, keyed by (resource, email). Empty/absent → no allowlist (any
     # IAP-authenticated caller may edit that catalog). Console-managed, auto-created.
     bq_catalog_editors_table: str = Field(default="catalog_editors")
     # Catalog-editor allowlist ENV override — the env-var twin of the
-    # `catalog_editors` table, mirroring CURATION_ALLOWED_EMAILS for the attribute-
-    # engineering curators. NON-EMPTY → the effective editor allowlist is the UNION of
+    # `catalog_editors` table, mirroring ATTRIBUTE_EDITORS_ALLOWED_EMAILS for the attribute-
+    # engineering attribute editors. NON-EMPTY → the effective editor allowlist is the UNION of
     # this and the table; EMPTY (default) + empty table preserves current behaviour
     # (any IAP-authenticated caller may edit). CATALOG_EDITORS_ALLOWED_EMAILS=a@x,b@y.
     catalog_editors_allowed_emails: str = Field(default="")
@@ -473,9 +473,11 @@ class Settings(BaseSettings):
     bq_max_bytes_billed: int | None = Field(default=100 * 1024**3)
 
     @property
-    def curation_allowed_emails_list(self) -> list[str]:
-        """Parsed, lower-cased curator allowlist (empty → any authed caller may curate)."""
-        return [e.strip().lower() for e in self.curation_allowed_emails.split(",") if e.strip()]
+    def attribute_editors_allowed_emails_list(self) -> list[str]:
+        """Parsed, lower-cased attribute editor allowlist (empty → any authed caller may curate)."""
+        return [
+            e.strip().lower() for e in self.attribute_editors_allowed_emails.split(",") if e.strip()
+        ]
 
     @property
     def catalog_editors_allowed_emails_list(self) -> list[str]:

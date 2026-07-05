@@ -29,7 +29,7 @@ Design (honouring the lead's decisions):
     prefix fan-out to double-count.
   * **Per-catalog allowlist** (``research_inputs.catalog_editors`` keyed by resource):
     each cadastro has its OWN authorized editors, distinct from the
-    attribute-engineering ``curators`` table.
+    attribute-engineering ``attribute editors`` table.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def ensure_catalog_editors_table(
 
     Console-managed: ``INSERT (resource, email) VALUES ('produto_catalog', 'a@x')``
     to authorize an editor — no redeploy. Empty/absent → any IAP-authenticated caller
-    may edit (the same open-by-default posture as the curators allowlist)."""
+    may edit (the same open-by-default posture as the attribute editors allowlist)."""
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_catalog_editors_table)

@@ -62,13 +62,13 @@ def _code_to_agrupamento() -> dict:
     return idx
 
 
-def curator_emails() -> set[str]:
-    """Lowercased curator emails from the allowlist table; empty set when the
+def attribute_editor_emails() -> set[str]:
+    """Lowercased attribute editor emails from the allowlist table; empty set when the
     table is absent (allowlist not configured) — so routes fall back to "any
     IAP-authenticated caller may curate". Any OTHER error propagates (a transient
     BQ/permission fault must NOT silently widen the gate to everyone)."""
     try:
-        df = gateway.fetch_curators()
+        df = gateway.fetch_attribute_editors()
     except NotFound:
         return set()
     if df is None or df.empty:
@@ -160,7 +160,7 @@ def value_added(agrupamento_id: str | None = None, uf_codes: tuple = ()) -> dict
 
     Set-based: ONE value + ONE weight query per PRESENT level (the reader's ``codes``
     filter is an ``IN UNNEST`` over the whole level), so the request cost stays flat
-    as curators classify more codes — never 2 BigQuery round-trips per code; levels
+    as attribute editors classify more codes — never 2 BigQuery round-trips per code; levels
     with no classified code are skipped entirely.
 
     ``uf_codes`` optionally narrows the export side to one origin UF(s) (cross-source
