@@ -216,34 +216,39 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   const banco = window.bancoById(database);
   const isSoon = banco && banco.status === 'soon';
 
-  // Preview perspectives bring their own banco-keyed (synthetic) data, so
-  // they render even while the banco itself is 'soon'. They take precedence
-  // over the banco-level coming-soon — but ONLY when the view applies.
-  //
-  // Gate on isSoon: this minimal hero (no MaturityBanner, no provenance box) is
-  // ONLY for a 'soon' banco previewing with synthetic data. For a LIVE banco a
-  // selfData view (Produtividade/PAM, Fluxos, Sazonalidade) must fall through to
-  // the FULL hero below so it gets the same beta banner + provenance/selection
-  // box as every other live perspective (audit HERO-1).
-  const _vm = window.viewById ? window.viewById(view) : null;
-  const _compat = window.viewAppliesTo ? window.viewAppliesTo(view, database) : { applies: true, missing: [] };
-  if (_vm && _vm.selfData && _compat.applies && isSoon) {
-    const PreviewComp = window.viewComponent(view);
-    if (PreviewComp) {
-      return (
-        <div className="screen">
-          <div className="page-hero">
-            <div>
-              <div className="overline">{banco.short} · {_vm.group?.label}</div>
-              <h1 className="page-title">{VIEW_LABEL[view]}</h1>
-              <p className="page-sub">{banco.sub}{_vm.desc ? '. ' + _vm.desc : ''}</p>
+  // ---- Non-live banco (planejado / any pre-data stage): ONE generic window ----
+  // Checked FIRST — before the capability ("Não se aplica") and per-view checks —
+  // so EVERY perspective shows the SAME simple "coming soon" message consistently,
+  // never a mix of "Não se aplica" / preview / "Em breve". The window is generic
+  // (no per-banco schema/coverage), so it serves any future planned banco as-is.
+  if (isSoon) {
+    return (
+      <div className="screen">
+        <div className="page-hero">
+          <div>
+            <div className="overline">Banco de dados</div>
+            <h1 className="page-title">{banco.label}</h1>
+            <p className="page-sub">{banco.sub}</p>
+          </div>
+          <div className="hero-meta">
+            <div className="meta-group">
+              <div className="meta-group-head">Status do banco</div>
+              <div className="meta-row">
+                <span className="meta-label">Maturidade</span>
+                <span className="meta-val" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <window.MaturityTag banco={banco} size="sm" />
+                </span>
+              </div>
             </div>
           </div>
-          <PreviewComp summary={filters} conventions={conventions} database={database} />
         </div>
-      );
-    }
+        <window.ViewComingSoon banco={banco} />
+      </div>
+    );
   }
+
+  const _vm = window.viewById ? window.viewById(view) : null;
+  const _compat = window.viewAppliesTo ? window.viewAppliesTo(view, database) : { applies: true, missing: [] };
 
   // ---- Perspective not applicable to this banco (capability mismatch) --
   // A permanent incompatibility outranks the temporary 'Em breve' of a
@@ -284,55 +289,6 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
           supporters={supporters}
           onPickBanco={(id) => { if (setDatabase) setDatabase(id); }}
         />
-      </div>
-    );
-  }
-
-  // ---- Em breve placeholder for non-live bancos -----------------------
-  if (isSoon) {
-    const bm = window.bancoMeta(database);
-    return (
-      <div className="screen">
-        <div className="page-hero">
-          <div>
-            <div className="overline">{banco.short} · {bm.domain}</div>
-            <h1 className="page-title">{VIEW_LABEL[view]}</h1>
-            <p className="page-sub">{banco.sub}</p>
-          </div>
-          <div className="hero-meta">
-            <div className="meta-group">
-              <div className="meta-group-head">Status do banco</div>
-              <div className="meta-row">
-                <span className="meta-label">Maturidade</span>
-                <span className="meta-val" style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <window.MaturityTag banco={banco} size="sm" />
-                </span>
-              </div>
-              <div className="meta-row">
-                <span className="meta-label">Uso</span>
-                <span className="meta-val" style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <window.UsageTag active={true} size="sm" />
-                </span>
-              </div>
-              {bm.maturityDate && (
-                <div className="meta-row">
-                  <span className="meta-label">Previsão</span>
-                  <span className="meta-val tnum">{bm.maturityDate}</span>
-                </div>
-              )}
-              <div className="meta-row">
-                <span className="meta-label">Tabela Gold</span>
-                <span className="meta-val"><code>{window.bancoTable(database)}</code></span>
-              </div>
-              <div className="meta-row">
-                <span className="meta-label">Fonte</span>
-                <span className="meta-val">{bm.source}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <window.ViewComingSoon banco={banco} view={view} />
       </div>
     );
   }

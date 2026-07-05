@@ -52,6 +52,8 @@ const ICONS = {
   lightbulb: `<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.4 1 1.1 1 1.8v.5h6v-.5c0-.7.4-1.4 1-1.8A7 7 0 0 0 12 2z"/>`,
   check_circle: `<circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>`,
   inventory_2: `<rect x="3" y="8" width="18" height="12" rx="1.5"/><path d="M3 8l1.8-3.2A1 1 0 0 1 5.7 4h12.6a1 1 0 0 1 .9.8L21 8"/><line x1="10" y1="12" x2="14" y2="12"/>`,
+  // storefront (loja/mercado) — the "Tipo de Mercado" editor: a market stall with an awning.
+  storefront: `<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>`,
 };
 
 window.Icon = Icon;

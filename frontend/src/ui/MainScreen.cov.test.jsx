@@ -174,13 +174,27 @@ describe('MainScreen — cross-source meta-perspective', () => {
 });
 
 describe('MainScreen — banco/view gating', () => {
-  it('renders a selfData preview view even for a soon banco (minimal hero, no provenance box)', () => {
+  it('shows the SAME generic coming-soon window for a soon banco on ANY perspective (even selfData)', () => {
+    // The banco-level 'soon' check runs FIRST (before the selfData-preview + capability
+    // branches), so every perspective renders the one generic coming-soon window —
+    // never a per-view preview or "não se aplica".
     window.viewById = (id) => ({ id, label: 'Sazonalidade', group: { label: 'temporal' }, selfData: true });
     window.viewComponent = () => marker('preview');
     const { container } = render(<MainScreen view="seasonality" database="sefaz_nf" />);
-    expect(container.querySelector('.child-preview')).toBeTruthy();
-    // A 'soon' banco gets the MINIMAL preview hero — no provenance/selection box.
+    expect(container.querySelector('.child-comingsoon')).toBeTruthy();
+    expect(container.querySelector('.child-preview')).toBeNull(); // no synthetic preview
     expect(container.textContent).not.toContain('Proveniência');
+  });
+
+  it('shows the coming-soon window (NOT "não se aplica") for a soon banco on an incompatible view', () => {
+    // Consistency: a capability mismatch must NOT surface for a not-yet-built banco —
+    // it shows the same coming-soon as every other perspective.
+    window.viewById = (id) => ({ id, label: 'Geografia', group: { label: 'geo' } });
+    window.viewAppliesTo = () => ({ applies: false, missing: ['geo'] });
+    const { container } = render(<MainScreen view="geo" database="sefaz_nf" />);
+    expect(container.querySelector('.child-comingsoon')).toBeTruthy();
+    expect(container.querySelector('.child-notapplicable')).toBeNull();
+    expect(container.textContent).not.toContain('Não se aplica');
   });
 
   it('renders the FULL hero (beta banner + provenance box) for a selfData view on a LIVE banco', () => {
