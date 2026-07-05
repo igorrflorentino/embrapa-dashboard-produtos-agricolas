@@ -243,9 +243,12 @@ def test_market_nature_series_sql_unscoped():
     assert "market_nature is not null" in low
     assert "sum(val_yearfx_usd) as value_usd" in low
     assert "group by market_nature, reference_year" in low
-    # No code scope → no cmd_code predicate and no params.
+    # Sums only export/import (re-export/re-import are subsets → no double-count).
+    assert "flow in unnest(@__sum_flows)" in low
+    # No code scope → no cmd_code predicate; only the flow-total param.
     assert "cmd_code in unnest" not in low
-    assert params == []
+    assert [p.name for p in params] == ["__sum_flows"]
+    assert list(params[0].values) == ["export", "import"]
 
 
 def test_market_nature_series_sql_scoped_by_codes():
@@ -255,6 +258,8 @@ def test_market_nature_series_sql_scoped_by_codes():
         "proj.serving.serving_comtrade_annual", codes=("0801", "0802")
     )
     assert "cmd_code in unnest(@cmd_codes)" in query.lower()
-    assert len(params) == 1
-    assert params[0].name == "cmd_codes"
-    assert list(params[0].values) == ["0801", "0802"]
+    assert "flow in unnest(@__sum_flows)" in query.lower()
+    names = [p.name for p in params]
+    assert names == ["__sum_flows", "cmd_codes"]
+    cmd = next(p for p in params if p.name == "cmd_codes")
+    assert list(cmd.values) == ["0801", "0802"]
