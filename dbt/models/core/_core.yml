@@ -211,6 +211,58 @@ models:
               config:
                 severity: warn
 
+  - name: dim_flow_market_scd2
+    description: |
+      Type-2 SCD derived from research_inputs.flow_market_log — the
+      (customs procedure × flow) market-nature grain. Classifies each
+      (customs_code, flow_code) pair as consumo / processamento (an empty market
+      clears the pair); serving_comtrade_annual LEFT JOINs the is_current row into
+      its market_nature column, which backs the "Tipo de mercado" filter + the
+      "Finalidade econômica" analysis. flow_code carries the NORMALIZED flow token
+      (export/import/re-export/…), matching serving_comtrade_annual.flow.
+      valid_from / valid_to / is_current via LEAD() over edits per
+      (customs_code, flow_code). VIEW in the SERVING dataset so a fresh edit is
+      live immediately to the matrix editor. Disabled by default —
+      `dbt build --vars 'enable_curation: true'`. Reverted from the
+      comtrade_market_nature seed (v1.9.0). The SCD2 window guarantees at most one
+      is_current row per (customs_code, flow_code).
+    tests:
+      # At most ONE current classification per (customs_code, flow_code) — the SCD2
+      # invariant. Disabled with the model unless enable_curation.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - customs_code
+              - flow_code
+          config:
+            where: "is_current"
+    columns:
+      - name: customs_code
+        description: "UN customs procedure (regime aduaneiro, C0x)."
+        tests: [not_null]
+      - name: flow_code
+        description: "Normalized flow token (export/import/re-export/…), matching serving_comtrade_annual.flow."
+        tests: [not_null]
+      - name: market
+        description: "Researcher-assigned market nature (consumo/processamento); '' clears the pair."
+        tests: [not_null]
+      - name: version
+        description: "1-based edit sequence within a (customs_code, flow_code)."
+        tests: [not_null]
+      - name: valid_from
+        description: "Timestamp this classification took effect (= edited_at)."
+        tests: [not_null]
+      - name: is_current
+        description: "True when valid_to IS NULL (the live classification)."
+        tests: [not_null]
+      - name: edited_by
+        description: "Edit author (IAP email) captured at write time — the audit-trail identity."
+        tests:
+          # warn (not error): a soft data-quality signal on an append-only audit log.
+          - not_null:
+              config:
+                severity: warn
+
 unit_tests:
   # F7 gate SOT: dim_produto_visibility emits ONLY active + indisponível codes,
   # latest-wins. Disponível, tombstoned (active=false), and superseded rows are excluded.

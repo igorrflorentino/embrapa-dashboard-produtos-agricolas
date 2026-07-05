@@ -4,7 +4,9 @@
 //                        classification (subscribes to the enrichment store so editing
 //                        re-renders it live).
 //   · ViewMarketNature — COMTRADE value by economic purpose (consumo × processamento), from
-//                        the static comtrade_market_nature seed (serving mart) — NOT editable.
+//                        the researcher-editable (customs procedure × flow) matrix ("Tipo de
+//                        Mercado"), carried as the serving mart's market_nature column. The
+//                        analysis reflects a matrix edit after the next dbt build.
 // Both read real Gold/COMTRADE data and degrade to an honest empty state when absent.
 
 const { useState: useCaState, useEffect: useCaEffect } = React;
@@ -149,8 +151,8 @@ function ViewMarketNature() {
             title="Sem finalidade econômica classificada para este recorte" />
           <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
             O COMTRADE deste recorte não tem operações cujo par <strong>regime aduaneiro × fluxo</strong>
-            {' '}esteja classificado como consumo ou processamento no seed de tipos de mercado
-            (Contrato de Dados). A maioria do comércio é reportada apenas no agregado, sem regime.
+            {' '}esteja classificado como consumo ou processamento em <strong>Tipo de Mercado</strong>
+            (Engenharia de atributos). A maioria do comércio é reportada apenas no agregado, sem regime.
           </p>
         </div>
       </>
@@ -181,7 +183,7 @@ function ViewMarketNature() {
 
       <div className="card">
         <window.SectionHeader overline="Valor por finalidade econômica · US$ bi" title="Comprando/vendendo para consumir ou para processar"
-          action={<span className="caption">classificação por seed (Contrato de Dados)</span>} />
+          action={<span className="caption">classificação em Tipo de Mercado (Engenharia de atributos)</span>} />
         <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} />
         <div className="pc-legend">
           {areaSeries.map(s => (
@@ -195,7 +197,7 @@ function ViewMarketNature() {
         <window.Donut data={donut} valueKey="share" size={170} />
         <p className="caption" style={{ padding: '8px 4px 0' }}>
           A direção (comprar/vender) vem do fluxo; a <strong>finalidade</strong> (consumo ou processamento)
-          vem do seed do Contrato de Dados, classificada por par regime aduaneiro × fluxo.
+          vem da classificação por par regime aduaneiro × fluxo em <strong>Tipo de Mercado</strong>.
         </p>
       </div>
     </>

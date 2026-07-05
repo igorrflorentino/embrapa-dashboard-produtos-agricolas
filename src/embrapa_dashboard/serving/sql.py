@@ -602,6 +602,28 @@ def current_code_industrialization(table: str) -> tuple[str, list]:
     return sql, []
 
 
+def current_flow_market(table: str) -> tuple[str, list]:
+    """Live current market-nature per (customs_code, flow_code) from
+    ``dim_flow_market_scd2`` — the researcher-editable (customs procedure × flow)
+    matrix. A cleared pair (``market = ''``) is dropped, so only real
+    classifications surface. Mirrors :func:`current_code_industrialization`: the
+    matrix editor reads this live view (a fresh INSERT is visible immediately),
+    while the mart's ``market_nature`` column lags to the next dbt build.
+    """
+    sql = f"""
+        select
+            customs_code,
+            flow_code,
+            market,
+            edited_by,
+            valid_from
+        from `{table}`
+        where is_current and market != ''
+        order by customs_code, flow_code
+    """
+    return sql, []
+
+
 # ── Trade marts (serving_comex_annual / serving_comtrade_annual) ──────────────
 # Raw US$/kg sums; the snapshot layer scales to display magnitudes (÷1e9, ÷1e6)
 # per frontend_data_contract.md §2. ``code_column`` is ncm_code (COMEX) or
@@ -918,13 +940,32 @@ def quality_timeseries(table: str, *, visibility_predicate: str = "") -> tuple[s
     return sql, []
 
 
+def flow_market_values(table: str) -> tuple[str, list]:
+    """Total traded value (nominal US$) per (customs_code, flow) from the serving mart —
+    the materiality signal shown in each matrix cell so a researcher classifies the pairs
+    that actually move value. The C00 aggregate ("todos os regimes / total") is excluded:
+    it is not a real regime to classify (the matrix rows are the specific C0x procedures).
+    Cheap grouped sum over the pre-aggregated mart — no Bronze scan. ``flow`` is the
+    normalized token (export/import/…), aliased to ``flow_code`` to match the log grain."""
+    sql = f"""
+        select
+            customs_code,
+            flow                as flow_code,
+            sum(val_yearfx_usd) as value_usd
+        from `{table}`
+        where customs_code != 'C00'
+        group by customs_code, flow
+    """
+    return sql, []
+
+
 def market_nature_series(table: str, *, codes: Sequence[str] = ()) -> tuple[str, list]:
     """COMTRADE trade value (nominal US$) by (economic-purpose market_nature × year) from
-    the serving mart. ``market_nature`` is the seed-classified consumo/processamento column
-    (NULL where the customs×flow pair has no mapping — excluded). Optional ``codes`` narrows
-    to one commodity's HS codes (cmd_code). The mart already dedups + preserves customs/flow,
-    so this is a plain grouped sum (no Bronze cleaning) — the seed conversion moved the
-    customs-procedure detail into Gold/serving, so no Bronze scan is needed anymore."""
+    the serving mart. ``market_nature`` is the consumo/processamento column, now EDIT-DRIVEN
+    (LEFT JOIN dim_flow_market_scd2, reverted from the comtrade_market_nature seed; NULL where
+    the customs×flow pair is unclassified — excluded). Optional ``codes`` narrows to one
+    commodity's HS codes (cmd_code). The mart already dedups + preserves customs/flow, so this
+    is a plain grouped sum (no Bronze scan). Reflects a matrix edit after the next dbt build."""
     conditions = ["market_nature is not null"]
     params: list = []
     if codes:

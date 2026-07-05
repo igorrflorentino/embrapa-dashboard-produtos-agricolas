@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.12.0] - 2026-07-05
+
+**Engenharia de Atributos 100% descongelada.** As "Análises curadas" voltam ao topnav
+(Parte A) e a **"Tipo de Mercado"** volta a ser uma **matriz editável na UI** — revertida
+do seed estático `comtrade_market_nature` (v1.9.0) de volta para o log editável por
+pesquisador. O **filtro "Tipo de mercado" e a análise "Finalidade econômica" continuam
+funcionando** (a coluna `market_nature` do mart segue existindo — só muda a fonte: seed →
+matriz editável). Ambos os atributos derivados (industrialização + tipo de mercado) ficam
+atrás do mesmo `enable_curation` (default `true`; prod via `DBT_ENABLE_CURATION`).
+
+### Added
+- **`dim_flow_market_scd2`** (`dbt/models/core/`): view SCD2 Type-2 sobre o log
+  `research_inputs.flow_market_log` — grão `(customs_code, flow_code)`, `valid_from` /
+  `valid_to` / `is_current` via `LEAD()`, gated por `enable_curation` (espelha
+  `dim_code_industrialization_scd2`). `flow_code` carrega o **token normalizado** de fluxo
+  (`export`/`import`/…), casando `serving_comtrade_annual.flow`.
+- **Editor "Tipo de Mercado"** (`?ip=enrich_market`, item na sidebar): a matriz 16×10
+  (regime aduaneiro × fluxo) com um `<select>` consumo/processamento por célula e o valor
+  US$ realmente transacionado por par (materialidade). Escrita append-only autenticada por
+  IAP (`POST /api/attributes/flow-market`), guardada pela mesma allowlist de editores de
+  atributos; leitura ao vivo (`GET /api/attributes/flow-worklist`, view SCD2, TTL curto).
+- **`embrapa flow-market-seed`** (+ `make ensure-flow-market`): backfill idempotente dos 24
+  pares do seed retirado para o log editável — o cutover (nada regride).
+
+### Changed
+- **`serving_comtrade_annual.market_nature`** passa a derivar de `dim_flow_market_scd2`
+  (LEFT JOIN, `is_current`) em vez do seed. **`silver_comtrade_flows` / `gold_comtrade_flows`
+  não carregam mais `market_nature`** (uma classificação editável fica fora do fato do
+  medalhão; requer **um** `--full-refresh` no `silver_comtrade_flows` incremental para
+  purgar a coluna fantasma). O editor reflete a edição na hora (view ao vivo); o filtro +
+  a análise refletem após o próximo `dbt build` (latência documentada).
+- **Parte A — descongelamento:** o grupo `curated` ("Análises curadas") volta ao topnav
+  (`webapi/registries.py`) e `enable_curation` passa a `true` por padrão em `dbt_project.yml`.
+
+### Removed
+- Seed `comtrade_market_nature.csv` + seu registro em "Referências" (substituído pela matriz
+  editável). O caminho editável antigo (`record_flow_market`, `dim_flow_market_scd2`) volta
+  re-home no pacote `embrapa_dashboard` e adaptado às convenções atuais (`dev_author`,
+  `/api/attributes/*`, escala de 8 níveis, guard `_authorize_attribute_editor`).
+
 ## [1.11.0] - 2026-07-05
 
 A **Curadoria** vira a fonte única de verdade que **dirige a ingestão** dos bancos

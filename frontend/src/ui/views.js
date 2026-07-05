@@ -107,9 +107,9 @@ window.VIEW_GROUPS = [
     ],
   },
   // ─── Análises curadas (Engenharia de Atributos) ──────────────────────────────
-  // Two derived-attribute perspectives. "Valor agregado" is researcher-EDITABLE (the
-  // per-code industrialization editor, gated by the `enable_curation` dbt var). "Finalidade
-  // econômica" is SEED-DRIVEN (the comtrade_market_nature seed → serving mart) — no editor.
+  // Two derived-attribute perspectives, BOTH researcher-EDITABLE (gated by the
+  // `enable_curation` dbt var): "Valor agregado" ← the per-code industrialization editor;
+  // "Finalidade econômica" ← the (customs × flow) "Tipo de Mercado" matrix editor.
   {
     id: 'curated',
     label: 'Análises curadas',
@@ -120,7 +120,7 @@ window.VIEW_GROUPS = [
         desc: 'Exportação distribuída pelos 8 níveis de industrialização (do bruto ao manufaturado), a partir da classificação curada dos códigos. Valor, volume e preço por nível, com prêmio de processamento.' },
       { id: 'curated_market_nature', label: 'Finalidade econômica', status: 'live', requires: [], crossBanco: true, curated: true, align: 'finalidade (consumo/processamento)',
         sources: ['mdic_comex', 'un_comtrade'],
-        desc: 'Valor comercializado por finalidade econômica (consumo × processamento), classificado por par regime aduaneiro × fluxo a partir do seed do Contrato de Dados. Cruzada com a direção, separa comprar/vender para consumir ou processar.' },
+        desc: 'Valor comercializado por finalidade econômica (consumo × processamento), classificado por par regime aduaneiro × fluxo na matriz "Tipo de Mercado" (Engenharia de atributos). Cruzada com a direção, separa comprar/vender para consumir ou processar.' },
     ],
   },
   {
@@ -178,8 +178,8 @@ window.VIEW_COMPONENTS = {
   cross_mirror:          'ViewMirror',
   cross_chain:           'ViewChainBalance',
   cross_lag:             'ViewHarvestLag',
-  // Análises curadas (Engenharia de Atributos): Valor agregado (editável) + Finalidade
-  // econômica (seed-driven).
+  // Análises curadas (Engenharia de Atributos): Valor agregado + Finalidade econômica —
+  // ambas editáveis (editores de industrialização + matriz "Tipo de Mercado").
   curated_value_added:   'ViewValueAdded',
   curated_market_nature: 'ViewMarketNature',
 };

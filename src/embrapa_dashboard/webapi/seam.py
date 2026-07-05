@@ -173,7 +173,7 @@ def _market_from_summary(summary: dict | None) -> str | None:
     """The server-side tipo-de-mercado filter (consumo/processamento) from the FilterMenu.
 
     Like ``flow``/``customs``, this re-queries the trade snapshot server-side (the COMTRADE
-    mart carries the seed-classified ``market_nature`` column). ``'all'`` / absent → ``None``
+    mart carries the edit-driven ``market_nature`` column). ``'all'`` / absent → ``None``
     = sum every purpose (incl. unmapped), so an unfiltered request is byte-identical to
     before the dimension existed. Only the COMTRADE mart carries market_nature, so the seam
     threads this through the COMTRADE productTS + overview readers ONLY.
@@ -832,8 +832,10 @@ from .seam_attribute_engineering import (  # noqa: E402, F401  (re-exported at m
     _value_added_series_point,
     attribute_editor_emails,
     curation_worklist,
+    flow_market_worklist,
     market_nature,
     record_code_level,
+    record_flow_market,
     value_added,
 )
 from .seam_cross import (  # noqa: E402, F401  (re-exported at module end, intentional)

@@ -1,11 +1,12 @@
-// ViewCuration.jsx — the researcher ENRICHMENT surface: the "Nível de industrialização"
-// editor (ViewEnrichmentIndustrialization — the codes table). It edits the shared
-// institutional store (enrichment.js): edits persist + notify so analyses react live, and
-// "Aplicar à base" commits the pending draft (one append-only SCD2 log, gated by the
-// `enable_curation` dbt var). No per-row provenance in v1 (per the brief) — just the values.
-//
-// (The "Tipo de Mercado" is no longer editable here — it is the static comtrade_market_nature
-// seed. Any lingering ?ip=curation deep link resolves to this industrialization screen.)
+// ViewCuration.jsx — the researcher ENRICHMENT surface. TWO editors over the shared
+// institutional store (enrichment.js):
+//   • ViewEnrichmentIndustrialization — the "Nível de industrialização" codes table.
+//   • ViewEnrichmentMarketNature       — the "Tipo de Mercado" regime × flow matrix
+//     (reverted from the comtrade_market_nature seed, v1.9.0).
+// Edits persist + notify so analyses react, and "Aplicar à base" commits the pending draft
+// (append-only SCD2 logs, gated by the `enable_curation` dbt var). No per-row provenance in
+// v1 (per the brief) — just the values. A lingering ?ip=curation deep link resolves to the
+// industrialization screen.
 
 // Re-render this subtree whenever the shared enrichment store notifies (edit,
 // commit start/end). Each screen uses it so its KPIs / apply bar stay live.
@@ -15,6 +16,69 @@ function useEnrichmentTick() {
 }
 
 const _bancoShort = (id) => (window.bancoById ? window.bancoById(id)?.short : id) || id;
+
+// ── fast hover tooltip (replaces the native `title`, whose ~1s browser delay made
+// the matrix hints feel "broken"). A single body-level, fixed-position bubble is
+// reused for every hint — fixed position escapes the table's overflow clipping,
+// and a short 90 ms delay makes it feel instant. Shared by the matrix headers and
+// regime rows; any element can opt in via the <CurHint> wrapper below.
+let _tipEl = null;
+let _tipTimer = null;
+let _tipXY = { x: 0, y: 0 };
+function _tipLayer() {
+  if (_tipEl) return _tipEl;
+  _tipEl = document.createElement('div');
+  _tipEl.className = 'cur-tip-pop';
+  _tipEl.setAttribute('role', 'tooltip');
+  document.body.appendChild(_tipEl);
+  // A scroll anywhere should drop the bubble (the anchor moved under it).
+  window.addEventListener('scroll', () => _hideTip(), true);
+  return _tipEl;
+}
+function _placeTip(el) {
+  const pad = 12;
+  const r = el.getBoundingClientRect();
+  let left = _tipXY.x + 14;
+  let top = _tipXY.y + 18;
+  if (left + r.width + pad > window.innerWidth) left = window.innerWidth - r.width - pad;
+  if (top + r.height + pad > window.innerHeight) top = _tipXY.y - r.height - 14;
+  if (top < pad) top = pad;
+  if (left < pad) left = pad;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+function _showTip(text) {
+  const el = _tipLayer();
+  el.textContent = text;
+  el.classList.add('on');
+  _placeTip(el);
+}
+function _hideTip() {
+  if (_tipTimer) {
+    clearTimeout(_tipTimer);
+    _tipTimer = null;
+  }
+  if (_tipEl) _tipEl.classList.remove('on');
+}
+// Wrap any element to give it a fast custom tooltip. `tag` picks the host element
+// (th / div), `tip` is the text; remaining props (className, key…) pass through.
+function CurHint({ tag = 'div', tip, children, ...rest }) {
+  const Tag = tag;
+  const onEnter = (e) => {
+    _tipXY = { x: e.clientX, y: e.clientY };
+    if (_tipTimer) clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(() => _showTip(tip), 90);
+  };
+  const onMove = (e) => {
+    _tipXY = { x: e.clientX, y: e.clientY };
+    if (_tipEl && _tipEl.classList.contains('on')) _placeTip(_tipEl);
+  };
+  return (
+    <Tag onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={_hideTip} {...rest}>
+      {children}
+    </Tag>
+  );
+}
 
 // One code row in the industrialization worklist (the LEFT JOIN result).
 function EnrichmentCodeRow(c, nested) {
@@ -216,6 +280,90 @@ function ViewEnrichmentIndustrialization() {
   );
 }
 
+// ── Tool 2: Tipo de Mercado (regime × flow matrix) ────────────────────────────
+function ViewEnrichmentMarketNature() {
+  useEnrichmentTick();
+  const stats = window.enrichment.stats();
+
+  return (
+    <>
+      <EnrichmentApplyBar note={
+        <>
+          O que você marca aqui é <strong>compartilhado</strong>: vale para toda a equipe e
+          alimenta a análise de tipo de mercado (<strong>consumo</strong> × <strong>processamento</strong>).
+          A finalidade depende da <strong>combinação</strong> entre regime aduaneiro e fluxo — não de
+          cada um isolado. Nada é salvo até você clicar em <strong>Aplicar à base</strong>.
+        </>
+      } />
+
+      <div className="kpi-row">
+        <window.KpiCardSpark label="Combinações classificadas" value={`${stats.flowsClassified} / ${stats.flowsTotal}`} sub="regime × fluxo" />
+        <window.KpiCardSpark label="Regimes aduaneiros" value={window.enrichment.regimes().length} sub="linhas da matriz" />
+        <window.KpiCardSpark label="Fluxos comerciais" value={window.enrichment.flowTypes().length} sub="colunas da matriz" />
+      </div>
+
+      <div className="card">
+        <window.SectionHeader
+          overline="Regime aduaneiro × fluxo · finalidade econômica"
+          title="A finalidade depende da combinação regime + fluxo"
+          action={
+            <span className="cur-legend">
+              {window.ENRICH_MARKETS.map(m => (
+                <span key={m.id} className="cur-legend-item"><span className="cur-legend-dot" style={{ background: m.color }}></span>{m.short}</span>
+              ))}
+            </span>
+          } />
+        <p className="caption" style={{ padding: '0 4px 8px' }}>
+          Cada <strong>linha</strong> é um regime aduaneiro (a forma da operação no comércio
+          exterior) e cada <strong>coluna</strong> é um fluxo (importação, exportação…), ordenados
+          pelos que mais movimentam valor. O número sob cada combinação é o valor em dólar
+          efetivamente negociado — comece pelas combinações de maior valor.
+        </p>
+        <div className="pc-table-wrap">
+          <table className="pc-table cur-table cur-matrix">
+            <thead>
+              <tr>
+                <th className="cur-corner">
+                  <span className="cur-corner-col">Fluxo comercial →</span>
+                  <span className="cur-corner-row">Regime aduaneiro ↓</span>
+                </th>
+                {window.enrichment.flowTypes().map(f => <CurHint key={f.id} tag="th" className="cur-c" tip={f.label + ' — ' + f.hint}><span className="cur-hashint">{f.term}</span></CurHint>)}
+              </tr>
+            </thead>
+            <tbody>
+              {window.enrichment.regimes().map(r => (
+                <tr key={r.id}>
+                  <CurHint tag="td" tip={r.label + ' — ' + r.hint}>
+                    <div className="cur-regime cur-hashint">{r.term}</div>
+                  </CurHint>
+                  {window.enrichment.flowTypes().map(f => {
+                    const v = window.enrichment.pairMarket(r.id, f.id);
+                    // Real COMTRADE value for this pair — shown so the researcher
+                    // curates by materiality (opaque codes + their magnitude).
+                    const val = window.enrichment.pairValueLabel
+                      ? window.enrichment.pairValueLabel(r.id, f.id) : '';
+                    return (
+                      <td key={f.id} className="cur-c">
+                        <select className={'cur-cell ' + (v ? 'mk-' + v : 'cur-cell-empty')} value={v || ''}
+                                onChange={(e) => window.enrichment.setPair(r.id, f.id, e.target.value || null)}>
+                          <option value="">—</option>
+                          {window.ENRICH_MARKETS.map(m => <option key={m.id} value={m.id}>{m.short}</option>)}
+                        </select>
+                        <span className="cur-cell-val" style={{ display: 'block', fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', marginTop: 2 }}>{val || '·'}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
 window.ViewEnrichmentIndustrialization = ViewEnrichmentIndustrialization;
+window.ViewEnrichmentMarketNature = ViewEnrichmentMarketNature;
 // The old combined entry (?ip=curation) routes straight to the industrialization screen in
-// MainScreen. (Tipo de Mercado is seed-driven now — no editor screen.)
+// MainScreen.

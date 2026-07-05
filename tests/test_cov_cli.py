@@ -496,3 +496,22 @@ def test_catalog_seed_from_env_reports_counts(monkeypatch: pytest.MonkeyPatch) -
     assert result.exit_code == 0, result.output
     assert "seeded=28" in result.output
     assert "me@x.br" in seen["headers"]["X-Goog-Authenticated-User-Email"]
+
+
+def test_flow_market_seed_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`flow-market-seed` builds an IAP-author header and prints the seeded/skipped/total
+    summary from attribute_engineering.seed_flow_market_from_seed."""
+    from embrapa_dashboard.serving import attribute_engineering
+
+    _bypass_webapp_context(monkeypatch)
+    seen: dict = {}
+
+    def _seed(headers):
+        seen["headers"] = headers
+        return {"seeded": 24, "skipped": 0, "total": 24}
+
+    monkeypatch.setattr(attribute_engineering, "seed_flow_market_from_seed", _seed)
+    result = runner.invoke(cli.app, ["flow-market-seed", "--author", "me@x.br"])
+    assert result.exit_code == 0, result.output
+    assert "seeded=24" in result.output and "of 24" in result.output
+    assert "me@x.br" in seen["headers"]["X-Goog-Authenticated-User-Email"]

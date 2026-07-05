@@ -1095,6 +1095,76 @@ def test_curation_post_overlong_input_is_400_not_500(monkeypatch):
     assert "excede" in body["error"]
 
 
+# ── Flow-market matrix (customs × flow) editor routes ─────────────────────────
+def test_flow_worklist_get_returns_seam_payload(monkeypatch):
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch)
+    payload = {"customs": ["C01"], "flows": [], "cells": [], "classified": 0, "total": 0}
+    monkeypatch.setattr(seam, "flow_market_worklist", lambda: payload)
+    resp = client.get("/api/attributes/flow-worklist")
+    assert resp.status_code == 200
+    assert resp.get_json() == payload
+
+
+def test_flow_market_post_without_identity_is_401(monkeypatch):
+    """No IAP header + no dev fallback → 401 JSON (never writes)."""
+    client = _client(monkeypatch)  # dev_author=None, iap_audience=None
+    resp = client.post(
+        "/api/attributes/flow-market",
+        json={"customs_code": "C01", "flow_code": "import", "market": "consumo"},
+    )
+    assert resp.status_code == 401
+    assert "error" in resp.get_json()
+
+
+def test_flow_market_post_missing_fields_is_400(monkeypatch):
+    """Authenticated (dev fallback) but no flow_code → 400 before any write."""
+    client = _client(monkeypatch, dev_author="dev@embrapa.br")
+    resp = client.post("/api/attributes/flow-market", json={"customs_code": "C01"})
+    assert resp.status_code == 400
+
+
+def test_flow_market_post_not_in_allowlist_is_403(monkeypatch):
+    """A real identity NOT on the attribute editor allowlist → 403 (same guard as code-level)."""
+    client = _client(
+        monkeypatch,
+        dev_author="intruder@embrapa.br",
+        attribute_editors_allowed_emails="attribute.editor@embrapa.br",
+    )
+    resp = client.post(
+        "/api/attributes/flow-market",
+        json={"customs_code": "C01", "flow_code": "import", "market": "consumo"},
+    )
+    assert resp.status_code == 403
+
+
+def test_flow_market_post_forwards_fields_and_change_id(monkeypatch):
+    """Happy path: the market + idempotency key reach the seam writer verbatim; a cleared
+    pair (market omitted) is forwarded as ''."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    captured = {}
+
+    def fake_record(customs_code, flow_code, market, change_id=None):
+        captured.update(
+            customs_code=customs_code, flow_code=flow_code, market=market, change_id=change_id
+        )
+        return {"deduped": False, "change_id": change_id}
+
+    monkeypatch.setattr(seam, "record_flow_market", fake_record)
+    resp = client.post(
+        "/api/attributes/flow-market",
+        json={"customs_code": "C04", "flow_code": "export", "change_id": "k-7"},
+    )
+    assert resp.status_code == 200
+    assert captured["customs_code"] == "C04"
+    assert captured["flow_code"] == "export"
+    assert captured["market"] == ""  # omitted market → cleared pair
+    assert captured["change_id"] == "k-7"
+
+
 def test_attributes_post_auto_creates_attribute_editors_allowlist_table(monkeypatch):
     """First authorization check self-heals the Console-managed allowlist table so
     the runbook's documented INSERT path is real (auto-creates on first use)."""

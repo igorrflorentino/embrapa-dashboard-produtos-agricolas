@@ -57,9 +57,10 @@ def _bind_simplecache():
 
 
 def test_market_nature_sums_value_by_curated_purpose(monkeypatch):
-    # Market nature is SEED-DRIVEN now: the serving mart pre-carries the
-    # market_nature column, so the analysis just sums fetch_market_nature_series
-    # (already NULL-filtered + grouped by (market_nature × year)) into US$ bi.
+    # Market nature is EDIT-DRIVEN again (dim_flow_market_scd2 LEFT JOINed into the mart):
+    # the serving mart carries the market_nature column, so the analysis just sums
+    # fetch_market_nature_series (already NULL-filtered + grouped by (market_nature × year))
+    # into US$ bi.
     seam = _seam()
     df = pd.DataFrame(
         [
@@ -86,6 +87,87 @@ def test_market_nature_empty_when_nothing_classified(monkeypatch):
 
     out = seam.market_nature()
     assert out["years"] == [] and out["series"] == [] and out["latest"] == {}
+
+
+def test_flow_market_worklist_joins_mart_values_with_current_mapping(monkeypatch):
+    # The matrix data = COMTRADE traded value (from the serving mart) ⟕ the current
+    # market classification (from the live SCD2 view). Cells sort by value desc; the
+    # classified count reflects only pairs with a market.
+    cur = _curation()
+    values = pd.DataFrame(
+        [
+            {"customs_code": "C04", "flow_code": "export", "value_usd": 5e9},
+            {"customs_code": "C01", "flow_code": "import", "value_usd": 2e9},
+        ]
+    )
+    mapping = pd.DataFrame([{"customs_code": "C01", "flow_code": "import", "market": "consumo"}])
+    monkeypatch.setattr(cur.gateway, "fetch_flow_market_values", lambda: values)
+    monkeypatch.setattr(cur.gateway, "fetch_current_flow_market", lambda: mapping)
+
+    out = cur.flow_market_worklist()
+
+    assert out["total"] == 2
+    assert out["classified"] == 1  # only C01×import is classified
+    # Highest-value pair first, and it carries no market (unclassified → None).
+    assert out["cells"][0] == {
+        "customs_code": "C04",
+        "flow_code": "export",
+        "value_usd": 5e9,
+        "market": None,
+    }
+    assert out["cells"][1]["market"] == "consumo"
+    # The flow label is the pt-BR name for the normalized token.
+    assert {"code": "export", "label": "Exportação"} in out["flows"]
+
+
+def test_flow_market_worklist_empty_when_view_absent(monkeypatch):
+    # Before activation (SCD2 view / mart absent → NotFound) the matrix renders empty,
+    # not a 500 — the classification just isn't available yet.
+    from google.api_core.exceptions import NotFound
+
+    cur = _curation()
+
+    def _absent(*a, **k):
+        raise NotFound("no view yet")
+
+    monkeypatch.setattr(cur.gateway, "fetch_flow_market_values", _absent)
+    monkeypatch.setattr(cur.gateway, "fetch_current_flow_market", _absent)
+
+    out = cur.flow_market_worklist()
+    assert out == {"customs": [], "flows": [], "cells": [], "classified": 0, "total": 0}
+
+
+def test_flow_market_map_empty_when_reader_returns_empty(monkeypatch):
+    # An empty SCD2 frame (nobody classified yet) → empty mapping, not a crash.
+    cur = _curation()
+    monkeypatch.setattr(cur.gateway, "fetch_current_flow_market", lambda: pd.DataFrame())
+    assert cur._flow_market_map() == {}
+
+
+def test_seam_record_flow_market_forwards_to_writer_without_request_context(monkeypatch):
+    # The seam wrapper works outside a Flask request (headers={}), delegating to the BFF
+    # writer verbatim — the path a CLI-driven write (flow-market-seed) takes.
+    cur = _curation()
+    from embrapa_dashboard.serving import attribute_engineering
+
+    captured = {}
+
+    def _writer(customs_code, flow_code, market, headers, change_id=None):
+        captured.update(
+            customs_code=customs_code,
+            flow_code=flow_code,
+            market=market,
+            headers=headers,
+            change_id=change_id,
+        )
+        return {"deduped": False}
+
+    monkeypatch.setattr(attribute_engineering, "record_flow_market", _writer)
+    out = cur.record_flow_market("C04", "export", "processamento", change_id="k-9")
+    assert out == {"deduped": False}
+    assert captured["customs_code"] == "C04" and captured["flow_code"] == "export"
+    assert captured["market"] == "processamento" and captured["change_id"] == "k-9"
+    assert captured["headers"] == {}  # no request context → empty headers
 
 
 def test_market_nature_empty_for_commodity_without_comtrade_codes(monkeypatch):

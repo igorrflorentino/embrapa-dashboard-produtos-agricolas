@@ -907,10 +907,9 @@ def feedback_submit():
 
 
 # ─── Engenharia de Atributos endpoints ─────────────────────────────────────────
-# Two derived-attribute analyses + the per-code industrialization editor. Value-added +
-# the per-code industrialization are researcher-EDITABLE (gated by the `enable_curation`
-# dbt var). Market-nature is SEED-DRIVEN (the comtrade_market_nature seed → serving mart),
-# so it has NO editor route — only the read below.
+# Two derived-attribute analyses + TWO editors (per-code industrialization and the
+# customs×flow market-nature matrix). Both are researcher-EDITABLE (gated by the
+# `enable_curation` dbt var); each analysis reflects its editor after the next dbt build.
 @api.get("/cross/value-added")
 def cross_value_added():
     """``states`` optionally narrows the bruta×processada split to one origin UF(s)."""
@@ -919,7 +918,8 @@ def cross_value_added():
 
 @api.get("/cross/market-nature")
 def cross_market_nature():
-    """COMTRADE value by seed-classified economic purpose (consumo/processamento)."""
+    """COMTRADE value by economic purpose (consumo/processamento) — the edit-driven
+    (customs procedure × flow) classification, summed from the serving mart."""
     return jsonify(serializers.serialize_market_nature(seam.market_nature(_commodity())))
 
 
@@ -948,3 +948,29 @@ def curation_code_level():
         return jsonify(error="source, code and level are required"), 400
     logger.info("curation write by %s: %s/%s → %s", author, source, code, level)
     return jsonify(seam.record_code_level(source, code, level, change_id))
+
+
+@api.get("/attributes/flow-worklist")
+def curation_flow_worklist():
+    """The (customs procedure × flow) matrix — COMTRADE traded value ⟕ the current
+    market mapping (the "Tipo de Mercado" editor's data)."""
+    return jsonify(seam.flow_market_worklist())
+
+
+@api.post("/attributes/flow-market")
+def curation_flow_market():
+    """Append one (customs_code, flow_code) → market edit (market='' clears the pair).
+    Author captured from the IAP header (dev fallback per config); 401 (no identity) /
+    403 (invalid assertion or not an allowlisted attribute editor)."""
+    author, err = _authorize_attribute_editor()
+    if err:
+        return err
+    body = _json_object()
+    _coerce_str_fields(body, "customs_code", "flow_code", "market", "change_id")
+    customs_code, flow_code = body.get("customs_code"), body.get("flow_code")
+    market = body.get("market") or ""
+    change_id = body.get("change_id")
+    if not (customs_code and flow_code):
+        return jsonify(error="customs_code and flow_code are required"), 400
+    logger.info("curation write by %s: %s×%s → %s", author, customs_code, flow_code, market)
+    return jsonify(seam.record_flow_market(customs_code, flow_code, market, change_id))

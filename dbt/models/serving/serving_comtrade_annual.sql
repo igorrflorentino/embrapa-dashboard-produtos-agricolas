@@ -52,9 +52,6 @@ with comtrade as (
         -- key. Every Gold row thus carries a single family and this GROUP BY adds
         -- no rows (which is why the YAML uniqueness test omits family).
         family,
-        -- Tipo de mercado (consumo/processamento), a function of (customs_code, flow) both
-        -- in the grain → any_value is exact. The server-side market filter binds on it.
-        any_value(market_nature)    as market_nature,
         any_value(hs_chapter)       as hs_chapter,
         any_value(cmd_description)  as cmd_description,
         any_value(reporter_name)    as reporter_name,
@@ -99,7 +96,13 @@ select
     date(ct.reference_year, 12, 31) as reference_date,
     ct.flow,
     ct.customs_code,
-    ct.market_nature,
+    -- Tipo de mercado (consumo/processamento) — a function of (customs_code, flow),
+    -- now EDIT-DRIVEN: the current classification from the researcher-editable
+    -- dim_flow_market_scd2 (reverted from the comtrade_market_nature seed, v1.9.0).
+    -- NULL where the pair is unclassified. Materialized here, so the "Tipo de mercado"
+    -- filter + "Finalidade econômica" analysis reflect an edit after the next build
+    -- (the matrix editor itself reads the live view and is instant).
+    fm.market                       as market_nature,
     ct.cmd_code,
     ct.hs_chapter,
     ct.cmd_description,
@@ -132,3 +135,9 @@ select
 from comtrade ct
 left join {{ ref('gold_produto_agrupamento') }} x
     on x.source = 'comtrade' and x.code = ct.cmd_code
+-- Edit-driven market-nature (the current classification per customs procedure × flow).
+-- ct is grouped by (customs_code, flow), so this join stays at grain (one fm row per
+-- pair via is_current). Depends on dim_flow_market_scd2 → requires enable_curation
+-- (default true in dbt_project.yml; prod passes DBT_ENABLE_CURATION=true permanently).
+left join {{ ref('dim_flow_market_scd2') }} fm
+    on fm.customs_code = ct.customs_code and fm.flow_code = ct.flow and fm.is_current

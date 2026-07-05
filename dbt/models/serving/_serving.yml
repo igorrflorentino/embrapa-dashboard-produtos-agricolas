@@ -192,7 +192,7 @@ models:
         description: "UN customs procedure (regime aduaneiro). C00 = total; a reader summing over it gets the bilateral total. Server-side regime filter axis."
         tests: [not_null]
       - name: market_nature
-        description: "Tipo de mercado (consumo/processamento), seed-classified per (customs_code × flow). NULL where unmapped. Server-side market filter axis + the 'Finalidade econômica' analysis."
+        description: "Tipo de mercado (consumo/processamento) — the current classification per (customs_code × flow), edit-driven via dim_flow_market_scd2 (LEFT JOIN, is_current; reverted from the comtrade_market_nature seed, v1.9.0). NULL where the pair is unclassified. Server-side market filter axis + the 'Finalidade econômica' analysis; reflects a matrix edit after the next dbt build."
       - name: cmd_code
         tests: [not_null]
 

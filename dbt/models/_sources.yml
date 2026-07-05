@@ -121,12 +121,11 @@ sources:
       Researcher curation inputs — append-only logs written by the dashboard's
       curation panel (the Python data-access layer), NOT by the ingestion
       pipeline or dbt. The dashboard's "Aplicar" appends an immutable row per
-      manual edit; dim_code_industrialization_scd2 derives the Type-2 history
-      from it. The table is auto-created by
-      `serving.attribute_engineering.ensure_code_industrialization_log_table()` (house
-      auto-create pattern), so it may be absent on a fresh project —
-      dim_code_industrialization_scd2 is gated behind
-      `--vars 'enable_curation: true'`.
+      manual edit; the dim_*_scd2 views derive the Type-2 history from these
+      logs. The tables are auto-created by the
+      `serving.attribute_engineering.ensure_*_log_table()` helpers (house
+      auto-create pattern), so they may be absent on a fresh project — the
+      dim_*_scd2 views are gated behind `--vars 'enable_curation: true'`.
     database: "{{ target.project }}"
     schema: "{{ env_var('BQ_RESEARCH_INPUTS_DATASET', 'research_inputs') }}"
     tables:
@@ -140,6 +139,19 @@ sources:
           note, edited_by (IAP email), edited_at (TIMESTAMP), change_id.
           dim_code_industrialization_scd2 derives the Type-2 history; the
           value-added analysis splits COMEX exports by the current level.
+        config:
+          loaded_at_field: edited_at
+      - name: flow_market_log
+        identifier: "{{ env_var('BQ_FLOW_MARKET_LOG_TABLE', 'flow_market_log') }}"
+        description: >
+          Append-only SCD2 source at the (customs procedure × flow) grain: one row
+          per manual market-nature edit from the "Tipo de Mercado" matrix editor.
+          Columns: customs_code (C0x), flow_code (the normalized flow token —
+          export/import/re-export/…, matching serving_comtrade_annual.flow), market
+          (consumo/processamento; '' clears the pair), edited_by (IAP email),
+          edited_at (TIMESTAMP), change_id. dim_flow_market_scd2 derives the Type-2
+          history; serving_comtrade_annual LEFT JOINs the current classification into
+          its market_nature column. Reverted from the comtrade_market_nature seed (v1.9.0).
         config:
           loaded_at_field: edited_at
       - name: produto_catalog_log
