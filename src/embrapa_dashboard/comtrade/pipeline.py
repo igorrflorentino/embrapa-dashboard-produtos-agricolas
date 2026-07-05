@@ -152,8 +152,19 @@ def sync_raw(
             basename=basename,
         )
         if stored is not None:
-            logger.info("Comtrade %s: raw exists, skipping.", basename)
-            return False
+            # A RECENT year whose Bronze is an EMPTY sentinel may have been published by UN
+            # Comtrade since it was landed — re-fetch it (bounded to the recent window) so a
+            # newly-published year is picked up. Real data still resume-skips (delta), and an
+            # old empty sentinel (beyond the window, never coming) stays skipped.
+            recent = year >= settings.comtrade_end_year - settings.comtrade_recent_refetch_years
+            is_empty_sentinel = str(stored.get("empty", "")).lower() == "true"
+            if not (recent and is_empty_sentinel):
+                logger.info("Comtrade %s: raw exists, skipping.", basename)
+                return False
+            logger.info(
+                "Comtrade %s: recent empty sentinel — re-fetching (may have been published).",
+                basename,
+            )
 
     cmd_codes = resolve_cmd_codes(settings)
     # Adaptive: a single dense reporter can exceed the per-call cap at HS6, so the

@@ -343,6 +343,14 @@ class Settings(BaseSettings):
     # silver_comtrade_flows — see comtrade_cmd_codes above.
     comtrade_start_year: int = Field(default=1989)
     comtrade_end_year: int = Field(default_factory=_current_year)
+    # How many recent years (below comtrade_end_year) whose Bronze is an EMPTY sentinel
+    # get RE-FETCHED on a plain nightly run. UN Comtrade publishes an annual year with a
+    # ~1-2y lag, so a recent year fetched before it was published lands an empty sentinel;
+    # without this, that sentinel makes the chunk resume-skip forever and the year is never
+    # ingested once UN publishes it (COMTRADE is also excluded from `reconcile`). The
+    # re-fetch is bounded to empty sentinels within this window — real data still
+    # resume-skips (delta), and older empty years (never coming) stay skipped. 0 disables.
+    comtrade_recent_refetch_years: int = Field(default=2)
 
     # ─── Cold-storage backup ──────────────────────────────────────────────────
     # `embrapa doctor` warns when the most recent gs://${GCS_BUCKET}/backups/
@@ -608,15 +616,21 @@ class Settings(BaseSettings):
 
     @property
     def comtrade_flows_list(self) -> list[str]:
-        """Validated UN Comtrade flow codes: X=export, M=import, RX=re-export,
-        RM=re-import (the four primary regimes)."""
-        allowed = {"X", "M", "RX", "RM"}
+        """Validated UN Comtrade flow (trade regime) codes. The DEFAULT ingests the four
+        primary regimes (X=export, M=import, RX=re-export, RM=re-import); the six processing
+        regimes (DX/FM/MIP/MOP/XIP/XOP) are ALSO permitted so an operator can widen
+        COMTRADE_FLOWS and re-ingest — Silver already normalizes all ten to readable flow
+        tokens, so they surface end-to-end without further code changes."""
+        allowed = {"X", "M", "RX", "RM", "DX", "FM", "MIP", "MOP", "XIP", "XOP"}
         flows = [f.strip().upper() for f in self.comtrade_flows.split(",") if f.strip()]
         if not flows:
             raise ValueError("COMTRADE_FLOWS is empty.")
         invalid = [f for f in flows if f not in allowed]
         if invalid:
-            raise ValueError(f"COMTRADE_FLOWS has invalid flow(s) {invalid}; allowed: X, M, RX, RM")
+            raise ValueError(
+                f"COMTRADE_FLOWS has invalid flow(s) {invalid}; "
+                "allowed: X, M, RX, RM, DX, FM, MIP, MOP, XIP, XOP"
+            )
         return flows
 
 

@@ -345,7 +345,7 @@ def invalidate_flow_market_cache() -> None:
         logger.warning("Could not invalidate flow-market cache: %s", exc)
 
 
-# The 24 (customs procedure × flow) → market pairs from the retired
+# The 25 (customs procedure × flow) → market pairs from the retired
 # comtrade_market_nature seed (Contrato de Dados, "Tipos de Mercado"). Embedded here
 # so the cutover backfill can seed the append-log even though the CSV was deleted in the
 # same change. `flow` is the NORMALIZED token (matching serving_comtrade_annual.flow).
@@ -391,7 +391,7 @@ def seed_flow_market_from_seed(
     ``serving.curation.seed_catalog_from_env``; the author defaults to the IAP header
     (a ``system:flow-market-seed`` fallback for a headless CLI run).
 
-    Returns ``{"seeded": n, "skipped": n, "total": 24}``.
+    Returns ``{"seeded": n, "skipped": n, "total": 25}``.
     """
     cfg = settings or get_settings()
     bq = client or _bq_client(cfg)

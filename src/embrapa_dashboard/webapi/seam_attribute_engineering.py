@@ -202,6 +202,15 @@ def flow_market_worklist() -> dict:
             flows.add(r.flow_code)
             key = (r.customs_code, r.flow_code)
             agg[key] = agg.get(key, 0.0) + float(r.value_usd or 0)
+    # Every CURRENT classification must render as a cell — even a pair with no COMTRADE
+    # value (a specific regime absent from the data). Without this, a saved classification
+    # for a no-data pair is invisible in the matrix and uncounted in the KPI, so the
+    # researcher's edit silently disappears. Such cells get value_usd=0 (shown as "·").
+    for c, f in mapping:
+        if (c, f) not in agg:
+            agg[(c, f)] = 0.0
+        customs.add(c)
+        flows.add(f)
     cells = [
         {"customs_code": c, "flow_code": f, "value_usd": v, "market": mapping.get((c, f))}
         for (c, f), v in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)

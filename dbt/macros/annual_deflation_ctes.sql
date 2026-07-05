@@ -60,7 +60,12 @@ fx_year as (
     select
         reference_year,
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
+        -- The euro did not exist before 1999-01-01, so a pre-1999 "year-average EUR" is
+        -- spurious (a lone backfilled 1998-12-31 PTAX fixing would otherwise leak a
+        -- val_yearfx_eur for 1998, contradicting the EUR-pre-1999→NULL contract). NULL it
+        -- at the source so every gold's val_yearfx_eur is NULL before 1999.
+        avg(case when currency = 'EUR' and reference_year >= 1999
+                 then brl_per_foreign_unit end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
         -- 1994 changeover (Plano Real, 1994-07-01): PTAX before that date is

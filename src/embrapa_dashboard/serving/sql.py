@@ -191,7 +191,7 @@ def _market_nature(
     market: str | None,
 ) -> None:
     """Optional `market_nature = @market` predicate — the tipo de mercado (economic
-    purpose: consumo/processamento), seed-classified per (customs_code × flow). None/absent
+    purpose: consumo/processamento), edit-driven per (customs_code × flow). None/absent
     references market_nature at all → sums over every purpose (incl. the unmapped NULL rows),
     so a request without this param is byte-identical to before the dimension existed. Only
     the COMTRADE mart carries market_nature."""

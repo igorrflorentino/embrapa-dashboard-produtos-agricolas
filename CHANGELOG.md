@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.12.1] - 2026-07-05
+
+Remediação dos achados de uma **auditoria profunda do banco UN COMTRADE** (ingestão →
+Silver → Gold → mart de serving → "Tipo de Mercado" → frontend), verificados
+adversarialmente. NÃO inclui o achado crítico de produto (o C00 — ~94% do valor — é
+inclassificável por regime, e o Brasil reporta só C00, então "Tipo de Mercado" cobre ~5% do
+valor e 0% do Brasil; decisão de produto pendente).
+
+### Fixed
+- **`market=''` (limpar par) agora lê como NULL, não como classificação vazia.**
+  `dim_flow_market_scd2` filtra `market != ''`, então um par limpo não tem linha is_current →
+  o LEFT JOIN do mart devolve `market_nature` NULL (contrato "não classificado → NULL") e a
+  leitura ao vivo concorda — uma fonte de verdade simétrica.
+- **Todas as classificações de tipo de mercado renderizam na matriz.** `flow_market_worklist`
+  emite uma célula (valor 0) para todo par CLASSIFICADO mesmo sem dado COMTRADE — antes, uma
+  classificação salva para um par sem dado sumia silenciosamente da UI e do KPI.
+- **Anos COMTRADE recém-publicados são recuperados.** Um ano recente cujo Bronze é um
+  sentinela vazio (buscado antes de o UN publicar) é RE-buscado dentro de uma janela
+  (`COMTRADE_RECENT_REFETCH_YEARS`, default 2) — antes o sentinela fazia o chunk pular para
+  sempre e o `reconcile` exclui o COMTRADE, então o ano nunca era ingerido.
+- **`val_yearfx_eur` é NULL antes de 1999** (o euro não existia): a média-ano de EUR é
+  guardada em `annual_deflation_ctes` para `reference_year >= 1999`, eliminando um valor 1998
+  espúrio (afeta todos os golds — correto em todos).
+
+### Changed
+- **`COMTRADE_FLOWS` aceita os 10 regimes** (os 6 de aperfeiçoamento além de X/M/RX/RM) — o
+  default ainda ingere 4, mas a allowlist não rejeita mais os outros, que o Silver já
+  normaliza; alinha o comentário do Silver com o comportamento real.
+- Correções de doc/rótulo: `24 → 25` pares em todo lugar; comentários "seed-driven" →
+  "edit-driven" pós-v1.12.0; hints de valor-vs-registro (C00 é ~86% dos registros / 94% do
+  valor); grão do Gold com `customs_code`; contagem do gap de qualidade (~830 → ~56,5k).
+
 ## [1.12.0] - 2026-07-05
 
 **Engenharia de Atributos 100% descongelada.** As "Análises curadas" voltam ao topnav
@@ -28,7 +60,7 @@ atrás do mesmo `enable_curation` (default `true`; prod via `DBT_ENABLE_CURATION
   US$ realmente transacionado por par (materialidade). Escrita append-only autenticada por
   IAP (`POST /api/attributes/flow-market`), guardada pela mesma allowlist de editores de
   atributos; leitura ao vivo (`GET /api/attributes/flow-worklist`, view SCD2, TTL curto).
-- **`embrapa flow-market-seed`** (+ `make ensure-flow-market`): backfill idempotente dos 24
+- **`embrapa flow-market-seed`** (+ `make ensure-flow-market`): backfill idempotente dos 25
   pares do seed retirado para o log editável — o cutover (nada regride).
 
 ### Changed
