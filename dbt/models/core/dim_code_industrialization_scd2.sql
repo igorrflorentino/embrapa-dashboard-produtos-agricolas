@@ -9,8 +9,8 @@
 -- Researcher-editable per-code industrialization (bruta/processada). This model
 -- self-disables via the `enable_curation` flag in the config above, so a prod build must
 -- pass `--vars 'enable_curation: true'` to materialize it (and thus the value-added analysis
--- + the industrialization editor's reads). NOTE: this var now gates ONLY industrialization —
--- the market-nature is seed-driven (comtrade_market_nature → serving mart), never gated.
+-- + the industrialization editor's reads). The SAME var gates dim_flow_market_scd2 (the
+-- (customs procedure × flow) market-nature) — both derived attributes are edit-driven again.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- dim_code_industrialization_scd2 — Type-2 SCD over the researchers' append-only

@@ -279,8 +279,6 @@ models:
                          "export-inward-processing", "export-outward-processing"]
       - name: customs_code
         description: "UN Comtrade customs procedure (regime aduaneiro). C00 = todos os regimes / total (kept only where the reporter gives no per-regime breakdown); C01/C03/C20/… = specific procedures. ~86% of trade is reported only at C00."
-      - name: market_nature
-        description: "Tipo de mercado (consumo/processamento), seed-classified per (customs_code × flow) via comtrade_market_nature (Contrato de Dados). NULL where the pair has no economic-purpose mapping (Não se aplica / unmapped, incl. C00)."
       - name: reference_year
         tests:
           - not_null

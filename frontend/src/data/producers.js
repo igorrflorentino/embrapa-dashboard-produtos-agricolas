@@ -9,7 +9,7 @@
 // subscribes to resource changes and re-renders, so the view's next sync call
 // gets real data. Trade adapters (flow/partner/monthly) have no endpoint yet;
 // chain/lag are data-blocked — those return honest preview shells. (market-nature is
-// now seed-driven + real, see window.marketNatureAnalysis below.)
+// edit-driven + real via the "Tipo de Mercado" matrix, see window.marketNatureAnalysis below.)
 
 import { decorateUfRows } from './decorate';
 import { ensure, get } from './resource';
@@ -319,9 +319,9 @@ window.harvestShipmentLag = function harvestShipmentLag() {
     lagMonths: 0, corrAtLag: 0, lagProfile: [],
   };
 };
-// market-nature is SEED-DRIVEN: COMTRADE value summed by the economic purpose
-// (consumo/processamento) the static comtrade_market_nature seed (Contrato de Dados)
-// assigns to each (customs procedure × flow) pair, carried as serving_comtrade_annual.
+// market-nature is EDIT-DRIVEN: COMTRADE value summed by the economic purpose
+// (consumo/processamento) the researcher assigns to each (customs procedure × flow) pair in
+// the "Tipo de Mercado" matrix (dim_flow_market_scd2), carried as serving_comtrade_annual.
 // market_nature. Empty series when the recorte has no classified pair — the view guards
 // that with an honest empty state (no synthetic fallback).
 window.marketNatureAnalysis = crossAnalytic('market-nature', 'market-nature', {

@@ -560,14 +560,19 @@ function AppShell({
             <window.Icon name="inventory_2"/>Cadastro de produtos
           </div>
 
-          {/* Engenharia de Atributos — the per-code industrialization editor (researcher-
-              editable, gated by the `enable_curation` dbt var). The market-nature (Tipo de
-              Mercado) is now SEED-DRIVEN, so it has NO editor entry here — it surfaces only as
-              the "Finalidade econômica" analysis (Multi-fonte) + the "Tipo de mercado" filter. */}
+          {/* Engenharia de Atributos — TWO researcher-editable editors (gated by the
+              `enable_curation` dbt var): per-code industrialization + the (customs × flow)
+              market-nature matrix (reverted from the comtrade_market_nature seed). Both accept
+              ?ip=enrich_industrial / ?ip=enrich_market (?ip=curation is the legacy alias for
+              industrialization), so any stale deep link resolves rather than 404s. */}
           <div className="side-section">Engenharia de atributos</div>
           <div className={'side-item ' + (infoPage === 'enrich_industrial' || infoPage === 'curation' ? 'active' : '')}
                {...clickable(() => onInfo('enrich_industrial'))}>
             <window.Icon name="factory"/>Nível de industrialização
+          </div>
+          <div className={'side-item ' + (infoPage === 'enrich_market' ? 'active' : '')}
+               {...clickable(() => onInfo('enrich_market'))}>
+            <window.Icon name="hub"/>Tipo de Mercado
           </div>
 
           <div className="side-section">Informações</div>

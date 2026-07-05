@@ -275,6 +275,28 @@ def test_current_code_industrialization_filters_is_current():
     assert params == []
 
 
+def test_current_flow_market_filters_current_and_nonempty():
+    query, params = sql.current_flow_market("p.serving.dim_flow_market_scd2")
+    low = query.lower()
+    assert "is_current" in low
+    # A cleared pair (market='') must be excluded so only real classifications surface.
+    assert "market != ''" in low
+    assert "customs_code" in low and "flow_code" in low
+    assert params == []
+
+
+def test_flow_market_values_sums_per_pair_and_excludes_c00():
+    query, params = sql.flow_market_values("p.serving.serving_comtrade_annual")
+    low = query.lower()
+    assert "sum(val_yearfx_usd)" in low
+    assert "group by customs_code, flow" in low
+    # C00 (todos os regimes / total) is not a classifiable regime → excluded.
+    assert "customs_code != 'c00'" in low
+    # `flow` is aliased to flow_code so the cell keys match the log/matrix grain.
+    assert "flow                as flow_code" in low or "flow as flow_code" in low
+    assert params == []
+
+
 def test_table_ref_builds_fqn():
     settings = _isolated_settings(gcp_project_id="my-proj", bq_serving_dataset="serving")
     assert (

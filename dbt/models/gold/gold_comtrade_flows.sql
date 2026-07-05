@@ -76,9 +76,6 @@ base_flows as (
         partner_code,
         cmd_code,
         any_value(hs_chapter)                     as hs_chapter,
-        -- market_nature is a pure function of (customs_code, flow), both in the group key,
-        -- so any_value is exact (one value per group).
-        any_value(market_nature)                  as market_nature,
         -- The unit fields are picked together from the group's dominant-quantity
         -- row (same ORDER BY for all five) so family/base_unit/unit stay COHERENT
         -- even when a (reporter, partner, cmd) reported under mixed qty units; a
@@ -153,9 +150,10 @@ select
     -- equals the old C00-only total. A regime filter narrows on this; omitting it sums
     -- every regime back to the bilateral total.
     customs_code,
-    -- Tipo de mercado (consumo / processamento), seed-classified per (customs_code × flow);
-    -- NULL where the pair has no economic-purpose mapping. A market filter narrows on this.
-    market_nature,
+    -- NOTE: tipo de mercado (consumo/processamento) is NOT a Gold column. It reverted
+    -- from the comtrade_market_nature seed (v1.9.0) to the researcher-editable append-log
+    -- and is derived in the serving layer (serving_comtrade_annual LEFT JOINs
+    -- dim_flow_market_scd2) — an editable classification is kept out of the medallion fact.
 
     -- ── Product (HS) ─────────────────────────────────────────────────────────
     enriched.cmd_code,

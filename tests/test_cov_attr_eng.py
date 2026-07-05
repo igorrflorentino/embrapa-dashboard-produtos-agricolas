@@ -143,9 +143,10 @@ def test_value_added_returns_empty_when_value_query_empty(monkeypatch):
     }
 
 
-# ── seam market_nature: seed-driven analysis over serving_comtrade_annual ────────
-# market-nature is now READ-ONLY (seed-classified). The seam sums the serving mart's
-# market_nature column via gateway.fetch_market_nature_series — no editable-log path.
+# ── seam market_nature: analysis over serving_comtrade_annual.market_nature ──────
+# The market_nature column is edit-driven again (dim_flow_market_scd2 LEFT JOINed at build
+# time). This analysis just sums that mart column via gateway.fetch_market_nature_series;
+# the editable-log path (matrix editor) is covered in test_webapi_seam / test_webapi_routes.
 
 
 def test_market_nature_empty_when_reader_returns_none(monkeypatch):

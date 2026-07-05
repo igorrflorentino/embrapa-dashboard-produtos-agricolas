@@ -8,11 +8,12 @@ Two derived attributes:
     time — RESEARCHER-EDITABLE (an append-log SCD2 the researcher
     curates in the UI; gated by the `enable_curation` dbt var). Writes go through the
     verified BFF writer (IAP author capture).
-  • MARKET NATURE (consumo/processamento) — SEED-DRIVEN, NOT editable: the (customs
-    procedure × flow) → market mapping is the static `comtrade_market_nature` seed
-    (Contrato de Dados), carried as gold/serving_comtrade_annual.market_nature. The
-    analysis just sums the serving mart by that column; the old researcher-editable
-    flow-market log path was removed.
+  • MARKET NATURE (consumo/processamento) — RESEARCHER-EDITABLE again (reverted from the
+    comtrade_market_nature seed, v1.9.0): the (customs procedure × flow) → market mapping is
+    an append-log SCD2 (dim_flow_market_scd2) the researcher edits in the "Tipo de Mercado"
+    matrix. The matrix editor reads the LIVE mapping (short TTL); the "Finalidade econômica"
+    analysis sums the serving mart's market_nature column (LEFT JOIN of the SCD2, materialized
+    at build time → reflects an edit after the next dbt build).
 
 Imports only ``seam_base`` (the shared commodity toolkit) + the gateway, never
 ``seam`` itself, so the import graph stays acyclic. ``seam`` re-exports the public
@@ -149,6 +150,87 @@ def record_code_level(source: str, code: str, level: str, change_id: str | None 
     )
 
 
+# ── Flow-market matrix (customs procedure × flow → consumo/processamento) ──────
+# pt-BR labels for the ten UN Comtrade trade regimes, keyed by the NORMALIZED flow
+# token (matching serving_comtrade_annual.flow / the log's flow_code), not the raw
+# UN code (X/M/RX). Only export/import/re-export/re-import are ingested today; the
+# rest are kept so the label is correct if the ingestion scope ever widens.
+_FLOW_LABELS = {
+    "import": "Importação",
+    "export": "Exportação",
+    "national-export": "Exportação nacional",
+    "foreign-import": "Importação estrangeira",
+    "import-inward-processing": "Importação para aperfeiçoamento ativo",
+    "import-outward-processing": "Importação após aperfeiçoamento passivo",
+    "re-import": "Reimportação",
+    "re-export": "Reexportação",
+    "export-inward-processing": "Exportação após aperfeiçoamento ativo",
+    "export-outward-processing": "Exportação para aperfeiçoamento passivo",
+}
+
+
+def _flow_market_map() -> dict:
+    """{(customs_code, flow_code): market} from dim_flow_market_scd2; {} when the view is
+    absent (curation not enabled / nobody classified yet) — so the matrix renders before
+    activation. Any OTHER error propagates instead of being masked as "not activated"."""
+    try:
+        df = gateway.fetch_current_flow_market()
+    except NotFound:
+        return {}
+    if df is None or df.empty:
+        return {}
+    return {(r.customs_code, r.flow_code): r.market for r in df.itertuples()}
+
+
+def flow_market_worklist() -> dict:
+    """The (customs procedure × flow) matrix — COMTRADE traded value ⟕ the current market
+    mapping — backing the "Tipo de Mercado" editor. Each cell carries the real US$ value
+    (from the serving mart) so the researcher classifies what actually matters, and its
+    current market (from the live SCD2 view). Empty before any COMTRADE data / classification.
+    """
+    mapping = _flow_market_map()
+    customs: set = set()
+    flows: set = set()
+    agg: dict = {}
+    try:
+        df = gateway.fetch_flow_market_values()
+    except NotFound:
+        df = None
+    if df is not None and not df.empty:
+        for r in df.itertuples():
+            customs.add(r.customs_code)
+            flows.add(r.flow_code)
+            key = (r.customs_code, r.flow_code)
+            agg[key] = agg.get(key, 0.0) + float(r.value_usd or 0)
+    cells = [
+        {"customs_code": c, "flow_code": f, "value_usd": v, "market": mapping.get((c, f))}
+        for (c, f), v in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    return {
+        "customs": sorted(customs),
+        "flows": [{"code": f, "label": _FLOW_LABELS.get(f, f)} for f in sorted(flows)],
+        "cells": cells,
+        "classified": sum(1 for c in cells if c["market"]),
+        "total": len(cells),
+    }
+
+
+def record_flow_market(
+    customs_code: str, flow_code: str, market: str, change_id: str | None = None
+) -> dict:
+    """Append one (customs_code, flow_code) → market edit. The author comes from the
+    request's IAP header (dev fallback per config). ``change_id`` is the optional client
+    idempotency key (a retried save reusing it is a no-op). Wraps the verified BFF writer."""
+    from flask import has_request_context, request
+
+    from embrapa_dashboard.serving import attribute_engineering
+
+    headers = dict(request.headers) if has_request_context() else {}
+    return attribute_engineering.record_flow_market(
+        customs_code, flow_code, market, headers, change_id=change_id
+    )
+
+
 def value_added(agrupamento_id: str | None = None, uf_codes: tuple = ()) -> dict:
     """COMEX exports split by the curated industrialization LEVEL over the years.
 
@@ -277,14 +359,16 @@ def _value_added_predominant(point: dict) -> dict | None:
 
 
 # ── Market-nature — COMTRADE value by economic purpose (consumo/processamento) ──
-# SEED-DRIVEN, not editable: the (customs procedure × flow) → market mapping is the static
-# comtrade_market_nature seed (Contrato de Dados), carried into serving_comtrade_annual as
-# the market_nature column. The analysis just sums the serving mart by that column, scoped
-# to a commodity's HS codes — pairs with no economic-purpose mapping are simply absent.
+# The (customs procedure × flow) → market mapping is EDIT-DRIVEN (dim_flow_market_scd2,
+# reverted from the comtrade_market_nature seed), LEFT JOINed into serving_comtrade_annual
+# as the market_nature column. This analysis just sums the serving mart by that column,
+# scoped to a commodity's HS codes — pairs with no economic-purpose mapping are simply
+# absent. It reflects a matrix edit after the next dbt build (the editor's live reads use
+# flow_market_worklist above).
 def market_nature(agrupamento_id: str | None = None) -> dict:
     """COMTRADE trade value (US$ bi) by economic purpose (consumo/processamento) over the
-    years, optionally scoped to ONE commodity's HS codes. Seed-classified per
-    (customs procedure × flow); the serving mart pre-carries the market_nature column."""
+    years, optionally scoped to ONE commodity's HS codes. Classified per
+    (customs procedure × flow); the serving mart carries the market_nature column."""
     if agrupamento_id:
         codes = tuple(seam_base._codes(agrupamento_id, "comtrade"))
         if not codes:

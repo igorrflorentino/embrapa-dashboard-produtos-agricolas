@@ -1094,5 +1094,25 @@ def catalog_seed_from_env_cmd(
     )
 
 
+@app.command("flow-market-seed")
+def flow_market_seed_cmd(
+    author: str = typer.Option("system:flow-market-seed", help="Audit author for the seeded rows."),
+) -> None:
+    """Backfill the (customs procedure × flow) market-nature log from the retired
+    comtrade_market_nature seed's 24 pairs — the cutover for reverting market-nature to the
+    editable matrix. Idempotent (a pair already set to the same market is skipped). Run
+    against prod BEFORE the dbt build so serving_comtrade_annual.market_nature stays
+    populated. Requires the `webapi` extra."""
+    from embrapa_dashboard.serving.attribute_engineering import seed_flow_market_from_seed
+    from embrapa_dashboard.serving.iap import IAP_EMAIL_HEADER
+
+    headers = {IAP_EMAIL_HEADER: f"accounts.google.com:{author}"}
+    res = _with_webapp_context(lambda: seed_flow_market_from_seed(headers))
+    console.print(
+        f"[green]✓[/green] flow-market seeded: seeded={res['seeded']} "
+        f"skipped(already)={res['skipped']} of {res['total']}"
+    )
+
+
 if __name__ == "__main__":
     app()

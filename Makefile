@@ -4,7 +4,7 @@
         ingest-job-ppm-schedule ingest-job-alert iam-grant \
         webapi-run webapi-deploy \
         dbt-deps dbt-build dbt-build-prod dbt-build-prod-with-backup backup-gold \
-        dbt-build-curation serving-sync ensure-curation \
+        dbt-build-curation serving-sync ensure-curation ensure-flow-market \
         dbt-test dbt-source-freshness dbt-clean lint sqlfluff test clean \
         precommit-install precommit-run
 
@@ -109,7 +109,10 @@ serving-sync:    ## Install the dashboard data-access extra (flask + flask-cachi
 	uv sync --extra serving
 
 ensure-curation:    ## Create the append-only attribute-engineering log tables (research_inputs.*)
-	$(PY) python -c "from embrapa_dashboard.serving.attribute_engineering import ensure_code_industrialization_log_table as c; from embrapa_dashboard.serving.research_inputs import ensure_curators_table as a; print('code log ready:', c()); print('curators table ready:', a())"
+	$(PY) python -c "from embrapa_dashboard.serving.attribute_engineering import ensure_code_industrialization_log_table as c, ensure_flow_market_log_table as f; from embrapa_dashboard.serving.research_inputs import ensure_curators_table as a; print('code log ready:', c()); print('flow-market log ready:', f()); print('curators table ready:', a())"
+
+ensure-flow-market:    ## Create + backfill the (customs×flow) market-nature log from the retired seed (cutover)
+	$(PY) embrapa flow-market-seed
 
 dbt-build-curation: dbt-deps    ## Dev build INCLUDING the gated SCD2 curation dim (needs the log table)
 	$(DBT) build --vars 'enable_curation: true'

@@ -369,8 +369,12 @@ class Settings(BaseSettings):
     # dim_code_industrialization_scd2 + the value-added analysis (COMEX exports
     # split by the curated 8-level Commodity → Manufaturado scale).
     bq_code_industrialization_log_table: str = Field(default="code_industrialization_log")
-    # (The market-nature classification is no longer a log — it is the static
-    # comtrade_market_nature seed carried as serving_comtrade_annual.market_nature.)
+    # (customs procedure × flow) market-nature log — the SECOND curation grain,
+    # reverted from the comtrade_market_nature seed (v1.9.0) back to the researcher-
+    # editable matrix. Backs dim_flow_market_scd2, LEFT JOINed into
+    # serving_comtrade_annual.market_nature (the "Tipo de mercado" filter + the
+    # "Finalidade econômica" analysis).
+    bq_flow_market_log_table: str = Field(default="flow_market_log")
     # ─── User feedback ("Reportar problema") ──────────────────────────────────
     # Append-only feedback/issue reports (bug/dúvida/sugestão) written by ANY
     # IAP-authenticated user, in the research_inputs dataset (auto-created on first write).

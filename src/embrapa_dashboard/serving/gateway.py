@@ -683,12 +683,37 @@ _GOLD_PRODUCT = {
 @cache.memoize()
 def fetch_market_nature_series(codes: tuple = ()):
     """COMTRADE trade value (US$) by (economic-purpose market_nature × year), summed from
-    the serving mart's seed-classified ``market_nature`` column (rows with no market nature
-    are excluded). Backs the "Finalidade econômica" analysis. ``codes`` optionally narrows
-    to one commodity's HS codes. Static-seed classification → the default mart TTL."""
+    the serving mart's ``market_nature`` column (rows with no market nature are excluded).
+    Backs the "Finalidade econômica" analysis. ``codes`` optionally narrows to one
+    commodity's HS codes. The mart column is edit-driven (LEFT JOIN dim_flow_market_scd2,
+    materialized at build time) → the default mart TTL; it reflects a matrix edit after the
+    next dbt build (the editor's live reads use fetch_current_flow_market's short TTL)."""
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
     sql, params = sqlbuild.market_nature_series(table, codes=codes)
+    return run_query(sql, params)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_current_flow_market():
+    """Current (customs_code, flow_code) → market from ``dim_flow_market_scd2`` (the
+    live SCD2 view over the flow-market log). Short classification TTL (mirrors
+    ``fetch_current_code_industrialization``) so a fresh matrix edit is visible to the
+    editor within the window. Raises NotFound when the view doesn't exist yet (curation
+    not enabled / nothing classified) — the seam treats it as an empty mapping."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "dim_flow_market_scd2")
+    sql, params = sqlbuild.current_flow_market(table)
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_flow_market_values():
+    """Total traded value (US$) per (customs_code, flow) from serving_comtrade_annual —
+    the materiality signal in each matrix cell. Pre-aggregated mart → the default TTL."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
+    sql, params = sqlbuild.flow_market_values(table)
     return run_query(sql, params)
 
 
@@ -1584,14 +1609,6 @@ _SEED_CATALOG: list[tuple[str, str, bool, str]] = [
         "Unidades de quantidade (COMTRADE)",
         False,
         "Dimensão de unidade de quantidade do COMTRADE → família física.",
-    ),
-    (
-        "comtrade_market_nature",
-        "Tipos de mercado (COMTRADE)",
-        False,
-        "Natureza econômica do mercado (consumo ou processamento) para cada par "
-        "(regime aduaneiro × fluxo comercial) do COMTRADE. Calibração mantida pela "
-        "equipe; os pares ausentes correspondem a 'Não se aplica'.",
     ),
     (
         "ibge_municipio_mesh",

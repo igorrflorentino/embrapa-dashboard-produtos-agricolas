@@ -302,11 +302,11 @@ describe('ViewValueAdded', () => {
 
 // ── ViewMarketNature (curated economic-purpose analysis) ──────────────────────
 describe('ViewMarketNature (curated analysis)', () => {
-  it('renders the honest empty state when the series is empty (seed-driven, no classified pair)', () => {
+  it('renders the honest empty state when the series is empty (no classified pair)', () => {
     window.marketNatureAnalysis = vi.fn(() => ({ series: [] }));
     const { container } = render(<window.ViewMarketNature />);
     expect(container.textContent).toContain('Sem finalidade econômica classificada');
-    expect(container.textContent).toContain('seed de tipos de mercado');
+    expect(container.textContent).toContain('Tipo de Mercado');
     // selector still renders
     expect(container.textContent).toContain('Todas curadas');
   });

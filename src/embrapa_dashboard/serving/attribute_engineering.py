@@ -1,14 +1,15 @@
 """Engenharia de Atributos = the construction of NEW DERIVED COLUMNS on the data from
 researcher input. This is what the codebase historically (mis)labelled "Curadoria";
 the name "Curadoria" is now reserved for the catalog (what enters/exits the
-dashboard — ``serving/curation.py``). The append-only writer here builds ONE
-researcher-editable derived attribute:
+dashboard — ``serving/curation.py``). The append-only writers here build TWO
+researcher-editable derived attributes:
   * per-CODE industrialization (``record_code_industrialization`` →
-    ``research_inputs.code_industrialization_log``), the editor's grain.
+    ``research_inputs.code_industrialization_log``), the editor's primary grain; and
+  * (customs procedure × flow) market-nature (``record_flow_market`` →
+    ``research_inputs.flow_market_log``) — reverted from the comtrade_market_nature seed
+    (v1.9.0) back to the editable matrix.
 The Gold tables are never touched; the Type-2 history (valid_from / valid_to /
-is_current) is derived downstream by the SCD2 dbt view (gated by ``enable_curation``).
-(The OTHER derived attribute — market-nature — is now SEED-DRIVEN, not editable: the
-comtrade_market_nature seed carried as serving_comtrade_annual.market_nature.)
+is_current) is derived downstream by the SCD2 dbt views (gated by ``enable_curation``).
 
 Two side effects matter:
   1. The author is taken from the IAP-verified header (``edited_by``), never from
@@ -57,10 +58,18 @@ CODE_INDUSTRIALIZATION_LOG_SCHEMA = [
     bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
 ]
 
-# (The (customs procedure × flow) → market classification is no longer a researcher-
-# editable log — it is the static comtrade_market_nature seed, carried as the
-# serving_comtrade_annual.market_nature column. Only the per-code industrialization below
-# stays editable.)
+# The (customs procedure × flow) → economic-purpose market log. A `market` of ''
+# clears the pair (latest-wins on read). Backs dim_flow_market_scd2 → the
+# serving_comtrade_annual.market_nature column (the "Tipo de mercado" filter + the
+# "Finalidade econômica" analysis).
+FLOW_MARKET_LOG_SCHEMA = [
+    bigquery.SchemaField("customs_code", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("flow_code", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("market", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("edited_by", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("edited_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("change_id", "STRING", mode="REQUIRED"),
+]
 
 
 # ── Per-CODE industrialization log (the active grain) ─────────────────────────
@@ -209,3 +218,215 @@ def invalidate_code_industrialization_cache() -> None:
         cache.delete_memoized(gateway.fetch_current_code_industrialization)
     except Exception as exc:  # pragma: no cover - cache unbound / backend down
         logger.warning("Could not invalidate code-industrialization cache: %s", exc)
+
+
+# ── Flow-market log (customs procedure × flow → economic-purpose market) ──────
+def ensure_flow_market_log_table(
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> str:
+    """Create the flow-market log dataset + table if missing (clustered by the
+    pair). Idempotent — called on first write. Mirrors
+    :func:`ensure_code_industrialization_log_table`."""
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+    ensure_dataset(bq, f"{cfg.gcp_project_id}.{cfg.bq_research_inputs_dataset}", cfg.bq_location)
+    table = bigquery.Table(table_fqn, schema=FLOW_MARKET_LOG_SCHEMA)
+    table.clustering_fields = ["customs_code", "flow_code"]
+    bq.create_table(table, exists_ok=True)
+    logger.info("Flow-market log ready at %s", table_fqn)
+    return table_fqn
+
+
+def _validate_flow_market_edit(
+    customs_code: str, flow_code: str, market: str
+) -> tuple[str, str, str]:
+    """Strip + validate a flow-market edit, returning the normalized triple.
+
+    ``market`` is open-vocabulary (the UI offers consumo/processamento, and '' clears
+    the pair); the cap is only a sanity bound on the immutable audit row."""
+    customs_code = (customs_code or "").strip()
+    flow_code = (flow_code or "").strip()
+    market = (market or "").strip()
+    if not customs_code or not flow_code:
+        raise ValueError("customs_code e flow_code são obrigatórios.")
+    if len(market) > MAX_STAGE_LEN:
+        raise ValueError(f"market excede {MAX_STAGE_LEN} caracteres.")
+    return customs_code, flow_code, market
+
+
+def record_flow_market(
+    customs_code: str,
+    flow_code: str,
+    market: str,
+    headers: Mapping[str, str],
+    *,
+    change_id: str | None = None,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+    invalidate_cache: bool = True,
+) -> dict:
+    """Append one (customs_code, flow_code) → market edit (market='' clears it).
+    Auto-creates the log on first write. IAP author capture + read-after-write +
+    optional ``change_id`` idempotency key, mirroring
+    :func:`record_code_industrialization`."""
+    cfg = settings or get_settings()
+    customs_code, flow_code, market = _validate_flow_market_edit(customs_code, flow_code, market)
+
+    edited_by = author_email_from_headers(
+        headers,
+        dev_fallback=cfg.dev_author,
+        audience=cfg.iap_audience,
+    )
+    change_id, supplied = _resolve_change_id(change_id)
+    bq = client or _bq_client(cfg)
+    # Self-heal the log table on a fresh project (house auto-create pattern).
+    ensure_flow_market_log_table(cfg, bq)
+    table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_flow_market_log_table)
+
+    if supplied and _change_id_seen(bq, table_fqn, change_id):
+        logger.info(
+            "Curation(flow): duplicate change_id %s ignored (%s×%s)",
+            change_id,
+            customs_code,
+            flow_code,
+        )
+        return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=True)
+
+    sql = f"""
+        insert into `{table_fqn}`
+            (customs_code, flow_code, market, edited_by, edited_at, change_id)
+        values
+            (@customs_code, @flow_code, @market, @edited_by, current_timestamp(), @change_id)
+    """
+    params = [
+        bigquery.ScalarQueryParameter("customs_code", "STRING", customs_code),
+        bigquery.ScalarQueryParameter("flow_code", "STRING", flow_code),
+        bigquery.ScalarQueryParameter("market", "STRING", market),
+        bigquery.ScalarQueryParameter("edited_by", "STRING", edited_by),
+        bigquery.ScalarQueryParameter("change_id", "STRING", change_id),
+    ]
+    bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    logger.info("Curation(flow): %s×%s -> %s by %s", customs_code, flow_code, market, edited_by)
+
+    if invalidate_cache:
+        invalidate_flow_market_cache()
+
+    return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=False)
+
+
+def _flow_market_row(
+    customs_code: str,
+    flow_code: str,
+    market: str,
+    edited_by: str,
+    change_id: str,
+    *,
+    deduped: bool,
+) -> dict:
+    """The written/echoed flow-market row dict (shared by the write + dedup paths)."""
+    return {
+        "customs_code": customs_code,
+        "flow_code": flow_code,
+        "market": market,
+        "edited_by": edited_by,
+        "change_id": change_id,
+        "deduped": deduped,
+    }
+
+
+def invalidate_flow_market_cache() -> None:
+    """Drop the cached current flow-market mapping so the next read is fresh
+    (best-effort; mirrors :func:`invalidate_code_industrialization_cache`)."""
+    try:
+        cache.delete_memoized(gateway.fetch_current_flow_market)
+    except Exception as exc:  # pragma: no cover - cache unbound / backend down
+        logger.warning("Could not invalidate flow-market cache: %s", exc)
+
+
+# The 24 (customs procedure × flow) → market pairs from the retired
+# comtrade_market_nature seed (Contrato de Dados, "Tipos de Mercado"). Embedded here
+# so the cutover backfill can seed the append-log even though the CSV was deleted in the
+# same change. `flow` is the NORMALIZED token (matching serving_comtrade_annual.flow).
+_SEED_FLOW_MARKET_PAIRS: tuple[tuple[str, str, str], ...] = (
+    ("C01", "import", "consumo"),
+    ("C02", "re-import", "consumo"),
+    ("C03", "export", "consumo"),
+    ("C03", "national-export", "consumo"),
+    ("C04", "export", "processamento"),
+    ("C04", "foreign-import", "processamento"),
+    ("C04", "import", "processamento"),
+    ("C04", "re-export", "processamento"),
+    ("C05", "import", "processamento"),
+    ("C05", "national-export", "processamento"),
+    ("C06", "import", "processamento"),
+    ("C06", "import-inward-processing", "processamento"),
+    ("C07", "export", "processamento"),
+    ("C07", "import-outward-processing", "consumo"),
+    ("C08", "import", "processamento"),
+    ("C08", "import-inward-processing", "processamento"),
+    ("C09", "import", "processamento"),
+    ("C12", "export", "consumo"),
+    ("C12", "import", "consumo"),
+    ("C13", "export", "consumo"),
+    ("C13", "import", "consumo"),
+    ("C14", "export", "consumo"),
+    ("C14", "import", "consumo"),
+    ("C15", "export", "consumo"),
+    ("C15", "import", "consumo"),
+)
+
+
+def seed_flow_market_from_seed(
+    headers: Mapping[str, str],
+    *,
+    settings: Settings | None = None,
+    client: bigquery.Client | None = None,
+) -> dict:
+    """One-shot cutover backfill: append the retired comtrade_market_nature seed's
+    pairs into the flow-market log so the reverted matrix + the mart's market_nature
+    start populated (nothing regresses). Idempotent — a pair already classified with
+    the SAME market is skipped (so a re-run is a no-op). Mirrors
+    ``serving.curation.seed_catalog_from_env``; the author defaults to the IAP header
+    (a ``system:flow-market-seed`` fallback for a headless CLI run).
+
+    Returns ``{"seeded": n, "skipped": n, "total": 24}``.
+    """
+    cfg = settings or get_settings()
+    bq = client or _bq_client(cfg)
+    ensure_flow_market_log_table(cfg, bq)
+
+    # Current classifications (latest-wins per pair) already in the log — skip a pair
+    # that is already set to the same market so a re-run appends nothing.
+    existing: dict[tuple[str, str], str] = {}
+    try:
+        df = gateway.fetch_current_flow_market()
+        if df is not None and not df.empty:
+            existing = {(r.customs_code, r.flow_code): r.market for r in df.itertuples()}
+    except Exception as exc:  # pragma: no cover - view absent on a cold project
+        logger.info("seed_flow_market: no current mapping yet (%s)", exc)
+
+    seeded = skipped = 0
+    for customs_code, flow_code, market in _SEED_FLOW_MARKET_PAIRS:
+        if existing.get((customs_code, flow_code)) == market:
+            skipped += 1
+            continue
+        record_flow_market(
+            customs_code,
+            flow_code,
+            market,
+            headers,
+            settings=cfg,
+            client=bq,
+            invalidate_cache=False,  # one final invalidation below, not per-row
+        )
+        seeded += 1
+    invalidate_flow_market_cache()
+    logger.info(
+        "seed_flow_market: %d seeded, %d skipped (of %d)",
+        seeded,
+        skipped,
+        len(_SEED_FLOW_MARKET_PAIRS),
+    )
+    return {"seeded": seeded, "skipped": skipped, "total": len(_SEED_FLOW_MARKET_PAIRS)}

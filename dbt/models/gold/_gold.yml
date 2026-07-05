@@ -372,14 +372,6 @@ models:
       - name: customs_code
         description: "UN Comtrade customs procedure (regime aduaneiro). C00 = todos os regimes / total; specific procedures otherwise. SUM over customs_code = the bilateral total (no double-count)."
         tests: [not_null]
-      - name: market_nature
-        description: "Tipo de mercado (consumo/processamento), seed-classified per (customs_code × flow) via comtrade_market_nature. NULL where the pair has no economic-purpose mapping."
-        tests:
-          - accepted_values:
-              arguments:
-                values: [consumo, processamento]
-              config:
-                severity: warn
       - name: reference_year
         tests:
           - not_null

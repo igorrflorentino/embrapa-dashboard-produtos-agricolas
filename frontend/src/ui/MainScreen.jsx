@@ -36,10 +36,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
   }
 
   // Engenharia de atributos — the per-code industrialization editor (researcher-editable,
-  // gated by the enable_curation dbt var). ?ip=curation is the legacy alias. The old
-  // ?ip=enrich_market editor is GONE (market-nature is seed-driven now → the "Finalidade
-  // econômica" analysis + the "Tipo de mercado" filter), so a stale enrich_market link
-  // falls through to the generic info handler below.
+  // gated by the enable_curation dbt var). ?ip=curation is the legacy alias for it.
   if (infoPage === 'enrich_industrial' || infoPage === 'curation') {
     return (
       <div className="screen" data-screen-label="Engenharia de atributos · Nível de industrialização">
@@ -55,6 +52,27 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
           </div>
         </div>
         <window.ViewEnrichmentIndustrialization />
+      </div>
+    );
+  }
+
+  // Engenharia de atributos — the "Tipo de Mercado" regime × flow matrix editor (reverted
+  // from the comtrade_market_nature seed). Researcher-editable, gated by enable_curation.
+  if (infoPage === 'enrich_market') {
+    return (
+      <div className="screen" data-screen-label="Engenharia de atributos · Tipo de Mercado">
+        <div className="page-hero">
+          <div>
+            <div className="overline">Engenharia de atributos</div>
+            <h1 className="page-title">Tipo de Mercado</h1>
+            <p className="page-sub">
+              Classifique cada combinação de regime aduaneiro × fluxo pela finalidade econômica
+              (consumo ou processamento). As edições exigem autorização e ficam registradas com
+              o seu e-mail; nada é salvo até você aplicar à base.
+            </p>
+          </div>
+        </div>
+        <window.ViewEnrichmentMarketNature />
       </div>
     );
   }

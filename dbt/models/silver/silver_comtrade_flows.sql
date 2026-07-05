@@ -225,11 +225,11 @@ select
     p.cmd_code                                          as cmd_code_reported,
     p.hs_chapter,
     p.customs_code,
-    -- Tipo de mercado (natureza econômica: consumo / processamento) — a SEED-DRIVEN
-    -- classification of each (customs procedure × flow) pair, from the "Contrato de
-    -- Dados" spreadsheet (seed comtrade_market_nature). NULL where the pair has no
-    -- economic-purpose mapping ("Não se aplica" / unmapped, e.g. the C00 aggregate).
-    mn.market_nature,
+    -- Tipo de mercado (consumo/processamento) is NO LONGER carried here: it reverted
+    -- from the comtrade_market_nature seed (v1.9.0) back to the researcher-editable
+    -- append-log, and is now derived in the serving layer (serving_comtrade_annual
+    -- LEFT JOINs dim_flow_market_scd2). Keeping it out of Silver/Gold avoids inverting
+    -- the medallion (an editable classification would otherwise reach back into the fact).
     p.mode_of_supply_code,
     p.mode_of_transport_code,
     p.qty_unit_code,
@@ -252,7 +252,4 @@ left join {{ ref('unit_family_conversions') }} ufc
     on nullif(u.unit_raw, '') = ufc.unit_raw
 left join {{ ref('comtrade_hs_succession') }} succ
     on p.cmd_code = succ.reported_code
--- Seed-driven tipo de mercado: (customs procedure × normalized flow) → consumo/processamento.
-left join {{ ref('comtrade_market_nature') }} mn
-    on p.customs_code = mn.customs_code and p.flow = mn.flow
 where p.flow is not null
