@@ -37,9 +37,11 @@ def _client(monkeypatch, **settings_over):
     # exercise only the env allowlist and never touch BigQuery; the table-backed
     # test overrides this.
     monkeypatch.setattr(seam, "attribute_editor_emails", lambda: set())
-    # Stub the allowlist-table auto-create so authorization tests never touch
-    # BigQuery; the dedicated test overrides this to assert it is invoked.
+    # Stub BOTH allowlist-table auto-creates so authorization tests never touch BigQuery
+    # (and, importantly, so "ensure succeeded" holds → open mode is trustworthy: a failed
+    # ensure now fails CLOSED). The dedicated ensure-failure tests override these to boom.
     monkeypatch.setattr(routes, "ensure_attribute_editors_table", lambda: None)
+    monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)
     app = app_mod.create_app()
     app.config.update(TESTING=True)
     return app.test_client()

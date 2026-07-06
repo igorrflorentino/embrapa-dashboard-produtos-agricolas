@@ -76,9 +76,10 @@ def test_catalog_entry_upsert_auth_failure_returns_err(monkeypatch):
 
 def test_catalog_entry_remove_missing_fields_is_400(monkeypatch):
     """Authorized (open allowlist) but an incomplete remove body → 400 before any write."""
-    from embrapa_dashboard.webapi import seam
+    from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(routes, "ensure_catalog_editors_table", lambda: None)  # ensure OK
     monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
 
     def must_not_run(*a, **k):
