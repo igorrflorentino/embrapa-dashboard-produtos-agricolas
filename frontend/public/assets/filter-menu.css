@@ -331,6 +331,21 @@
   border-radius: var(--radius-pill);
 }
 .fm-cascade-hint svg { color: var(--embrapa-green); }
+/* Section-level product hint: a DIRECT child of .fm-section sitting BETWEEN the
+   header band and the grid (FilterMenu renders prodDim.hint there). .fm-section has
+   no padding, so with no margin the pill rendered flush to the section's left edge —
+   misaligned with the 22px-inset header/grid — and jammed against the header band.
+   Inset it to match that padding and give it breathing room above/below. flex +
+   fit-content (instead of the base inline-flex) makes the vertical margins reliable
+   while keeping the pill hugging its text. The INLINE header hints (Regime / Tipo de
+   mercado) live inside .fm-section-head-l — NOT direct children of .fm-section — so
+   this rule leaves them on their flex-gap spacing, untouched. */
+.fm-section > .fm-cascade-hint {
+  display: flex;
+  width: fit-content;
+  max-width: calc(100% - 44px);
+  margin: 12px 22px 0;
+}
 
 /* ----- Inline search ----------------------------------------- */
 .fm-search {
@@ -665,6 +680,8 @@
 }
 /* UF-level bancos (no município column) → 3 even columns. */
 .fm-geo-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+/* COMTRADE país reporter/parceiro → 2 even columns (no cascade column count). */
+.fm-geo-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .fm-geo-col {
   display: flex;
   flex-direction: column;
@@ -961,7 +978,7 @@
    ==================================================================== */
 @media (max-width: 600px) {
   .fm-grid { grid-template-columns: 1fr; gap: 2px; }
-  .fm-geo-grid, .fm-geo-grid.cols-3 { grid-template-columns: 1fr; }
+  .fm-geo-grid, .fm-geo-grid.cols-3, .fm-geo-grid.cols-2 { grid-template-columns: 1fr; }
   .fm-geo-col { min-height: 0; }
   .fm-search { min-width: 0; width: 100%; box-sizing: border-box; }
   .fm-date-row { grid-template-columns: 1fr; gap: 10px; }
@@ -991,6 +1008,8 @@
      faint circular blob behind the summary. A normal rounded rect + top-aligned
      icon reads cleanly whether it wraps or not. */
   .fm-cascade-hint { border-radius: var(--radius-md); align-items: flex-start; }
+  /* Match the section-level hint's inset to the tighter phone padding (14px). */
+  .fm-section > .fm-cascade-hint { max-width: calc(100% - 28px); margin: 10px 14px 0; }
   /* roomier tap targets for the geo checkboxes (was 5px padding — below iOS comfort) */
   .fm-check.geo { padding: 9px 8px; }
   .fm-bulk button { min-height: 36px; padding: 8px 4px; }

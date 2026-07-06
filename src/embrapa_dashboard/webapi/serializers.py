@@ -451,6 +451,26 @@ def serialize_geo_mesh(df: pd.DataFrame | None) -> dict:
     }
 
 
+def _country_list(df: pd.DataFrame | None) -> list[dict]:
+    """Shape a COMTRADE country frame (role, iso, name, code) into [{code, iso, name}],
+    already ORDER BY name from the mart query. ``name`` falls back to the ISO code."""
+    if _empty(df):
+        return []
+    return [{"code": str(r.code), "iso": r.iso, "name": r.name or r.iso} for r in df.itertuples()]
+
+
+def serialize_countries(payload: dict | None) -> dict:
+    """seam.comtrade_countries() → { reporters: [{code, iso, name}], partners: [...] }.
+
+    The two country universes (país reporter ~203, país parceiro ~246) backing the
+    COMTRADE filter pickers. Empty lists when the mart isn't built."""
+    payload = payload or {}
+    return {
+        "reporters": _country_list(payload.get("reporters")),
+        "partners": _country_list(payload.get("partners")),
+    }
+
+
 def serialize_product_uf(df: pd.DataFrame | None) -> dict:
     """seam.product_uf_ranking() → { uf: [{uf, name, region, value, q_mass, q_vol, q_count}] }.
 

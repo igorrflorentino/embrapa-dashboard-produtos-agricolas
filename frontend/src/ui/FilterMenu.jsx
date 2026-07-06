@@ -43,6 +43,10 @@ const { useState, useMemo } = React;
 const YEAR_START_FALLBACK = 1986;
 const YEAR_END_FALLBACK   = 2024;
 
+// ISO-A3 of the COMTRADE "home" reporter (Brazil) — the reporter picker's default single
+// selection. Mirrors settings.comtrade_brazil_iso on the backend (absent reporters ⇒ Brazil).
+const BRAZIL_ISO = 'BRA';
+
 // Compute the [start, end] year span from a banco snapshot's overview series,
 // falling back to the synthetic span when the snapshot is absent/empty.
 function bancoYearBounds(snap) {
@@ -523,6 +527,16 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   // the banco carrying market_nature (only COMTRADE → marketOptionsFor non-null).
   const marketOptions = window.marketOptionsFor ? window.marketOptionsFor(banco) : null;
   const hasMarket     = !!marketOptions;
+  // País reporter / parceiro (COMTRADE only) — two country multi-selects backed by the
+  // /api/countries universe (NOT a static OPTIONS map like flow/regime/market). Reading
+  // window.comtradeCountries() kicks the one-shot fetch; main.jsx's resource subscription
+  // re-renders once it lands. `countriesReady` gates the seed + apply (like the geo mesh).
+  const hasCountries = !!(window.hasCountryFilters && window.hasCountryFilters(banco));
+  const countries = hasCountries && window.comtradeCountries ? window.comtradeCountries() : null;
+  const reporterUniverse = (countries && countries.reporters) || [];
+  const partnerUniverse = (countries && countries.partners) || [];
+  const countriesReady = !hasCountries || !!countries;
+  const isoNameOf = (universe) => (iso) => (universe.find(c => c.iso === iso) || {}).name || iso;
 
   // ── Per-banco descriptors so the live menu is CORRECT for each banco
   // (no longer always PEVS): currency symbol/column, geo granularity, the
@@ -661,6 +675,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   const [customs, setCustoms] = useState((value && value.customs) || 'all');
   // Tipo de mercado (server-side, COMTRADE only). 'all' = every purpose.
   const [market, setMarket] = useState((value && value.market) || 'all');
+  // País reporter / parceiro (server-side, COMTRADE only) — Sets of ISO-A3 codes. reporter
+  // default = {Brasil}; partner default = all. Seeded on open (guarded on the country universe
+  // having loaded, like the geo seed) — the initial values here are just pre-seed placeholders.
+  const [reporters, setReporters] = useState(() => new Set([BRAZIL_ISO]));
+  const [partners,  setPartners]  = useState(() => new Set());
+  const [qReporters, setQReporters] = useState('');
+  const [qPartners,  setQPartners]  = useState('');
 
   // (eligibility memos + cascade-pruning effects now live in useGeoCascade above)
 
@@ -670,6 +691,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
   // universe — the IBGE mesh — loads asynchronously.
   const wasOpen = React.useRef(false);
   const geoSeeded = React.useRef(false);
+  const countriesSeeded = React.useRef(false);
   React.useEffect(() => {
     if (open && !wasOpen.current) {
       const v = value || {};
@@ -701,6 +723,7 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
       setCustoms(v.customs || 'all');
       setMarket(v.market || 'all');
       geoSeeded.current = false; // let the geo effect (re)seed once the mesh is ready
+      countriesSeeded.current = false; // ditto for the country universe (COMTRADE)
     }
     wasOpen.current = open;
     // Intentionally keyed ONLY on `open`: this re-syncs the DRAFT filter state from
@@ -728,6 +751,23 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     setMunis(    v.munis     != null ? new Set(v.munis)     : new Set(MUNIS.map(m => m.code)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, geoReady]);
+
+  // COUNTRY seed — like the geo seed, the reporter/partner universe (/api/countries) is an
+  // async resource, so seed once it has loaded. reporter: '__all__' → all reporters (world),
+  // array → that set, absent → {Brasil}. partner: array → that set, absent → all partners.
+  React.useEffect(() => {
+    if (!open || countriesSeeded.current || !countriesReady) return;
+    countriesSeeded.current = true;
+    const v = value || {};
+    const allRep = new Set(reporterUniverse.map(c => c.iso));
+    const allPar = new Set(partnerUniverse.map(c => c.iso));
+    setReporters(
+      v.reporters === '__all__' ? allRep
+        : Array.isArray(v.reporters) && v.reporters.length ? new Set(v.reporters)
+          : new Set([BRAZIL_ISO]));
+    setPartners(Array.isArray(v.partners) ? new Set(v.partners) : allPar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, countriesReady]);
 
   // products / flags filtered by search
   const filteredProducts = useMemo(() => {
@@ -828,7 +868,13 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     const marketChip = (hasMarket && marketOptions)
       ? (market === 'all' ? 'Todos os mercados' : ((marketOptions.find(o => o.value === market) || {}).label || market))
       : null;
-    return { products: prodChip, period: periodChip, geo: geoChip, quality: qualityChip, fluxo: fluxoChip, regime: regimeChip, mercado: marketChip };
+    const reporterChip = (hasCountries && countriesReady)
+      ? window.chipFmt.reporter([...reporters], reporterUniverse.length, isoNameOf(reporterUniverse))
+      : null;
+    const partnerChip = (hasCountries && countriesReady)
+      ? window.chipFmt.partner([...partners], partnerUniverse.length, isoNameOf(partnerUniverse))
+      : null;
+    return { products: prodChip, period: periodChip, geo: geoChip, quality: qualityChip, fluxo: fluxoChip, regime: regimeChip, mercado: marketChip, reporter: reporterChip, parceiro: partnerChip };
   };
 
   const applyAndClose = () => {
@@ -843,6 +889,20 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     // may have refilled a deep-linked subset to "all"); preserve the incoming value's geo
     // selection verbatim so Apply never silently widens it (H2 belt-and-suspenders).
     const v = value || {};
+    // País reporter (COMTRADE) 3-state encoder: {Brasil}/empty → undefined (Brazil default,
+    // byte-identical); the FULL universe → '__all__' (world total); else the ISO list. Preserve
+    // the incoming value until the country universe loaded (mirrors the geo belt-and-suspenders).
+    const reporterOut = (() => {
+      if (!countriesReady) return v.reporters ?? undefined;
+      if (reporters.size === 0) return undefined;
+      if (reporters.size >= reporterUniverse.length) return '__all__';
+      if (reporters.size === 1 && reporters.has(BRAZIL_ISO)) return undefined;
+      return [...reporters];
+    })();
+    // País parceiro: empty OR full → null (all); else the ISO list.
+    const partnerOut = !countriesReady
+      ? (v.partners ?? null)
+      : (partners.size === 0 || partners.size >= partnerUniverse.length) ? null : [...partners];
     if (typeof onApply === 'function') {
       onApply({
         ...buildChipSummary(),
@@ -867,6 +927,9 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
         customs: customs !== 'all' ? customs : undefined,
         // Tipo de mercado (server-side, COMTRADE): omitted when 'all' = every purpose.
         market: market !== 'all' ? market : undefined,
+        // País reporter / parceiro (server-side, COMTRADE) — see the encoders above.
+        reporters: reporterOut,
+        partners: partnerOut,
       });
     }
     close();
@@ -888,8 +951,11 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
     setFlow('all');
     setCustoms('all');
     setMarket('all');
+    setReporters(new Set([BRAZIL_ISO]));
+    setPartners(new Set(partnerUniverse.map(c => c.iso)));
     [setQProducts, setQFlags, setQNations, setQRegions, setQStates,
-     setQMesos, setQMicros, setQInters, setQImediatas, setQMunis].forEach(fn => fn(''));
+     setQMesos, setQMicros, setQInters, setQImediatas, setQMunis,
+     setQReporters, setQPartners].forEach(fn => fn(''));
   };
 
   if (!open) return null;
@@ -1009,6 +1075,50 @@ function FilterMenu({ open = false, banco = 'ibge_pevs', value, onClose, onApply
                       {o.label}
                     </button>
                   ))}
+                </div>
+              </div>
+            </section>
+            )}
+
+            {/* ─── PAÍSES (país reporter / parceiro) — FUNCTIONAL server-side filter, COMTRADE
+                 only. Two multi-selects over the /api/countries universe: reporter = de quem é o
+                 comércio (padrão Brasil; "Selecionar tudo" = mundo), parceiro = a contraparte
+                 (padrão todos). Picking re-fetches the snapshot like Fluxo. ─── */}
+            {hasCountries && countries && (
+            <section className="fm-section">
+              <div className="fm-section-head">
+                <div className="fm-section-head-l">
+                  <span className="fm-section-label">Países</span>
+                  <span className="fm-cascade-hint">
+                    Reporter = de quem é o comércio (padrão Brasil) · Parceiro = contraparte (padrão todos)
+                  </span>
+                </div>
+                <span className="fm-section-meta">
+                  {reporters.size >= reporterUniverse.length
+                    ? 'mundo'
+                    : `${reporters.size} reporter${reporters.size === 1 ? '' : 's'}`}
+                  {' · '}
+                  {partners.size === 0 || partners.size >= partnerUniverse.length
+                    ? 'todos os parceiros'
+                    : `${partners.size} parceiro${partners.size === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              <div className="fm-section-inner">
+                <div className="fm-geo-grid cols-2">
+                  <GeoColumn
+                    title="País reporter" items={reporterUniverse}
+                    keyAttr="iso" displayAttr="name" getMeta={(x) => x.iso}
+                    selected={reporters} setSelected={setReporters}
+                    search={qReporters} setSearch={setQReporters}
+                    emptyAllNote="Nenhum reporter selecionado — o padrão (Brasil) será aplicado."
+                  />
+                  <GeoColumn
+                    title="País parceiro" items={partnerUniverse}
+                    keyAttr="iso" displayAttr="name" getMeta={(x) => x.iso}
+                    selected={partners} setSelected={setPartners}
+                    search={qPartners} setSearch={setQPartners}
+                    emptyAllNote="Todos os parceiros (nenhum recorte)."
+                  />
                 </div>
               </div>
             </section>

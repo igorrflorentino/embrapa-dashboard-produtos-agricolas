@@ -2106,6 +2106,13 @@ body.sb-resizing .sidebar-resizer { background: color-mix(in srgb, var(--embrapa
   color: var(--fg-2);
 }
 .foot-meta a { color: var(--fg-3); }
+/* Second footer column (dev-team credit): a vertical divider reads well once the
+   two columns sit side by side (wide viewports); at narrow widths .footer's own
+   flex-wrap stacks them and the divider is dropped so it never floats alone. */
+@media (min-width: 700px) {
+  .foot-meta-team { border-left: 1px solid var(--border-default); padding-left: 40px; }
+}
+
 
 /* Material Symbols — fixed glyph box so the icon never spills as text */
 .material-symbols-outlined {

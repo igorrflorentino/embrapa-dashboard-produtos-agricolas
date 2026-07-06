@@ -186,6 +186,35 @@ def _market_from_summary(summary: dict | None) -> str | None:
     return market
 
 
+# The world sentinel the FilterMenu reporter picker emits: ``reporters == "__all__"`` means
+# "todos os reporters" (world total) — DISTINCT from absent (Brazil default) and from a
+# specific ISO list. Kept in sync with the frontend (urlState 'ALL' ↔ summary '__all__').
+_REPORTER_WORLD = "__all__"
+
+
+def _country_reader_kwargs(summary: dict | None) -> dict:
+    """COMTRADE reporter/partner country filters → gateway reader kwargs (COMTRADE only).
+
+    reporter is 3-state — absent → Brazil default (the gateway's own default, so we pass
+    nothing), ``"__all__"`` → world total (``pin_reporter=None``, no reporter predicate), a
+    list → ``reporters`` IN-list. partner is a plain list (absent → all). Returns ONLY the
+    keys that differ from the gateway defaults, so an unfiltered COMTRADE request stays
+    byte-identical to before this feature.
+    """
+    if not summary:
+        return {}
+    kw: dict = {}
+    reporters = summary.get("reporters")
+    if reporters == _REPORTER_WORLD:
+        kw["pin_reporter"] = None
+    elif reporters:
+        kw["reporters"] = tuple(reporters)
+    partners = summary.get("partners")
+    if partners:
+        kw["partners"] = tuple(partners)
+    return kw
+
+
 def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     """Return the per-banco serving snapshot for the active conventions + filters.
 
@@ -217,6 +246,11 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
     customs = _customs_from_summary(summary)
     # Tipo de mercado (consumo/processamento) — same server-side story, COMTRADE-only.
     market = _market_from_summary(summary)
+    # Country filters (país reporter / parceiro) — server-side, COMTRADE only (COMEX has no
+    # reporter/partner column). reporter is 3-state (absent=Brasil, "__all__"=mundo, list=IN);
+    # partner is a list. Threaded into the productTS + overview readers below (the two series
+    # the COMTRADE views actually render). Quality stays GLOBAL in v1 (not country-scoped).
+    country_kw = _country_reader_kwargs(summary) if banco_id == "un_comtrade" else {}
 
     products = gateway.fetch_products(banco_id)
     quality = gateway.fetch_quality_by_source(source=banco_id)
@@ -239,6 +273,7 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             value_column=value_col,
             flow=flow,
             **regime_kw,
+            **country_kw,
         )
         overview_fn = (
             gateway.fetch_comex_overview
@@ -253,6 +288,7 @@ def snapshot(banco_id: str, conv: dict, summary: dict | None = None) -> dict:
             flow=flow,
             **{code_kw: codes},
             **regime_kw,
+            **country_kw,
         )
         uf_data = (
             gateway.fetch_comex_by_uf(
@@ -524,6 +560,24 @@ def geo_mesh() -> pd.DataFrame | None:
         return None
 
 
+def comtrade_countries() -> dict:
+    """Distinct reporter + partner country universes for the COMTRADE filter pickers.
+
+    Returns ``{"reporters": DataFrame|None, "partners": DataFrame|None}`` (rows split by the
+    ``role`` column). Degrades to empty (``None`` frames) if the mart isn't built — NOT a
+    500 that would break the filter menu — mirroring :func:`geo_mesh`."""
+    try:
+        df = gateway.fetch_comtrade_countries()
+    except NotFound:
+        return {"reporters": None, "partners": None}
+    if df is None or df.empty:
+        return {"reporters": None, "partners": None}
+    return {
+        "reporters": df[df["role"] == "reporter"],
+        "partners": df[df["role"] == "partner"],
+    }
+
+
 def geo_municipio_yearly(
     banco_id: str, conv: dict, summary: dict | None = None
 ) -> pd.DataFrame | None:
@@ -621,7 +675,9 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
             year_start=y0, year_end=y1, ncm_codes=codes, flow="export", uf_codes=_states(summary)
         )
     else:
-        links = gateway.fetch_comtrade_flows(year_start=y0, year_end=y1, cmd_codes=codes)
+        links = gateway.fetch_comtrade_flows(
+            year_start=y0, year_end=y1, cmd_codes=codes, **_country_reader_kwargs(summary)
+        )
     dims = banco.dimensions
     return {
         "links": links,
@@ -653,7 +709,11 @@ def partner_data(
             year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary), rank_by=rank_by
         )
     return gateway.fetch_comtrade_partners(
-        year_start=y0, year_end=y1, cmd_codes=codes, rank_by=rank_by
+        year_start=y0,
+        year_end=y1,
+        cmd_codes=codes,
+        rank_by=rank_by,
+        **_country_reader_kwargs(summary),
     )
 
 

@@ -597,6 +597,10 @@ def snapshot():
     market, err = _market_or_400(request.args.get("market"))
     if err:
         return err
+    # COMTRADE country filters (país reporter / parceiro) — server-side like flow.
+    # reporter is 3-state (absent → Brazil, "__all__" → world, list → IN); partner is a list.
+    reporters = _reporters_param(request.args.get("reporters"))
+    partners = _csv_param(request.args.get("partners"))
     summary: dict = {}
     if flow:
         summary["flow"] = flow
@@ -604,6 +608,10 @@ def snapshot():
         summary["customs"] = customs
     if market and market != "all":
         summary["market"] = market
+    if reporters is not None:
+        summary["reporters"] = reporters
+    if partners:
+        summary["partners"] = partners
     return jsonify(serializers.serialize_snapshot(seam.snapshot(banco, conv, summary or None)))
 
 
@@ -658,6 +666,15 @@ def geo_mesh():
     to build the geography cascade's sub-UF + município option lists and the
     cityCode→ancestry map. { municipios: [] } if the dim isn't built."""
     return jsonify(serializers.serialize_geo_mesh(seam.geo_mesh()))
+
+
+@api.get("/countries")
+def countries():
+    """Distinct país reporter + país parceiro universes for the COMTRADE filter pickers
+    (código M49 + ISO-A3 + nome pt-BR). The SPA fetches it once (like /geo-mesh) to
+    populate the two country multi-selects. { reporters: [], partners: [] } if the
+    COMTRADE mart isn't built. Banco-agnostic — the SPA only calls it for un_comtrade."""
+    return jsonify(serializers.serialize_countries(seam.comtrade_countries()))
 
 
 @api.post("/municipio-yearly")
@@ -751,20 +768,34 @@ def _csv_param(raw: str | None) -> list[str]:
     return items
 
 
+def _reporters_param(raw: str | None) -> str | list[str] | None:
+    """Parse the COMTRADE ``reporters`` query param into the seam summary value (3-state):
+    ``None`` (absent → Brazil default), the ``"__all__"`` world sentinel verbatim, or a
+    capped ISO-A3 list (an effectively-empty list also degrades to ``None`` = default)."""
+    if not raw:
+        return None
+    if raw == "__all__":
+        return "__all__"
+    return _csv_param(raw) or None
+
+
 def _filter_summary() -> dict | None:
     """Parse the active-filter query params into the seam's summary shape.
 
     The reused views pass the FilterMenu selection through the producers as URL
     params: ``codes`` (comma-joined product codes → basket), ``states``
     (comma-joined UF acronyms → states, the origin-UF filter the COMEX trade
-    readers honour) and ``y0``/``y1`` (the year window). The seam reads ``basket`` +
-    ``states`` + ``startDate``/``endDate``; year strings are sliced to the leading 4
-    digits there, so a bare year suffices. Returns ``None`` when no filter param is
-    present (the unfiltered default).
+    readers honour), ``y0``/``y1`` (the year window) and — for COMTRADE — ``reporters``
+    (3-state país reporter) / ``partners`` (país parceiro list). The seam reads ``basket``
+    + ``states`` + ``startDate``/``endDate`` + ``reporters``/``partners``; year strings are
+    sliced to the leading 4 digits there, so a bare year suffices. Returns ``None`` when no
+    filter param is present (the unfiltered default).
     """
     basket = _csv_param(request.args.get("codes"))
     states = _csv_param(request.args.get("states"))
     y0, y1 = request.args.get("y0"), request.args.get("y1")
+    reporters = _reporters_param(request.args.get("reporters"))
+    partners = _csv_param(request.args.get("partners"))
     summary = {
         key: value
         for key, value in (
@@ -772,6 +803,8 @@ def _filter_summary() -> dict | None:
             ("states", states),
             ("startDate", y0),
             ("endDate", y1),
+            ("reporters", reporters),
+            ("partners", partners),
         )
         if value
     }

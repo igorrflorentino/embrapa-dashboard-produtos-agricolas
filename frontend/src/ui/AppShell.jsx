@@ -669,6 +669,20 @@ function AppShell({
           <div className="caption">Ministério da Agricultura e Pecuária</div>
           <div className="caption"><a href="https://www.embrapa.br" target="_blank" rel="noopener noreferrer">www.embrapa.br</a> &nbsp;·&nbsp; <a href="https://www.embrapa.br/fale-conosco/sac" target="_blank" rel="noopener noreferrer">Serviço de Atendimento ao Cidadão (SAC)</a></div>
         </div>
+        {/* Dev-team credit — distinct from the institutional Embrapa block above: who
+            builds/maintains THIS dashboard (as opposed to the research institution), so a
+            researcher hitting a bug or a data question can reach the maintainer directly
+            without digging through "Sobre o dashboard". Mirrors the same contact email
+            already shown there (ViewAbout's "Contato técnico"), kept in sync manually. */}
+        <div className="foot-meta foot-meta-team">
+          <div>Desenvolvimento e manutenção</div>
+          <div className="caption">Equipe de engenharia de dados do dashboard</div>
+          <div className="caption">
+            <a href="mailto:igor.lopes@embrapa.br">Contato técnico</a>
+            &nbsp;·&nbsp;
+            <a href="https://github.com/igorrflorentino/embrapa-dashboard-produtos-agricolas" target="_blank" rel="noopener noreferrer">Código-fonte no GitHub</a>
+          </div>
+        </div>
       </footer>
     </div>
   );

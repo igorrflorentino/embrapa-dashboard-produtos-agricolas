@@ -55,6 +55,21 @@ const filterSig = (summary) => {
   const y1 = filterYear(summary && summary.endDate) ?? '';
   return `${codes}|${states}|${y0}|${y1}`;
 };
+// COMTRADE país reporter / parceiro selection → query params + a cache-key fragment.
+// reporter is 3-state: absent → undefined (Brazil default, omitted), '__all__' → world
+// sentinel, list → CSV. partner: list → CSV, absent → undefined (all). Only un_comtrade
+// carries these; other bancos' summaries lack them, so both resolve to undefined.
+const filterReporters = (summary) => {
+  const r = summary && summary.reporters;
+  if (r === '__all__') return '__all__';
+  return Array.isArray(r) && r.length ? r.join(',') : undefined;
+};
+const filterPartners = (summary) => {
+  const p = summary && summary.partners;
+  return Array.isArray(p) && p.length ? p.join(',') : undefined;
+};
+const countrySig = (summary) =>
+  `${filterReporters(summary) ?? 'BR'}|${filterPartners(summary) ?? 'ALL'}`;
 // True when the active summary GENUINELY narrows the UF dimension — states present
 // and a proper subset of the full UF universe (window.UF_DATA), or explicitly
 // cleared ([]). The all-27-selected default (every UF checked) is NOT a narrowing,
@@ -139,6 +154,17 @@ window.geoMesh = function geoMesh() {
   ensure(key, () => `${API}/geo-mesh`);
   const data = get(key);
   return data && Array.isArray(data.municipios) ? data.municipios : null;
+};
+
+// COMTRADE país reporter + país parceiro universes (código M49 + ISO-A3 + nome pt-BR).
+// Banco-agnostic + static (one DISTINCT over the mart), so no convention/basket in its key —
+// fetched once and cached, like geoMesh. Backs the two country multi-selects in the filter
+// menu. Returns { reporters, partners } (arrays of {code, iso, name}) or null until it lands.
+window.comtradeCountries = function comtradeCountries() {
+  const key = 'comtradeCountries';
+  ensure(key, () => `${API}/countries?banco=un_comtrade`);
+  const data = get(key);
+  return data && Array.isArray(data.reporters) ? data : null;
 };
 
 // Basket-scoped per-(município, year) cube — the FINEST geography grain. Mirrors
@@ -349,8 +375,12 @@ window.flowData = function flowData(bancoId, summary) {
   // country origin it is not-applicable, so omit it (and note it below).
   const states = applies ? filterStates(summary) : undefined;
   const notApplicable = ufNote(bancoId, summary, applies);
-  const key = `trade:flow:${bancoId}:${filterSig(summary)}`;
-  ensure(key, () => `${API}/flow?${qs({ banco: bancoId, codes, states, y0, y1 })}`);
+  const key = `trade:flow:${bancoId}:${filterSig(summary)}:${countrySig(summary)}`;
+  ensure(key, () =>
+    `${API}/flow?${qs({
+      banco: bancoId, codes, states, y0, y1,
+      reporters: filterReporters(summary), partners: filterPartners(summary),
+    })}`);
   const data = get(key);
   const dim = (d) => (window.bancoDim ? window.bancoDim(bancoId, d) : {});
   const labels = {
@@ -373,8 +403,12 @@ window.partnerData = function partnerData(bancoId, summary, metric) {
   // re-ranks server-side rather than re-sorting a value-ranked page (which would
   // drop niche high-price buyers — see serving/sql.trade_by_partner).
   const m = metric || 'value';
-  const key = `trade:partners:${bancoId}:${m}:${filterSig(summary)}`;
-  ensure(key, () => `${API}/partners?${qs({ banco: bancoId, codes, states, y0, y1, metric: m })}`);
+  const key = `trade:partners:${bancoId}:${m}:${filterSig(summary)}:${countrySig(summary)}`;
+  ensure(key, () =>
+    `${API}/partners?${qs({
+      banco: bancoId, codes, states, y0, y1, metric: m,
+      reporters: filterReporters(summary), partners: filterPartners(summary),
+    })}`);
   const data = get(key);
   const flowLabel = (window.bancoDim && window.bancoDim(bancoId, 'partner').label) || 'Parceiro';
   return data
