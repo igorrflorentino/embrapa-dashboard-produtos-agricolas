@@ -197,11 +197,15 @@ window.FILTER_SCHEMAS = {
       { id: 'uf_origem', tier: 'shared',    type: 'multi',
         requires: 'geo', backed: true,
         label: 'UF de origem',             column: 'uf_origem',
-        hint: 'Unidade da federação do exportador.' },
+        // Always the BRAZILIAN side of the operation (the establishment UF), for both
+        // flows — not the foreign counterpart. On import there is no Brazilian
+        // "exporter", so spell out the per-flow meaning to avoid a directional misread.
+        hint: 'UF brasileira da operação — origem na exportação, destino na importação (sempre o lado nacional).' },
       // ── Declared in the source but NOT filterable yet (backed:false → hidden) ──
       // País parceiro lives only in the dedicated flows/partners endpoints, not as
       // a filter axis of the pre-aggregated snapshot; `via` (transport route) is
-      // summed away in Silver. Surfaced here for documentation + a future backend
+      // summed away at the SERVING layer (serving_comex_annual) — Silver and Gold both
+      // keep transport_route_code. Surfaced here for documentation + a future backend
       // pass, but hidden from the menu until a real filter path exists.
       { id: 'pais',      tier: 'specific',  type: 'multi-search',
         requires: 'partner', backed: false,
