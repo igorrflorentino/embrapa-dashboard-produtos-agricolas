@@ -58,8 +58,10 @@ with comex as (
         -- serving_pevs_annual) so the dashboard can serve BRL/EUR — at the REAL
         -- year-FX / deflated values Gold already computes — instead of the
         -- frontend cross-converting USD via a frozen mock rate. The BRL/EUR (and
-        -- all val_real_*) columns are NULL pre-1994 by the Gold guard; that
-        -- NULL-pre-1994 semantics carries through this SUM automatically.
+        -- all val_real_*) columns are NULL pre-1994 because Gold's FX/deflation
+        -- LEFT JOINs find no matching pre-1994 rows (COMEX starts 1997, so this
+        -- never actually bites) — NOT an explicit year guard; that NULL semantics
+        -- carries through this SUM automatically.
         sum(val_yearfx_brl)         as val_yearfx_brl,
         sum(val_yearfx_usd)         as val_yearfx_usd,
         sum(val_yearfx_eur)         as val_yearfx_eur,
