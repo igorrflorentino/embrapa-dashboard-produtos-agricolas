@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.2] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco IBGE PPM** (pecuária) — a base mais
+saudável auditada até agora. Os 2 achados são defensivos: NÃO há bug ativo (verificado em
+produção — o front-end já segrega corretamente estoque/fluxo por toda parte). *(Assume que a
+PR #224 — COMEX, 1.13.1 — entra antes; reconciliação trivial da versão caso a ordem mude.)*
+
+### Changed (defesa em profundidade)
+- **Agregação de valor "flow-only" para fontes com `measure_kind` (PPM).** Os builders de
+  produção (`production_overview` / `_by_uf` / `_by_uf_yearly`, `product_timeseries`) agora
+  envolvem a soma de valor num `CASE WHEN measure_kind = 'flow'` quando a fonte carrega o
+  discriminador estoque/fluxo (via `has_measure_kind`, derivado de `source ∈
+  _MEASURE_KIND_SOURCES`). Torna EXPLÍCITO o contrato "efetivo de rebanho (estoque, cabeças)
+  não tem valor" e defende contra uma futura linha de estoque que vaze valor não-nulo.
+  Semanticamente um **no-op hoje** — verificado em prod: valor de estoque é 100% NULL, e a
+  soma de fluxo é idêntica (US$/R$ 2.418,88 bi). A QUANTIDADE fica sem guarda de propósito
+  (cabeças é uma quantidade válida — alimenta a perspectiva Rebanho).
+- **Nota de cache (forward-compat).** O tratamento `measure_kind` é derivado da fonte, e
+  `source` já está na chave do `@cache.memoize` de cada reader → sem colisão possível.
+  Documentado que, se `measure_kind` virar um filtro do usuário, deve entrar na assinatura do
+  reader para compor a chave de cache (precedente `flow`/`customs`/`market`).
+
 ## [1.13.0] - 2026-07-05
 
 **COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**
