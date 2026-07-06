@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.3] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco IBGE PAM** (produção agrícola). O maior risco
+— o rendimento ser uma RAZÃO somada indevidamente — está **correto por design** (o serving
+descarta o rendimento reportado e o front-end recalcula Σqty ÷ Σárea). Os achados são portões
+de qualidade de dados + 1 bug de UI. *(Assume que #224/1.13.1 e #225/1.13.2 entram antes;
+reconciliação trivial da versão caso a ordem mude.)*
+
+### Fixed
+- **Botão "Exportar" da perspectiva Produtividade (falha silenciosa).** `views.js`:
+  `exportable:false` — não havia case `'productivity'` em `csvExport.buildRows` (a view é
+  `selfData` e recalcula rendimento = qty/área fora do contexto de export), então o botão
+  renderizava e o clique caía no caminho `default → null` sem baixar nada.
+
+### Added
+- **Teste dbt `assert_pam_area_planted_ge_harvested`** (`warn`) — sinaliza linhas SIDRA
+  agronomicamente impossíveis (área plantada < colhida; ex. 1990 Manaus Mandioca 50<650 ha,
+  1993 Cana 790<890 ha) sem bloquear o build; os dados são carregados fielmente (regra do
+  projeto: marcar anomalias, nunca substituir em silêncio).
+- **Validação de FORMA da resposta SIDRA** (`ibge/client.py`) — rejeita um corpo JSON que
+  não seja lista antes da conversão para DataFrame; documenta que a COMPLETUDE depende do
+  contrato do SIDRA (HTTP 400 em overflow, não truncamento silencioso em 200).
+- **Teste de completude das 5 variáveis PAM** (`test_pam_pipeline`) — pin do conjunto
+  {8331, 216, 214, 112, 215}; largar o 215 (valor) zeraria `gold_pam_production.val_raw`.
+
+### Changed (docs)
+- `gold_pam_production`: documentado que `yield_kg_ha` é o rendimento REPORTADO pelo SIDRA,
+  cru e NÃO-autoritativo (diverge de qty/área em algumas linhas; é uma razão, nunca somável;
+  o serving não o expõe — recalcula).
+- Glossário: nota de que o **IGP-M começa em 1989** — `val_real_igpm_*` fica NULL antes disso
+  (não é defeito do pipeline), enquanto IPCA/IGP-DI (desde 1980) preenchem.
+
 ## [1.13.2] - 2026-07-05
 
 Remediação de uma **auditoria profunda do banco IBGE PPM** (pecuária) — a base mais

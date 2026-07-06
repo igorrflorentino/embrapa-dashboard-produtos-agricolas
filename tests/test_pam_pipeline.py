@@ -77,6 +77,11 @@ def test_run_loads_to_pam_bronze_with_pam_query(settings: Settings, sidra_df: pd
     assert fetch_kwargs["classification"] == "782"
     assert fetch_kwargs["products"] == ["40124"]
     assert fetch_kwargs["geo_level"] == "n6"
+    # All 5 PAM measures must be requested: area_planted(8331), area_harvested(216),
+    # quantity(214), yield(112), value(215). Dropping 215 would ingest cleanly but null
+    # out gold_pam_production.val_raw (doctor catches it, but the nightly ingest never
+    # runs doctor) — so pin the complete set here.
+    assert set(fetch_kwargs["variables"].split(",")) == {"8331", "216", "214", "112", "215"}
 
     load_kwargs = load.call_args.kwargs
     assert load_kwargs["time_partitioning_field"] == "ingestion_timestamp"

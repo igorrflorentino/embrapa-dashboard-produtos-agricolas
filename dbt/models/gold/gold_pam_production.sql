@@ -47,8 +47,17 @@ with base_pam as (
         max(qty_native)                 as qty_native,
         max(qty_base)                   as qty_base,
         -- Pivot the remaining PAM measures by their SIDRA variable code.
+        -- area_planted_ha / area_harvested_ha are SIDRA's reported hectares AS-IS; a few
+        -- historical source rows even violate the agronomic invariant planted >= harvested
+        -- (surfaced by assert_pam_area_planted_ge_harvested.sql, WARN) — carried faithfully,
+        -- not silently corrected (project rule: mark anomalies, never substitute).
         max(case when variable_code = '{{ var("pam_variable_area_planted")   }}' then numeric_value end) as area_planted_ha,
         max(case when variable_code = '{{ var("pam_variable_area_harvested") }}' then numeric_value end) as area_harvested_ha,
+        -- yield_kg_ha is SIDRA's REPORTED rendimento (var 112), carried RAW and
+        -- NON-AUTHORITATIVE: it can diverge 15-30% from qty/area on some source rows, and it
+        -- is a RATIO (never summable). The serving layer does NOT surface it — serving_pam_annual
+        -- drops it and the dashboard RECOMPUTES productivity as Σqty ÷ Σárea. Keep this column
+        -- only for auditing the source; do not sum or treat it as the canonical yield.
         max(case when variable_code = '{{ var("pam_variable_yield")          }}' then numeric_value end) as yield_kg_ha,
         max(case when is_monetary_value then numeric_value end) as val_raw,
         max(ingestion_timestamp)        as last_refresh

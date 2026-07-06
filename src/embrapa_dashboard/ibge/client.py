@@ -378,7 +378,20 @@ def _fetch_block(
         # callers can report it instead of the (already-halved-away) outer window.
         exc.periods = periods
         raise
-    return [response.json()]
+    payload = response.json()
+    # Shape guard: a SIDRA data response is a JSON ARRAY whose first element is the
+    # header row. A non-list body (an error object, or an undocumented shape) would
+    # otherwise slip past the downstream `len(payload) < 2` check and yield a garbage/
+    # empty DataFrame — so reject it loudly here. NOTE: this validates SHAPE, not
+    # COMPLETENESS. SIDRA signals a too-large request with an HTTP 400
+    # ("limite … excedido", handled above), NOT a silent 200 truncation, so a
+    # valid-shaped 200 is trusted to be complete for the requested cells.
+    if not isinstance(payload, list):
+        raise SidraRequestError(
+            f"SIDRA returned a {type(payload).__name__}, expected a JSON array "
+            f"([header, ...rows]) for {url[:120]}"
+        )
+    return [payload]
 
 
 def _fetch_one_state(
