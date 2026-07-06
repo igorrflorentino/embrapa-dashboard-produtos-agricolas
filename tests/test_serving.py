@@ -244,9 +244,7 @@ def test_production_value_is_flow_only_when_measure_kind_present():
     assert "measure_kind" not in q_plain
     # PPM: value wrapped in a measure_kind='flow' CASE across every production builder.
     q_ov, _ = sql.production_overview("p.serving.serving_ppm_annual", has_measure_kind=True)
-    assert (
-        "sum(case when measure_kind = 'flow' then val_real_ipca_brl end) as total_value" in q_ov
-    )
+    assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end) as total_value" in q_ov
     q_uf, _ = sql.production_by_uf("p.serving.serving_ppm_annual", has_measure_kind=True)
     assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end)" in q_uf
     # quantity stays unguarded (herd headcount is a valid quantity for the Rebanho view)
