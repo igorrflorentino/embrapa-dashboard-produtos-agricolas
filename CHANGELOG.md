@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.1] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco MDIC COMEX** (7 achados verificados
+adversarialmente — a base é fundamentalmente sólida, sem nenhum bug de corrupção de dados
+ativo em produção; os achados são lacunas defensivas, rótulos e documentação).
+
+### Fixed
+- **Validação de largura dos códigos COMEX.** `comex_ncm/heading/chapter_map` agora exigem
+  8/4/2 dígitos — um código mal-configurado (ex. NCM de 7 dígitos) falha no carregamento em
+  vez de silenciosamente não casar nenhuma linha no filtro do ingest (violava "no invisible
+  filtering").
+- **Guarda EUR-pré-1999 em `gold_comex_flows`.** O CTE `fx_month` (mensal) ganhou
+  `and reference_year >= 1999` no ramo EUR, espelhando `annual_deflation_ctes` — impede que um
+  eventual backfill de PTAX EUR pré-euro vaze taxas em `val_yearfx_eur`.
+
+### Added
+- **Tripwire dbt `assert_comex_no_gross_kg_unit`** (severity `warn`) — alerta se `co_unid=24`
+  (QUILOGRAMA BRUTO / kg bruto) aparecer nos dados, antes que sua conversão (idêntica a kg
+  líquido) misture peso bruto e líquido no agregado.
+
+### Changed (docs / rótulos)
+- **"UF de origem"** (glossário + hint): é sempre o lado **brasileiro** da operação (origem na
+  exportação, destino na importação), não o país estrangeiro.
+- **"Via"** (glossário): documentada como agregada / não filtrável; comentário do
+  `filtersSchema` corrigido ("summed away in Silver" → camada de **serving**; Silver/Gold
+  mantêm `transport_route_code`).
+- Comentário falso de "Gold guard" em `serving_comex_annual` corrigido (o NULL pré-1994 vem do
+  LEFT JOIN sem linhas correspondentes, não de uma guarda de ano explícita).
+- `config.py`: documentado o acoplamento de **nome** das env-vars `BCB_INFLATION_SERIES_*_CODE`
+  entre `config.py` e `dbt_project.yml` (renomear em só um lado faz o dbt cair no default).
+
 ## [1.13.0] - 2026-07-05
 
 **COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**

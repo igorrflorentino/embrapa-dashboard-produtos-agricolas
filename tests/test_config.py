@@ -85,6 +85,33 @@ def test_parse_code_label_rejects_unicode_digit_code() -> None:
         _parse_code_label("４３３:IPCA")
 
 
+# ─── COMEX code-length validation ───────────────────────────────────────────
+# A wrong-width COMEX code passes _parse_code_label (numeric+ASCII only) but then
+# matches ZERO rows in the ingest filter, silently skipping the chunk. The comex_*_map
+# properties enforce the fixed widths (NCM=8, HS heading=4, HS chapter=2).
+def test_comex_ncm_map_accepts_8_digit(settings_factory) -> None:
+    assert settings_factory(comex_ncm_codes="80012100:ok").comex_ncm_map == {"80012100": "ok"}
+
+
+def test_comex_ncm_map_rejects_wrong_length(settings_factory) -> None:
+    with pytest.raises(ValueError, match=r"COMEX NCM code '8001210' has 7 digits; expected 8"):
+        _ = settings_factory(comex_ncm_codes="8001210:short").comex_ncm_map
+
+
+def test_comex_heading_map_rejects_non_4_digit(settings_factory) -> None:
+    with pytest.raises(ValueError, match=r"COMEX HS heading code '440' has 3 digits; expected 4"):
+        _ = settings_factory(comex_heading_codes="440:short").comex_heading_map
+
+
+def test_comex_chapter_map_rejects_non_2_digit(settings_factory) -> None:
+    with pytest.raises(ValueError, match=r"COMEX HS chapter code '4' has 1 digits; expected 2"):
+        _ = settings_factory(comex_chapter_codes="4:short").comex_chapter_map
+
+
+def test_comex_chapter_map_accepts_2_digit(settings_factory) -> None:
+    assert settings_factory(comex_chapter_codes="44:madeira").comex_chapter_map == {"44": "madeira"}
+
+
 # ─── default bucket derivation ──────────────────────────────────────────────
 def _make_settings(**overrides: object) -> Settings:
     """Build a Settings instance without picking up the user's local .env."""
