@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     # ─── IBGE ─────────────────────────────────────────────────────────────────
     ibge_table_id: str = Field(default="289")
     ibge_classification_id: str = Field(default="193")
+    # The 2 SIDRA t289 variables silver_ibge_pevs pivots: 144 (quantidade) + 145
+    # (valor). PEVS fetches v/all into Bronze, then Silver FILTERS to these two.
+    # ⚠ NAME coupling: dbt/dbt_project.yml reads the SAME env vars —
+    # `env_var('IBGE_VARIABLE_QUANTITY_CODE', '144')` / `..._VALUE_CODE`, '145')`.
+    # Keep the key names AND defaults identical in both files: a typo drops that
+    # variable from Silver, emptying the Gold column silently. `embrapa doctor`
+    # validates parity (doctor._check_ibge_variable_codes), mirroring PAM.
+    ibge_variable_quantity_code: str = Field(default="144")
+    ibge_variable_value_code: str = Field(default="145")
     # PEVS = EXTRACTIVE vegetal/forestry production. SIDRA t289/c193 codes:
     #   3405 Castanha-do-pará · 3435 Madeira em tora · 3434 Lenha ·
     #   3433 Carvão vegetal · 3450 Pinheiro brasileiro (Araucária, em tora) ·

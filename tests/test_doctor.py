@@ -484,6 +484,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "Inflation pivot codes",
         "Currency series codes",
         "PAM variable codes",
+        "IBGE PEVS variable codes",
         "ADC credentials",
         "BigQuery reachable",
         "GCS bucket",
@@ -558,6 +559,23 @@ def test_pam_variable_codes_parity_fails_when_a_dbt_code_is_dropped(settings_fac
     result = doctor._check_pam_variable_codes(s)
     assert result.ok is False
     assert "215" in result.detail
+
+
+def test_ibge_variable_codes_parity_passes_on_defaults(settings: Settings) -> None:
+    """The 2 PEVS variable codes (144 quantidade, 145 valor) match the defaults →
+    the parity check passes (the PEVS analogue of the PAM check)."""
+    result = doctor._check_ibge_variable_codes(settings)
+    assert result.ok is True
+    assert "144" in result.detail and "145" in result.detail
+
+
+def test_ibge_variable_codes_parity_fails_on_typo(settings_factory) -> None:
+    """A mistyped PEVS quantity code (144→143) must fail parity — silver_ibge_pevs would
+    filter to a non-existent code and the quantity Gold column would come out empty."""
+    s = settings_factory(ibge_variable_quantity_code="143")
+    result = doctor._check_ibge_variable_codes(s)
+    assert result.ok is False
+    assert "144" in result.detail  # the required 'quantidade' code, now missing
 
 
 def _small_codes(settings_factory):

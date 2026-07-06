@@ -261,6 +261,26 @@ Wire it up (one-time):
    exists (override the name with `FEEDBACK_GITHUB_TOKEN_SECRET`), so a routine redeploy
    **keeps** the loop active — it is never a plaintext env var.
 
+## Editing a dbt seed (currency factors, unit conversions) → run `--full-refresh`
+
+**⚠ A seed edit does NOT propagate on a plain `dbt build`.** `silver_ibge_pevs` is
+incremental (insert_overwrite by `reference_year`) and its incremental gate keys off NEW
+Bronze `ingestion_timestamp`s only. A seed edit bumps none, so the corrected values never
+reach the already-built partitions — most dangerously the **pre-1994 partitions** that
+depend on `historical_currency_factors` for the currency-reform correction. The same holds
+for `unit_family_conversions` and `product_unit_factors`.
+
+After editing any of those seeds, rebuild the affected model(s) with a full refresh, e.g.:
+
+```bash
+# prod, via the GitHub Actions "dbt build prod" workflow with full_refresh=true, OR locally:
+scripts/dbt-with-env.sh build --select silver_ibge_pevs+ --full-refresh --target prod
+```
+
+Do this at the release boundary and re-run `embrapa doctor` after. (The dbt guard tests —
+`assert_currency_factor_no_overlap`, `assert_pre1994_real_per_unit_bounded`, … — are
+post-hoc: they validate the built output, so they only re-fire once Silver is reprocessed.)
+
 ## Backing up prod Gold from a local / dev machine
 
 `embrapa backup-gold` snapshots the Gold tables to

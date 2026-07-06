@@ -55,8 +55,13 @@ seeds:
     +schema: "{{ env_var('BQ_SILVER_DATASET', 'silver') }}"
 
 vars:
-  ibge_variable_quantity: "144"
-  ibge_variable_value: "145"
+  # PEVS (SIDRA t289) variable codes silver_ibge_pevs filters to: 144 quantity,
+  # 145 value. Read via env_var so they stay in sync with config.py
+  # (ibge_variable_*_code) — keep the key names + defaults identical in both, and
+  # `embrapa doctor` (ibge-variable-codes) validates the parity. A wrong code here
+  # silently empties the matching Gold column.
+  ibge_variable_quantity: "{{ env_var('IBGE_VARIABLE_QUANTITY_CODE', '144') }}"
+  ibge_variable_value:    "{{ env_var('IBGE_VARIABLE_VALUE_CODE',    '145') }}"
 
   # IBGE PAM (SIDRA table 5457) variable codes. `v/all` ingests all of them; the
   # Silver model keeps these five real measures (dropping the 3 "% do total"

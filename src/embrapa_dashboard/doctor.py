@@ -199,6 +199,48 @@ def _check_pam_variable_codes(settings: Settings) -> CheckResult:
         return CheckResult("PAM variable codes", False, str(exc)[:120])
 
 
+# The SIDRA t289 variable codes silver_ibge_pevs filters to, keyed to their dbt role
+# (ibge_variable_* vars, env-bridged to config.ibge_variable_*_code). PEVS fetches
+# v/all into Bronze, then Silver keeps ONLY these — a wrong code empties the matching
+# Gold column silently. Mirror dbt_project.yml / config.py: keep in sync if changed.
+_IBGE_REQUIRED_VARIABLE_CODES = {
+    "144": "quantidade",
+    "145": "valor",
+}
+
+
+def _check_ibge_variable_codes(settings: Settings) -> CheckResult:
+    """The PEVS variable codes silver_ibge_pevs filters on must be the intended 144/145.
+
+    silver_ibge_pevs keeps only ``ibge_variable_quantity``/``ibge_variable_value`` (dbt
+    vars, env-bridged to ``config.ibge_variable_*_code``). A code mistyped in .env /
+    dbt_project.yml silently drops that variable from Silver, emptying its Gold column
+    (quantidade or valor) with no downstream error — the PEVS analogue of the PAM check.
+    """
+    try:
+        configured = {settings.ibge_variable_quantity_code, settings.ibge_variable_value_code}
+        missing = {
+            code: role
+            for code, role in _IBGE_REQUIRED_VARIABLE_CODES.items()
+            if code not in configured
+        }
+        if missing:
+            return CheckResult(
+                "IBGE PEVS variable codes",
+                False,
+                f"not configured: {missing} (quantity={settings.ibge_variable_quantity_code!r}, "
+                f"value={settings.ibge_variable_value_code!r}) → that Gold column would be empty",
+            )
+        return CheckResult(
+            "IBGE PEVS variable codes",
+            True,
+            f"quantity={settings.ibge_variable_quantity_code}, "
+            f"value={settings.ibge_variable_value_code}",
+        )
+    except Exception as exc:
+        return CheckResult("IBGE PEVS variable codes", False, str(exc)[:120])
+
+
 def _check_catalog_resolver_parity(settings: Settings) -> CheckResult:
     """Diff the catalog-resolved product codes vs the .env codes per IBGE banco.
 
@@ -655,6 +697,7 @@ _INFRA_CHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("inflation-codes", _check_inflation_pivot_codes),
     ("currency-codes", _check_currency_series_codes),
     ("pam-variable-codes", _check_pam_variable_codes),
+    ("ibge-variable-codes", _check_ibge_variable_codes),
     ("adc", _check_adc),
     ("bq", _check_bq),
     ("gcs", _check_gcs),
