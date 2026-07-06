@@ -729,6 +729,74 @@ def test_trade_builders_pin_reporter_when_given():
     assert {p.name: p for p in p_flows}["reporter"].value == "BRA"
 
 
+def test_trade_builders_reporters_partners_in_lists():
+    """The COMTRADE country multi-selects add IN-UNNEST predicates (bound as ARRAY params)
+    on reporter_iso_a3 / partner_iso_a3. A non-empty reporters list REPLACES the scalar
+    reporter pin (mutual exclusion — the gateway passes one or the other, never both)."""
+    for q, p in (
+        sql.trade_overview(
+            "p.serving.serving_comtrade_annual",
+            code_column="cmd_code",
+            reporters=("BRA", "CHN"),
+            partners=("USA",),
+        ),
+        sql.product_timeseries(
+            "p.serving.serving_comtrade_annual",
+            code_column="cmd_code",
+            reporters=("BRA", "CHN"),
+            partners=("USA",),
+        ),
+    ):
+        ql = q.lower()
+        assert "reporter_iso_a3 in unnest(@reporters)" in ql
+        assert "partner_iso_a3 in unnest(@partners)" in ql
+        assert "= @reporter" not in ql  # the IN-list replaces the scalar pin
+        by = {x.name: x for x in p}
+        assert by["reporters"].values == ["BRA", "CHN"]
+        assert by["partners"].values == ["USA"]
+
+    q_pt, p_pt = sql.trade_by_partner(
+        "p.serving.serving_comtrade_annual",
+        partner_code_column="partner_code",
+        partner_name_column="partner_name",
+        code_column="cmd_code",
+        partners=("CHN", "USA"),
+    )
+    assert "partner_iso_a3 in unnest(@partners)" in q_pt.lower()
+    assert {x.name: x for x in p_pt}["partners"].values == ["CHN", "USA"]
+
+    q_fl, p_fl = sql.trade_flows(
+        "p.serving.serving_comtrade_annual",
+        origin_code_column="reporter_code",
+        origin_name_column="reporter_name",
+        dest_code_column="partner_code",
+        dest_name_column="partner_name",
+        code_column="cmd_code",
+        reporters=("BRA",),
+    )
+    assert "reporter_iso_a3 in unnest(@reporters)" in q_fl.lower()
+    assert {x.name: x for x in p_fl}["reporters"].values == ["BRA"]
+
+
+def test_trade_overview_no_countries_adds_no_predicate():
+    """Empty reporters/partners = no country filter (byte-identical to before)."""
+    q, p = sql.trade_overview("p.serving.serving_comtrade_annual", code_column="cmd_code")
+    ql = q.lower()
+    assert "@reporters" not in ql and "@partners" not in ql
+    assert not any(x.name in ("reporters", "partners") for x in p)
+
+
+def test_comtrade_countries_unions_reporter_and_partner():
+    """The country-universe builder emits BOTH roles (distinct reporter + partner) tagged by
+    role, ordered by name, with no bound params (a plain DISTINCT scan)."""
+    q, p = sql.comtrade_countries("p.serving.serving_comtrade_annual")
+    ql = q.lower()
+    assert "'reporter'" in ql and "'partner'" in ql
+    assert "union all" in ql
+    assert "reporter_iso_a3" in ql and "partner_iso_a3" in ql
+    assert p == []
+
+
 def test_trade_flows_narrows_to_origin_ufs_when_uf_codes_given():
     # COMEX origin = state_acronym: a UF filter must add an IN UNNEST predicate
     # bound as a param (never f-string interpolated).
@@ -1913,6 +1981,66 @@ def test_fetch_product_timeseries_pins_reporter_only_for_comtrade(monkeypatch):
         gateway.fetch_product_timeseries("ibge_pevs", year_start=2022, codes=("3405",))
     assert "reporter" not in recorded["query"]
     assert "reporter" not in recorded["params"]
+
+
+def test_fetch_comtrade_overview_country_filters(monkeypatch):
+    """The COMTRADE overview reader resolves the reporter pin 3 ways + threads the partner
+    IN-list: pin_reporter=None (world) → NO reporter predicate; a reporters list → IN-list
+    (no scalar pin). (The absent → Brazil-pin default is covered by the test above.)"""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query.lower()
+        recorded["params"] = {p.name: p for p in params}
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    # World: seam passes pin_reporter=None with no reporters → NO reporter predicate at all.
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_overview(year_start=2022, cmd_codes=("440710",), pin_reporter=None)
+    assert "= @reporter" not in recorded["query"]
+    assert "@reporters" not in recorded["query"]
+
+    # List: the reporters IN-list replaces the scalar pin; the partner IN-list threads too.
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_overview(
+            year_start=2022, cmd_codes=("440710",), reporters=("BRA", "CHN"), partners=("USA",)
+        )
+    assert "reporter_iso_a3 in unnest(@reporters)" in recorded["query"]
+    assert "= @reporter" not in recorded["query"]
+    assert recorded["params"]["reporters"].values == ["BRA", "CHN"]
+    assert recorded["params"]["partners"].values == ["USA"]
+
+
+def test_fetch_comtrade_countries_reads_mart(monkeypatch):
+    """fetch_comtrade_countries scans the mart for the distinct reporter + partner universes
+    (both roles), backing the /api/countries picker."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query.lower()
+        return "df"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        gateway.fetch_comtrade_countries()
+    assert "p.serving.serving_comtrade_annual" in recorded["query"]
+    assert "'reporter'" in recorded["query"] and "'partner'" in recorded["query"]
 
 
 def test_fetch_product_timeseries_threads_customs_and_market(monkeypatch):

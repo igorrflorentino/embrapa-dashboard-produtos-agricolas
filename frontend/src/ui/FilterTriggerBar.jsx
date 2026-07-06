@@ -58,12 +58,34 @@ function FilterTriggerBar({ summary, onOpen, onExport, live = true, banco = null
     if (!raw || raw === 'all') return 'Todos os mercados';
     return (marketOpts || []).find((o) => o.value === raw)?.label || raw;
   })();
+  // Country chips (COMTRADE only): the apply path carries summary.reporter / summary.parceiro
+  // (labels); a restored deep-link carries the raw summary.reporters / summary.partners,
+  // resolved here via the /api/countries universe (names; falls back to ISO/count if not loaded).
+  const hasCountry = !!(window.hasCountryFilters && banco && window.hasCountryFilters(banco.id));
+  const countryUniverse = hasCountry && window.comtradeCountries ? window.comtradeCountries() : null;
+  const isoNameOf = (list) => (iso) => (list ? (list.find((c) => c.iso === iso) || {}).name : null) || iso;
+  const reporterChip = hasCountry
+    ? summary.reporter ||
+      window.chipFmt.reporter(
+        summary.reporters ?? null,
+        countryUniverse ? countryUniverse.reporters.length : 0,
+        isoNameOf(countryUniverse && countryUniverse.reporters))
+    : null;
+  const partnerChip = hasCountry
+    ? summary.parceiro ||
+      window.chipFmt.partner(
+        summary.partners ?? null,
+        countryUniverse ? countryUniverse.partners.length : 0,
+        isoNameOf(countryUniverse && countryUniverse.partners))
+    : null;
   const chips = [
     has('product') && { k: 'Produtos',  v: summary.products },
     { k: 'Período', v: summary.period },
     has('flow')    && { k: 'Fluxo',      v: flowChip },
     regimeOpts     && { k: 'Regime',     v: regimeChip },
     marketOpts     && { k: 'Mercado',    v: marketChip },
+    hasCountry     && { k: 'Reporter',   v: reporterChip },
+    hasCountry     && { k: 'Parceiro',   v: partnerChip },
     has('geo')     && { k: 'Geografia',  v: summary.geo },
     has('quality') && { k: 'Qualidade',  v: summary.quality },
   ].filter(Boolean);

@@ -49,12 +49,11 @@ describe('bancoFilterDims — only backed AND applicable dims (everything else h
     expect(got).not.toContain('valor'); // backed:false → hidden
   });
 
-  it('COMTRADE: keeps flow + hs6; hides reporter/partner/valor; no geo dim slips in', () => {
+  it('COMTRADE: keeps flow + hs6 + país reporter/parceiro (now backed); hides valor; no geo dim', () => {
     const got = ids('un_comtrade');
-    expect(got).toEqual(expect.arrayContaining(['periodo', 'hs6', 'flow']));
-    expect(got).not.toContain('reporter');
-    expect(got).not.toContain('partner');
-    expect(got).not.toContain('valor');
+    // reporter/partner are now server-side FILTERS (backed:true, serverParam reporters/partners).
+    expect(got).toEqual(expect.arrayContaining(['periodo', 'hs6', 'flow', 'reporter', 'partner']));
+    expect(got).not.toContain('valor'); // backed:false → still hidden
     expect(got.some((id) => /geo/.test(id))).toBe(false);
   });
 

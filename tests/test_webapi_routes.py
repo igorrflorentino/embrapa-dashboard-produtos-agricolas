@@ -425,6 +425,67 @@ def test_geo_mesh_route_returns_municipios(monkeypatch):
     assert resp.get_json()["municipios"][0]["cityCode"] == "3550308"
 
 
+def test_snapshot_route_threads_country_filters_to_seam(monkeypatch):
+    """/api/snapshot COMTRADE país reporter/parceiro params reach the seam: reporters is
+    3-state ('__all__' verbatim, csv → list, absent → not in summary = Brazil default);
+    partners is a list (absent → not in summary = all)."""
+    from embrapa_dashboard.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_snapshot(banco, conv, summary=None):
+        captured["summary"] = summary
+        return {}
+
+    monkeypatch.setattr(seam, "snapshot", fake_snapshot)
+    monkeypatch.setattr(serializers, "serialize_snapshot", lambda *a, **k: {"ok": True})
+
+    client.get("/api/snapshot?banco=un_comtrade&reporters=__all__")
+    assert captured["summary"] == {"reporters": "__all__"}
+
+    client.get("/api/snapshot?banco=un_comtrade&reporters=BRA,CHN&partners=USA")
+    assert captured["summary"] == {"reporters": ["BRA", "CHN"], "partners": ["USA"]}
+
+    client.get("/api/snapshot?banco=un_comtrade")
+    assert captured["summary"] is None  # absent country params → Brazil default / all partners
+
+
+def test_countries_route_returns_reporters_and_partners(monkeypatch):
+    """GET /api/countries wires seam.comtrade_countries → serialize_countries → jsonify,
+    backing the COMTRADE país reporter/parceiro pickers."""
+    from embrapa_dashboard.webapi import seam, serializers
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(seam, "comtrade_countries", lambda: "payload")
+    monkeypatch.setattr(
+        serializers,
+        "serialize_countries",
+        lambda payload: {
+            "reporters": [{"code": "76", "iso": "BRA", "name": "Brasil"}],
+            "partners": [],
+        },
+    )
+    resp = client.get("/api/countries?banco=un_comtrade")
+    assert resp.status_code == 200
+    assert resp.get_json()["reporters"][0]["iso"] == "BRA"
+
+
+def test_serialize_countries_splits_roles_and_shapes_rows():
+    """serialize_countries turns the seam's {reporters, partners} frames into
+    [{code, iso, name}] lists; a None payload degrades to empty lists (not a crash)."""
+    import pandas as pd
+
+    from embrapa_dashboard.webapi import serializers
+
+    reps = pd.DataFrame([{"role": "reporter", "iso": "BRA", "name": "Brasil", "code": 76}])
+    pars = pd.DataFrame([{"role": "partner", "iso": "CHN", "name": "China", "code": 156}])
+    out = serializers.serialize_countries({"reporters": reps, "partners": pars})
+    assert out["reporters"] == [{"code": "76", "iso": "BRA", "name": "Brasil"}]
+    assert out["partners"] == [{"code": "156", "iso": "CHN", "name": "China"}]
+    assert serializers.serialize_countries(None) == {"reporters": [], "partners": []}
+
+
 # ── POST /municipio-yearly: the v1.5.2 sub-UF/município cube entry point ──────────
 
 

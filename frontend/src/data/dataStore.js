@@ -48,8 +48,25 @@ let activeCustoms = 'all';
 // Active tipo de mercado (consumo/processamento) — a THIRD server-side trade filter, same
 // contract: part of the snapshot's cache key + request. 'all' (default) sums every purpose.
 let activeMarket = 'all';
-const convKey = () =>
-  `${activeConv.currency}|${activeConv.correction}|${activeFlow}|${activeCustoms}|${activeMarket}`;
+// Active COMTRADE country filters (país reporter / parceiro) — server-side, same contract
+// as activeFlow. reporter is 3-state: null = Brasil (default, byte-identical to before),
+// '__all__' = mundo (world total), or a sorted ISO-A3 array (IN-list). partner: null = todos,
+// or a sorted ISO-A3 array. Only un_comtrade uses them; every other request omits them.
+let activeReporters = null;
+let activePartners = null;
+// Canonicalize a country selection so the cache key + equality checks are order-stable and
+// an empty/absent selection collapses to the default (null). reporter keeps the '__all__'
+// world sentinel distinct from null (Brazil).
+const _normReporters = (r) =>
+  r === '__all__' ? '__all__' : Array.isArray(r) && r.length ? [...new Set(r)].sort() : null;
+const _normPartners = (p) => (Array.isArray(p) && p.length ? [...new Set(p)].sort() : null);
+const _sameSel = (a, b) =>
+  a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]));
+const convKey = () => {
+  const rep = activeReporters == null ? 'BR' : activeReporters === '__all__' ? 'ALL' : activeReporters.join('~');
+  const par = activePartners == null ? 'ALL' : activePartners.join('~');
+  return `${activeConv.currency}|${activeConv.correction}|${activeFlow}|${activeCustoms}|${activeMarket}|${rep}|${par}`;
+};
 const cacheKey = (id) => `${id}|${convKey()}`;
 
 // The Gold table name is NOT duplicated here. Single source of truth: the live
@@ -196,6 +213,12 @@ async function fetchSnapshot(id) {
   if (activeCustoms && activeCustoms !== 'all') qs.set('customs', activeCustoms);
   // Server-side market filter (COMTRADE): only sent when narrowing → sums every purpose otherwise.
   if (activeMarket && activeMarket !== 'all') qs.set('market', activeMarket);
+  // Server-side COMTRADE country filters. reporter: '__all__' → world sentinel, array → CSV
+  // IN-list, null → omit (Brazil default). partner: array → CSV IN-list, null → omit (all).
+  if (activeReporters === '__all__') qs.set('reporters', '__all__');
+  else if (Array.isArray(activeReporters) && activeReporters.length)
+    qs.set('reporters', activeReporters.join(','));
+  if (Array.isArray(activePartners) && activePartners.length) qs.set('partners', activePartners.join(','));
   const r = await fetch(`${API}/snapshot?${qs}`);
   if (!r.ok) throw new Error(`Falha ao consultar a Gold no BigQuery (HTTP ${r.status}).`);
   const snap = await r.json();
@@ -437,6 +460,26 @@ window.dataStore = {
     if (next === activeMarket) return;
     const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
     activeMarket = next;
+    notify();
+    loadedBancos.forEach((id) => this.load(id));
+  },
+
+  // Country bridges (COMTRADE país reporter / parceiro) — server-side filters like flow, so a
+  // new selection is a DIFFERENT cache key → re-fetch every loaded banco. reporter: null=Brasil,
+  // '__all__'=mundo, array=IN-list. partner: null=todos, array=IN-list.
+  setReporters(reporters) {
+    const next = _normReporters(reporters);
+    if (_sameSel(next, activeReporters)) return;
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
+    activeReporters = next;
+    notify();
+    loadedBancos.forEach((id) => this.load(id));
+  },
+  setPartners(partners) {
+    const next = _normPartners(partners);
+    if (_sameSel(next, activePartners)) return;
+    const loadedBancos = [...new Set(Object.keys(store).map((k) => k.split('|')[0]))];
+    activePartners = next;
     notify();
     loadedBancos.forEach((id) => this.load(id));
   },

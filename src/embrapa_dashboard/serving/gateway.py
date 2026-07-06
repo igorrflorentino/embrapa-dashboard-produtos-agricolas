@@ -383,6 +383,32 @@ def fetch_comex_overview(
     return run_query(sql, params)
 
 
+# ── COMTRADE reporter-pin resolution ─────────────────────────────────────────
+# Sentinel for the COMTRADE readers' ``pin_reporter`` arg: "caller didn't specify → use the
+# Brazil default". A STRING (not object()) so it serializes cleanly into flask-caching's
+# memoize key; real reporter values are ISO-A3 codes, so there is no collision. Every legacy
+# caller (cross-source metrics, tests) omits ``pin_reporter`` and keeps the byte-identical
+# Brazil pin; only the seam passes an explicit value (None = world / list, or a specific ISO).
+_REPORTER_PIN_DEFAULT = "__brazil_default__"
+
+
+def _resolve_reporter_pin(
+    settings, pin_reporter: str | None, reporters: Sequence[str]
+) -> str | None:
+    """Scalar reporter pin for a COMTRADE reader — mutually exclusive with the ``reporters``
+    IN-list:
+
+    - ``reporters`` non-empty → ``None`` (the IN-list governs; no scalar pin).
+    - ``pin_reporter`` is the sentinel (caller omitted it) → the Brazil default.
+    - otherwise → ``pin_reporter`` verbatim (``None`` = world / no pin, or a specific ISO).
+    """
+    if reporters:
+        return None
+    if pin_reporter == _REPORTER_PIN_DEFAULT:
+        return settings.comtrade_brazil_iso
+    return pin_reporter
+
+
 @cache.memoize()
 def fetch_comtrade_overview(
     year_start: int | None = None,
@@ -392,6 +418,9 @@ def fetch_comtrade_overview(
     customs: str | None = None,
     market: str | None = None,
     value_column: str = "val_yearfx_usd",
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
+    pin_reporter: str | None = _REPORTER_PIN_DEFAULT,
 ):
     """Annual COMTRADE value + weight (backs overviewTS for COMTRADE).
 
@@ -399,6 +428,11 @@ def fetch_comtrade_overview(
     carries the full BRL/USD/EUR matrix so BRL/EUR serves the REAL column. ``customs``
     optionally narrows to one customs procedure (regime aduaneiro); None sums every
     regime (the total).
+
+    ``reporters``/``partners`` are the country multi-selects (ISO-A3), each narrowing via
+    ``<col> IN UNNEST(...)``. ``pin_reporter`` resolves the single-country reporter pin when
+    ``reporters`` is empty — the sentinel default keeps the Brazil pin (unchanged); the seam
+    passes ``None`` for a world/list selection (see :func:`_resolve_reporter_pin`).
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
@@ -412,14 +446,12 @@ def fetch_comtrade_overview(
         customs=customs,
         market=market,
         value_column=value_column,
-        # serving_comtrade_annual is multi-reporter (grain carries reporter_code); pin
-        # Brazil so the banco's OWN overviewTS is Brazil's view, not a sum over every
-        # reporter (which conflates the whole world's trade in the all-reporters years).
         reporter_column="reporter_iso_a3",
-        reporter_value=settings.comtrade_brazil_iso,
+        reporter_value=_resolve_reporter_pin(settings, pin_reporter, reporters),
+        reporters=tuple(reporters),
+        partners=tuple(partners),
         # "All flows" sums only the primary totals (export/import): re-export/re-import are
-        # subsets (X ⊇ RX, M ⊇ RM), so adding them would double-count. (Brazil reports none
-        # today, but keep it correct for widened reporters / mirror analysis.)
+        # subsets (X ⊇ RX, M ⊇ RM), so adding them would double-count.
         sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
     )
     return run_query(sql, params)
@@ -519,10 +551,15 @@ def fetch_comtrade_partners(
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
     rank_by: str = "value",
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
+    pin_reporter: str | None = _REPORTER_PIN_DEFAULT,
 ):
     """COMTRADE partner ranking with export/import split (backs partnerData).
 
     ``rank_by`` ∈ {value, weight, price} picks the server-side ORDER BY dimension.
+    ``reporters``/``partners`` (ISO-A3) narrow the ranking by country; ``pin_reporter``
+    keeps the Brazil pin by default (see :func:`_resolve_reporter_pin`).
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
@@ -534,11 +571,10 @@ def fetch_comtrade_partners(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(cmd_codes),
-        # Pin the reporter to Brazil: the mart is multi-reporter (incl. the
-        # all-reporters years), so without this the ranking would sum Brazil's
-        # bilateral flows together with every other reporter's under each partner.
         reporter_column="reporter_iso_a3",
-        reporter_value=settings.comtrade_brazil_iso,
+        reporter_value=_resolve_reporter_pin(settings, pin_reporter, reporters),
+        reporters=tuple(reporters),
+        partners=tuple(partners),
         rank_by=rank_by,
     )
     return run_query(sql, params)
@@ -614,8 +650,15 @@ def fetch_comtrade_flows(
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
     flow: str | None = None,
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
+    pin_reporter: str | None = _REPORTER_PIN_DEFAULT,
 ):
-    """COMTRADE reporter->partner links (backs flowData for COMTRADE)."""
+    """COMTRADE reporter->partner links (backs flowData for COMTRADE).
+
+    ``reporters``/``partners`` (ISO-A3) narrow the Sankey by country; ``pin_reporter``
+    keeps Brazil's own links by default (see :func:`_resolve_reporter_pin`).
+    """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
     sql, params = sqlbuild.trade_flows(
@@ -629,14 +672,24 @@ def fetch_comtrade_flows(
         year_end=year_end,
         codes=tuple(cmd_codes),
         flow=flow,
-        # Pin the reporter to Brazil so the Sankey shows Brazil's own export/import
-        # links, not every reporter's flows blended (the all-reporters years would
-        # otherwise surface non-Brazil origin nodes in a Brazil-perspective view).
         reporter_column="reporter_iso_a3",
-        reporter_value=settings.comtrade_brazil_iso,
+        reporter_value=_resolve_reporter_pin(settings, pin_reporter, reporters),
+        reporters=tuple(reporters),
+        partners=tuple(partners),
         # "All flows" sums only export/import (re-export/re-import are subsets → no double-count).
         sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
     )
+    return run_query(sql, params)
+
+
+@cache.memoize()
+def fetch_comtrade_countries():
+    """Distinct reporter + partner countries in the COMTRADE mart (backs the country
+    pickers). Memoized → one DISTINCT scan per process; the seam splits the rows by
+    ``role`` into the two universes."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
+    sql, params = sqlbuild.comtrade_countries(table)
     return run_query(sql, params)
 
 
@@ -1013,6 +1066,9 @@ def fetch_product_timeseries(
     flow: str | None = None,
     customs: str | None = None,
     market: str | None = None,
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
+    pin_reporter: str | None = _REPORTER_PIN_DEFAULT,
 ):
     """Annual per-product series (value + native quantity) for a source (backs productTS).
 
@@ -1022,16 +1078,24 @@ def fetch_product_timeseries(
     marts have no ``flow`` column). ``customs`` (regime aduaneiro) and ``market`` (tipo
     de mercado) narrow the COMTRADE mart to one customs procedure / economic purpose;
     only ``un_comtrade`` carries those columns, so other sources leave them ``None``.
+
+    ``reporters``/``partners`` + ``pin_reporter`` (the country multi-selects) apply ONLY to
+    ``un_comtrade`` — other sources have no reporter/partner columns, so they are forced
+    empty and the pin stays unset.
     """
     table_name, code_col, _, default_value = _product_source(source)
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", table_name)
-    # serving_comtrade_annual is multi-reporter (grain carries reporter_code); pin
-    # Brazil so the banco's OWN productTS is Brazil's view, not a sum over every
-    # reporter (which conflates the whole world's trade in the all-reporters years).
-    # Production/COMEX marts have no reporter dimension → leave the pin unset.
-    reporter_column = "reporter_iso_a3" if source == "un_comtrade" else None
-    reporter_value = settings.comtrade_brazil_iso if source == "un_comtrade" else None
+    # serving_comtrade_annual is multi-reporter; the country filters + the Brazil-default
+    # pin apply only there. Production/COMEX marts have no reporter/partner dimension →
+    # force them empty and leave the pin unset.
+    is_comtrade = source == "un_comtrade"
+    reporter_column = "reporter_iso_a3" if is_comtrade else None
+    reporter_value = (
+        _resolve_reporter_pin(settings, pin_reporter, reporters) if is_comtrade else None
+    )
+    rep = tuple(reporters) if is_comtrade else ()
+    par = tuple(partners) if is_comtrade else ()
     sql, params = sqlbuild.product_timeseries(
         table,
         code_column=code_col,
@@ -1045,6 +1109,8 @@ def fetch_product_timeseries(
         market=market,
         reporter_column=reporter_column,
         reporter_value=reporter_value,
+        reporters=rep,
+        partners=par,
         has_measure_kind=source in _MEASURE_KIND_SOURCES,
     )
     return run_query(sql, params)

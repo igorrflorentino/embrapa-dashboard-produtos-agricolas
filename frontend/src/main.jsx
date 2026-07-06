@@ -141,6 +141,10 @@ function readStateFromURL() {
     customs: q.get('cx') || null,
     // Server-side tipo-de-mercado filter (COMTRADE); absent → all purposes.
     market: q.get('mk') || null,
+    // COMTRADE país reporter (3-state): 'ALL' → world sentinel, CSV → ISO array, absent → null
+    // (Brazil default). País parceiro: standard array (null = all).
+    reporters: q.get('rp') === 'ALL' ? '__all__' : window.urlDecodeArr(q, 'rp'),
+    partners: window.urlDecodeArr(q, 'pt'),
   };
   let crossState = window.DEFAULT_CROSS_STATE;
   const xs = q.get('xs');
@@ -360,6 +364,16 @@ function Dashboard() {
   useEffect(() => {
     if (window.dataStore?.setMarket) window.dataStore.setMarket(summary.market || 'all');
   }, [summary.market]);
+
+  // Country → data layer bridges: país reporter / parceiro are server-side filters for
+  // COMTRADE (the snapshot is pre-aggregated over reporter/partner), so a change re-fetches.
+  // reporter: null=Brasil (default), '__all__'=mundo, array=IN-list. partner: null=todos, array.
+  useEffect(() => {
+    if (window.dataStore?.setReporters) window.dataStore.setReporters(summary.reporters ?? null);
+  }, [summary.reporters]);
+  useEffect(() => {
+    if (window.dataStore?.setPartners) window.dataStore.setPartners(summary.partners ?? null);
+  }, [summary.partners]);
 
   // Banco switch (changeDatabase): the prototype's bancos.js/MetricConventions doc
   // promised two resets the React port had dropped. Without them a banco switch

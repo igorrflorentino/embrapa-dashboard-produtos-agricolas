@@ -256,13 +256,13 @@ window.FILTER_SCHEMAS = {
       // reporter/partner are only resolved in the partner-level endpoints, not as
       // snapshot filter axes.
       { id: 'reporter', tier: 'specific',  type: 'multi-search',
-        requires: 'partner', backed: false,
+        requires: 'partner', backed: true, serverParam: 'reporters',
         label: 'País reporter',            column: 'reporter',
-        hint: 'País que declarou a operação à UNSD.' },
+        hint: 'País cujo comércio é analisado (quem declarou à UNSD). Padrão: Brasil.' },
       { id: 'partner',  tier: 'specific',  type: 'multi-search',
-        requires: 'partner', backed: false,
+        requires: 'partner', backed: true, serverParam: 'partners',
         label: 'País parceiro',            column: 'partner',
-        hint: 'Contraparte do fluxo declarado.' },
+        hint: 'Contraparte do fluxo (destino/origem). Padrão: todos.' },
       { id: 'valor',    tier: 'universal', type: 'value-range',
         requires: null, backed: false,
         label: 'Faixa de valor (US$)',     column: 'val_usd',
@@ -347,6 +347,14 @@ window.customsOptionsFor = (bancoId) => window.CUSTOMS_OPTIONS[bancoId] || null;
 // Tipo de mercado (consumo/processamento) options, or null when the banco has no
 // market_nature dimension (only COMTRADE carries it). Mirrors flowOptionsFor.
 window.marketOptionsFor = (bancoId) => window.MARKET_OPTIONS[bancoId] || null;
+
+// COMTRADE país reporter / parceiro country multi-selects. Gated to un_comtrade — the only
+// banco whose mart carries the reporter/partner ISO columns (it declares provides:['partner']
+// AND has no Brazilian geo cascade, geoLevel=null). The FilterMenu renders the two GeoColumn
+// pickers when this is true AND window.comtradeCountries() has loaded the universe. Unlike
+// flow/customs/market, the option list is NOT a static OPTIONS map — it comes from the
+// /api/countries endpoint (203 reporters × 246 partners).
+window.hasCountryFilters = (bancoId) => bancoId === 'un_comtrade';
 
 // ── Dev-time COVERAGE LINT (mirrors window.auditBancoCoverage) ────────────
 // Catches the drift the dual capability sources invite: a dim whose `requires`

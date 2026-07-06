@@ -85,7 +85,16 @@ def _year_bounds(
 # by the optional UF filter on the flow/partner readers (the filter VALUES stay
 # bound — only this identifier is interpolated).
 ALLOWED_FILTER_COLUMNS = frozenset(
-    {"product_code", "ncm_code", "cmd_code", "state_acronym", "city_code"}
+    {
+        "product_code",
+        "ncm_code",
+        "cmd_code",
+        "state_acronym",
+        "city_code",
+        # COMTRADE country filters (reporter / partner side), narrowed via IN-list.
+        "reporter_iso_a3",
+        "partner_iso_a3",
+    }
 )
 
 # Dimension columns the trade builders interpolate into SELECT / GROUP BY (origin,
@@ -686,6 +695,11 @@ def trade_overview(
     value_column: str = "val_yearfx_usd",
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    # Optional multi-country COMTRADE filters — reporter_iso_a3 / partner_iso_a3 IN
+    # UNNEST(...). Mutually exclusive with the reporter_value scalar pin (the gateway
+    # passes ONE or the other, never both). Empty = no filter.
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
     sum_flows: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
     """Annual trade value + weight from a trade annual mart (backs overviewTS).
@@ -712,6 +726,8 @@ def trade_overview(
     _customs(conditions, params, customs)
     _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
+    _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
+    _in_array(conditions, params, "partner_iso_a3", "partners", partners)
     sql = f"""
         select
             reference_year,
@@ -845,6 +861,8 @@ def trade_by_partner(
     uf_codes: Sequence[str] = (),
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
     rank_by: str = "value",
 ) -> tuple[str, list]:
     """Partner ranking with export/import split (backs partnerData).
@@ -882,6 +900,8 @@ def trade_by_partner(
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _reporter(conditions, params, reporter_column, reporter_value)
+    _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
+    _in_array(conditions, params, "partner_iso_a3", "partners", partners)
     sql = f"""
         select
             {partner_code_column}                                  as partner_code,
@@ -914,6 +934,8 @@ def trade_flows(
     uf_codes: Sequence[str] = (),
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
     sum_flows: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
     """Origin->destination links for the Sankey (backs flowData).
@@ -949,6 +971,8 @@ def trade_flows(
     _flow(conditions, params, flow, sum_flows=sum_flows)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _reporter(conditions, params, reporter_column, reporter_value)
+    _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
+    _in_array(conditions, params, "partner_iso_a3", "partners", partners)
     sql = f"""
         select
             {origin_code_column}             as origin_code,
@@ -962,6 +986,35 @@ def trade_flows(
         order by value_usd desc
     """
     return sql, params
+
+
+def comtrade_countries(table: str) -> tuple[str, list]:
+    """Distinct reporter + partner countries in the COMTRADE mart (backs the country
+    pickers). One row per (role, iso, name, code); ``role`` ∈ {reporter, partner}. The
+    two universes differ (~203 reporters vs ~246 partners), so BOTH are returned and
+    split by ``role`` in the seam. No bound params — a small DISTINCT over the clustered
+    mart, memoized so it runs once."""
+    sql = f"""
+        select
+            'reporter'               as role,
+            reporter_iso_a3          as iso,
+            any_value(reporter_name) as name,
+            any_value(reporter_code) as code
+        from `{table}`
+        where reporter_iso_a3 is not null
+        group by reporter_iso_a3
+        union all
+        select
+            'partner'                as role,
+            partner_iso_a3           as iso,
+            any_value(partner_name)  as name,
+            any_value(partner_code)  as code
+        from `{table}`
+        where partner_iso_a3 is not null
+        group by partner_iso_a3
+        order by role, name
+    """
+    return sql, []
 
 
 def quality_timeseries(table: str, *, visibility_predicate: str = "") -> tuple[str, list]:
@@ -1129,6 +1182,8 @@ def product_timeseries(
     market: str | None = None,
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    reporters: Sequence[str] = (),
+    partners: Sequence[str] = (),
     has_measure_kind: bool = False,
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
@@ -1174,6 +1229,8 @@ def product_timeseries(
     _customs(conditions, params, customs)
     _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
+    _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
+    _in_array(conditions, params, "partner_iso_a3", "partners", partners)
     sql = f"""
         select
             {code_column}       as code,

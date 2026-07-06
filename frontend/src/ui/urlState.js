@@ -13,6 +13,9 @@
 window.URL_STATE_KEYS = [
   'v', 'b', 'ip', 'cur', 'corr', 'mu', 'vu', 'as',
   'pb', 'fl', 'st', 'vmn', 'vmx', 'sd', 'ed', 'fx', 'cx', 'mk',
+  // COMTRADE país reporter (rp) / país parceiro (pt). rp is 3-state: 'ALL' = mundo, a CSV
+  // of ISO codes, or absent = Brasil (default). pt is the standard array encoding (all/subset).
+  'rp', 'pt',
   // Sub-UF / município geography (v1.5.2): mesorregião (me), microrregião (mc),
   // região intermediária (it), região imediata (im), município (mn). null="all"
   // (omitted), so a non-narrowing selection never bloats the URL — only an actual
@@ -106,6 +109,12 @@ window.buildUrlState = ({ view, database, infoPage, conventions, summary, crossS
     cx: s.customs && s.customs !== 'all' ? s.customs : '',
     // Server-side tipo-de-mercado filter (COMTRADE); omitted when 'all'/absent.
     mk: s.market && s.market !== 'all' ? s.market : '',
+    // COMTRADE país reporter (3-state): 'ALL' = mundo (world total), a CSV of ISO codes for a
+    // specific set, or '' for Brazil/absent (the default → dropped). The distinct 'ALL' literal
+    // keeps "world" separate from the '-' empty sentinel. País parceiro (pt) uses the standard
+    // array encoding (null → '' = all; CSV subset; '-' = none, coerced back to all on restore).
+    rp: s.reporters === '__all__' ? 'ALL' : Array.isArray(s.reporters) ? arr(s.reporters) : '',
+    pt: arr(s.partners),
     xs: isCross && crossState?.series ? crossState.series.map((r) => `${r.b}:${r.m}`).join('|') : '',
     xm: isCross ? crossState?.mode || '' : '',
     xy0: isCross && crossState?.y0 ? crossState.y0 : '',

@@ -63,4 +63,24 @@ window.chipFmt = {
     if (!stateCount || stateCount === ufTotal) return `Brasil \u00b7 ${ufTotal} UFs`;
     return `${stateCount} ${stateCount === 1 ? 'UF' : 'UFs'}`;
   },
+
+  // COMTRADE país reporter → chip. sel = null (Brasil default) | '__all__' (world) | ISO
+  // array. total = reporter universe size; nameOf(iso) → display name (single-country case).
+  reporter(sel, total, nameOf) {
+    if (sel == null) return 'Brasil';
+    if (sel === '__all__') return total ? `Mundo (${total})` : 'Mundo';
+    if (!Array.isArray(sel) || sel.length === 0) return 'Brasil';
+    if (total && sel.length >= total) return `Mundo (${total})`;
+    if (sel.length === 1) return (nameOf && nameOf(sel[0])) || sel[0];
+    return `${sel.length} países`;
+  },
+
+  // COMTRADE país parceiro → chip. sel = null (all) | ISO array; total = partner universe.
+  partner(sel, total, nameOf) {
+    if (sel == null || !Array.isArray(sel) || sel.length === 0 || (total && sel.length >= total)) {
+      return total ? `Todos (${total})` : 'Todos';
+    }
+    if (sel.length === 1) return (nameOf && nameOf(sel[0])) || sel[0];
+    return `${sel.length} de ${total}`;
+  },
 };

@@ -41,6 +41,26 @@ describe('urlState — numeric codec (NaN guard)', () => {
   });
 });
 
+describe('urlState — COMTRADE país reporter/parceiro (rp/pt)', () => {
+  it('URL_STATE_KEYS carries rp + pt', () => {
+    expect(window.URL_STATE_KEYS).toContain('rp');
+    expect(window.URL_STATE_KEYS).toContain('pt');
+  });
+
+  it('encodes reporter 3-state: Brasil/absent → "", world → "ALL", subset → csv', () => {
+    const enc = (reporters) => window.buildUrlState({ summary: { reporters } }).rp;
+    expect(enc(undefined)).toBe(''); // Brazil default → dropped
+    expect(enc('__all__')).toBe('ALL'); // world sentinel (distinct from the "-" empty)
+    expect(enc(['BRA', 'CHN'])).toBe('BRA,CHN');
+  });
+
+  it('encodes partner as the standard array (null → "" all, subset → csv)', () => {
+    const enc = (partners) => window.buildUrlState({ summary: { partners } }).pt;
+    expect(enc(null)).toBe('');
+    expect(enc(['CHN', 'USA'])).toBe('CHN,USA');
+  });
+});
+
 describe('urlState — own-state gate + key registry', () => {
   it('URL_STATE_KEYS carries the v1.5.2 sub-UF geography keys', () => {
     for (const k of ['me', 'mc', 'it', 'im', 'mn']) {

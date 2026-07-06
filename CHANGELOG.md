@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.14.0] - 2026-07-06
+
+**UN COMTRADE país filter** + uma **auditoria focada no glossário** (33 correções aplicadas) +
+crédito de autoria/manutenção no rodapé. Nenhuma mudança de schema/dbt — os filtros de país
+consomem colunas (`reporter_iso_a3`, `partner_iso_a3`) que já existiam na
+`serving_comtrade_annual` (backfill mundial já concluído); só a leitura server-side + a UI
+são novas.
+
+### Added
+- **País reporter · País parceiro (UN COMTRADE)** — dois multi-seletores de país no menu
+  "Editar filtros", espelhando o filtro de Fluxo já existente ponta a ponta (schema, seam,
+  gateway, SQL, dataStore, URL, chips). `reporter` é um codificador de 3 estados — ausente
+  = Brasil (idêntico ao comportamento atual), `__all__` = mundo (sem pin, soma todos os
+  reporters), lista = `IN (...)`; `partner` segue a regra padrão null-quando-cheio. Novo
+  endpoint `GET /api/countries` (203 reporters × 246 parceiros, cacheado). Verificado
+  byte-a-byte contra o BigQuery (Brasil 2024 = 73,42 · mundo = 615,37 · Brasil↔China = 36,18,
+  em bi US$ IPCA).
+- **Autoria/manutenção no rodapé** — nova coluna no `<footer>` global (`AppShell.jsx`), ao
+  lado do crédito institucional da Embrapa, com contato técnico e o link do repositório
+  GitHub, para quem quiser reportar um problema ou contribuir encontrar isso facilmente em
+  qualquer tela.
+
+### Fixed
+- **Espaçamento do hint de produtos no menu de filtros** (`.fm-cascade-hint`): o texto
+  descritivo do dimensionamento de produtos ficava colado na borda esquerda e no cabeçalho
+  da seção (sem margem) em todos os bancos com hint. Corrigido com inset alinhado ao
+  cabeçalho (22px desktop / 14px mobile) + respiro vertical.
+- **Auditoria do glossário (33 achados verificados, todos corrigidos)** — a pior classe:
+  **códigos de produto fabricados** que nunca bateram com o SIDRA real (PEVS `49xxx`/PAM
+  `54xxx` → códigos reais `34xx`/`40xxx`), um **produto-fantasma** ("Erva-mate", nunca
+  esteve na base) removido, e dois produtos reais que faltavam (Carvão vegetal, Pinheiro
+  brasileiro) adicionados. Também corrigidas descrições desatualizadas (COMTRADE Flow
+  agora é totals-only; `BEC` era um termo órfão; Reporter/Partner descritos como colunas
+  passivas, agora são filtros; o eixo "tipo de mercado" da Engenharia de atributos está
+  congelado e agora é rotulado como tal) e reescritas ~12 definições genéricas demais para
+  o pesquisador leigo (HHI, FOB/CIF, SH4·SH6, entre outras). Adicionado o vocabulário-base
+  do app (produto · agrupamento · cesta) que nunca havia sido glossado.
+
+---
+
 ## [1.13.5] - 2026-07-06
 
 Remediação de uma **auditoria de segurança da feature Curadoria** (catálogo editável). Nenhum
