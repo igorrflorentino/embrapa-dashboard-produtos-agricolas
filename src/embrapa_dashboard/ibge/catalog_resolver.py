@@ -168,7 +168,11 @@ def _query_catalog_codes(
     if settings.bq_max_bytes_billed:
         job_config.maximum_bytes_billed = settings.bq_max_bytes_billed
     rows = client.query(sql, job_config=job_config).result()
-    return [str(row["codigo_produto"]).strip() for row in rows if row["codigo_produto"]]
+    # Strip FIRST, then keep only non-empty codes: a whitespace-only codigo_produto
+    # (' ') is truthy BEFORE stripping, so a naive `if row[...]` would let it survive
+    # as '' — inflating the resolved count against the safety cap and injecting an empty
+    # token into the SIDRA URL (…/c289/3405,,3450). "No invisible filtering."
+    return [c for row in rows if (c := str(row["codigo_produto"]).strip())]
 
 
 def _emit(banco: str, sidra_tabela: str | None, *, resolved: int, used: str) -> None:

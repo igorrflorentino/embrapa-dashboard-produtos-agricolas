@@ -153,6 +153,16 @@ models:
       researcher-facing Gold read (serving marts, quality donut, cross-source picker). Kept
       SEPARATE from dim_produto_catalog so the admin editor + crosswalk still see
       hidden-but-active rows. Empty in the no-op steady state (nothing hidden). VIEW.
+    tests:
+      # One row per hidden (source, code) — the documented grain. The gate is a NOT EXISTS
+      # over this view, so a duplicate is harmless for correctness but signals a
+      # partition/order regression in the latest-wins SCD2 logic; pin it, mirroring
+      # dim_produto_catalog's key test (the sibling SCD2 view over the same log).
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source
+              - code
     columns:
       - name: source
         description: "Short source token (pevs/pam/ppm/comex/comtrade) — the banco."

@@ -107,6 +107,8 @@ def add_attribute_editor(
     p = bigquery.ScalarQueryParameter
     params = [p("email", "STRING", email_norm), p("added_by", "STRING", added_by)]
     bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    # A newly-added editor should be able to curate immediately, not after the TTL.
+    invalidate_attribute_editors_cache()
     logger.info("Attribute editor authorized: %s (by %s)", email_norm, added_by)
     return email_norm
 
@@ -127,7 +129,23 @@ def remove_attribute_editor(
     params = [bigquery.ScalarQueryParameter("email", "STRING", email_norm)]
     job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     job.result()
+    # Revocation must take effect at once — drop the memoized allowlist so the removed
+    # editor cannot keep writing for the cache-TTL window.
+    invalidate_attribute_editors_cache()
     return int(getattr(job, "num_dml_affected_rows", 0) or 0)
+
+
+def invalidate_attribute_editors_cache() -> None:
+    """Drop the cached attribute-editor allowlist so an add/remove takes effect IMMEDIATELY,
+    not after the ~30s classification-cache TTL — REVOCATION must remove write access at
+    once. Best-effort. Lazy import to avoid any serving-module import cycle."""
+    try:
+        from embrapa_dashboard.serving import gateway
+        from embrapa_dashboard.serving.cache import cache
+
+        cache.delete_memoized(gateway.fetch_attribute_editors)
+    except Exception as exc:  # pragma: no cover - cache unbound / backend down
+        logger.warning("Could not invalidate attribute-editors cache: %s", exc)
 
 
 def ensure_banco_metadata_table(

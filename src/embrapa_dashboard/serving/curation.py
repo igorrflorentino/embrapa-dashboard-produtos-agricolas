@@ -164,6 +164,8 @@ def add_catalog_editor(
         p("added_by", "STRING", added_by),
     ]
     bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    # A newly-added editor should be able to edit immediately, not after the TTL.
+    invalidate_catalog_editors_cache()
     logger.info("Catalog editor authorized: %s on %s (by %s)", email_norm, resource, added_by)
     return email_norm
 
@@ -186,6 +188,9 @@ def remove_catalog_editor(
     params = [p("resource", "STRING", resource), p("email", "STRING", email_norm)]
     job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     job.result()
+    # Revocation must take effect at once — drop the memoized allowlist so the removed
+    # editor cannot keep writing for the cache-TTL window.
+    invalidate_catalog_editors_cache()
     return int(getattr(job, "num_dml_affected_rows", 0) or 0)
 
 
@@ -426,7 +431,11 @@ def record_produto_catalog(
         logger.info(
             "Catalog: duplicate change_id %s ignored (%s:%s)", change_id, banco, codigo_produto
         )
-        return _catalog_row(
+        # Return the STORED row (read-after-write consistency), not the retried request body.
+        stored = _row_for_change_id(bq, table_fqn, change_id)
+        if stored is not None:
+            return stored
+        return _catalog_row(  # fallback: stored row vanished (shouldn't happen)
             codigo_produto,
             banco,
             agrupamento,
@@ -496,7 +505,10 @@ def remove_produto_catalog(
     table_fqn = _catalog_log_ref(cfg)
     ensure_produto_catalog_log_table(cfg, bq)
     if supplied and _change_id_seen(bq, table_fqn, change_id):
-        return _catalog_row(
+        stored = _row_for_change_id(bq, table_fqn, change_id)
+        if stored is not None:
+            return stored
+        return _catalog_row(  # fallback: stored row vanished (shouldn't happen)
             codigo_produto,
             banco,
             None,
@@ -616,6 +628,39 @@ def _catalog_row(
     }
 
 
+def _row_for_change_id(bq, table_fqn: str, change_id: str) -> dict | None:
+    """The STORED catalog-log row for ``change_id`` (change_id is unique per write, so this
+    is THE row). Used to echo the ORIGINAL persisted values on an idempotent-retry dedup —
+    read-after-write consistency: a retry reusing the key must return what was actually
+    STORED, not the (possibly changed) new request body. None if not found."""
+    sql = f"""
+        select codigo_produto, banco, agrupamento, descricao_produto, ciclo_de_vida,
+               agrupamento_id, sidra_tabela, active, edited_by
+        from `{table_fqn}`
+        where change_id = @change_id
+        order by edited_at desc
+        limit 1
+    """
+    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
+    rows = list(bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result())
+    if not rows:
+        return None
+    r = rows[0]
+    return _catalog_row(
+        r["codigo_produto"],
+        r["banco"],
+        r["agrupamento"],
+        r["descricao_produto"],
+        r["ciclo_de_vida"],
+        r["agrupamento_id"],
+        bool(r["active"]),
+        r["edited_by"],
+        change_id,
+        sidra_tabela=r["sidra_tabela"],
+        deduped=True,
+    )
+
+
 def invalidate_produto_catalog_cache() -> None:
     """Drop the cached current-catalog read so the next query is fresh (best-effort).
 
@@ -635,6 +680,17 @@ def invalidate_produto_catalog_cache() -> None:
             cache.delete_memoized(fn)
         except Exception as exc:  # pragma: no cover - cache unbound / backend down
             logger.warning("Could not invalidate commodity-catalog cache: %s", exc)
+
+
+def invalidate_catalog_editors_cache() -> None:
+    """Drop the cached editor allowlist so an add/remove takes effect IMMEDIATELY,
+    not after the ~30s classification-cache TTL. Critical for REVOCATION: a de-authorized
+    editor must lose write access at once — otherwise they can keep POSTing successful
+    (audit-logged) edits until the stale allowlist expires. Best-effort."""
+    try:
+        cache.delete_memoized(gateway.fetch_catalog_editors)
+    except Exception as exc:  # pragma: no cover - cache unbound / backend down
+        logger.warning("Could not invalidate catalog-editors cache: %s", exc)
 
 
 # The env → catalog banco/sidra_tabela plan for catalog_authoritative_ingestion cutover.

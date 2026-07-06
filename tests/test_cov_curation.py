@@ -523,3 +523,27 @@ def test_seed_catalog_from_env_coerces_null_agrupamento_id(monkeypatch):
     p = {c["code"]: c for c in calls}["3405"]
     assert p["agrupamento"] == "Castanha"  # valid string preserved
     assert p["agrupamento_id"] is None  # NaN coerced to None
+
+
+# ── Cross-layer coupling: the Ciclo de Vida "hidden" literal (#1 audit) ──────────
+def test_ciclo_de_vida_oculto_literal_matches_across_layers():
+    """The 'hidden' Ciclo de Vida literal couples THREE layers: the Python validator
+    (curation.CICLO_DE_VIDA_OCULTO), the dbt visibility gate (dim_produto_visibility.sql
+    hides exactly this string), and the frontend dropdown (ViewCadastroProdutos _CC_CICLO).
+    A reword in one layer without the others SILENTLY fails the gate — a product marked
+    hidden passes Python validation but reappears on the dashboard because the dbt WHERE
+    no longer matches. Pin the coupling so the drift is a red test, not a silent leak."""
+    import pathlib
+
+    from embrapa_dashboard.serving import curation
+
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    dbt_sql = (repo / "dbt/models/core/dim_produto_visibility.sql").read_text(encoding="utf-8")
+    assert curation.CICLO_DE_VIDA_OCULTO in dbt_sql, (
+        "dbt visibility gate literal drifted from curation.CICLO_DE_VIDA_OCULTO — "
+        "hidden products would silently reappear on the dashboard."
+    )
+    jsx = (repo / "frontend/src/ui/ViewCadastroProdutos.jsx").read_text(encoding="utf-8")
+    assert curation.CICLO_DE_VIDA_OCULTO in jsx, (
+        "frontend _CC_CICLO literal drifted from curation.CICLO_DE_VIDA_OCULTO."
+    )

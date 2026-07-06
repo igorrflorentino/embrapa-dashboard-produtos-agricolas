@@ -52,6 +52,14 @@ current_catalog as (
 
     select
         *,
+        -- Latest-wins per key. Tie-breaker note: on a same-microsecond `edited_at` tie the
+        -- random `change_id` decides — deterministic, but NOT necessarily true write-order.
+        -- Unreachable in practice (the change_id idempotency guard dedups double-clicks, and a
+        -- human can't submit two DIFFERENT edits to one key in one microsecond; the seed writes
+        -- distinct keys). A truly monotonic tie-breaker would need cross-instance coordination
+        -- this architecture lacks; the unique_combination test on this model (and on
+        -- dim_produto_visibility) is the backstop that turns any real multi-active row into a
+        -- red build. This ORDER BY is replicated across the serving readers — change together.
         row_number() over (
             partition by codigo_produto, banco
             order by edited_at desc, change_id desc

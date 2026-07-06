@@ -170,6 +170,9 @@ def record_catalog_entry(payload: dict) -> dict:
         descricao_produto=payload.get("descricao_produto"),
         ciclo_de_vida=payload.get("ciclo_de_vida"),
         agrupamento_id=payload.get("agrupamento_id"),
+        # PPM (SIDRA tables 3939/74) routes catalog-driven ingestion by sidra_tabela;
+        # the writer requires it for a new PPM entry — a dropped value 400s the save.
+        sidra_tabela=payload.get("sidra_tabela"),
         change_id=payload.get("change_id"),
     )
 

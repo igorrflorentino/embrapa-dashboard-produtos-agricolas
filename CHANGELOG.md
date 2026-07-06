@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.5] - 2026-07-06
+
+Remediação de uma **auditoria de segurança da feature Curadoria** (catálogo editável). Nenhum
+achado crítico — sem acesso não-autenticado, sem destruição de dados, sem injeção; o purge
+humano-gated e o log append-only se sustentam. Prod está **travado** (2 editores em
+`catalog_editors`). Os achados são das costuras + bugs funcionais reais. *(Assume #224/1.13.1
+… #229/1.13.4 antes; reconciliação trivial. O ajuste de tie-breaker SCD2 (#10) foi ADIADO — é
+uma mudança de 13 pontos para um empate inalcançável; ver PR.)*
+
+### Fixed
+- **Autorização fail-OPEN em erro transitório vira fail-CLOSED.** `routes._authorize_*_editor`:
+  se criar a tabela de allowlist FALHA (BQ/perms) E a allowlist está vazia, agora nega (503) em
+  vez de cair silenciosamente em "modo aberto" — um allowlist vazio só é confiável quando o
+  estado da tabela pôde ser confirmado.
+- **`sidra_tabela` era descartado na seam do catálogo** (`seam_curation.record_catalog_entry`):
+  entradas PPM (SIDRA 3939/74) criadas via web API falhavam a validação (400). Repassado.
+- **Códigos só-espaço passavam pelo resolver** (`catalog_resolver`): `strip` antes do filtro →
+  `' '` virava `''` na URL SIDRA (`c289/3405,,3450`). Filtra depois de aparar.
+- **Revogação de editor não invalidava o cache** (catálogo + atributo): um editor removido
+  mantinha acesso de escrita por ~30s. `add`/`remove` agora invalidam a allowlist memoizada.
+- **Dedup de idempotência devolvia o corpo da requisição, não a linha ARMAZENADA**
+  (`curation._row_for_change_id`): um retry com o mesmo change_id e valores diferentes agora
+  devolve o que foi persistido (consistência read-after-write).
+- **Regex do purge afrouxado** (`catalog_lifecycle.purge_plan`): `[A-Za-z0-9.\-]+` →
+  `[0-9]+`, em lockstep com a validação de escrita do catálogo (só dígitos).
+
+### Added
+- **Teste de acoplamento cross-layer do Ciclo de Vida** — o literal "oculto" acopla 3 camadas
+  (validador Python, gate dbt `dim_produto_visibility`, dropdown do frontend); um reword numa
+  só falha o gate em silêncio. Pinado por teste.
+- **Teste de unicidade em `dim_produto_visibility`** (`(source, code)`), espelhando o de
+  `dim_produto_catalog` — pina o grão SCD2 "latest-wins" contra uma regressão.
+
 ## [1.13.4] - 2026-07-06
 
 Remediação de uma **auditoria profunda do banco IBGE PEVS** (extração vegetal) — a fonte

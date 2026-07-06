@@ -276,9 +276,12 @@ def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
     banco = (banco or "").strip()
     code = (code or "").strip()
     # The code is interpolated verbatim into a printed DELETE, so it must be a plain literal
-    # token — letters, digits, dot, hyphen (no quotes/wildcards that could alter the SQL).
-    if not banco or not code or not re.fullmatch(r"[A-Za-z0-9.\-]+", code):
-        raise ValueError("banco and a simple alphanumeric code are required.")
+    # token. Enforce DIGITS-ONLY to match the catalog write validation (_validate_catalog_edit
+    # accepts only [0-9]+): a lifecycle entry can only originate from a validated catalog_log
+    # row today, but a looser regex here would let a future direct lifecycle writer slip a
+    # dot/hyphen code into a DELETE. Keep the two validators in lockstep.
+    if not banco or not code or not re.fullmatch(r"[0-9]+", code):
+        raise ValueError("banco and a digits-only product code are required.")
     if _current_status(cfg).get(("commodity", banco, code)) != "descontinuado":
         raise ValueError(
             f"{banco}:{code} is not marked Descontinuado — refuse to plan a purge "

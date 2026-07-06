@@ -30,6 +30,10 @@ with current_catalog as (
         codigo_produto,
         ciclo_de_vida,
         active,
+        -- Latest-wins per key; same tie-breaker note as dim_produto_catalog: a
+        -- same-microsecond change_id tie is deterministic but not true write-order —
+        -- unreachable for human edits, and the unique_combination(source, code) test on this
+        -- model is the backstop. This ORDER BY is replicated across the serving readers.
         row_number() over (
             partition by codigo_produto, banco
             order by edited_at desc, change_id desc
