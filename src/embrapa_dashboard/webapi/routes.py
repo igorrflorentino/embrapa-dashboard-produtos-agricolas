@@ -167,22 +167,22 @@ def _api_error(exc):
     return jsonify(error="internal server error"), 500
 
 
-def _ensure_attribute_editors_table() -> None:
-    """Self-heal the Console-managed attribute editor allowlist table (best-effort).
+def _ensure_attribute_editors_table() -> bool:
+    """Self-heal the Console-managed attribute editor allowlist table.
 
-    The allowlist read (``seam.attribute_editor_emails``) treats a missing table as "no
-    allowlist configured" (open mode), so an operator following the runbook's
-    documented INSERT to add the first attribute editor would otherwise hit "table not
-    found". Create it idempotently on the first authorization check — mirroring how
-    the append-only log writers self-heal their own tables — so the runbook's
-    "auto-creates on first use" promise actually holds. Best-effort: a transient
-    BQ/permission fault must not block an otherwise-authorized write, and an empty
-    table is still open mode, so swallowing the error preserves current behaviour.
+    Create it idempotently on the first authorization check — mirroring how the
+    append-only log writers self-heal their own tables — so the runbook's
+    "auto-creates on first use" promise holds. Returns True when ensured, False on
+    failure (BQ down / perms). Like the catalog twin: an empty read is trustworthy as
+    "open mode" ONLY when we could confirm the table (ensured=True); if ensuring FAILED
+    and the allowlist reads empty, the caller fails CLOSED instead of admitting everyone.
     """
     try:
         ensure_attribute_editors_table()
-    except Exception:  # pragma: no cover - BQ unavailable / perms; never block the write
+        return True
+    except Exception:  # pragma: no cover - BQ unavailable / perms
         logger.warning("Could not ensure attribute editors allowlist table", exc_info=True)
+        return False
 
 
 def _ensure_banco_metadata_table() -> None:
@@ -201,17 +201,21 @@ def _ensure_banco_metadata_table() -> None:
         logger.warning("Could not ensure banco metadata override table", exc_info=True)
 
 
-def _ensure_catalog_editors_table() -> None:
-    """Self-heal the Console-managed per-catalog editor allowlist (best-effort).
+def _ensure_catalog_editors_table() -> bool:
+    """Self-heal the Console-managed per-catalog editor allowlist.
 
-    The allowlist read (``seam.catalog_editor_emails``) treats a missing table as
-    "no allowlist → open mode", so a failure here never blocks a write — it just
-    means the Console INSERT path isn't pre-created yet. Swallowed by design.
+    Returns True when the table exists / was ensured, False when ensuring FAILED
+    (BQ down / perms). A False matters: the allowlist read treats an ABSENT table as
+    "no allowlist → open mode", so if we could NOT confirm the table's state, an empty
+    read is UNTRUSTWORTHY — the caller must fail CLOSED, not silently admit everyone
+    (a perms misconfig that leaves the table uncreatable must not read as open mode).
     """
     try:
         ensure_catalog_editors_table()
-    except Exception:  # pragma: no cover - BQ unavailable / perms; never block the write
+        return True
+    except Exception:  # pragma: no cover - BQ unavailable / perms
         logger.warning("Could not ensure catalog editors allowlist table", exc_info=True)
+        return False
 
 
 def _authorize_attribute_editor():
@@ -237,11 +241,17 @@ def _authorize_attribute_editor():
         return None, (jsonify(error=str(exc)), 401)
     # Auto-create the allowlist table on first use so the runbook's Console INSERT
     # path is real (the read below then finds an empty table → open mode).
-    _ensure_attribute_editors_table()
+    ensured = _ensure_attribute_editors_table()
     allowed = (
         set(get_settings().attribute_editors_allowed_emails_list) | seam.attribute_editor_emails()
     )
-    if allowed and author.lower() not in allowed:
+    if not allowed:
+        # Open mode is trustworthy only if we could confirm the table (ensured=True);
+        # a can't-create failure must fail CLOSED, not silently admit everyone.
+        if not ensured:
+            return None, (jsonify(error="attribute editor allowlist is unavailable"), 503)
+        return author, None  # genuine open mode
+    if author.lower() not in allowed:
         return None, (jsonify(error=f"{author} is not an authorized attribute editor"), 403)
     return author, None
 
@@ -268,9 +278,18 @@ def _authorize_catalog_editor(resource: str):
         return None, (jsonify(error=str(exc)), 403)
     except PermissionError as exc:
         return None, (jsonify(error=str(exc)), 401)
-    _ensure_catalog_editors_table()
+    ensured = _ensure_catalog_editors_table()
     allowed = _catalog_editor_allowlist(resource)
-    if allowed and author.lower() not in allowed:
+    if not allowed:
+        # Empty allowlist = "open mode" BY DESIGN — but only trustworthy if we could
+        # confirm the table's state. If ensuring it FAILED (BQ/perms), an empty read
+        # cannot be distinguished from "allowlist unavailable" → fail CLOSED rather
+        # than admit everyone. (A transient read error already 503s above via the
+        # propagating gateway read; this covers the absent-table-because-can't-create case.)
+        if not ensured:
+            return None, (jsonify(error=f"editor allowlist for {resource} is unavailable"), 503)
+        return author, None  # genuine open mode (ensured empty table)
+    if author.lower() not in allowed:
         return None, (jsonify(error=f"{author} is not an authorized editor of {resource}"), 403)
     return author, None
 

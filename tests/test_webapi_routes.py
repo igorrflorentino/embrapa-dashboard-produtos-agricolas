@@ -1185,9 +1185,11 @@ def test_attributes_post_auto_creates_attribute_editors_allowlist_table(monkeypa
     assert called["n"] == 1
 
 
-def test_auto_create_attribute_editors_failure_does_not_block_write(monkeypatch):
-    """A transient BQ/permission fault while ensuring the allowlist table must not
-    block an otherwise-authorized write (best-effort; empty table = open mode)."""
+def test_auto_create_attribute_editors_failure_fails_closed(monkeypatch):
+    """SECURITY (audit fix): if ensuring the allowlist table FAILS (BQ/perms) AND no
+    allowlist is otherwise configured, the write must fail CLOSED (503). An empty read
+    cannot be trusted as "open mode" when we could not confirm the table's state — deny
+    rather than silently admit everyone (no fail-open on a transient ensure failure)."""
     from embrapa_dashboard.webapi import routes, seam
 
     client = _client(monkeypatch, dev_author="researcher@embrapa.br")
@@ -1201,7 +1203,7 @@ def test_auto_create_attribute_editors_failure_does_not_block_write(monkeypatch)
         "/api/attributes/code-level",
         json={"source": "x", "code": "1", "level": "bruta"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 503
 
 
 # ── JSON sanitization: numpy scalars + datetimes round-trip (no 500) ──────────
