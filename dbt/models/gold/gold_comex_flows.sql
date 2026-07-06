@@ -100,7 +100,11 @@ fx_month as (
         reference_year,
         reference_month,
         avg(case when currency = 'USD' then brl_per_foreign_unit end) as brl_per_usd_avg,
-        avg(case when currency = 'EUR' then brl_per_foreign_unit end) as brl_per_eur_avg
+        -- EUR only exists from 1999; guard so a pre-1999 EUR PTAX backfill can never
+        -- leak a pre-euro rate into val_yearfx_eur (mirrors annual_deflation_ctes.sql).
+        avg(case
+            when currency = 'EUR' and reference_year >= 1999 then brl_per_foreign_unit
+        end) as brl_per_eur_avg
     from {{ ref('silver_currency') }}
     where brl_per_foreign_unit is not null
     group by reference_year, reference_month

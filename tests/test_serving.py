@@ -232,6 +232,34 @@ def test_production_overview_no_filters_has_no_where():
     assert params == []
 
 
+def test_production_value_is_flow_only_when_measure_kind_present():
+    """For a measure_kind source (PPM), the VALUE aggregation is guarded to flow only —
+    herd STOCK rows have no monetary value. Non-measure_kind sources keep a plain sum,
+    and the quantity aggregations are intentionally NOT guarded (a herd headcount is a
+    valid quantity). This makes the "value = flow-only" contract explicit + defends
+    against a future stock row that leaks a non-NULL value."""
+    # Default (PEVS/PAM — no measure_kind): plain sum, no CASE, no measure_kind ref.
+    q_plain, _ = sql.production_overview("p.serving.serving_pevs_annual")
+    assert "sum(val_real_ipca_brl) as total_value" in q_plain
+    assert "measure_kind" not in q_plain
+    # PPM: value wrapped in a measure_kind='flow' CASE across every production builder.
+    q_ov, _ = sql.production_overview("p.serving.serving_ppm_annual", has_measure_kind=True)
+    assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end) as total_value" in q_ov
+    q_uf, _ = sql.production_by_uf("p.serving.serving_ppm_annual", has_measure_kind=True)
+    assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end)" in q_uf
+    # quantity stays unguarded (herd headcount is a valid quantity for the Rebanho view)
+    assert "sum(case when family = 'contagem' then qty_base end) as q_count" in q_uf
+    q_uy, _ = sql.production_by_uf_yearly("p.serving.serving_ppm_annual", has_measure_kind=True)
+    assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end)" in q_uy
+    q_ts, _ = sql.product_timeseries(
+        "p.serving.serving_ppm_annual",
+        code_column="product_code",
+        value_column="val_real_ipca_brl",
+        has_measure_kind=True,
+    )
+    assert "sum(case when measure_kind = 'flow' then val_real_ipca_brl end) as total_value" in q_ts
+
+
 def test_value_column_allowlist_blocks_injection():
     # An identifier can't be a bind param, so it must be allowlisted, not escaped.
     with pytest.raises(ValueError, match="not allowed"):
