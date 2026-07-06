@@ -137,6 +137,14 @@ def _product_source(source: str) -> tuple[str, str, str, str]:
 # Sources whose mart carries the stock|flow ``measure_kind`` discriminator (only the
 # livestock survey today). fetch_products surfaces it so the UI can split the herd
 # (stock) from animal-product flows (eggs/milk) that share the ``contagem`` family.
+# The production readers also pass ``has_measure_kind=source in _MEASURE_KIND_SOURCES``
+# to the SQL builders so a VALUE aggregation is FLOW-only (herd stock has no value).
+# CACHE NOTE: this treatment is SOURCE-DERIVED, and ``source`` is already a
+# @cache.memoize argument on every reader, so it is part of the cache key — no
+# collision is possible. If ``measure_kind`` ever becomes a USER-controllable filter
+# (e.g. "flow only"), it MUST be added as an explicit reader parameter so it joins
+# the memoize key, following the ``flow``/``customs``/``market`` precedent — a
+# request differing only by an un-keyed filter would otherwise serve a stale result.
 _MEASURE_KIND_SOURCES = {"ibge_ppm"}
 
 
@@ -182,6 +190,7 @@ def fetch_production_overview(
         product_codes=tuple(product_codes),
         value_column=value_column,
         uf_codes=tuple(uf_codes),
+        has_measure_kind=source in _MEASURE_KIND_SOURCES,
     )
     return run_query(sql, params)
 
@@ -210,6 +219,7 @@ def fetch_production_by_uf(
         product_codes=tuple(product_codes),
         value_column=value_column,
         latest_year_only=latest_year_only,
+        has_measure_kind=source in _MEASURE_KIND_SOURCES,
     )
     return run_query(sql, params)
 
@@ -231,6 +241,7 @@ def fetch_production_by_uf_yearly(
         year_end=year_end,
         product_codes=tuple(product_codes),
         value_column=value_column,
+        has_measure_kind=source in _MEASURE_KIND_SOURCES,
     )
     return run_query(sql, params)
 
@@ -1034,6 +1045,7 @@ def fetch_product_timeseries(
         market=market,
         reporter_column=reporter_column,
         reporter_value=reporter_value,
+        has_measure_kind=source in _MEASURE_KIND_SOURCES,
     )
     return run_query(sql, params)
 

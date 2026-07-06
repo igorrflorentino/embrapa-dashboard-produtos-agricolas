@@ -44,6 +44,27 @@ def _parse_code_label(raw: str) -> dict[str, str]:
     return result
 
 
+def _require_code_lengths(
+    mapping: dict[str, str], valid_lengths: set[int], kind: str
+) -> dict[str, str]:
+    """Raise if any code's digit-length is outside ``valid_lengths``.
+
+    COMEX codes have fixed widths (NCM=8, HS heading=4, HS chapter=2). Without this
+    check a misconfigured code — e.g. a 7-digit NCM — passes ``_parse_code_label``
+    (numeric+ASCII only) but then matches ZERO rows in the ingest product filter
+    (``client.py`` does an exact ``isin``), so the chunk is silently marked
+    "skipped — no configured products". Fail loudly at config-load instead.
+    """
+    for code in mapping:
+        if len(code) not in valid_lengths:
+            expected = " or ".join(str(n) for n in sorted(valid_lengths))
+            raise ValueError(
+                f"{kind} code {code!r} has {len(code)} digits; expected {expected}. "
+                "A wrong-width code silently matches no rows in the ingest filter."
+            )
+    return mapping
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -91,6 +112,15 @@ class Settings(BaseSettings):
     # ─── IBGE ─────────────────────────────────────────────────────────────────
     ibge_table_id: str = Field(default="289")
     ibge_classification_id: str = Field(default="193")
+    # The 2 SIDRA t289 variables silver_ibge_pevs pivots: 144 (quantidade) + 145
+    # (valor). PEVS fetches v/all into Bronze, then Silver FILTERS to these two.
+    # ⚠ NAME coupling: dbt/dbt_project.yml reads the SAME env vars —
+    # `env_var('IBGE_VARIABLE_QUANTITY_CODE', '144')` / `..._VALUE_CODE`, '145')`.
+    # Keep the key names AND defaults identical in both files: a typo drops that
+    # variable from Silver, emptying the Gold column silently. `embrapa doctor`
+    # validates parity (doctor._check_ibge_variable_codes), mirroring PAM.
+    ibge_variable_quantity_code: str = Field(default="144")
+    ibge_variable_value_code: str = Field(default="145")
     # PEVS = EXTRACTIVE vegetal/forestry production. SIDRA t289/c193 codes:
     #   3405 Castanha-do-pará · 3435 Madeira em tora · 3434 Lenha ·
     #   3433 Carvão vegetal · 3450 Pinheiro brasileiro (Araucária, em tora) ·
@@ -206,6 +236,13 @@ class Settings(BaseSettings):
     # dbt reads each via env_var(); each MUST appear in bcb_inflation_series or
     # the matching Gold columns silently come out NULL. `embrapa doctor`
     # validates this (see doctor._check_inflation_pivot_codes).
+    #
+    # ⚠ NAME coupling: these three env-var NAMES are read INDEPENDENTLY here and in
+    # dbt/dbt_project.yml — `env_var('BCB_INFLATION_SERIES_IPCA_CODE', '433')` etc. The
+    # literal key names AND the hardcoded fallbacks (433/189/190) must stay identical in
+    # both files. Renaming a key in only one place makes dbt silently fall back to its
+    # default while config.py reads the new name — a divergence doctor's value-check
+    # won't catch. Change both files together.
     bcb_inflation_series_ipca_code: str = Field(default="433")
     bcb_inflation_series_igpm_code: str = Field(default="189")
     bcb_inflation_series_igpdi_code: str = Field(default="190")
@@ -619,16 +656,20 @@ class Settings(BaseSettings):
 
     @property
     def comex_ncm_map(self) -> dict[str, str]:
-        return _parse_code_label(self.comex_ncm_codes)
+        return _require_code_lengths(_parse_code_label(self.comex_ncm_codes), {8}, "COMEX NCM")
 
     @property
     def comex_chapter_map(self) -> dict[str, str]:
-        return _parse_code_label(self.comex_chapter_codes)
+        return _require_code_lengths(
+            _parse_code_label(self.comex_chapter_codes), {2}, "COMEX HS chapter"
+        )
 
     @property
     def comex_heading_map(self) -> dict[str, str]:
         """4-digit HS headings kept by prefix match on NCM[:4] (e.g. wood)."""
-        return _parse_code_label(self.comex_heading_codes)
+        return _require_code_lengths(
+            _parse_code_label(self.comex_heading_codes), {4}, "COMEX HS heading"
+        )
 
     @property
     def comtrade_cmd_map(self) -> dict[str, str]:

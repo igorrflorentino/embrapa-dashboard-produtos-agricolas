@@ -40,6 +40,119 @@ uma mudança de 13 pontos para um empate inalcançável; ver PR.)*
 - **Teste de unicidade em `dim_produto_visibility`** (`(source, code)`), espelhando o de
   `dim_produto_catalog` — pina o grão SCD2 "latest-wins" contra uma regressão.
 
+## [1.13.4] - 2026-07-06
+
+Remediação de uma **auditoria profunda do banco IBGE PEVS** (extração vegetal) — a fonte
+FUNDACIONAL e a mais sólida das cinco auditadas: os núcleos difíceis (reforma monetária
+pré-1994, Silver incremental, unidades multi-família) estão **corretos por design**. Os
+achados são lacunas de GUARDA — paradoxalmente, PEVS (a fonte mais antiga) tinha MENOS
+guardas que o PAM, feito depois. *(Assume que #224/1.13.1 + #225/1.13.2 + #226/1.13.3 entram
+antes; reconciliação trivial da versão caso a ordem mude.)*
+
+### Added
+- **Guarda de paridade das variáveis PEVS (144 quantidade / 145 valor).** Expostas em
+  `config.py` (`ibge_variable_*_code`) + ponte `env_var()` no `dbt_project.yml` + novo
+  `doctor._check_ibge_variable_codes` — espelha o guard do PAM. Um código mistypado
+  (144→143) em `.env`/`dbt_project.yml` agora **falha no doctor** em vez de silenciosamente
+  esvaziar a coluna de quantidade no Gold. Inclui `.env.example` + testes.
+- **Teste dbt `assert_product_single_family`** (`warn`) — cada `(produto, gold)` deve ter
+  uma única família física; se um produto passasse a ter 2 famílias (erro de seed/ingestão),
+  as somas de quantidade misturariam t + m³ num total sem sentido. Verificado limpo em prod
+  (0 violações) sobre pevs/pam/ppm.
+
+### Changed (docs)
+- **Runbook**: nova seção "Editando um seed dbt → `--full-refresh`" — um edit em
+  `historical_currency_factors` (reforma pré-1994), `unit_family_conversions` ou
+  `product_unit_factors` NÃO propaga num build incremental; exige `--full-refresh` do
+  `silver_ibge_pevs+`.
+- **Frontend**: nota de escala (`mil t` / `mi m³`) em `bancos.js` + entradas de glossário —
+  a unidade-base é t/m³, mas os gráficos exibem em escala (×1e3 / ×1e6); não é divergência.
+
+## [1.13.3] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco IBGE PAM** (produção agrícola). O maior risco
+— o rendimento ser uma RAZÃO somada indevidamente — está **correto por design** (o serving
+descarta o rendimento reportado e o front-end recalcula Σqty ÷ Σárea). Os achados são portões
+de qualidade de dados + 1 bug de UI. *(Assume que #224/1.13.1 e #225/1.13.2 entram antes;
+reconciliação trivial da versão caso a ordem mude.)*
+
+### Fixed
+- **Botão "Exportar" da perspectiva Produtividade (falha silenciosa).** `views.js`:
+  `exportable:false` — não havia case `'productivity'` em `csvExport.buildRows` (a view é
+  `selfData` e recalcula rendimento = qty/área fora do contexto de export), então o botão
+  renderizava e o clique caía no caminho `default → null` sem baixar nada.
+
+### Added
+- **Teste dbt `assert_pam_area_planted_ge_harvested`** (`warn`) — sinaliza linhas SIDRA
+  agronomicamente impossíveis (área plantada < colhida; ex. 1990 Manaus Mandioca 50<650 ha,
+  1993 Cana 790<890 ha) sem bloquear o build; os dados são carregados fielmente (regra do
+  projeto: marcar anomalias, nunca substituir em silêncio).
+- **Validação de FORMA da resposta SIDRA** (`ibge/client.py`) — rejeita um corpo JSON que
+  não seja lista antes da conversão para DataFrame; documenta que a COMPLETUDE depende do
+  contrato do SIDRA (HTTP 400 em overflow, não truncamento silencioso em 200).
+- **Teste de completude das 5 variáveis PAM** (`test_pam_pipeline`) — pin do conjunto
+  {8331, 216, 214, 112, 215}; largar o 215 (valor) zeraria `gold_pam_production.val_raw`.
+
+### Changed (docs)
+- `gold_pam_production`: documentado que `yield_kg_ha` é o rendimento REPORTADO pelo SIDRA,
+  cru e NÃO-autoritativo (diverge de qty/área em algumas linhas; é uma razão, nunca somável;
+  o serving não o expõe — recalcula).
+- Glossário: nota de que o **IGP-M começa em 1989** — `val_real_igpm_*` fica NULL antes disso
+  (não é defeito do pipeline), enquanto IPCA/IGP-DI (desde 1980) preenchem.
+
+## [1.13.2] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco IBGE PPM** (pecuária) — a base mais
+saudável auditada até agora. Os 2 achados são defensivos: NÃO há bug ativo (verificado em
+produção — o front-end já segrega corretamente estoque/fluxo por toda parte). *(Assume que a
+PR #224 — COMEX, 1.13.1 — entra antes; reconciliação trivial da versão caso a ordem mude.)*
+
+### Changed (defesa em profundidade)
+- **Agregação de valor "flow-only" para fontes com `measure_kind` (PPM).** Os builders de
+  produção (`production_overview` / `_by_uf` / `_by_uf_yearly`, `product_timeseries`) agora
+  envolvem a soma de valor num `CASE WHEN measure_kind = 'flow'` quando a fonte carrega o
+  discriminador estoque/fluxo (via `has_measure_kind`, derivado de `source ∈
+  _MEASURE_KIND_SOURCES`). Torna EXPLÍCITO o contrato "efetivo de rebanho (estoque, cabeças)
+  não tem valor" e defende contra uma futura linha de estoque que vaze valor não-nulo.
+  Semanticamente um **no-op hoje** — verificado em prod: valor de estoque é 100% NULL, e a
+  soma de fluxo é idêntica (US$/R$ 2.418,88 bi). A QUANTIDADE fica sem guarda de propósito
+  (cabeças é uma quantidade válida — alimenta a perspectiva Rebanho).
+- **Nota de cache (forward-compat).** O tratamento `measure_kind` é derivado da fonte, e
+  `source` já está na chave do `@cache.memoize` de cada reader → sem colisão possível.
+  Documentado que, se `measure_kind` virar um filtro do usuário, deve entrar na assinatura do
+  reader para compor a chave de cache (precedente `flow`/`customs`/`market`).
+
+## [1.13.1] - 2026-07-05
+
+Remediação de uma **auditoria profunda do banco MDIC COMEX** (7 achados verificados
+adversarialmente — a base é fundamentalmente sólida, sem nenhum bug de corrupção de dados
+ativo em produção; os achados são lacunas defensivas, rótulos e documentação).
+
+### Fixed
+- **Validação de largura dos códigos COMEX.** `comex_ncm/heading/chapter_map` agora exigem
+  8/4/2 dígitos — um código mal-configurado (ex. NCM de 7 dígitos) falha no carregamento em
+  vez de silenciosamente não casar nenhuma linha no filtro do ingest (violava "no invisible
+  filtering").
+- **Guarda EUR-pré-1999 em `gold_comex_flows`.** O CTE `fx_month` (mensal) ganhou
+  `and reference_year >= 1999` no ramo EUR, espelhando `annual_deflation_ctes` — impede que um
+  eventual backfill de PTAX EUR pré-euro vaze taxas em `val_yearfx_eur`.
+
+### Added
+- **Tripwire dbt `assert_comex_no_gross_kg_unit`** (severity `warn`) — alerta se `co_unid=24`
+  (QUILOGRAMA BRUTO / kg bruto) aparecer nos dados, antes que sua conversão (idêntica a kg
+  líquido) misture peso bruto e líquido no agregado.
+
+### Changed (docs / rótulos)
+- **"UF de origem"** (glossário + hint): é sempre o lado **brasileiro** da operação (origem na
+  exportação, destino na importação), não o país estrangeiro.
+- **"Via"** (glossário): documentada como agregada / não filtrável; comentário do
+  `filtersSchema` corrigido ("summed away in Silver" → camada de **serving**; Silver/Gold
+  mantêm `transport_route_code`).
+- Comentário falso de "Gold guard" em `serving_comex_annual` corrigido (o NULL pré-1994 vem do
+  LEFT JOIN sem linhas correspondentes, não de uma guarda de ano explícita).
+- `config.py`: documentado o acoplamento de **nome** das env-vars `BCB_INFLATION_SERIES_*_CODE`
+  entre `config.py` e `dbt_project.yml` (renomear em só um lado faz o dbt cair no default).
+
 ## [1.13.0] - 2026-07-05
 
 **COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**

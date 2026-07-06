@@ -241,6 +241,24 @@ def _reporter(
         params.append(bigquery.ScalarQueryParameter("reporter", "STRING", reporter_value))
 
 
+def _value_sum(value_column: str, has_measure_kind: bool) -> str:
+    """SQL for the value aggregation.
+
+    For a source carrying the stock|flow ``measure_kind`` discriminator (PPM),
+    value is FLOW-only by contract — herd STOCK rows (efetivo, cabeças) have no
+    monetary value. The value column is already NULL on stock rows
+    (gold_ppm_production leaves it NULL by design), so this CASE is a semantic
+    no-op today; it makes the "value applies only to flow" contract EXPLICIT in
+    the SQL and defends against a future upstream row that leaks a non-NULL value
+    onto a stock row. Quantity aggregations are intentionally NOT guarded — a herd
+    headcount is a valid quantity that backs the dedicated Rebanho view.
+    ``value_column`` is caller-validated against ALLOWED_VALUE_COLUMNS.
+    """
+    if has_measure_kind:
+        return f"sum(case when measure_kind = 'flow' then {value_column} end)"
+    return f"sum({value_column})"
+
+
 def production_overview(
     table: str,
     *,
@@ -249,6 +267,7 @@ def production_overview(
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
     uf_codes: Sequence[str] = (),
+    has_measure_kind: bool = False,
 ) -> tuple[str, list]:
     """Annual production total from ``serving_pevs_annual`` (backs overviewTS).
 
@@ -264,7 +283,7 @@ def production_overview(
     sql = f"""
         select
             reference_year,
-            sum({value_column}) as total_value,
+            {_value_sum(value_column, has_measure_kind)} as total_value,
             sum(source_rows)    as source_rows
         from `{table}`
         {_where(conditions)}
@@ -282,6 +301,7 @@ def production_by_uf(
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
     latest_year_only: bool = True,
+    has_measure_kind: bool = False,
 ) -> tuple[str, list]:
     """Production aggregated by UF from ``serving_pevs_annual`` (backs ufData).
 
@@ -315,7 +335,7 @@ def production_by_uf(
             any_value(state_name)   as state_name,
             any_value(region)       as region,
             any_value(region_abbrev) as region_abbrev,
-            sum({value_column})     as total_value,
+            {_value_sum(value_column, has_measure_kind)}     as total_value,
             sum(case when family = 'massa'  then qty_base end) as q_mass,
             sum(case when family = 'volume' then qty_base end) as q_vol,
             sum(case when family = 'contagem' then qty_base end) as q_count
@@ -334,6 +354,7 @@ def production_by_uf_yearly(
     year_end: int | None = None,
     product_codes: Sequence[str] = (),
     value_column: str = "val_real_ipca_brl",
+    has_measure_kind: bool = False,
 ) -> tuple[str, list]:
     """Production by (UF, year) from ``serving_pevs_annual`` (backs the ano × UF heatmap).
 
@@ -356,7 +377,7 @@ def production_by_uf_yearly(
             any_value(state_name)    as state_name,
             any_value(region)        as region,
             any_value(region_abbrev) as region_abbrev,
-            sum({value_column})      as total_value,
+            {_value_sum(value_column, has_measure_kind)}      as total_value,
             sum(case when family = 'massa'  then qty_base end) as q_mass,
             sum(case when family = 'volume' then qty_base end) as q_vol,
             sum(case when family = 'contagem' then qty_base end) as q_count
@@ -1108,6 +1129,7 @@ def product_timeseries(
     market: str | None = None,
     reporter_column: str | None = None,
     reporter_value: str | None = None,
+    has_measure_kind: bool = False,
 ) -> tuple[str, list]:
     """Annual per-product series — value + quantities (backs productTS).
 
@@ -1156,7 +1178,7 @@ def product_timeseries(
         select
             {code_column}       as code,
             reference_year,
-            sum({value_column}) as total_value,
+            {_value_sum(value_column, has_measure_kind)} as total_value,
             sum(qty_native)     as total_qty_native,
             sum(case when family = 'massa' then qty_base end)  as q_mass,
             sum(case when family = 'volume' then qty_base end) as q_vol,

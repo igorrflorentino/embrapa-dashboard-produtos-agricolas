@@ -32,7 +32,12 @@ window.VIEW_GROUPS = [
       { id: 'product_compare', label: 'Comparativo entre produtos', status: 'live', exportable: true, requires: ['product'],
         desc: 'Selecione 2 a 4 produtos e compare lado a lado: séries normalizadas (base 100), variação acumulada, CAGR e correlação cruzada.',
         planned: ['Séries normalizadas base 100', 'CAGR por produto', 'Correlação cruzada entre produtos', 'Tabela comparativa de métricas'] },
-      { id: 'productivity', label: 'Produtividade', status: 'live', exportable: true, requires: ['yield'], selfData: true,
+      // exportable:false — csvExport.buildRows has no 'productivity' case (this view is
+      // selfData:true and recomputes yield=qty/area outside the standard export ctx), so a
+      // true flag renders a button that hits the default→null path and silently fails. Flip
+      // to true only alongside a 'productivity' buildRows case that carries the recomputed
+      // rendimento (kg/ha) + área colhida series.
+      { id: 'productivity', label: 'Produtividade', status: 'live', exportable: false, requires: ['yield'], selfData: true,
         desc: 'Rendimento (kg/ha) e área colhida por lavoura: trajetória nacional de produtividade e a geografia do rendimento por UF. Disponível para bancos de produção agrícola (IBGE PAM).',
         planned: ['Série de rendimento médio (kg/ha)', 'Série de área colhida', 'Mapa de produtividade por UF', 'Ranking de UFs mais produtivas'] },
     ],
