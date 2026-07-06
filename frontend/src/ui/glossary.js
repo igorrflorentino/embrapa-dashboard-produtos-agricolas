@@ -19,6 +19,8 @@ const GLOSSARY = {
       { term: 'Erva-mate',        cat: 'Produto', tag: '49108', short: 'Folhas e ramos de Ilex paraguariensis para fabricação de chá e chimarrão. Concentrada no Sul.' },
       { term: 'Madeira em tora',  cat: 'Produto', tag: '49215', short: 'Toras de espécies nativas. Unidade: m³. Sujeita a controle de licenciamento ambiental.' },
       { term: 'Lenha',            cat: 'Produto', tag: '49216', short: 'Madeira para combustão direta. Unidade: m³. Principal item em volume da PEVS.' },
+      { term: 'mil t',            cat: 'Unidade', short: 'Escala de exibição da massa nos gráficos: milhares de toneladas (1 mil t = 1.000 t). O eixo mostra "mil t" enquanto a unidade-base do produto é a tonelada (t).' },
+      { term: 'mi m³',            cat: 'Unidade', short: 'Escala de exibição do volume nos gráficos: milhões de metros cúbicos (1 mi m³ = 1.000.000 m³). O eixo mostra "mi m³" enquanto a unidade-base do produto é o metro cúbico (m³).' },
       { term: 'gold_pevs_production', cat: 'Tabela', tag: 'Base final', short: 'Tabela final do painel. Cada linha é uma combinação de ano, UF, município e produto. É a origem de todos os números das telas.' },
       { term: 'val_yearfx_*',          cat: 'Coluna', tag: 'gold',     short: 'Valor nominal em moeda corrente convertido pelo câmbio médio do ano. Auditoria histórica — não comparar entre anos.' },
       { term: 'val_real_ipca_*',       cat: 'Coluna', tag: 'gold',     short: 'Valor projetado para hoje pela cadeia IPCA. Padrão deste dashboard para comparações inter-anuais.' },

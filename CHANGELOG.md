@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.13.4] - 2026-07-06
+
+Remediação de uma **auditoria profunda do banco IBGE PEVS** (extração vegetal) — a fonte
+FUNDACIONAL e a mais sólida das cinco auditadas: os núcleos difíceis (reforma monetária
+pré-1994, Silver incremental, unidades multi-família) estão **corretos por design**. Os
+achados são lacunas de GUARDA — paradoxalmente, PEVS (a fonte mais antiga) tinha MENOS
+guardas que o PAM, feito depois. *(Assume que #224/1.13.1 + #225/1.13.2 + #226/1.13.3 entram
+antes; reconciliação trivial da versão caso a ordem mude.)*
+
+### Added
+- **Guarda de paridade das variáveis PEVS (144 quantidade / 145 valor).** Expostas em
+  `config.py` (`ibge_variable_*_code`) + ponte `env_var()` no `dbt_project.yml` + novo
+  `doctor._check_ibge_variable_codes` — espelha o guard do PAM. Um código mistypado
+  (144→143) em `.env`/`dbt_project.yml` agora **falha no doctor** em vez de silenciosamente
+  esvaziar a coluna de quantidade no Gold. Inclui `.env.example` + testes.
+- **Teste dbt `assert_product_single_family`** (`warn`) — cada `(produto, gold)` deve ter
+  uma única família física; se um produto passasse a ter 2 famílias (erro de seed/ingestão),
+  as somas de quantidade misturariam t + m³ num total sem sentido. Verificado limpo em prod
+  (0 violações) sobre pevs/pam/ppm.
+
+### Changed (docs)
+- **Runbook**: nova seção "Editando um seed dbt → `--full-refresh`" — um edit em
+  `historical_currency_factors` (reforma pré-1994), `unit_family_conversions` ou
+  `product_unit_factors` NÃO propaga num build incremental; exige `--full-refresh` do
+  `silver_ibge_pevs+`.
+- **Frontend**: nota de escala (`mil t` / `mi m³`) em `bancos.js` + entradas de glossário —
+  a unidade-base é t/m³, mas os gráficos exibem em escala (×1e3 / ×1e6); não é divergência.
+
 ## [1.13.0] - 2026-07-05
 
 **COMTRADE totais-só (homogeneidade + sem dupla contagem) + "Tipo de Mercado" congelado.**

@@ -129,6 +129,10 @@ window.BANCOS = [
     // dimension (currency / mass / volume / ratio) so the cross view knows
     // which series can share an axis or form a ratio. `years` is the native
     // coverage; the cross view intersects coverages across selected series.
+    // `unit` is the BASE physical unit (t / m³ / R$). Charts display these quantities
+    // PRE-SCALED — "mil t" (×1e3) and "mi m³" (×1e6) — with the scale multipliers living
+    // in MetricConventions/serializers, not here. So a chart axis can read "mil t" while
+    // this registry says "t": by design, not a mismatch (see glossário "mil t" / "mi m³").
     metrics: [
       { id: 'prod_value',  label: 'Valor da produção', family: 'currency', unit: 'R$',  agg: 'Valor real (IPCA) da extração vegetal', years: [1986, 2024] },
       { id: 'prod_mass',   label: 'Quantidade produzida (massa)',  family: 'mass',   unit: 't',  agg: 'Massa colhida das espécies de família massa', years: [1986, 2024] },
