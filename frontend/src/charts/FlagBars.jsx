@@ -4,10 +4,13 @@
 // flag; each row carries the flag fractions under flags[].id (values are 0-1).
 //   rows:  [{ [labelKey], name, <flagId>: fraction }]
 //   flags: [{ id, label, color }]
+// `showLegend` defaults true (the Plotly-native legend). Set it false when the
+// caller already renders its own legend for the same flags (e.g. ViewQuality's
+// qa-legend row) so the two don't duplicate.
 
 import { Plot, baseLayout, resolveColor } from './_base';
 
-function FlagBars({ rows = [], flags = [], labelKey = 'code', height }) {
+function FlagBars({ rows = [], flags = [], labelKey = 'code', height, showLegend = true }) {
   // Row category labels (y axis). Fall back through the prototype's key order.
   const cats = rows.map((r) => r[labelKey] ?? r.code ?? r.uf ?? r.name ?? '');
   const H = height || Math.max(120, 14 + rows.length * 30 + 14);
@@ -32,7 +35,7 @@ function FlagBars({ rows = [], flags = [], labelKey = 'code', height }) {
     barmode: 'stack',
     barnorm: 'fraction', // guarantees each bar sums to 100% even if rows drift
     hovermode: 'closest',
-    showlegend: true,
+    showlegend: showLegend,
     legend: { orientation: 'h', y: -0.15, x: 0, font: { size: 11 } },
     margin: { l: 120, r: 16, t: 8, b: 40 },
     xaxis: {

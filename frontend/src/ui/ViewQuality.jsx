@@ -174,7 +174,7 @@ function ViewQuality({ summary, database }) {
                   <strong>Estoque · efetivo dos rebanhos</strong> — qualidade da contagem de cabeças
                   (um estoque não tem valor, então a flag é OK vs quantidade ausente).
                 </p>
-                <window.FlagBars rows={stockRows} flags={flags} labelKey="name" />
+                <window.FlagBars rows={stockRows} flags={flags} labelKey="name" showLegend={false} />
               </div>
             )}
             {flowRows.length > 0 && (
@@ -183,12 +183,12 @@ function ViewQuality({ summary, database }) {
                   <strong>Fluxo · produção de origem animal</strong> — qualidade de valor + quantidade
                   (leite, ovos, mel, lã).
                 </p>
-                <window.FlagBars rows={flowRows} flags={flags} labelKey="name" />
+                <window.FlagBars rows={flowRows} flags={flags} labelKey="name" showLegend={false} />
               </div>
             )}
           </>
         ) : (
-          <window.FlagBars rows={qaByProduct} flags={flags} labelKey="name" />
+          <window.FlagBars rows={qaByProduct} flags={flags} labelKey="name" showLegend={false} />
         )}
         <div className="qa-legend">
           {flags.map(f => (
@@ -233,6 +233,7 @@ function ViewQuality({ summary, database }) {
             valueKey="v"
             label="% linhas"
             height={260}
+            showLegend={false}
           />
           <div className="qa-legend">
             {flags.map(f => (

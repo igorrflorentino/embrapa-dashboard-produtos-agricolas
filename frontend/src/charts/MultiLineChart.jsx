@@ -3,10 +3,13 @@
 // reused views render <window.MultiLineChart/> unchanged — now with zoom/pan/
 // hover and a per-series legend (the point of the Plotly migration).
 //   series: [{ name, color, data: [{ y, [valueKey] }] }]
+// `showLegend` defaults true (the Plotly-native legend). Set it false when the
+// caller already renders its own legend for the same series (e.g. the pc-legend /
+// xs-legend rows in the comparison views) so the two don't duplicate.
 
 import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, yearAxis } from './_base';
 
-function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200, trend = false }) {
+function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200, trend = false, showLegend = true }) {
   const palette = vizPalette();
   // One scatter line per series; fall back to the categorical palette when a
   // series omits its color so concurrent lines stay visually distinct.
@@ -44,7 +47,7 @@ function MultiLineChart({ series = [], valueKey = 'v', label = '', height = 200,
   const ymax = seriesMax(series.flatMap((s) => s.data || []), (d) => d[valueKey]);
   const layout = baseLayout({
     margin: { l: 56, r: 12, t: 18, b: 28 },
-    showlegend: true,
+    showlegend: showLegend,
     legend: { orientation: 'h', y: 1.12, x: 0, font: { size: 11 } },
     yaxis: {
       title: { text: label, font: { size: 11 }, standoff: 8 },

@@ -6,11 +6,11 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
-const { reactState } = vi.hoisted(() => ({ reactState: { traces: null } }));
+const { reactState } = vi.hoisted(() => ({ reactState: { traces: null, layout: null } }));
 
 vi.mock('./plotlyBundle', () => ({
   default: {
-    react: (_el, traces) => { reactState.traces = traces; },
+    react: (_el, traces, layout) => { reactState.traces = traces; reactState.layout = layout; },
     purge: () => {},
     Plots: { resize: () => {} },
   },
@@ -22,7 +22,7 @@ beforeAll(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 });
 
-afterEach(() => { cleanup(); reactState.traces = null; });
+afterEach(() => { cleanup(); reactState.traces = null; reactState.layout = null; });
 
 describe('MultiLineChart', () => {
   it('renders no traces for empty series', () => {
@@ -64,5 +64,15 @@ describe('MultiLineChart', () => {
     expect(a.line.color).toBe('#aa0000'); // explicit colour respected
     expect(b.line.color).toBeTruthy(); // fallback colour applied
     expect(b.line.color).not.toBe('#aa0000');
+  });
+
+  it('shows the Plotly legend by default and hides it when showLegend=false', () => {
+    // Default keeps the native legend (e.g. ViewRebanho / the ratio card rely on it).
+    render(<MultiLineChart series={[{ name: 'A', data: [{ y: 2020, v: 1 }] }]} />);
+    expect(reactState.layout.showlegend).toBe(true);
+    cleanup();
+    // Comparison views with their own pc-legend/xs-legend opt out to avoid a duplicate.
+    render(<MultiLineChart series={[{ name: 'A', data: [{ y: 2020, v: 1 }] }]} showLegend={false} />);
+    expect(reactState.layout.showlegend).toBe(false);
   });
 });

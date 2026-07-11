@@ -70,4 +70,15 @@ describe('StackedArea', () => {
     render(<StackedArea series={[{ code: '0801', data: [] }]} />);
     expect(reactState.traces[0].name).toBe('0801');
   });
+
+  it('shows the Plotly legend by default and hides it when showLegend=false', () => {
+    // Default keeps the native legend (ViewValueVolume relies on it).
+    render(<StackedArea series={[{ name: 'A', data: [{ y: 2020, v: 1 }] }]} />);
+    expect(reactState.layout.showlegend).toBe(true);
+    cleanup();
+    // Callers with their own legend (ViewQuality, ViewCuratedAnalyses) opt out so
+    // the two legends don't duplicate.
+    render(<StackedArea series={[{ name: 'A', data: [{ y: 2020, v: 1 }] }]} showLegend={false} />);
+    expect(reactState.layout.showlegend).toBe(false);
+  });
 });

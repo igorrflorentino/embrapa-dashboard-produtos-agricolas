@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.14.1] - 2026-07-11
+
+**Correção de UI · legendas duplicadas** nos gráficos de várias janelas. Nenhuma mudança de
+schema/dbt/API — puramente frontend (renderização Plotly).
+
+### Fixed
+- **Legenda duplicada em gráficos com legenda customizada** — vários gráficos Plotly
+  desenhavam a legenda **nativa do Plotly** *e* uma legenda HTML customizada (`qa-legend`,
+  `pc-legend`, `xs-legend`) para a **mesma** série, aparecendo duas vezes. Reportado na
+  janela **Qualidade dos dados** ("Por produto" e "Share por flag") e, na varredura do
+  projeto, encontrado também em **Comparar produtos**, **Sazonalidade e tendências**,
+  **Multi-fonte** (Porteira vs. porto · Markup, MDIC × Comtrade) e **Fonte cruzada**
+  (modos base-100 e eixo-duplo). Os componentes de gráfico (`FlagBars`, `StackedArea`,
+  `MultiLineChart`, `DualAxisLineChart`) ganharam uma prop `showLegend` (padrão `true`,
+  preservando o comportamento onde a legenda nativa é a única); as views que já desenham a
+  própria legenda passam `showLegend={false}`. Gráficos sem legenda customizada (ex.:
+  `Rebanho`, a razão em `Fonte cruzada`) seguem com a legenda nativa. Cobertura de testes
+  adicionada para a prop em cada componente.
+
 ## [1.14.0] - 2026-07-06
 
 **UN COMTRADE país filter** + uma **auditoria focada no glossário** (33 correções aplicadas) +
