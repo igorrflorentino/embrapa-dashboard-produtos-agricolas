@@ -10,7 +10,10 @@
 
 import { Plot, baseLayout, ptBrLinearAxis, resolveColor, seriesMax, vizPalette, yearAxis } from './_base';
 
-function DualAxisLineChart({ series = [], height = 200 }) {
+// `showLegend` defaults true (the Plotly-native legend). Set it false when the
+// caller already renders its own legend for the same series (e.g. ViewSeasonality's
+// pc-legend, ViewCrossSource's xs-legend) so the two don't duplicate.
+function DualAxisLineChart({ series = [], height = 200, showLegend = true }) {
   // Discover the distinct units in encounter order (max 2 → left/right).
   const units = [];
   series.forEach((s) => {
@@ -45,7 +48,7 @@ function DualAxisLineChart({ series = [], height = 200 }) {
     seriesMax(series.filter((s) => s.unit === u).flatMap((s) => s.data || []), (d) => d.v);
   const layout = baseLayout({
     margin: { l: 56, r: 60, t: 18, b: 30 },
-    showlegend: true,
+    showlegend: showLegend,
     legend: { orientation: 'h', x: 0, y: 1.08, font: { size: 11 } },
     xaxis: yearAxis(),
     yaxis: {

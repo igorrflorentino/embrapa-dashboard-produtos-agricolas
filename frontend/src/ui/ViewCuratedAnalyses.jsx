@@ -82,7 +82,7 @@ function ViewValueAdded() {
           </p>
         ) : (
           <>
-            <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} />
+            <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} showLegend={false} />
             <Legend series={areaSeries} />
           </>
         )}
@@ -92,7 +92,7 @@ function ViewValueAdded() {
         <div className="card">
           <window.SectionHeader overline="Volume exportado por nível · mil t" title="Quanto sai em cada nível (em peso)"
             action={<span className="caption">composição por nível</span>} />
-          <window.StackedArea series={areaSeriesW} valueKey="v" label="mil t" height={260} />
+          <window.StackedArea series={areaSeriesW} valueKey="v" label="mil t" height={260} showLegend={false} />
           <Legend series={areaSeriesW} />
         </div>
       )}
@@ -184,7 +184,7 @@ function ViewMarketNature() {
       <div className="card">
         <window.SectionHeader overline="Valor por finalidade econômica · US$ bi" title="Comprando/vendendo para consumir ou para processar"
           action={<span className="caption">classificação em Tipo de Mercado (Engenharia de atributos)</span>} />
-        <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} />
+        <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} showLegend={false} />
         <div className="pc-legend">
           {areaSeries.map(s => (
             <span key={s.name} className="pc-legend-item"><span className="pc-legend-dot" style={{ background: s.color }}></span>{s.name}</span>

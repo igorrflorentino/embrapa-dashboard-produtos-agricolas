@@ -2,10 +2,13 @@
 // props as the prototype's SVG StackedArea, so the reused views render
 // <window.StackedArea/> unchanged — now with zoom/pan/hover + a name legend.
 //   series: [{ code?, name, color, data: [{ y, [valueKey] }] }]
+// `showLegend` defaults true (the Plotly-native legend). Set it false when the
+// caller already renders its own legend for the same series (e.g. ViewQuality's
+// qa-legend row, ViewCuratedAnalyses' Legend/pc-legend) so they don't duplicate.
 
 import { Plot, baseLayout, ptBrLinearAxis, resolveColor, vizPalette, yearAxis } from './_base';
 
-function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) {
+function StackedArea({ series = [], valueKey = 'v', label = '', height = 200, showLegend = true }) {
   const palette = vizPalette();
   // One scatter trace per series, all sharing a stackgroup → Plotly stacks them.
   const traces = (series || []).map((sr, i) => {
@@ -35,7 +38,7 @@ function StackedArea({ series = [], valueKey = 'v', label = '', height = 200 }) 
   });
   const ymax = Math.max(0, ...Object.values(stackTotals));
   const layout = baseLayout({
-    showlegend: true,
+    showlegend: showLegend,
     legend: { orientation: 'h', y: -0.18, x: 0, font: { size: 11 } },
     margin: { l: 56, r: 12, t: 18, b: 44 },
     yaxis: {

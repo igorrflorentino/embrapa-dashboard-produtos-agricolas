@@ -81,6 +81,7 @@ function ViewSeasonality({ summary, conventions, database }) {
                 right — the two move together but on very different scales. */}
             <window.DualAxisLineChart
               height={300}
+              showLegend={false}
               series={[
                 { label: 'Volume', color: 'var(--viz-3)', unit: data.weightUnit || 'mil t',
                   data: wavg.map((v, m) => ({ y: window.MONTH_LABELS[m], v })) },

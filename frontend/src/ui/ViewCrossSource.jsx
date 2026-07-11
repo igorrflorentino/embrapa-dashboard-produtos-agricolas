@@ -237,8 +237,8 @@ function ViewCrossSource({ value, onChange }) {
           </div>
         )}
 
-        {mode === 'base100' && <window.MultiLineChart series={base100} label={`índice (${effY0}=100)`} valueKey="v" height={320} trend />}
-        {mode === 'dual' && <window.DualAxisLineChart series={axisSeries} height={320} />}
+        {mode === 'base100' && <window.MultiLineChart series={base100} label={`índice (${effY0}=100)`} valueKey="v" height={320} trend showLegend={false} />}
+        {mode === 'dual' && <window.DualAxisLineChart series={axisSeries} height={320} showLegend={false} />}
         {mode === 'panels' && <window.StackedPanels series={axisSeries} />}
 
         <div className="xs-legend">

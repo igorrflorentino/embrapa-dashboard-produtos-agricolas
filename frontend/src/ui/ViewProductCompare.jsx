@@ -113,7 +113,7 @@ function ViewProductCompare({ summary, conventions, database }) {
           title={`Evolução relativa ${indexBasis}`}
           action={<span className="caption">{items.length} produtos</span>}
         />
-        <window.MultiLineChart series={normSeries} label={`índice (${yearStart}=100)`} valueKey="v" height={300} />
+        <window.MultiLineChart series={normSeries} label={`índice (${yearStart}=100)`} valueKey="v" height={300} showLegend={false} />
         <div className="pc-legend">
           {items.map(it => (
             <span key={it.code} className="pc-legend-item">

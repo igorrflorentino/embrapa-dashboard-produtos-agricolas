@@ -11,7 +11,7 @@ Reuses the hermetic settings helpers from ``tests/test_serving.py``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -305,13 +305,17 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     monkeypatch.setattr(
         "google.cloud.storage.Client", lambda project=None, credentials=None: mock.Mock()
     )
-    latest = datetime(2026, 6, 27, 10, 0, tzinfo=UTC)
+    # Relative to now so the stubbed snapshot is ALWAYS inside the staleness window.
+    # A hardcoded date silently becomes "stale" once wall-clock passes
+    # backup_staleness_days (14), flipping backup_ok to False — this test failed on
+    # exactly the 14-day boundary (stub 2026-06-27 vs a 2026-07-11 CI run).
+    latest = datetime.now(UTC) - timedelta(days=2)
     monkeypatch.setattr(doctor, "_list_backup_runs", lambda c, s: [(latest, "run=x/")])
     monkeypatch.setattr(doctor, "_latest_complete_run", lambda c, s, runs: (latest, 0))
 
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is True
-    assert "2026-06-27" in plan["backup_msg"]
+    assert latest.strftime("%Y-%m-%d") in plan["backup_msg"]
     assert any("gold_comex_flows" in s and "= '20079926'" in s for s in plan["statements"])
     assert all(s.strip().startswith("DELETE FROM") for s in plan["statements"])
 
