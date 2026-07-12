@@ -164,7 +164,8 @@ def _api_error(exc):
     if isinstance(exc, HTTPException):
         return jsonify(error=exc.description, code=exc.code), exc.code
     logger.exception("Unhandled error on %s", request.path)
-    return jsonify(error="internal server error"), 500
+    # End-user-facing (the SPA surfaces this string) → pt-BR.
+    return jsonify(error="Erro interno do servidor. Tente novamente."), 500
 
 
 def _ensure_attribute_editors_table() -> bool:
@@ -287,10 +288,17 @@ def _authorize_catalog_editor(resource: str):
         # than admit everyone. (A transient read error already 503s above via the
         # propagating gateway read; this covers the absent-table-because-can't-create case.)
         if not ensured:
-            return None, (jsonify(error=f"editor allowlist for {resource} is unavailable"), 503)
+            # End-user-facing (shown in the SPA status banner) → pt-BR.
+            return None, (
+                jsonify(error="Lista de editores indisponível no momento. Tente novamente."),
+                503,
+            )
         return author, None  # genuine open mode (ensured empty table)
     if author.lower() not in allowed:
-        return None, (jsonify(error=f"{author} is not an authorized editor of {resource}"), 403)
+        return None, (
+            jsonify(error="Você não tem autorização para editar este cadastro."),
+            403,
+        )
     return author, None
 
 
@@ -928,7 +936,15 @@ def feedback_submit():
     over-length message or bad category; 401/403 on no/forged identity; 429 on cooldown."""
     body = _json_object()
     _coerce_str_fields(
-        body, "category", "message", "url", "view", "banco", "app_version", "browser_info"
+        body,
+        "category",
+        "message",
+        "url",
+        "view",
+        "banco",
+        "app_version",
+        "browser_info",
+        "change_id",
     )
     cooldown = get_settings().feedback_cooldown_seconds
     author = _peek_author()
@@ -946,6 +962,7 @@ def feedback_submit():
             app_version=body.get("app_version"),
             browser_info=body.get("browser_info"),
             author=author,
+            change_id=body.get("change_id"),
         )
     except FeedbackValidationError as exc:
         return jsonify(error=str(exc)), 400

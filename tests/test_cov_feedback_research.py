@@ -33,7 +33,7 @@ def _cfg(**over):
 def test_record_feedback_over_length_message_rejected():
     """A message longer than MAX_MESSAGE_LEN is rejected before any write (→ 400)."""
     too_long = "a" * (fb.MAX_MESSAGE_LEN + 1)
-    with pytest.raises(FeedbackValidationError, match="exceeds"):
+    with pytest.raises(FeedbackValidationError, match="excede"):
         record_feedback(
             category="bug",
             message=too_long,
@@ -102,6 +102,40 @@ def test_record_feedback_issue_url_stamp_failure_is_swallowed(monkeypatch):
     # The forward succeeded so issue_url is still surfaced even though the stamp failed.
     assert row["issue_url"] == "https://x/42"
     assert client.query.call_count == 2  # INSERT, then the failing UPDATE
+
+
+def test_record_feedback_dedupes_on_change_id(monkeypatch):
+    """A retried submit reusing the SAME change_id echoes the STORED row — no second BigQuery
+    INSERT and no second GitHub issue (idempotency: a timeout-then-retry can't duplicate)."""
+    monkeypatch.setattr(fb, "ensure_feedback_log_table", lambda cfg, bq: "t.r.feedback_log")
+    stored = {
+        "feedback_id": "k1",
+        "category": "bug",
+        "message": "msg",
+        "url": None,
+        "view": None,
+        "banco": None,
+        "submitted_by": "u@embrapa.br",
+        "issue_url": "https://x/1",
+        "deduped": True,
+    }
+    monkeypatch.setattr(fb, "_stored_feedback", lambda bq, t, fid: stored if fid == "k1" else None)
+    forwarded = []
+    monkeypatch.setattr(fb, "_forward_to_github", lambda *a, **k: forwarded.append(1))
+
+    client = mock.Mock()
+    row = record_feedback(
+        category="bug",
+        message="msg",
+        headers={"X-Goog-Authenticated-User-Email": "u@embrapa.br"},
+        change_id="k1",
+        settings=_cfg(),
+        client=client,
+    )
+
+    assert row["deduped"] is True and row["feedback_id"] == "k1"
+    assert client.query.call_count == 0  # no INSERT — the stored row is echoed
+    assert forwarded == []  # no second GitHub issue
 
 
 # ── research_inputs.py:64 — _bq_client ───────────────────────────────────────────

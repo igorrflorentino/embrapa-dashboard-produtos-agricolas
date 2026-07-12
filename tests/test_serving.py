@@ -3543,6 +3543,8 @@ def test_purge_plan_requires_descontinuado_and_builds_scoped_deletes(monkeypatch
     from embrapa_dashboard.serving import catalog_lifecycle, gateway
 
     monkeypatch.setattr(gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ (catalog live state); stub it out for the status-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     # not marked → refuse
     monkeypatch.setattr(catalog_lifecycle, "_current_status", lambda cfg: {})
     with pytest.raises(ValueError):
@@ -3571,6 +3573,30 @@ def test_purge_plan_rejects_injection_in_code():
         catalog_lifecycle.purge_plan("comex", "1' ; DROP TABLE x; --", settings=_settings())
 
 
+def test_purge_refuses_re_added_product(monkeypatch):
+    """The purge gate refuses a code RE-ADDED to the catalog (active) after being marked
+    Descontinuado. The append-only lifecycle log still reads 'descontinuado', so without the
+    live-catalog cross-check an operator could purge the Gold data of an in-use product."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import catalog_lifecycle, curation
+
+    monkeypatch.setattr(catalog_lifecycle, "_bq_client", lambda cfg: mock.Mock())
+    monkeypatch.setattr(
+        catalog_lifecycle,
+        "_current_status",
+        lambda cfg: {("commodity", "comex", "20079926"): "descontinuado"},
+    )
+    monkeypatch.setattr(catalog_lifecycle, "_backup_status", lambda cfg: (True, "ok"))
+    # Marked descontinuado but ACTIVE again in the catalog → refuse.
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: True)
+    with pytest.raises(ValueError, match="re-added"):
+        catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
+    # Not re-added → the plan builds normally.
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)
+    plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
+    assert any("gold_comex_flows" in s for s in plan["statements"])
+
+
 def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
     """mark_purged records a terminal 'purged' audit event (who/when); idempotent."""
     pytest.importorskip("flask_caching")
@@ -3580,6 +3606,7 @@ def test_mark_purged_appends_terminal_event_idempotently(monkeypatch):
         catalog_lifecycle, "ensure_catalog_lifecycle_log_table", lambda *a, **k: "p.r.l"
     )
     monkeypatch.setattr(catalog_lifecycle, "invalidate_lifecycle_cache", lambda: None)
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     inserted = []
     monkeypatch.setattr(
         catalog_lifecycle, "_insert_lifecycle_event", lambda bq, t, **kw: inserted.append(kw)
@@ -3630,6 +3657,7 @@ def test_mark_purged_records_a_fresh_event_per_descontinuado_generation(monkeypa
 
     monkeypatch.setattr(catalog_lifecycle, "_insert_lifecycle_event", _ins)
     monkeypatch.setattr(catalog_lifecycle, "_change_id_seen", lambda bq, t, cid: cid in seen)
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     gen1 = datetime(2026, 1, 1, tzinfo=UTC)
     gen2 = datetime(2026, 6, 1, tzinfo=UTC)
 

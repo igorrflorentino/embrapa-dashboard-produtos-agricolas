@@ -50,12 +50,16 @@ function ViewProductProfile({ families, summary, database, conventions }) {
     if (summary?.startDate) qs.set('startDate', summary.startDate);
     if (summary?.endDate) qs.set('endDate', summary.endDate);
     fetch(`/api/product-uf?${qs}`)
-      .then((r) => (r.ok ? r.json() : null))
+      // Distinguish a LOAD FAILURE (network/500/IAP-expired) from a legitimately empty
+      // ranking: throwing on non-ok routes both into the error state, so the view shows an
+      // explicit "falha ao carregar" instead of the "Sem dados por UF" no-data message —
+      // which would read as a false analytical claim (the product has no UF breakdown).
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => {
-        if (alive) setUfRank({ rows: (d && d.uf) || [], loading: false });
+        if (alive) setUfRank({ rows: (d && d.uf) || [], loading: false, error: false });
       })
       .catch(() => {
-        if (alive) setUfRank({ rows: [], loading: false });
+        if (alive) setUfRank({ rows: null, loading: false, error: true });
       });
     return () => {
       alive = false;
@@ -314,6 +318,10 @@ function ViewProductProfile({ families, summary, database, conventions }) {
           {ufRank.loading ? (
             <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
               Carregando distribuição por UF…
+            </p>
+          ) : ufRank.error ? (
+            <p className="caption" style={{ padding: '40px 4px', textAlign: 'center', color: 'var(--err, #b71c1c)' }}>
+              Não foi possível carregar a distribuição por UF. Tente novamente.
             </p>
           ) : ufRows.length ? (
             <window.BarChart data={ufScaled.data} valueKey="_m" color={isStock ? qColor : 'var(--viz-2)'} height={320} />

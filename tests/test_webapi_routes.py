@@ -994,7 +994,7 @@ def test_get_endpoint_error_returns_json_500_not_html(monkeypatch):
     resp = client.get("/api/snapshot?banco=ibge_pevs")
     assert resp.status_code == 500
     assert resp.content_type.startswith("application/json")
-    assert resp.get_json()["error"] == "internal server error"
+    assert resp.get_json()["error"] == "Erro interno do servidor. Tente novamente."
 
 
 def test_unknown_api_get_path_is_json_404(monkeypatch):
@@ -1091,7 +1091,7 @@ def test_api_error_handler_returns_json_not_html(monkeypatch):
     resp = client.get("/api/catalog")
     assert resp.status_code == 500
     assert resp.content_type.startswith("application/json")
-    assert resp.get_json()["error"] == "internal server error"
+    assert resp.get_json()["error"] == "Erro interno do servidor. Tente novamente."
 
 
 def test_curation_post_authorized_via_bq_attribute_editors_table(monkeypatch):

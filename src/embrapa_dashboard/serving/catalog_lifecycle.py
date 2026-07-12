@@ -262,6 +262,23 @@ def _backup_status(settings: Settings) -> tuple[bool, str]:
         return False, f"não foi possível verificar o backup: {exc}"
 
 
+def _refuse_if_re_added(cfg: Settings, banco: str, code: str) -> None:
+    """Refuse the purge when the code was RE-ADDED to the catalog after being marked
+    Descontinuado. The lifecycle log is append-only and record_produto_catalog writes NO
+    reactivation event, so ``_current_status`` still reads 'descontinuado' for a re-added
+    (currently active) code — the gate's blind spot. Cross-check the catalog's live state
+    (latest-wins active) and reject an in-use product, so the operator can never purge the
+    Gold data of a commodity that is back in the dashboard."""
+    from embrapa_dashboard.serving import curation
+
+    bq = _bq_client(cfg)
+    if curation._is_active_entry(bq, curation._catalog_log_ref(cfg), code, banco):
+        raise ValueError(
+            f"{banco}:{code} was re-added to the catalog (active) — no longer an orphan; "
+            "refuse to purge (remove it from the catalog again first if you truly intend to)."
+        )
+
+
 def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
     """Build the human-runnable PURGE PLAN for a Descontinuado orphan: the scoped DELETE
     for each Gold table whose rows carry the EXACT code, the backup status, and the
@@ -287,6 +304,7 @@ def purge_plan(banco: str, code: str, settings: Settings | None = None) -> dict:
             f"{banco}:{code} is not marked Descontinuado — refuse to plan a purge "
             "(only orphans that were detected + marked may be purged)."
         )
+    _refuse_if_re_added(cfg, banco, code)
     statements = [
         f"DELETE FROM `{sqlbuild.table_ref(cfg, dataset_attr, table)}` WHERE {col} = '{code}';"
         for dataset_attr, table, col in _PURGE_TARGETS.get(banco, [])
@@ -336,6 +354,10 @@ def mark_purged(
             f"{banco}:{code} não está marcada como Descontinuada — recuse registrar a purga "
             "(só órfãos detectados + marcados podem ser purgados)."
         )
+    # Marked Descontinuado — but the code may have been RE-ADDED (active) to the catalog (the
+    # append-only lifecycle log still reads 'descontinuado'). Refuse to stamp a terminal
+    # 'purged' event on an in-use product (checked last: it hits BQ for the live catalog state).
+    _refuse_if_re_added(cfg, banco, str(code))
     # Generation = the descontinuado event's flagged_at (stable for the whole purge window), so a
     # later re-removal (a new descontinuado, new flagged_at) is NOT collapsed onto this change_id.
     gen = flagged_at.isoformat() if (status == "descontinuado" and flagged_at is not None) else "0"

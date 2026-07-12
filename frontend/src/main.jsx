@@ -156,12 +156,26 @@ function readStateFromURL() {
       y1: window.urlDecodeNum(q, 'xy1'),
     };
   }
-  const view = q.get('v') || 'overview';
+  // Validate the deep-linked view id against the LIVE menu. An unknown / stale id (e.g.
+  // ?v=curated_market_nature — a frozen, de-listed view — or a typo) must NOT resolve a
+  // component: it would render with an empty title and the wrong banco's filter bar. Fall
+  // back to the universal default instead.
+  let view = q.get('v') || 'overview';
+  if (window.viewById && !window.viewById(view)) view = 'overview';
   const isCross = !!(window.viewById && window.viewById(view)?.crossBanco);
+  // Validate ?b (banco) like ?v: an unknown/stale id would silently resolve to a wrong banco
+  // (bancoById falls back internally), so pin it to the default when it isn't a real banco.
+  let database = q.get('b') || 'ibge_pevs';
+  if (window.bancoById && !window.bancoById(database)) database = 'ibge_pevs';
+  // Validate ?ip (info page): an unknown value renders the generic "Saúde do sistema" header
+  // over an "em preparação" body. Only the known info pages are routable; else no info page.
+  const _INFO_PAGES = new Set(['about', 'referencias', 'cadastro_produtos', 'health']);
+  const ip = q.get('ip');
+  const infoPage = ip && _INFO_PAGES.has(ip) ? ip : null;
   return {
     view,
-    database: q.get('b') || 'ibge_pevs',
-    infoPage: q.get('ip') || null,
+    database,
+    infoPage,
     conventions: conv,
     summary,
     crossState,
@@ -199,7 +213,18 @@ function withChips(summary, database, conventions) {
     meta,
     hasDateSel: !!(s.startDate || s.endDate),
   });
-  const basket = s.basket || null;
+  // Clamp the hydrated basket to the active banco's LOADED product universe. A shared/
+  // bookmarked link may carry a code the Curadoria later hid/discontinued (or a code from a
+  // different banco); the data layer already intersects it away, so counting the RAW basket
+  // would show a phantom "1 de N" chip over charts that actually render all products. Clamp
+  // only once the real snapshot is loaded (else f.products is the PEVS synthetic fallback);
+  // an empty result → null = "Todos", matching what the data layer actually displays.
+  let basket = s.basket || null;
+  if (snapLoaded && basket) {
+    const universe = new Set((f.products || []).map((p) => p.code));
+    basket = basket.filter((c) => universe.has(c));
+    if (!basket.length) basket = null;
+  }
   const firstName =
     basket && basket.length === 1
       ? ((f.products || []).find((p) => p.code === basket[0]) || {}).name

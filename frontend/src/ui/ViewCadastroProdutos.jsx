@@ -10,12 +10,22 @@
 // Authorization is enforced server-side (403); a 400 = bad key / a code that doesn't exist
 // / duplicate or non-empty group. We surface both honestly rather than hiding the failure.
 
-const { useState: useCcState, useEffect: useCcEffect, useMemo: useCcMemo } = React;
+const { useState: useCcState, useEffect: useCcEffect, useMemo: useCcMemo, useRef: useCcRef } = React;
 
 const _CC_CICLO = [
   { v: 'Fazer Ingestão e deixar disponível', label: 'Ingerir e exibir' },
   { v: 'Fazer Ingestão mas deixar indisponível', label: 'Ingerir, mas ocultar' },
 ];
+// The "ocultar" (indisponível) Ciclo de Vida — hiding a product removes it from EVERY
+// researcher-facing chart/filter, so setting it is confirmed (see _ccConfirmHide).
+const _CC_CICLO_OCULTO = _CC_CICLO[1].v;
+// A fresh idempotency key (change_id). The backend dedupes a retried POST carrying the SAME
+// change_id (a network timeout that actually landed, or a fast re-submit), so a write is
+// never double-applied. Kept STABLE per logical operation until it commits, then rotated.
+const _ccUuid = () =>
+  (window.crypto && window.crypto.randomUUID)
+    ? window.crypto.randomUUID()
+    : 'cid-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 // Catalog `banco` is the cross-source SOURCE TOKEN; show the friendly banco name.
 const _CC_BANCOS = [
   { v: 'pevs', label: 'IBGE PEVS' },
@@ -71,6 +81,16 @@ function ViewCadastroProdutos() {
   // The source's REAL codes for the add form's banco (autocomplete + existence check).
   const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false });
 
+  // Idempotency keys, one STABLE change_id per in-flight logical operation (keyed by the
+  // entity it touches). Reused across a retry so a double-click / timeout-then-retry dedupes
+  // server-side; rotated on success so the NEXT edit of the same entity gets a fresh key.
+  const cidRef = useCcRef(new Map());
+  const cidFor = (key) => {
+    if (!cidRef.current.has(key)) cidRef.current.set(key, _ccUuid());
+    return cidRef.current.get(key);
+  };
+  const cidDone = (key) => cidRef.current.delete(key);
+
   // Server-authoritative edit permission (from /api/catalog/entries' can_edit). The UI
   // merely REFLECTS it — the POST handlers still 403 on a stale true, so this only ever
   // hides controls, never widens access. `locked` = a write is in flight OR not allowed.
@@ -81,7 +101,10 @@ function ViewCadastroProdutos() {
     setData((d) => ({ ...d, loading: true, error: null }));
     Promise.all([
       fetch('/api/catalog/entries').then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))),
-      fetch('/api/catalog/groups').then((r) => (r.ok ? r.json() : { groups: [] })),
+      // Reject (don't fall back to {groups:[]}) on a groups failure: an empty registry would
+      // make EVERY product render under "Sem agrupamento registrado", inviting the researcher
+      // to needlessly reassign them all. Surface the real error instead.
+      fetch('/api/catalog/groups').then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status} (agrupamentos)`)))),
     ])
       .then(([e, g]) => setData({ entries: e.entries || [], groups: g.groups || [], loading: false, error: null, canEdit: e.can_edit !== false }))
       .catch((err) => setData({ entries: [], groups: [], loading: false, error: String(err.message || err), canEdit: true }));
@@ -103,11 +126,17 @@ function ViewCadastroProdutos() {
   useCcEffect(() => {
     if (!showAdd || !draft.banco) return;
     if (srcCodes.banco === draft.banco) return;
-    setSrcCodes({ banco: draft.banco, codes: [], loading: true });
-    fetch('/api/catalog/source-codes?banco=' + encodeURIComponent(draft.banco))
+    const target = draft.banco;
+    // Race guard: if the user switches banco again before this fetch resolves, ignore the
+    // stale response — otherwise an out-of-order reply could overwrite the newer banco's codes,
+    // stranding the hint at "verificando…" with an empty autocomplete.
+    let cancelled = false;
+    setSrcCodes({ banco: target, codes: [], loading: true });
+    fetch('/api/catalog/source-codes?banco=' + encodeURIComponent(target))
       .then((r) => (r.ok ? r.json() : { codes: [] }))
-      .then((d) => setSrcCodes({ banco: draft.banco, codes: d.codes || [], loading: false }))
-      .catch(() => setSrcCodes({ banco: draft.banco, codes: [], loading: false }));
+      .then((d) => { if (!cancelled) setSrcCodes({ banco: target, codes: d.codes || [], loading: false }); })
+      .catch(() => { if (!cancelled) setSrcCodes({ banco: target, codes: [], loading: false }); });
+    return () => { cancelled = true; };
   }, [showAdd, draft.banco]);
 
   // POST a write; throw the server's pt-BR error on a non-2xx so callers can surface it.
@@ -122,7 +151,7 @@ function ViewCadastroProdutos() {
     return r.json();
   };
 
-  const run = async (fn, okMsg) => {
+  const run = async (fn, okMsg, opKeys) => {
     setBusy(true); setStatus(null);
     let ok = false;
     try {
@@ -137,16 +166,36 @@ function ViewCadastroProdutos() {
       load();
       setBusy(false);
     }
+    // Rotate the idempotency key(s) ONLY after a committed op — a FAILED op keeps its key so a
+    // retry reuses it and dedupes server-side (a partial batch resumes without re-applying).
+    if (ok && opKeys) [].concat(opKeys).forEach(cidDone);
     return ok; // callers (e.g. the add form) reset/close only on success
   };
 
-  const saveEntry = (entry) =>
-    run(() => post('/api/catalog/entry', entry), `Produto ${entry.codigo_produto} salvo.`);
+  const saveEntry = (entry) => {
+    const key = `save:${entry.banco}:${entry.codigo_produto}`;
+    return run(
+      () => post('/api/catalog/entry', { ...entry, change_id: cidFor(key) }),
+      `Produto ${entry.codigo_produto} salvo.`,
+      key,
+    );
+  };
+
+  // Change a single product's Ciclo de Vida. HIDING (indisponível) pulls it from EVERY
+  // researcher chart/filter, so confirm + explain the consequence + the update latency first.
+  const changeCiclo = (e, ciclo) => {
+    if (ciclo === _CC_CICLO_OCULTO && !window.confirm(
+      `Ocultar ${e.codigo_produto}? Ele deixará de aparecer em TODOS os gráficos e filtros do ` +
+      `dashboard para os pesquisadores. A mudança vale na próxima atualização (pode levar alguns minutos).`
+    )) return;
+    saveEntry({ ...e, ciclo_de_vida: ciclo });
+  };
 
   const removeEntry = (e) => {
     if (!window.confirm(`Remover ${e.codigo_produto} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro? Os dados já baixados ficam órfãos (não são apagados automaticamente).`)) return;
-    run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco }),
-      `Produto ${e.codigo_produto} marcado como descontinuado.`);
+    const key = `rm:${e.banco}:${e.codigo_produto}`;
+    run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco, change_id: cidFor(key) }),
+      `Produto ${e.codigo_produto} marcado como descontinuado.`, key);
   };
 
   // Move a commodity to a DIFFERENT agrupamento (membership change) — re-upserts with the
@@ -161,38 +210,48 @@ function ViewCadastroProdutos() {
   const createGroup = () => {
     const name = newGroup.trim();
     if (!name) { setStatus({ kind: 'err', msg: 'Informe o nome do novo agrupamento.' }); return; }
-    run(() => post('/api/catalog/group', { group_name: name }), `Agrupamento "${name}" criado.`);
-    setNewGroup('');
+    const key = `grp-new:${name}`;
+    // Clear the input ONLY on a committed create — clearing eagerly discarded the typed name
+    // even when the save failed, so the researcher had to retype it.
+    run(() => post('/api/catalog/group', { group_name: name, change_id: cidFor(key) }),
+      `Agrupamento "${name}" criado.`, key).then((ok) => { if (ok) setNewGroup(''); });
   };
   const renameGroup = (g) => {
     const name = window.prompt(`Renomear o agrupamento "${g.group_name}":`, g.group_name);
     if (name == null) return;
     const trimmed = name.trim();
     if (!trimmed || trimmed === g.group_name) return;
-    run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed }),
-      `Agrupamento renomeado para "${trimmed}".`);
+    const key = `grp:${g.group_id}`;
+    run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed, change_id: cidFor(key) }),
+      `Agrupamento renomeado para "${trimmed}".`, key);
   };
   const deleteGroup = (g) => {
     if (g.n_members > 0) return; // the button is disabled; guard anyway
     if (!window.confirm(`Excluir o agrupamento vazio "${g.group_name}"?`)) return;
-    run(() => post('/api/catalog/group/remove', { group_id: g.group_id }),
-      `Agrupamento "${g.group_name}" excluído.`);
+    const key = `grp-del:${g.group_id}`;
+    run(() => post('/api/catalog/group/remove', { group_id: g.group_id, change_id: cidFor(key) }),
+      `Agrupamento "${g.group_name}" excluído.`, key);
   };
 
   // Per-Agrupamento lifecycle (the lead's edit grain): set Ciclo de Vida for every member.
   const setCicloForGroup = (g, ciclo) => {
     const members = data.entries.filter((e) => e.agrupamento_id === g.group_id);
+    if (ciclo === _CC_CICLO_OCULTO && !window.confirm(
+      `Ocultar TODOS os ${members.length} produto(s) de "${g.group_name}"? Eles deixarão de ` +
+      `aparecer em qualquer gráfico ou filtro do dashboard para os pesquisadores. Vale na próxima atualização.`
+    )) return;
+    const keys = members.map((m) => `save:${m.banco}:${m.codigo_produto}`);
     run(async () => {
       let done = 0;
       try {
         for (const m of members) {
-          await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo });
+          await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo, change_id: cidFor(`save:${m.banco}:${m.codigo_produto}`) });
           done += 1;
         }
       } catch (e) {
         throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
       }
-    }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`);
+    }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`, keys);
   };
 
   // ── Add form: derived validation state ────────────────────────────────────────
@@ -278,7 +337,7 @@ function ViewCadastroProdutos() {
                 <td data-label="Ciclo de vida">
                   <select disabled={locked} value={e.ciclo_de_vida || ''}
                           title={e.ciclo_de_vida || ''}
-                          onChange={(ev) => saveEntry({ ...e, ciclo_de_vida: ev.target.value })}>
+                          onChange={(ev) => changeCiclo(e, ev.target.value)}>
                     {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
                       <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
                     )}
@@ -339,7 +398,7 @@ function ViewCadastroProdutos() {
         <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--err, #b71c1c)' }}>
           <window.SectionHeader
             overline="Descontinuados"
-            title={`${orphans.length.toLocaleString('pt-BR')} órfã(s) — aguardando remoção`}
+            title={`${orphans.length.toLocaleString('pt-BR')} descontinuada(s)`}
           />
           <p className="caption" style={{ margin: '0 2px 8px' }}>
             Removidas do cadastro, mas os dados já baixados continuam no Gold. Serão removidos
@@ -348,17 +407,23 @@ function ViewCadastroProdutos() {
           <div className="dt-wrap">
             <table className="dt-table">
               <thead>
-                <tr><th>Agrupamento</th><th>Banco</th><th>Código</th><th>Marcado em</th></tr>
+                <tr><th>Agrupamento</th><th>Banco</th><th>Código</th><th>Situação</th><th>Marcado em</th></tr>
               </thead>
               <tbody>
-                {orphans.map((o) => (
-                  <tr key={o.banco + '|' + o.codigo_produto}>
-                    <td>{o.agrupamento || '—'}</td>
-                    <td>{_CC_BANCO_LABEL[o.banco] || o.banco}</td>
-                    <td className="tnum">{o.codigo_produto}</td>
-                    <td className="caption">{o.flagged_at ? String(o.flagged_at).slice(0, 10) : 'detectado agora'}</td>
-                  </tr>
-                ))}
+                {orphans.map((o) => {
+                  // Honor the server's per-row status: a re-orphaned code already PURGED reads
+                  // 'purged' (its Gold data returned via a rebuild), not a blanket "aguardando".
+                  const purged = o.status === 'purged';
+                  return (
+                    <tr key={o.banco + '|' + o.codigo_produto} title={o.warning || ''}>
+                      <td>{o.agrupamento || '—'}</td>
+                      <td>{_CC_BANCO_LABEL[o.banco] || o.banco}</td>
+                      <td className="tnum">{o.codigo_produto}</td>
+                      <td className="caption">{purged ? 'Purgada — dados retornaram ao Gold' : 'Aguardando remoção'}</td>
+                      <td className="caption">{o.flagged_at ? String(o.flagged_at).slice(0, 10) : 'detectado agora'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

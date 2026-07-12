@@ -53,6 +53,8 @@ function _rfSeedQs(seedId, { limit, offset, order, filters }) {
 
 function ViewReferencias() {
   const [seeds, setSeeds] = useRfState([]);
+  const [seedsError, setSeedsError] = useRfState(false);
+  const [exportErr, setExportErr] = useRfState(null);
   const [seedId, setSeedId] = useRfState(null);
   const [page, setPage] = useRfState({ columns: [], rows: [], total: 0, loading: true, error: null, editable: false });
   const [offset, setOffset] = useRfState(0);
@@ -66,13 +68,17 @@ function ViewReferencias() {
   useRfEffect(() => {
     let alive = true;
     fetch('/api/seeds')
-      .then((r) => (r.ok ? r.json() : []))
+      // The seed catalog is STATIC (no BigQuery round-trip) so it is never legitimately
+      // empty — an empty result can only be a load failure. Route non-ok/network into an
+      // explicit error state instead of the misleading "Nenhuma tabela disponível".
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((list) => {
         if (!alive) return;
         setSeeds(Array.isArray(list) ? list : []);
         setSeedId(list && list[0] ? list[0].id : null);
+        setSeedsError(false);
       })
-      .catch(() => { if (alive) { setSeeds([]); setSeedId(null); } });
+      .catch(() => { if (alive) { setSeeds([]); setSeedId(null); setSeedsError(true); } });
     return () => { alive = false; };
   }, []);
 
@@ -120,11 +126,14 @@ function ViewReferencias() {
   const removeFilter = (i) => { setOffset(0); setFilters((fs) => fs.filter((_, j) => j !== i)); };
 
   const exportCsv = () => {
+    setExportErr(null);
     const qs = _rfSeedQs(seedId, { limit: _RF_EXPORT_CAP, offset: 0, order, filters });
     fetch(`/api/seed?${qs}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) _rfDownload(`referencia_${seedId}.csv`, _rfCsv(d.columns || [], d.rows || [])); })
-      .catch(() => {});
+      // Don't swallow an export failure: a click with no download and no message is a dead
+      // end. Surface a pt-BR error so the researcher knows the export failed (vs succeeded).
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => { _rfDownload(`referencia_${seedId}.csv`, _rfCsv(d.columns || [], d.rows || [])); })
+      .catch(() => setExportErr('Falha ao exportar CSV. Tente novamente.'));
   };
 
   // Report a value that looks wrong → opens the feedback dialog PREFILLED with the seed
@@ -158,7 +167,13 @@ function ViewReferencias() {
               {s.label}
             </button>
           ))}
-          {!seeds.length && <span className="caption">Nenhuma tabela de referência disponível.</span>}
+          {!seeds.length && (
+            <span className="caption" style={seedsError ? { color: 'var(--err, #b71c1c)' } : undefined}>
+              {seedsError
+                ? 'Não foi possível carregar as tabelas de referência. Recarregue a página.'
+                : 'Nenhuma tabela de referência disponível.'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -168,9 +183,12 @@ function ViewReferencias() {
             overline={`Referência · ${meta.label || seedId}`}
             title={`${(total || 0).toLocaleString('pt-BR')} linhas · ${cols.length} colunas`}
             action={
-              <button type="button" className="seg-opt" onClick={exportCsv} disabled={!cols.length}>
-                Exportar CSV (até {_RF_EXPORT_CAP})
-              </button>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {exportErr && <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>{exportErr}</span>}
+                <button type="button" className="seg-opt" onClick={exportCsv} disabled={!cols.length}>
+                  Exportar CSV (até {_RF_EXPORT_CAP})
+                </button>
+              </span>
             }
           />
 

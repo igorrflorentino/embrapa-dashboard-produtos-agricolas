@@ -295,6 +295,8 @@ def test_purge_plan_backup_status_complete(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ for the live catalog state; stub it for the backup-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -327,6 +329,8 @@ def test_purge_plan_backup_no_runs(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ for the live catalog state; stub it for the backup-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -350,6 +354,8 @@ def test_purge_plan_backup_only_partial(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ for the live catalog state; stub it for the backup-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -377,6 +383,8 @@ def test_purge_plan_backup_stale(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ for the live catalog state; stub it for the backup-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -402,6 +410,8 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
     from embrapa_dashboard.serving import catalog_lifecycle
 
     monkeypatch.setattr(catalog_lifecycle.gateway, "fetch_orphan_produtos", _one_orphan_df)
+    # The re-added guard hits BQ for the live catalog state; stub it for the backup-gate cases.
+    monkeypatch.setattr(catalog_lifecycle, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(
         catalog_lifecycle,
         "_current_status",
@@ -458,6 +468,7 @@ def test_mark_purged_records_when_descontinuado(monkeypatch):
         "_current_lifecycle",
         lambda cfg: {("commodity", "comex", "20079926"): ("descontinuado", flagged)},
     )
+    monkeypatch.setattr(cl, "_refuse_if_re_added", lambda *a, **k: None)
     monkeypatch.setattr(cl, "_change_id_seen", lambda *a, **k: False)
     monkeypatch.setattr(cl, "invalidate_lifecycle_cache", lambda: None)
     inserted = []

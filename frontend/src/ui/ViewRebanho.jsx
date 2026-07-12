@@ -48,9 +48,11 @@ function ViewRebanho({ summary, conventions, database }) {
     if (summary?.startDate) qs.set('startDate', summary.startDate);
     if (summary?.endDate) qs.set('endDate', summary.endDate);
     fetch(`/api/product-uf?${qs}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive) setUfRank({ rows: (d && d.uf) || [], loading: false }); })
-      .catch(() => { if (alive) setUfRank({ rows: [], loading: false }); });
+      // Distinguish a LOAD FAILURE from a legitimately empty ranking (else "Sem dados por UF
+      // para esta espécie" would read as a false claim when the fetch merely failed).
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => { if (alive) setUfRank({ rows: (d && d.uf) || [], loading: false, error: false }); })
+      .catch(() => { if (alive) setUfRank({ rows: null, loading: false, error: true }); });
     return () => { alive = false; };
   }, [database, activeFocus, hasGeo, conv.currency, conv.correction, summary?.startDate, summary?.endDate]);
 
@@ -210,6 +212,10 @@ function ViewRebanho({ summary, conventions, database }) {
           {ufRank.loading ? (
             <p className="caption" style={{ padding: '40px 4px', textAlign: 'center' }}>
               Carregando distribuição por UF…
+            </p>
+          ) : ufRank.error ? (
+            <p className="caption" style={{ padding: '40px 4px', textAlign: 'center', color: 'var(--err, #b71c1c)' }}>
+              Não foi possível carregar a distribuição por UF. Tente novamente.
             </p>
           ) : ufMapRows.length ? (
             <window.BrazilTileMap data={ufMapRows} valueKey="value" label={unitAx} />

@@ -74,6 +74,7 @@ function ViewDados({ database }) {
   const [order, setOrder] = useDtState({ by: null, dir: 'asc' });
   const [filters, setFilters] = useDtState([]);
   const [draft, setDraft] = useDtState({ col: '', op: 'eq', val: '' });
+  const [exportErr, setExportErr] = useDtState(null);
 
   // Reset the per-table state (offset/order/filters) — used on banco or table change.
   const resetView = () => { setOffset(0); setOrder({ by: null, dir: 'asc' }); setFilters([]); setDraft({ col: '', op: 'eq', val: '' }); };
@@ -140,12 +141,14 @@ function ViewDados({ database }) {
   const removeFilter = (i) => { setOffset(0); setFilters((fs) => fs.filter((_, j) => j !== i)); };
 
   const exportCsv = () => {
+    setExportErr(null);
     // Export the CURRENT filter/sort (not just the visible page) up to the server cap.
     const qs = _dtTableQs(database, table, { limit: _DT_EXPORT_CAP, offset: 0, order, filters });
     fetch(`/api/table?${qs}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) _dtDownload(`${database}_${table}.csv`, _dtCsv(d.columns || [], d.rows || [])); })
-      .catch(() => {});
+      // Surface an export failure (a click with no download and no message is a dead end).
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => { _dtDownload(`${database}_${table}.csv`, _dtCsv(d.columns || [], d.rows || [])); })
+      .catch(() => setExportErr('Falha ao exportar CSV. Tente novamente.'));
   };
 
   return (
@@ -195,9 +198,12 @@ function ViewDados({ database }) {
             overline={`Inspeção tabular · ${meta.label || table}`}
             title={`${(total || 0).toLocaleString('pt-BR')} linhas · ${cols.length} colunas`}
             action={
-              <button type="button" className="seg-opt" onClick={exportCsv} disabled={!cols.length}>
-                Exportar CSV (até {_DT_EXPORT_CAP})
-              </button>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {exportErr && <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>{exportErr}</span>}
+                <button type="button" className="seg-opt" onClick={exportCsv} disabled={!cols.length}>
+                  Exportar CSV (até {_DT_EXPORT_CAP})
+                </button>
+              </span>
             }
           />
           {meta.grain && <p className="caption" style={{ margin: '0 2px 8px' }}>{meta.grain}</p>}

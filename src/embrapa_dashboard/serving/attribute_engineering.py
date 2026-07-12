@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from embrapa_dashboard.config import Settings, get_settings
@@ -404,7 +405,10 @@ def seed_flow_market_from_seed(
         df = gateway.fetch_current_flow_market()
         if df is not None and not df.empty:
             existing = {(r.customs_code, r.flow_code): r.market for r in df.itertuples()}
-    except Exception as exc:  # pragma: no cover - view absent on a cold project
+    except NotFound as exc:  # pragma: no cover - view absent on a cold project
+        # ONLY the genuine "view not built yet" (NotFound). A broad except would also eat a
+        # TRANSIENT BQ fault → existing={} → the idempotency guard fails open and the seed
+        # RE-APPENDS every pair into the append-only flow_market_log. Any other error propagates.
         logger.info("seed_flow_market: no current mapping yet (%s)", exc)
 
     seeded = skipped = 0

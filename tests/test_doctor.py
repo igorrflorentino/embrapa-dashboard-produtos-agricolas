@@ -497,6 +497,7 @@ def test_run_all_executes_every_probe(settings: Settings) -> None:
         "Bronze tables",
         "Serving marts",
         "Catalog↔env product codes",
+        "Catalog orphan lifecycle",
         "Gold backup freshness",
     ]
 
