@@ -646,3 +646,44 @@ def test_bronze_targets_reference_real_settings_fields(settings: Settings) -> No
     for dataset_attr, table_attr in doctor.BRONZE_TARGETS:
         assert hasattr(settings, dataset_attr), f"BRONZE_TARGETS: no Settings.{dataset_attr}"
         assert hasattr(settings, table_attr), f"BRONZE_TARGETS: no Settings.{table_attr}"
+
+
+class _N:
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+
+def test_check_orphan_lifecycle_flags_unmarked(monkeypatch, settings: Settings) -> None:
+    """A soft-warn when more catalog removals exist than lifecycle-marked ones (the
+    mark-orphans step probably didn't run). Advisory (ok=True)."""
+    client = MagicMock()
+    client.query.return_value.result.side_effect = [[_N(3)], [_N(1)]]
+    monkeypatch.setattr("embrapa_dashboard.gcp.clients.resolve_bq_client", lambda s: client)
+
+    r = doctor._check_orphan_lifecycle(settings)
+
+    assert r.ok is True and "unmarked" in r.detail
+
+
+def test_check_orphan_lifecycle_all_marked(monkeypatch, settings: Settings) -> None:
+    """When every removal is already marked, the check reports the clean state."""
+    client = MagicMock()
+    client.query.return_value.result.side_effect = [[_N(2)], [_N(2)]]
+    monkeypatch.setattr("embrapa_dashboard.gcp.clients.resolve_bq_client", lambda s: client)
+
+    r = doctor._check_orphan_lifecycle(settings)
+
+    assert r.ok is True and "all marked" in r.detail
+
+
+def test_check_orphan_lifecycle_error_degrades_to_skipped(monkeypatch, settings: Settings) -> None:
+    """Any fault (tables absent / perms) degrades to an advisory 'skipped', never failing."""
+
+    def _boom(s):
+        raise RuntimeError("no dataset")
+
+    monkeypatch.setattr("embrapa_dashboard.gcp.clients.resolve_bq_client", _boom)
+
+    r = doctor._check_orphan_lifecycle(settings)
+
+    assert r.ok is True and "skipped" in r.detail

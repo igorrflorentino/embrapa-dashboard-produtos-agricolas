@@ -204,3 +204,26 @@ def test_ensure_banco_metadata_table_resolves_client_when_none(monkeypatch):
 
     assert fb_fqn.endswith(".banco_metadata")
     resolved.create_table.assert_called_once()
+
+
+def test_stored_feedback_echoes_row_and_none_when_absent():
+    """_stored_feedback maps a persisted row to the echo dict (view_id → view, deduped=True),
+    and returns None when the key isn't found."""
+    row = {
+        "feedback_id": "k1",
+        "category": "bug",
+        "message": "m",
+        "url": None,
+        "view_id": "overview",
+        "banco": "ibge_pevs",
+        "submitted_by": "u@embrapa.br",
+        "issue_url": "https://x/1",
+    }
+    client = mock.Mock()
+    client.query.return_value.result.return_value = [row]
+    out = fb._stored_feedback(client, "t.r.feedback_log", "k1")
+    assert out["feedback_id"] == "k1" and out["view"] == "overview"
+    assert out["issue_url"] == "https://x/1" and out["deduped"] is True
+
+    client.query.return_value.result.return_value = []
+    assert fb._stored_feedback(client, "t.r.feedback_log", "absent") is None

@@ -1703,3 +1703,49 @@ def test_catalog_orphans_route_returns_descontinuados(monkeypatch):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["total"] == 1 and body["orphans"][0]["status"] == "descontinuado"
+
+
+def test_catalog_group_upsert_threads_body_to_seam(monkeypatch):
+    """POST /api/catalog/group threads the body (name + change_id) to the seam writer."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())  # open
+    captured = {}
+    monkeypatch.setattr(seam, "record_group", lambda body: captured.update(body) or {"ok": True})
+    resp = client.post("/api/catalog/group", json={"group_name": "Castanha", "change_id": "g1"})
+    assert resp.status_code == 200
+    assert captured["group_name"] == "Castanha" and captured["change_id"] == "g1"
+
+
+def test_catalog_group_upsert_400_on_missing_name(monkeypatch):
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    resp = client.post("/api/catalog/group", json={})
+    assert resp.status_code == 400
+
+
+def test_catalog_group_remove_threads_body_to_seam(monkeypatch):
+    """POST /api/catalog/group/remove threads the group_id to the seam deleter."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    captured = {}
+    monkeypatch.setattr(seam, "remove_group", lambda body: captured.update(body) or {"ok": True})
+    resp = client.post(
+        "/api/catalog/group/remove", json={"group_id": "castanha", "change_id": "g2"}
+    )
+    assert resp.status_code == 200
+    assert captured["group_id"] == "castanha"
+
+
+def test_catalog_group_remove_400_on_missing_id(monkeypatch):
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    resp = client.post("/api/catalog/group/remove", json={})
+    assert resp.status_code == 400

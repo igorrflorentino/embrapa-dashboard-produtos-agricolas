@@ -525,3 +525,23 @@ def test_flow_market_seed_reports_counts(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result.exit_code == 0, result.output
     assert "seeded=24" in result.output and "of 24" in result.output
     assert "me@x.br" in seen["headers"]["X-Goog-Authenticated-User-Email"]
+
+
+def test_purge_orphan_mark_purged_value_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--mark-purged surfaces a ValueError (e.g. a re-added product) as a clean error + exit 1,
+    not a raw traceback."""
+    from embrapa_dashboard.serving import catalog_lifecycle
+
+    _bypass_webapp_context(monkeypatch)
+
+    def boom(banco: str, code: str, *, edited_by: str) -> dict:
+        raise ValueError("re-added to the catalog (active)")
+
+    monkeypatch.setattr(catalog_lifecycle, "mark_purged", boom)
+
+    result = runner.invoke(
+        cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405", "--mark-purged"]
+    )
+
+    assert result.exit_code == 1
+    assert "re-added" in result.output

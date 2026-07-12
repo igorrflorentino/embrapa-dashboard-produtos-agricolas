@@ -547,3 +547,28 @@ def test_ciclo_de_vida_oculto_literal_matches_across_layers():
     assert curation.CICLO_DE_VIDA_OCULTO in jsx, (
         "frontend _CC_CICLO literal drifted from curation.CICLO_DE_VIDA_OCULTO."
     )
+
+
+def test_current_sidra_tabela_reads_stored_absent_and_pre_migration(monkeypatch):
+    """_current_sidra_tabela returns the stored PPM tag, None when absent, and None ONLY on
+    the pre-migration NotFound/BadRequest — a transient fault must NOT be swallowed here."""
+    from types import SimpleNamespace
+
+    from google.api_core.exceptions import BadRequest
+
+    from embrapa_dashboard.serving import curation
+
+    client = mock.Mock()
+    client.query.return_value.result.return_value = [SimpleNamespace(sidra_tabela="3939")]
+    assert curation._current_sidra_tabela(client, "t.r.log", "3405", "ppm") == "3939"
+
+    client.query.return_value.result.return_value = []
+    assert curation._current_sidra_tabela(client, "t.r.log", "3405", "ppm") is None
+
+    boom = mock.Mock()
+    boom.query.side_effect = NotFound("no table yet")
+    assert curation._current_sidra_tabela(boom, "t.r.log", "3405", "ppm") is None
+
+    boom2 = mock.Mock()
+    boom2.query.side_effect = BadRequest("Unrecognized name: sidra_tabela")
+    assert curation._current_sidra_tabela(boom2, "t.r.log", "3405", "ppm") is None
