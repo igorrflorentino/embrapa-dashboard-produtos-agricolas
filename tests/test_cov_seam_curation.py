@@ -88,10 +88,11 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
 
     monkeypatch.setattr(gateway, "fetch_produto_catalog", _df)
     # The worklist attaches the source's ORIGINAL description per (banco, codigo) via
-    # fetch_products(source). Mock it: comex code 4407 has a name; 9999 does not.
+    # fetch_source_products_gold(source) — UNGATED (the admin editor sees hidden products
+    # too). Mock it: comex code 4407 has a name; 9999 does not.
     monkeypatch.setattr(
         gateway,
-        "fetch_products",
+        "fetch_source_products_gold",
         lambda src: pd.DataFrame([{"code": "4407", "name": "Madeira serrada (NCM)"}]),
     )
     out = seam_curation.catalog_worklist(banco="any")
@@ -134,13 +135,13 @@ def test_source_codes_empty_when_products_table_absent(monkeypatch):
     def _raise(src):
         raise NotFound("products table not built")
 
-    monkeypatch.setattr(gateway, "fetch_products", _raise)
+    monkeypatch.setattr(gateway, "fetch_source_products_gold", _raise)
     assert seam_curation.source_codes("comtrade") == {"banco": "comtrade", "codes": []}
 
 
 def test_source_codes_empty_when_products_df_empty(monkeypatch):
     """A known banco whose products table is present but EMPTY → empty code list."""
-    monkeypatch.setattr(gateway, "fetch_products", lambda src: pd.DataFrame())
+    monkeypatch.setattr(gateway, "fetch_source_products_gold", lambda src: pd.DataFrame())
     assert seam_curation.source_codes("comtrade") == {"banco": "comtrade", "codes": []}
 
 
@@ -153,7 +154,7 @@ def test_source_codes_projects_code_and_name(monkeypatch):
         seen["src"] = src
         return pd.DataFrame([{"code": 4403, "name": "Madeira em toras"}, {"code": "4407"}])
 
-    monkeypatch.setattr(gateway, "fetch_products", _products)
+    monkeypatch.setattr(gateway, "fetch_source_products_gold", _products)
     out = seam_curation.source_codes("comtrade")
 
     assert seen["src"] == "un_comtrade"  # short token → long source id
@@ -503,6 +504,6 @@ def test_catalog_worklist_skips_source_desc_on_not_found(monkeypatch):
         raise NotFound("no mart")
 
     monkeypatch.setattr(gateway, "fetch_produto_catalog", _df)
-    monkeypatch.setattr(gateway, "fetch_products", _raise)
+    monkeypatch.setattr(gateway, "fetch_source_products_gold", _raise)
     out = seam_curation.catalog_worklist()
     assert out["entries"][0]["descricao_fonte"] is None

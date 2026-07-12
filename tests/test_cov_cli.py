@@ -302,8 +302,9 @@ def test_purge_orphan_prints_plan_with_backup_ok(monkeypatch: pytest.MonkeyPatch
     assert "--mark-purged" in result.output
 
 
-def test_purge_orphan_warns_when_backup_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The backup-absent branch warns in red before printing the DELETEs."""
+def test_purge_orphan_refuses_when_backup_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The backup-absent branch REFUSES (exit 1, no DELETEs printed) — the backup-first gate
+    is hard, not advisory. --force overrides it and prints the DELETEs with a caveat."""
     from embrapa_dashboard.serving import catalog_lifecycle
 
     _bypass_webapp_context(monkeypatch)
@@ -313,17 +314,26 @@ def test_purge_orphan_warns_when_backup_missing(monkeypatch: pytest.MonkeyPatch)
         lambda banco, code: {
             "banco": banco,
             "code": code,
-            "statements": ["DELETE FROM `proj.gold.t` WHERE codigo LIKE '3405%';"],
+            "statements": ["DELETE FROM `proj.gold.t` WHERE codigo = '3405';"],
             "backup_ok": False,
             "backup_msg": "no snapshot found",
         },
     )
 
+    # Default: refuse, do NOT print the DELETEs.
     result = runner.invoke(cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405"])
-
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "backup MISSING/STALE" in result.output
-    assert "Back up Gold BEFORE" in result.output
+    assert "Refusing to print the DELETEs" in result.output
+    assert "DELETE FROM" not in result.output
+
+    # --force: print them anyway, flagged as forced.
+    forced = runner.invoke(
+        cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405", "--force"]
+    )
+    assert forced.exit_code == 0, forced.output
+    assert "forced" in forced.output
+    assert "DELETE FROM" in forced.output
 
 
 def test_purge_orphan_exits_1_on_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -515,3 +525,23 @@ def test_flow_market_seed_reports_counts(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result.exit_code == 0, result.output
     assert "seeded=24" in result.output and "of 24" in result.output
     assert "me@x.br" in seen["headers"]["X-Goog-Authenticated-User-Email"]
+
+
+def test_purge_orphan_mark_purged_value_error_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--mark-purged surfaces a ValueError (e.g. a re-added product) as a clean error + exit 1,
+    not a raw traceback."""
+    from embrapa_dashboard.serving import catalog_lifecycle
+
+    _bypass_webapp_context(monkeypatch)
+
+    def boom(banco: str, code: str, *, edited_by: str) -> dict:
+        raise ValueError("re-added to the catalog (active)")
+
+    monkeypatch.setattr(catalog_lifecycle, "mark_purged", boom)
+
+    result = runner.invoke(
+        cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405", "--mark-purged"]
+    )
+
+    assert result.exit_code == 1
+    assert "re-added" in result.output

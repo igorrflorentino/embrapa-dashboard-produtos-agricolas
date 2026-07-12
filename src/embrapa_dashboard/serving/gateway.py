@@ -939,6 +939,30 @@ def fetch_source_code_stats(source: str):
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
+def fetch_source_products_gold(source: str):
+    """Distinct (code, name) product list read DIRECTLY from a source's Gold fact table —
+    UNGATED (no F7 visibility filter), unlike ``fetch_products`` which reads the gated
+    serving marts. Backs the Curadoria ADMIN editor, which BY DESIGN must see hidden-but-
+    active products too (``dim_produto_visibility`` deliberately isolates the gate from the
+    admin editor). ``source`` is the long source id (ibge_pevs/…/un_comtrade); raises
+    NotFound if unknown. Cheap (one code group-by, column-pruned) + maximum_bytes_billed."""
+    table_name = _GOLD_TABLE.get(source)
+    cols = _GOLD_PRODUCT.get(source)
+    if table_name is None or cols is None:
+        raise NotFound(f"unknown source {source!r}")
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_gold_dataset", table_name)
+    code_col, name_col = cols
+    sql = f"""
+        select cast({code_col} as string) as code, any_value({name_col}) as name
+        from `{table}`
+        group by code
+        order by code
+    """
+    return run_query(sql, [], max_bytes=RAW_TABLE_MAX_BYTES)
+
+
+@cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)
 def fetch_orphan_produtos():
     """Detect ORPHAN commodities — the "ficou órfão" transition: an entry that WAS in
     the catalog, was REMOVED (current state active=false), and whose Gold data STILL

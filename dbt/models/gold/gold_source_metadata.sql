@@ -28,6 +28,10 @@ select
     count(distinct case when state_name is not null then state_acronym end) as ufs_total,
     max(last_refresh)              as last_refresh
 from {{ ref('gold_pevs_production') }}
+-- F7 visibility gate: exclude products a researcher marked "indisponível" so the "acervo"
+-- counters (total_rows / products_total) a researcher SEES (ViewHealth, chip fallbacks) match
+-- the gated marts. Isolated from the admin editor, which reads Gold ungated. NO-OP until hidden.
+where {{ hidden_code_predicate('pevs', 'product_code') }}
 having count(*) > 0   -- an empty source emits no metadata row (NULL coverage would fail not_null)
 
 union all
@@ -43,6 +47,7 @@ select
     count(distinct case when state_name is not null then state_acronym end) as ufs_total,
     max(last_refresh)              as last_refresh
 from {{ ref('gold_pam_production') }}
+where {{ hidden_code_predicate('pam', 'product_code') }}
 having count(*) > 0
 
 union all
@@ -58,6 +63,7 @@ select
     count(distinct case when state_name is not null then state_acronym end) as ufs_total,
     max(last_refresh)              as last_refresh
 from {{ ref('gold_ppm_production') }}
+where {{ hidden_code_predicate('ppm', 'product_code') }}
 having count(*) > 0
 
 union all
@@ -73,6 +79,7 @@ select
     count(distinct case when state_name is not null then state_acronym end),
     max(last_refresh)
 from {{ ref('gold_comex_flows') }}
+where {{ hidden_code_predicate('comex', 'ncm_code') }}
 having count(*) > 0
 
 union all
@@ -88,4 +95,5 @@ select
     cast(null as int64),           -- COMTRADE has no Brazilian UF (country↔country)
     max(last_refresh)
 from {{ ref('gold_comtrade_flows') }}
+where {{ hidden_code_predicate('comtrade', 'cmd_code') }}
 having count(*) > 0

@@ -1355,7 +1355,7 @@ def _coerce_filter_value(param_type: str, raw: object) -> object:
     never an uncaught 500) for a value that doesn't fit the column — a missing/None value,
     a non-numeric string on a numeric column, or a non-finite (inf/nan) float."""
     if raw is None:
-        raise ValueError("filter value is required for this operator")
+        raise ValueError("Informe um valor para este operador de filtro.")
     try:
         if param_type == "INT64":
             return int(raw)
@@ -1365,7 +1365,9 @@ def _coerce_filter_value(param_type: str, raw: object) -> object:
                 raise ValueError("non-finite")
             return v
     except (TypeError, ValueError):
-        raise ValueError(f"filter value {raw!r} does not fit a {param_type} column") from None
+        raise ValueError(
+            f"O valor {raw!r} não é compatível com o tipo da coluna ({param_type})."
+        ) from None
     if param_type == "BOOL":
         return str(raw).strip().lower() in ("true", "1", "yes", "sim")
     return str(raw)
@@ -1392,7 +1394,7 @@ def _raw_filter_predicate(
         # turned into the literal string "None" (which would match rows containing 'none').
         val = f.get("val")
         if val is None:
-            raise ValueError("filter value is required for this operator")
+            raise ValueError("Informe um valor para este operador de filtro.")
         conditions.append(f"contains_substr(`{col}`, @{pname})")
         params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(val)))
         return

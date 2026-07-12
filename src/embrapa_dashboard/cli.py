@@ -973,6 +973,11 @@ def purge_orphan_cmd(
     mark_purged: bool = typer.Option(
         False, "--mark-purged", help="Record a 'purged' event AFTER you ran the DELETEs."
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Print the DELETEs even without a fresh Gold backup (NOT recommended).",
+    ),
     author: str = typer.Option("operator", help="Who is purging (for the audit row)."),
 ) -> None:
     """HUMAN-GATED purge of a Descontinuado orphan's Gold data. By default only PRINTS the
@@ -987,7 +992,12 @@ def purge_orphan_cmd(
     )
 
     if mark_purged:
-        res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=author))
+        try:
+            res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=author))
+        except ValueError as exc:
+            # A not-Descontinuado / re-added code raises — surface it cleanly, not a traceback.
+            console.print(f"[red]✗[/red] {exc}")
+            raise typer.Exit(1) from exc
         verb = "already recorded" if res.get("deduped") else "recorded"
         console.print(f"[green]✓[/green] purge {verb}: {banco}:{code} → purged (by {author})")
         return
@@ -999,18 +1009,31 @@ def purge_orphan_cmd(
         raise typer.Exit(1) from exc
 
     console.print(f"[bold]Purge plan[/bold] — {banco}:{code} (exact code)")
+    # Backup-FIRST is a hard gate, not a warning: without a fresh Gold snapshot the DELETEs
+    # are not even printed (the project's rollback posture), unless the operator opts in with
+    # --force. This closes the "printed anyway" gap where an operator could copy the DELETEs
+    # with no restore point.
+    if not plan["backup_ok"] and not force:
+        console.print(f"  [red]backup MISSING/STALE[/red] — {plan['backup_msg']}")
+        console.print(
+            "  [red]Refusing to print the DELETEs without a fresh Gold backup.[/red] "
+            "Run `make dbt-build-prod-with-backup` first, or pass --force to override."
+        )
+        raise typer.Exit(1)
     if plan["backup_ok"]:
         console.print(f"  [green]backup OK[/green] — {plan['backup_msg']}")
     else:
-        console.print(f"  [red]backup MISSING/STALE[/red] — {plan['backup_msg']}")
-        console.print("  [red]Back up Gold BEFORE running the DELETEs below.[/red]")
+        console.print(f"  [yellow]backup MISSING/STALE (forced)[/yellow] — {plan['backup_msg']}")
     console.print("\n  Run manually (after confirming the backup):")
     for stmt in plan["statements"]:
         console.print(f"    [cyan]{stmt}[/cyan]")
     console.print(
         "\n  [yellow]Note:[/yellow] Gold is rebuilt from Bronze by dbt. For the purge to be "
-        "permanent, also delete the Bronze rows and drop the product from the ingestion scope "
-        "(config.py), otherwise it returns on the next build."
+        "PERMANENT you must ALSO: (1) delete the matching Bronze rows; (2) rebuild the affected "
+        "Silver models with --full-refresh (silver_ibge_pevs / silver_comtrade_flows are "
+        "incremental and otherwise retain the rows); (3) drop the product from the ingestion "
+        "scope (config.py or the catalog). Otherwise the data returns on the next dbt build, "
+        "while the lifecycle stays 'purged' — a silent divergence."
     )
     console.print(
         f"\n  After running, record it: "

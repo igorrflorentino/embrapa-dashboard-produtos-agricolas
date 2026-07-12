@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.15.0] - 2026-07-11
+
+**Auditoria da Curadoria/Cadastro de produtos + varredura dos mesmos padrões no resto do
+projeto.** Duas rodadas: (1) remediação dos achados confirmados da feature de curadoria;
+(2) correção de 11 recorrências dos mesmos padrões de defeito em outras telas/rotas. Sem
+mudança de contrato de API que quebre clientes; a mudança de `dbt` é em `view` (propaga no
+próximo `dbt build`).
+
+### Fixed
+- **Purga de órfãos — pontos cegos do único fluxo destrutivo** (`serving/catalog_lifecycle.py`,
+  `cli.py`): o gate agora recusa purgar um produto **re-adicionado** ao catálogo (o log
+  append-only continuava lendo `descontinuado`); o backup deixou de ser aviso e virou **gate
+  rígido** (sem snapshot fresco os DELETEs não são impressos, salvo `--force`); `--mark-purged`
+  trata erro com mensagem limpa em vez de traceback; a nota do plano explicita que a purga só é
+  permanente apagando Bronze **e** reconstruindo os Silver incrementais com `--full-refresh`.
+- **`_current_sidra_tabela` engolia erro transitório** (`serving/curation.py`): `except`
+  estreitado para `(NotFound, BadRequest)`, evitando gravar `sidra_tabela` NULL numa edição PPM
+  e excluir o código da ingestão dirigida por catálogo. Mesmo ajuste em
+  `serving/attribute_engineering.py` (`seed_flow_market`, estreitado para `NotFound`).
+- **Renomear agrupamento permitia nome duplicado** (`serving/agrupamentos.py`): validação de
+  colisão de nome no rename (a criação já bloqueava); re-stamp dos membros converge num retry
+  idempotente.
+- **Editor do Cadastro lia marts com gate de visibilidade F7** (`serving/gateway.py`,
+  `webapi/seam_curation.py`): novo leitor **ungated** `fetch_source_products_gold` para o editor
+  admin, que por design deve ver produtos ocultos (antes um produto oculto virava falso "ainda
+  não ingerido").
+- **Falhas de fetch exibidas como "vazio legítimo"** — agora distinguem erro de ausência:
+  ranking/mapa por UF (`ViewProductProfile.jsx`, `ViewRebanho.jsx`), catálogo de referências
+  (`ViewReferencias.jsx`, catálogo estático nunca vazio) e exportação de CSV
+  (`ViewReferencias.jsx`, `ViewDados.jsx`, antes falhava sem aviso).
+- **Falha ao carregar agrupamentos** (`ViewCadastroProdutos.jsx`) deixou de ser engolida (todos
+  os produtos apareciam como "Sem agrupamento registrado").
+- **Parâmetros de deep-link sem validação**: `?v` (view), `?b` (banco) e `?ip` (info page)
+  agora são validados contra o menu/registro; um valor desconhecido cai no padrão em vez de
+  renderizar tela quebrada / banco errado (`frontend/src/main.jsx`, `frontend/src/ui/views.js`).
+- **Strings em inglês visíveis ao pesquisador → pt-BR**: autorização do catálogo, validação de
+  filtro em Dados/Referências (`serving/sql.py`), 500 genérico (`webapi/routes.py`) e mensagens
+  de validação do feedback (`serving/feedback.py`).
+
+### Added
+- **Idempotência nos writes do cliente** (`change_id`): o Cadastro de produtos e o canal de
+  **feedback** agora enviam uma chave estável por operação; o backend deduplica um reenvio
+  (timeout que aterrissou / duplo-clique), evitando linha duplicada no BigQuery **e** issue
+  duplicada no GitHub. Confirmação + aviso de latência ao **ocultar** um produto; a lista de
+  Descontinuados exibe `status`/`warning` (um código já purgado que retornou não aparece mais
+  como "aguardando remoção").
+- **Check de órfãos no `embrapa doctor`** (`Catalog orphan lifecycle`) — soft-warn quando há
+  remoções ainda não marcadas pelo `mark-orphans` (previsto na spec da curadoria).
+
+### Changed
+- **Gate de visibilidade F7 nos contadores de `gold_source_metadata`** (dbt): `total_rows`/
+  `products_total` que o pesquisador vê (Saúde do sistema, chips) passam a excluir produtos
+  ocultos, alinhando ao restante dos marts. NO-OP até algo ser ocultado.
+
 ## [1.14.1] - 2026-07-11
 
 **Correção de UI · legendas duplicadas** nos gráficos de várias janelas. Nenhuma mudança de

@@ -308,3 +308,55 @@ def test_delete_group_retry_dedupes_before_missing_check(monkeypatch):
     )
     assert out["deduped"] is True and out["active"] is False and out["group_id"] == "madeira"
     assert inserted == []  # dedup short-circuits BEFORE any insert
+
+
+def test_record_group_rename_dedupe_reruns_restamp(monkeypatch):
+    """A retried RENAME (same change_id, already seen) re-runs the idempotent member re-stamp
+    to CONVERGE and echoes deduped — without a second registry insert."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+    from embrapa_dashboard.serving import curation
+
+    inserted = _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    member = SimpleNamespace(
+        codigo_produto="4403",
+        banco="comex",
+        descricao_produto=None,
+        ciclo_de_vida="Fazer Ingestão e deixar disponível",
+    )
+    monkeypatch.setattr(cg, "_active_member_rows", lambda bq, t, gid: [member])
+    retagged = []
+    monkeypatch.setattr(
+        curation,
+        "record_produto_catalog",
+        lambda *a, **k: retagged.append(k.get("agrupamento")) or {"ok": True},
+    )
+    out = cg.record_group(
+        "Madeira",
+        _HEADERS,
+        group_id="madeira",
+        change_id="k1",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert out["deduped"] is True
+    assert inserted == []  # dedup short-circuits the registry insert
+    assert retagged == ["Madeira"]  # but the re-stamp re-ran (convergence)
+
+
+def test_record_group_rename_rejects_duplicate_name(monkeypatch):
+    """Renaming a group to a name ANOTHER active group already uses is rejected (it would
+    silently MERGE the two in the name-keyed UI/aggregation)."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    _patch_common(monkeypatch, cg, {"madeira": "Madeira", "castanha": "Castanha"})
+    with pytest.raises(ValueError, match="Já existe"):
+        cg.record_group(
+            "Castanha",
+            _HEADERS,
+            group_id="madeira",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )

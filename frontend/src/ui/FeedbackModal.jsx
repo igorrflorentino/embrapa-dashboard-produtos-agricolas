@@ -26,6 +26,15 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
   const ctxRef = React.useRef(context);
   ctxRef.current = context;
 
+  // Idempotency key: STABLE across a retry of the SAME submission (a timeout that actually
+  // landed, or a double-click), so the backend dedupes instead of inserting a second BigQuery
+  // row AND opening a second GitHub issue. Rotated after a committed submit; fresh per open.
+  const cidRef = React.useRef(null);
+  const _fbUuid = () =>
+    (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : 'fb-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
   // Reset the form each time the dialog opens, SEEDING from any prefill (category/message)
   // — the Referências "report a value" loop opens the dialog pre-filled.
   React.useEffect(() => {
@@ -35,6 +44,7 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
       setMessage(c.message || '');
       setStatus('idle');
       setErrMsg('');
+      cidRef.current = null; // a fresh submission gets a fresh idempotency key
     }
   }, [open]);
 
@@ -54,6 +64,7 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
     if (!text || status === 'sending' || !window.postFeedback) return;
     setStatus('sending');
     setErrMsg('');
+    if (!cidRef.current) cidRef.current = _fbUuid(); // stable across retries of THIS submission
     try {
       await window.postFeedback({
         category,
@@ -63,8 +74,10 @@ window.FeedbackModal = function FeedbackModal({ open, onClose, context }) {
         banco: ctx.banco || '',
         app_version: window.APP_VERSION || '',
         browser_info: includeBrowser && typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        change_id: cidRef.current,
       });
       setStatus('done');
+      cidRef.current = null; // committed → rotate so a later feedback isn't deduped onto this one
     } catch (e) {
       setStatus('error');
       setErrMsg((e && e.message) || 'Falha ao enviar. Tente novamente.');

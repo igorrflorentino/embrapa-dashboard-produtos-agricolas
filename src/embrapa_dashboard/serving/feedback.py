@@ -94,14 +94,42 @@ def _safe_http_url(value: str | None) -> str | None:
 
 
 def _validate(category: str, message: str) -> str:
+    # pt-BR: these messages surface to the researcher in the feedback dialog (via b.error).
     message = (message or "").strip()
     if not message:
-        raise FeedbackValidationError("message is required")
+        raise FeedbackValidationError("A mensagem é obrigatória.")
     if len(message) > MAX_MESSAGE_LEN:
-        raise FeedbackValidationError(f"message exceeds {MAX_MESSAGE_LEN} characters")
+        raise FeedbackValidationError(f"A mensagem excede {MAX_MESSAGE_LEN} caracteres.")
     if category not in FEEDBACK_CATEGORIES:
-        raise FeedbackValidationError(f"category must be one of {', '.join(FEEDBACK_CATEGORIES)}")
+        raise FeedbackValidationError(
+            f"Categoria inválida — use uma de: {', '.join(FEEDBACK_CATEGORIES)}."
+        )
     return message
+
+
+def _stored_feedback(bq: bigquery.Client, table_fqn: str, feedback_id: str) -> dict | None:
+    """The stored feedback row for ``feedback_id`` (the idempotency key), echoed on a retried
+    submit so it returns what was PERSISTED instead of inserting a duplicate. None if absent."""
+    sql = f"""
+        select feedback_id, category, message, url, view_id, banco, submitted_by, issue_url
+        from `{table_fqn}` where feedback_id = @feedback_id limit 1
+    """
+    params = [bigquery.ScalarQueryParameter("feedback_id", "STRING", feedback_id)]
+    rows = list(bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result())
+    if not rows:
+        return None
+    r = rows[0]
+    return {
+        "feedback_id": r["feedback_id"],
+        "category": r["category"],
+        "message": r["message"],
+        "url": r["url"],
+        "view": r["view_id"],
+        "banco": r["banco"],
+        "submitted_by": r["submitted_by"],
+        "issue_url": r["issue_url"],
+        "deduped": True,
+    }
 
 
 def ensure_feedback_log_table(
@@ -192,6 +220,7 @@ def record_feedback(
     app_version: str | None = None,
     browser_info: str | None = None,
     author: str | None = None,
+    change_id: str | None = None,
     settings: Settings | None = None,
     client: bigquery.Client | None = None,
 ) -> dict:
@@ -218,10 +247,23 @@ def record_feedback(
     submitted_by = author or author_email_from_headers(
         headers, dev_fallback=cfg.dev_author, audience=cfg.iap_audience
     )
-    feedback_id = uuid.uuid4().hex
+    # A client-supplied change_id is the IDEMPOTENCY KEY (it doubles as the feedback_id); a
+    # retried submit reusing it is deduped below. Absent → a fresh uuid, which can't pre-exist.
+    supplied_key = (change_id or "").strip()
+    feedback_id = supplied_key or uuid.uuid4().hex
     bq = client or resolve_bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_feedback_log_table)
     ensure_feedback_log_table(cfg, bq)
+
+    # Idempotency: a retried submit with the SAME key (a timeout that actually landed, or a
+    # double-click) must NOT insert a second row NOR open a second GitHub issue. Echo the
+    # stored report instead. Best-effort SELECT-then-INSERT (a true concurrent race could
+    # still double-insert), mirroring the catalog writer — acceptable for an append-only log.
+    if supplied_key:
+        stored = _stored_feedback(bq, table_fqn, feedback_id)
+        if stored is not None:
+            logger.info("feedback: duplicate change_id %s ignored (%s)", feedback_id, category)
+            return stored
 
     # FB-1: durable BigQuery write FIRST (issue_url NULL) so a GitHub hiccup can never lose
     # the report. The GitHub forward + the issue_url stamp happen afterwards.

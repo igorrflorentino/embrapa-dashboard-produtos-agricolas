@@ -66,15 +66,17 @@ def catalog_worklist(banco: str | None = None) -> dict:
     ]
     # Attach the source's ORIGINAL product description per (banco, codigo) — the name the
     # source (IBGE/COMEX/Comtrade) gives that code — so a bare numeric code isn't opaque.
-    # Read once per source (memoized). Every catalog code is now an EXACT source code, so
-    # each resolves to a description (None only if the source products table is unread).
+    # Read once per source (memoized). UNGATED (fetch_source_products_gold, straight from
+    # Gold) — NOT fetch_products, whose serving marts apply the F7 visibility gate: the admin
+    # editor must see a hidden-but-active product's description too, else it would read "—"
+    # (falsely "sem descrição / não ingerido") while the Linhas/Período columns show its data.
     source_names: dict[str, dict] = {}
     for b in {e["banco"] for e in entries}:
         src = _BANCO_TO_SOURCE.get(b)
         if not src:
             continue
         try:
-            pdf = gateway.fetch_products(src)
+            pdf = gateway.fetch_source_products_gold(src)
         except NotFound:
             continue
         if pdf is not None and not pdf.empty:
@@ -99,7 +101,10 @@ def source_codes(banco: str) -> dict:
     if src is None:
         return {"banco": banco, "codes": []}
     try:
-        df = gateway.fetch_products(src)
+        # UNGATED (straight from Gold): the admin add form must autocomplete every real
+        # source code, including one a researcher marked "indisponível" (F7) — the gate
+        # applies to researcher-facing views, never to the catalog editor.
+        df = gateway.fetch_source_products_gold(src)
     except NotFound:
         return {"banco": banco, "codes": []}
     if df is None or df.empty:

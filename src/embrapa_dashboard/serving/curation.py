@@ -39,7 +39,7 @@ import re
 import unicodedata
 from collections.abc import Mapping
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import BadRequest, NotFound
 from google.cloud import bigquery
 
 from embrapa_dashboard.config import Settings, get_settings
@@ -319,7 +319,13 @@ def _current_sidra_tabela(
         rows = list(
             bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
         )
-    except Exception:
+    except (NotFound, BadRequest):
+        # ONLY the pre-migration cases are legitimately "no stored tag": the log table is
+        # absent (NotFound) or the sidra_tabela column doesn't exist yet (BadRequest,
+        # "Unrecognized name"). Any OTHER error (a transient BQ/permission fault) must
+        # PROPAGATE — swallowing it here returns None, and _validate_sidra_tabela accepts a
+        # NULL tag on an update (require_for_ppm=False), so the append-only overwrite would
+        # DROP the PPM routing tag and silently exclude the code from catalog-driven ingestion.
         return None
     return rows[0].sidra_tabela if rows else None
 

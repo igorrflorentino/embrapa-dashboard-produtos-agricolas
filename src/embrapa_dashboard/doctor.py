@@ -289,6 +289,55 @@ def _check_catalog_resolver_parity(settings: Settings) -> CheckResult:
         return CheckResult("Catalog↔env product codes", True, f"skipped: {str(exc)[:100]}")
 
 
+def _check_orphan_lifecycle(settings: Settings) -> CheckResult:
+    """Soft-warn on catalog orphans awaiting the auto-marker (the spec's doctor check).
+
+    Counts catalog entries whose CURRENT state is removed (active=false tombstone) vs those
+    the lifecycle log already covers ('descontinuado' or 'purged'). A positive gap means a
+    removal has NOT been marked — the nightly build-boundary ``mark-orphans`` step probably
+    didn't run, so the Descontinuados view would understate what needs review. Advisory
+    (ok=True): a legitimately removed product is expected, not an error. Flask-free (direct
+    BQ over the small append-only logs) so it runs inside a bare ``embrapa doctor``; any
+    fault (tables absent / perms) degrades to 'skipped'."""
+    try:
+        from embrapa_dashboard.gcp.clients import resolve_bq_client
+        from embrapa_dashboard.serving import sql as sqlbuild
+
+        bq = resolve_bq_client(settings)
+        catalog_log = sqlbuild.table_ref(
+            settings, "bq_research_inputs_dataset", settings.bq_produto_catalog_log_table
+        )
+        lifecycle_log = sqlbuild.table_ref(
+            settings, "bq_research_inputs_dataset", settings.bq_catalog_lifecycle_log_table
+        )
+        removed_sql = f"""
+            select count(*) as n from (
+              select active, row_number() over (
+                partition by codigo_produto, banco order by edited_at desc, change_id desc
+              ) as _rn from `{catalog_log}`
+            ) where _rn = 1 and not active
+        """
+        marked_sql = f"""
+            select count(*) as n from (
+              select status, row_number() over (
+                partition by element_kind, banco, code order by edited_at desc, change_id desc
+              ) as _rn from `{lifecycle_log}` where element_kind = 'commodity'
+            ) where _rn = 1 and status in ('descontinuado', 'purged')
+        """
+        removed = next(iter(bq.query(removed_sql).result())).n
+        marked = next(iter(bq.query(marked_sql).result())).n
+        if removed > marked:
+            return CheckResult(
+                "Catalog orphan lifecycle",
+                True,
+                f"{removed} removed, {marked} marked — {removed - marked} unmarked; "
+                "run `embrapa mark-orphans` (the build-boundary step may have failed).",
+            )
+        return CheckResult("Catalog orphan lifecycle", True, f"{removed} removed, all marked")
+    except Exception as exc:  # never fail — advisory
+        return CheckResult("Catalog orphan lifecycle", True, f"skipped: {str(exc)[:100]}")
+
+
 def _check_adc(settings: Settings) -> CheckResult:
     """Application Default Credentials are present; reports impersonation target when set."""
     try:
@@ -734,6 +783,7 @@ _POSTCHECKS: list[tuple[str, Callable[[Settings], CheckResult]]] = [
     ("bronze", _check_bronze_tables),
     ("serving", _check_serving_marts),
     ("catalog-parity", _check_catalog_resolver_parity),
+    ("orphans", _check_orphan_lifecycle),
     ("backup", _check_backup_freshness),
 ]
 

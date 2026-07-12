@@ -156,35 +156,36 @@ def record_group(
     # already landed would otherwise fail the "já existe" check instead of returning the
     # documented deduped no-op — the change_id the seam plumbs must make the retry idempotent.
     if supplied and _change_id_seen(bq, table_fqn, change_id):
+        # A RENAME is a COMPOSITE op (registry-row insert + member re-stamp). The re-stamp is
+        # idempotent, so on a retry re-run it to CONVERGE — the first attempt may have failed
+        # after the row insert but before/mid re-stamp, leaving members with the old name.
+        # (The change_id is stable per logical op, so the same request name is echoed back.)
+        if renaming:
+            _restamp_members(bq, cfg, headers, group_id, group_name)
+            if invalidate_cache:
+                invalidate_group_cache()
         return _group_row(group_id, group_name, True, edited_by, change_id, deduped=True)
 
     if renaming and group_id not in current:
         raise ValueError(f"O agrupamento {group_id!r} não existe (nada a renomear).")
     if not renaming and group_id in current:
         raise ValueError(f"O agrupamento {group_name!r} já existe.")
+    # Reject a RENAME that would collide with ANOTHER active group's name. The create path
+    # already blocks a duplicate (group_id == slug(name)), but a rename keeps the old id, so
+    # without this two active groups could share a name — which the UI (labels groups by name)
+    # and ``catalog_worklist.by_agrupamento`` (keyed by name) would silently MERGE into one.
+    _name_key = group_name.strip().lower()
+    if any(
+        gid != group_id and gname.strip().lower() == _name_key for gid, gname in current.items()
+    ):
+        raise ValueError(f"Já existe um agrupamento chamado {group_name!r}.")
 
     _insert_group_row(bq, table_fqn, group_id, group_name, True, edited_by, change_id)
     logger.info("Group: %s -> %r by %s", group_id, group_name, edited_by)
 
-    # RENAME: re-stamp the new name onto the group's member catalog entries (the entry's
-    # denormalized agrupamento is what dim_produto_catalog / the crosswalk read).
+    # RENAME: re-stamp the new name onto the group's member catalog entries.
     if renaming:
-        members = _active_member_rows(bq, _catalog_log_ref(cfg), group_id)
-        for m in members:
-            curation.record_produto_catalog(
-                str(m.codigo_produto),
-                m.banco,
-                headers,
-                agrupamento=group_name,
-                descricao_produto=m.descricao_produto,
-                ciclo_de_vida=m.ciclo_de_vida,
-                agrupamento_id=group_id,
-                settings=cfg,
-                client=bq,
-                invalidate_cache=False,
-            )
-        if members:
-            logger.info("Group %s rename re-tagged %d member(s)", group_id, len(members))
+        _restamp_members(bq, cfg, headers, group_id, group_name)
 
     if invalidate_cache:
         invalidate_group_cache()
@@ -238,6 +239,29 @@ def delete_group(
     if invalidate_cache:
         invalidate_group_cache()
     return _group_row(group_id, name, False, edited_by, change_id, deduped=False)
+
+
+def _restamp_members(bq, cfg, headers, group_id, group_name) -> None:
+    """Re-stamp the (denormalized) agrupamento name onto the group's ACTIVE member catalog
+    entries — the entry's ``agrupamento`` is what ``dim_produto_catalog`` / the crosswalk
+    read. Idempotent (``record_produto_catalog`` upserts latest-wins), so it is safe to
+    re-run on an idempotent retry."""
+    members = _active_member_rows(bq, _catalog_log_ref(cfg), group_id)
+    for m in members:
+        curation.record_produto_catalog(
+            str(m.codigo_produto),
+            m.banco,
+            headers,
+            agrupamento=group_name,
+            descricao_produto=m.descricao_produto,
+            ciclo_de_vida=m.ciclo_de_vida,
+            agrupamento_id=group_id,
+            settings=cfg,
+            client=bq,
+            invalidate_cache=False,
+        )
+    if members:
+        logger.info("Group %s rename re-tagged %d member(s)", group_id, len(members))
 
 
 def _insert_group_row(bq, table_fqn, group_id, group_name, active, edited_by, change_id) -> None:

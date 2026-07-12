@@ -689,3 +689,47 @@ def test_fetch_seed_count_filtered_empty_result_returns_zero(monkeypatch):
         )
 
     assert n == 0
+
+
+# ── fetch_source_products_gold: UNGATED admin-editor product read (949-962) ────
+
+
+def test_fetch_source_products_gold_reads_gold_ungated(monkeypatch):
+    """The admin editor's product read hits the Gold fact table directly (no F7 gate),
+    grouping by code — exercising the query builder body."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query
+        recorded["max_bytes"] = kwargs.get("max_bytes")
+        return "PRODUCTS"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_source_products_gold("ibge_pevs")
+
+    assert out == "PRODUCTS"
+    assert "gold_pevs_production" in recorded["query"]
+    assert "group by code" in recorded["query"]
+    assert recorded["max_bytes"] is not None  # cost-guarded
+
+
+def test_fetch_source_products_gold_unknown_source_raises(monkeypatch):
+    """An unknown source id → NotFound (no query)."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import NotFound
+
+    from embrapa_dashboard.serving import gateway
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+    with app.app_context():
+        cache.clear()
+        with pytest.raises(NotFound):
+            gateway.fetch_source_products_gold("not_a_source")

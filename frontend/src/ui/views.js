@@ -188,10 +188,11 @@ window.VIEW_COMPONENTS = {
   cross_mirror:          'ViewMirror',
   cross_chain:           'ViewChainBalance',
   cross_lag:             'ViewHarvestLag',
-  // Análises curadas (Engenharia de Atributos): Valor agregado + Finalidade econômica —
-  // ambas editáveis (editores de industrialização + matriz "Tipo de Mercado").
+  // Análises curadas (Engenharia de Atributos): só "Valor agregado" está live. "Finalidade
+  // econômica" (curated_market_nature) está CONGELADA/removida do menu — deliberadamente NÃO
+  // mapeada aqui para que um deep link obsoleto (?v=curated_market_nature) não roteie para o
+  // ViewMarketNature congelado (main.jsx também valida o ?v contra o menu e cai em overview).
   curated_value_added:   'ViewValueAdded',
-  curated_market_nature: 'ViewMarketNature',
 };
 
 // Resolve a view's React component (or null). Dev guard: a LIVE view with no
