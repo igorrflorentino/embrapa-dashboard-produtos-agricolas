@@ -61,6 +61,7 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
                     "ciclo_de_vida": "Fazer Ingestão e deixar disponível",
                     "code_prefix": 4403,
                     "agrupamento_id": "madeira",
+                    "sidra_tabela": "3939",  # round-trips to the client so a saved tag is visible
                 },
                 {
                     "codigo_produto": "4407",
@@ -101,6 +102,9 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     # str() coercion on a numeric codigo_produto; code_prefix is gone entirely.
     first = out["entries"][0]
     assert first["codigo_produto"] == "4403" and "code_prefix" not in first
+    # sidra_tabela round-trips to the client (was previously dropped at the gateway SELECT),
+    # so a researcher's saved PPM tag is visible on reload.
+    assert first["sidra_tabela"] == "3939"
     # Source description: 4407 (comex) resolves; the un_comtrade 4403 + comex 9999 don't.
     by_code = {(e["banco"], e["codigo_produto"]): e for e in out["entries"]}
     assert by_code[("comex", "4407")]["descricao_fonte"] == "Madeira serrada (NCM)"
@@ -109,6 +113,8 @@ def test_catalog_worklist_shapes_entries_and_groups(monkeypatch):
     e9999 = by_code[("comex", "9999")]
     assert e9999["agrupamento"] is None
     assert e9999["ciclo_de_vida"] is None and e9999["agrupamento_id"] is None
+    # The absent sidra_tabela cell (NaN from the mixed DataFrame) normalizes to None.
+    assert e9999["sidra_tabela"] is None
 
     groups = {g["agrupamento"]: g for g in out["by_agrupamento"]}
     assert set(groups) == {"Madeira", "—"}

@@ -227,3 +227,67 @@ def test_stored_feedback_echoes_row_and_none_when_absent():
 
     client.query.return_value.result.return_value = []
     assert fb._stored_feedback(client, "t.r.feedback_log", "absent") is None
+
+
+# ── ensure_no_change_id_conflict: the shared idempotency-replay guard ──────────
+
+
+def test_ensure_no_change_id_conflict_noop_when_stored_none():
+    """A vanished stored row (None) is not a conflict — the caller then echoes the request."""
+    from embrapa_dashboard.serving.research_inputs import ensure_no_change_id_conflict
+
+    ensure_no_change_id_conflict(None, {"codigo_produto": "1"}, ("codigo_produto",), entity="x")
+
+
+def test_ensure_no_change_id_conflict_noop_when_key_matches():
+    """Same natural key (differing only on a mutable attribute) is a benign no-op."""
+    from embrapa_dashboard.serving.research_inputs import ensure_no_change_id_conflict
+
+    stored = {"codigo_produto": "1", "banco": "pevs", "active": True, "agrupamento": "A"}
+    incoming = {"codigo_produto": "1", "banco": "pevs", "active": True, "agrupamento": "B"}
+    ensure_no_change_id_conflict(
+        stored, incoming, ("codigo_produto", "banco", "active"), entity="x"
+    )
+
+
+def test_ensure_no_change_id_conflict_raises_on_key_mismatch():
+    """A differing natural-key field → ChangeIdConflictError with a pt-BR, entity-named reason."""
+    from embrapa_dashboard.serving.research_inputs import (
+        ChangeIdConflictError,
+        ensure_no_change_id_conflict,
+    )
+
+    stored = {"codigo_produto": "1", "banco": "pevs", "active": True}
+    incoming = {"codigo_produto": "2", "banco": "pevs", "active": True}
+    with pytest.raises(ChangeIdConflictError, match="produto"):
+        ensure_no_change_id_conflict(
+            stored, incoming, ("codigo_produto", "banco", "active"), entity="produto"
+        )
+
+
+# ── change_id length caps (C9a — a client idempotency key is otherwise unbounded) ──
+
+
+def test_resolve_change_id_rejects_overlong_key():
+    """_resolve_change_id caps a client-supplied change_id (all catalog/agrupamento writers
+    plumb through it); a normal key and an absent one still pass."""
+    from embrapa_dashboard.serving.research_inputs import MAX_CHANGE_ID_LEN, _resolve_change_id
+
+    with pytest.raises(ValueError, match="change_id"):
+        _resolve_change_id("x" * (MAX_CHANGE_ID_LEN + 1))
+    assert _resolve_change_id("k1") == ("k1", True)
+    assert _resolve_change_id(None)[1] is False
+
+
+def test_record_feedback_rejects_overlong_change_id():
+    """The feedback change_id doubles as the stored feedback_id — capped before any write."""
+    from embrapa_dashboard.serving.feedback import MAX_CHANGE_ID_LEN
+
+    with pytest.raises(FeedbackValidationError, match="change_id"):
+        record_feedback(
+            category="bug",
+            message="m",
+            headers={"X-Goog-Authenticated-User-Email": "u@embrapa.br"},
+            change_id="x" * (MAX_CHANGE_ID_LEN + 1),
+            settings=_cfg(),
+        )

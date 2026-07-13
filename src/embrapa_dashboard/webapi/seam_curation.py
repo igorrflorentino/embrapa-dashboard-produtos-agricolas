@@ -61,6 +61,10 @@ def catalog_worklist(banco: str | None = None) -> dict:
             "descricao_produto": _clean(r.descricao_produto),
             "ciclo_de_vida": _clean(r.ciclo_de_vida),
             "agrupamento_id": _clean(r.agrupamento_id),
+            # PPM herd/animal SIDRA-table tag (NULL for single-table bancos) — echoed back
+            # so an inline re-save carries the real value instead of relying solely on the
+            # writer's server-side preservation.
+            "sidra_tabela": _clean(getattr(r, "sidra_tabela", None)),
         }
         for r in df.itertuples()
     ]
@@ -95,8 +99,9 @@ def catalog_worklist(banco: str | None = None) -> dict:
 
 def source_codes(banco: str) -> dict:
     """The source's real product codes (+ names) for ONE banco token — backs the add
-    form's autocomplete and the client-side "the code must exist" check (the server also
-    enforces it). Empty when the banco is unknown or its products table isn't built."""
+    form's autocomplete and the client-side "já existe na Gold?" advisory hint (a code
+    absent from the list is still accepted as *pendente de ingestão*; the server does NOT
+    reject it). Empty when the banco is unknown or its products table isn't built."""
     src = _BANCO_TO_SOURCE.get((banco or "").strip())
     if src is None:
         return {"banco": banco, "codes": []}
@@ -161,7 +166,9 @@ def catalog_status() -> dict:
 def record_catalog_entry(payload: dict) -> dict:
     """Upsert one catalog entry from a request body. Author from the IAP header (dev
     fallback per config). Wraps the verified writer; raises ValueError on a bad key /
-    over-length / a code that doesn't exist in the source (→ HTTP 400)."""
+    over-length / an invalid banco or ciclo / a missing PPM sidra_tabela (→ HTTP 400). A
+    code absent from the source's Gold is NOT rejected — it registers as *pendente de
+    ingestão*."""
     from flask import has_request_context, request
 
     from embrapa_dashboard.serving import curation

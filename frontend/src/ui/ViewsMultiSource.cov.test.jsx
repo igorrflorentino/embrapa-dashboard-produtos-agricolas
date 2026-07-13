@@ -21,6 +21,7 @@ const pctBR = (v) => (v == null ? '—' : Number(v).toFixed(1) + '%');
 
 // Capture-friendly widget stubs shared by all four views.
 function stubWidgets() {
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh">
       <span className="sh-ov">{overline}</span>

@@ -132,6 +132,39 @@ def test_fetch_produto_catalog_scoped_binds_banco_param(monkeypatch):
     assert recorded["params"]["banco"].value == "ibge_pevs"
 
 
+def test_fetch_produto_catalog_self_heals_on_missing_column(monkeypatch):
+    """A produto_catalog_log that predates a SELECTed column (e.g. sidra_tabela added late)
+    raises BadRequest; fetch self-heals via ensure + retries once instead of 500ing the read."""
+    pytest.importorskip("flask_caching")
+    from google.api_core.exceptions import BadRequest
+
+    from embrapa_dashboard.serving import curation, gateway
+
+    calls = {"n": 0, "ensured": False}
+
+    def flaky(query, params, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise BadRequest("Unrecognized name: sidra_tabela")
+        return "CATALOG"
+
+    monkeypatch.setattr(gateway, "run_query", flaky)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    monkeypatch.setattr(
+        curation,
+        "ensure_produto_catalog_log_table",
+        lambda *a, **k: calls.update(ensured=True) or "t",
+    )
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_produto_catalog()
+
+    assert out == "CATALOG"  # the retry after self-heal succeeded
+    assert calls["n"] == 2 and calls["ensured"] is True
+
+
 # ── fetch_catalog_editors: per-resource allowlist (751-760) ────────────────────
 
 

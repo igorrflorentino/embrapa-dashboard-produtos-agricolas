@@ -183,6 +183,7 @@ function SearchInput({ value, onChange, placeholder }) {
       <input
         type="text"
         value={value}
+        aria-label={placeholder || 'Buscar'}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder || 'Buscar…'}
       />

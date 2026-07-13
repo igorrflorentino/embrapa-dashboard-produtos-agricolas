@@ -298,5 +298,5 @@ def test_seed_page_unknown_seed_raises_value_error(monkeypatch):
     rather than returning a silent empty page."""
     seam = _seam()
     monkeypatch.setattr(seam.gateway, "seed_tables", lambda: [])
-    with pytest.raises(ValueError, match="not a consultable reference table"):
+    with pytest.raises(ValueError, match="não é uma tabela de referência consultável"):
         seam.seed_page("does_not_exist")

@@ -88,7 +88,7 @@ def test_catalog_entry_remove_missing_fields_is_400(monkeypatch):
     monkeypatch.setattr(seam, "remove_catalog_entry", must_not_run)
     resp = client.post("/api/catalog/entry/remove", json={"banco": "un_comtrade"})  # no codigo
     assert resp.status_code == 400
-    assert "required" in resp.get_json()["error"]
+    assert "obrigatórios" in resp.get_json()["error"]
 
 
 def test_catalog_entry_remove_auth_failure_returns_err(monkeypatch):

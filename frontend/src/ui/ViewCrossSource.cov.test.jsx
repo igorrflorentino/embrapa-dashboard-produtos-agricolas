@@ -142,6 +142,7 @@ function stubGlobals() {
       <span className="kpi-sub">{sub}</span>
     </div>
   );
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh">
       <span className="sh-ov">{overline}</span>

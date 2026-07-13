@@ -261,7 +261,7 @@ BANCOS: list[Banco] = [
         id="ibge_pevs",
         short="IBGE PEVS",
         label="IBGE · Produção da Extração Vegetal e da Silvicultura",
-        sub="Produção e exploração de commodities no território brasileiro",
+        sub="Produção e exploração de produtos agrícolas no território brasileiro",
         about=(
             "Reúne, ano a ano, a quantidade e o valor da produção do extrativismo vegetal e "
             "da silvicultura no Brasil — castanha-do-pará, madeira, lenha, carvão vegetal, açaí "
@@ -322,7 +322,7 @@ BANCOS: list[Banco] = [
             "É o maior repositório global de dados oficiais de comércio internacional, compilado "
             "pelas Nações Unidas. Oferece estatísticas de importação e exportação reportadas por "
             "diversos países, permitindo situar a participação do Brasil no mercado mundial de "
-            "cada commodity."
+            "cada produto."
         ),
         domain="Comércio internacional",
         scope="País → país (com ou sem filtro Brasil)",
@@ -485,7 +485,7 @@ VIEW_GROUPS: list[ViewGroup] = [
     ViewGroup(
         "aggregate",
         "Análise agregada",
-        "cesta de commodities",
+        "cesta de produtos",
         (
             View(
                 "overview",
@@ -517,7 +517,7 @@ VIEW_GROUPS: list[ViewGroup] = [
     ViewGroup(
         "product",
         "Análise por produto",
-        "commodity individual",
+        "produto individual",
         (
             View(
                 "product_profile",
@@ -525,7 +525,7 @@ VIEW_GROUPS: list[ViewGroup] = [
                 "live",
                 requires=("product",),
                 exportable=True,
-                desc="Mergulho em uma única commodity: série de valor e quantidade, preço "
+                desc="Mergulho em um único produto: série de valor e quantidade, preço "
                 "médio implícito, participação na cesta e ranking de UFs.",
             ),
             View(
@@ -534,7 +534,7 @@ VIEW_GROUPS: list[ViewGroup] = [
                 "live",
                 requires=("product",),
                 exportable=True,
-                desc="Selecione 2 a 4 commodities e compare: séries base 100, variação "
+                desc="Selecione 2 a 4 produtos e compare: séries base 100, variação "
                 "acumulada, CAGR e correlação cruzada.",
             ),
             View(

@@ -72,4 +72,25 @@ function EmptyCard({ children }) {
   );
 }
 
-Object.assign(window, { SectionHeader, NotApplicableNote, UfScopePicker, EmptyCard });
+// LoadErrorNote — an inline, HONEST "não foi possível carregar" notice a view renders
+// ABOVE its charts when a data FETCH FAILED (distinct from "genuinely no data"). The
+// resource-backed producers surface a failed /api read as `loadError` on their shell
+// (data/producers.js + resource.errorOf), so a network/BigQuery error is NOT silently
+// rendered as an empty "0 / Sem dados" state — the project's no-invisible-filtering /
+// in-product-honesty rule. role="alert" announces it; renders nothing when there is no
+// error, so a view can place it unconditionally above its charts.
+function LoadErrorNote({ error }) {
+  if (!error) return null;
+  return (
+    <div className="card subtle na-note" role="alert"
+         style={{ borderLeft: '4px solid var(--err, #b71c1c)' }}>
+      <p className="cs-note" style={{ margin: 0 }}>
+        <window.Icon name="warning" size={14} />
+        <span>Não foi possível carregar estes dados (falha de rede ou do servidor). Os
+          valores exibidos podem estar incompletos — recarregue a página para tentar de novo.</span>
+      </p>
+    </div>
+  );
+}
+
+Object.assign(window, { SectionHeader, NotApplicableNote, UfScopePicker, EmptyCard, LoadErrorNote });

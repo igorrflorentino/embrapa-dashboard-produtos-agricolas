@@ -36,6 +36,7 @@ from embrapa_dashboard.serving.research_inputs import (
     _bq_client,
     _change_id_seen,
     _resolve_change_id,
+    ensure_no_change_id_conflict,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,20 +151,38 @@ def record_group(
     renaming = group_id is not None
     group_id = (group_id or curation._slug(group_name)).strip() or None
     if not group_id:
-        raise ValueError("Não foi possível gerar o group_id a partir do nome.")
+        raise ValueError(
+            f"O nome {group_name!r} não gera um identificador válido — use ao menos "
+            "uma letra ou número (acentos e símbolos são ignorados)."
+        )
 
     # Dedup FIRST (before the existence validations): a retried CREATE whose first attempt
     # already landed would otherwise fail the "já existe" check instead of returning the
     # documented deduped no-op — the change_id the seam plumbs must make the retry idempotent.
     if supplied and _change_id_seen(bq, table_fqn, change_id):
+        stored = _group_row_for_change_id(bq, table_fqn, change_id)
+        # A change_id reused for a DIFFERENT group (or a create/delete flip) is not a safe
+        # replay → 409 instead of echoing an unrelated row. An attribute-only divergence
+        # (e.g. a re-run that only changes the name) stays a benign no-op.
+        ensure_no_change_id_conflict(
+            stored,
+            {"group_id": group_id, "active": True},
+            ("group_id", "active"),
+            entity="agrupamento",
+        )
         # A RENAME is a COMPOSITE op (registry-row insert + member re-stamp). The re-stamp is
         # idempotent, so on a retry re-run it to CONVERGE — the first attempt may have failed
-        # after the row insert but before/mid re-stamp, leaving members with the old name.
-        # (The change_id is stable per logical op, so the same request name is echoed back.)
+        # after the row insert but before/mid re-stamp, leaving members with the old name. Use
+        # the STORED name (what the registry row holds), not the request body.
         if renaming:
-            _restamp_members(bq, cfg, headers, group_id, group_name)
+            _restamp_members(
+                bq, cfg, headers, group_id, stored["group_name"] if stored else group_name
+            )
             if invalidate_cache:
                 invalidate_group_cache()
+        # Return the STORED row (read-after-write), not the retried request body.
+        if stored is not None:
+            return stored
         return _group_row(group_id, group_name, True, edited_by, change_id, deduped=True)
 
     if renaming and group_id not in current:
@@ -221,6 +240,18 @@ def delete_group(
     # `current`; without this the retry would fail "não existe (nada a excluir)" instead of
     # returning the documented deduped no-op — mirroring curation.remove_produto_catalog.
     if supplied and _change_id_seen(bq, table_fqn, change_id):
+        stored = _group_row_for_change_id(bq, table_fqn, change_id)
+        # A reused change_id whose stored row is a different group / not a delete is not a safe
+        # replay → 409 instead of echoing an unrelated row.
+        ensure_no_change_id_conflict(
+            stored,
+            {"group_id": group_id, "active": False},
+            ("group_id", "active"),
+            entity="agrupamento",
+        )
+        # Return the STORED row (its REAL name), not the group_id placeholder.
+        if stored is not None:
+            return stored
         return _group_row(group_id, group_id, False, edited_by, change_id, deduped=True)
 
     current = _current_groups(bq, table_fqn)
@@ -293,6 +324,28 @@ def _group_row(group_id, group_name, active, edited_by, change_id, *, deduped) -
         "change_id": change_id,
         "deduped": deduped,
     }
+
+
+def _group_row_for_change_id(bq, table_fqn: str, change_id: str) -> dict | None:
+    """The STORED group-registry row for ``change_id`` (unique per write). Echoes the
+    ORIGINAL persisted values on an idempotent-retry dedup (read-after-write: return what
+    was STORED, not the possibly-different request body). None if not found. Mirrors
+    ``curation._row_for_change_id``."""
+    sql = f"""
+        select group_id, group_name, active, edited_by
+        from `{table_fqn}`
+        where change_id = @change_id
+        order by edited_at desc
+        limit 1
+    """
+    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
+    rows = list(bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result())
+    if not rows:
+        return None
+    r = rows[0]
+    return _group_row(
+        r["group_id"], r["group_name"], bool(r["active"]), r["edited_by"], change_id, deduped=True
+    )
 
 
 def invalidate_group_cache() -> None:

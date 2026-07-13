@@ -43,6 +43,7 @@ from embrapa_dashboard.serving.research_inputs import (
     _bq_client,
     _change_id_seen,
     _resolve_change_id,
+    ensure_no_change_id_conflict,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,12 @@ def _validate_code_edit(source: str, code: str, level: str, note: str | None) ->
     """
     if not source or not code or not level:
         raise ValueError("source, code e industrialization_level são obrigatórios.")
+    # Cap the key fields too (both reach the INSERT) — a slug/code is short, MAX_STAGE_LEN
+    # is generous headroom that still rejects a pathologically long value.
+    if len(source) > MAX_STAGE_LEN:
+        raise ValueError(f"source excede {MAX_STAGE_LEN} caracteres.")
+    if len(code) > MAX_STAGE_LEN:
+        raise ValueError(f"code excede {MAX_STAGE_LEN} caracteres.")
     if len(level) > MAX_STAGE_LEN:
         raise ValueError(f"industrialization_level excede {MAX_STAGE_LEN} caracteres.")
     if note is not None and len(note) > MAX_NOTE_LEN:
@@ -158,6 +165,18 @@ def record_code_industrialization(
         logger.info(
             "Curation(code): duplicate change_id %s ignored (%s:%s)", change_id, source, code
         )
+        stored = _code_row_for_change_id(bq, table_fqn, change_id)
+        # A change_id reused for a DIFFERENT (source, code) is not a safe replay → 409, not
+        # the wrong prior row. An attribute-only divergence (level/note) stays a benign no-op.
+        ensure_no_change_id_conflict(
+            stored,
+            {"source": source, "code": code},
+            ("source", "code"),
+            entity="código",
+        )
+        # Return the STORED row (read-after-write), not the retried request body.
+        if stored is not None:
+            return stored
         return {
             "source": source,
             "code": code,
@@ -252,6 +271,12 @@ def _validate_flow_market_edit(
     market = (market or "").strip()
     if not customs_code or not flow_code:
         raise ValueError("customs_code e flow_code são obrigatórios.")
+    # Cap the key fields too (both reach the INSERT) — a code is short, MAX_STAGE_LEN is
+    # generous headroom that still rejects a pathologically long value.
+    if len(customs_code) > MAX_STAGE_LEN:
+        raise ValueError(f"customs_code excede {MAX_STAGE_LEN} caracteres.")
+    if len(flow_code) > MAX_STAGE_LEN:
+        raise ValueError(f"flow_code excede {MAX_STAGE_LEN} caracteres.")
     if len(market) > MAX_STAGE_LEN:
         raise ValueError(f"market excede {MAX_STAGE_LEN} caracteres.")
     return customs_code, flow_code, market
@@ -293,6 +318,16 @@ def record_flow_market(
             customs_code,
             flow_code,
         )
+        stored = _flow_market_row_for_change_id(bq, table_fqn, change_id)
+        # A change_id reused for a DIFFERENT (customs_code, flow_code) → 409, not the wrong row.
+        ensure_no_change_id_conflict(
+            stored,
+            {"customs_code": customs_code, "flow_code": flow_code},
+            ("customs_code", "flow_code"),
+            entity="par regime×fluxo",
+        )
+        if stored is not None:
+            return stored
         return _flow_market_row(customs_code, flow_code, market, edited_by, change_id, deduped=True)
 
     sql = f"""
@@ -335,6 +370,53 @@ def _flow_market_row(
         "change_id": change_id,
         "deduped": deduped,
     }
+
+
+def _code_row_for_change_id(bq, table_fqn: str, change_id: str) -> dict | None:
+    """The STORED per-code industrialization row for ``change_id`` (unique per write). Echoes
+    the ORIGINAL persisted values on an idempotent-retry dedup (read-after-write). None if not
+    found. Mirrors ``curation._row_for_change_id``."""
+    sql = f"""
+        select source, code, industrialization_level, note, edited_by
+        from `{table_fqn}`
+        where change_id = @change_id
+        order by edited_at desc
+        limit 1
+    """
+    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
+    rows = list(bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result())
+    if not rows:
+        return None
+    r = rows[0]
+    return {
+        "source": r["source"],
+        "code": r["code"],
+        "industrialization_level": r["industrialization_level"],
+        "note": r["note"],
+        "edited_by": r["edited_by"],
+        "change_id": change_id,
+        "deduped": True,
+    }
+
+
+def _flow_market_row_for_change_id(bq, table_fqn: str, change_id: str) -> dict | None:
+    """The STORED flow-market row for ``change_id`` (unique per write). Echoes the ORIGINAL
+    persisted values on an idempotent-retry dedup (read-after-write). None if not found."""
+    sql = f"""
+        select customs_code, flow_code, market, edited_by
+        from `{table_fqn}`
+        where change_id = @change_id
+        order by edited_at desc
+        limit 1
+    """
+    params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
+    rows = list(bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result())
+    if not rows:
+        return None
+    r = rows[0]
+    return _flow_market_row(
+        r["customs_code"], r["flow_code"], r["market"], r["edited_by"], change_id, deduped=True
+    )
 
 
 def invalidate_flow_market_cache() -> None:

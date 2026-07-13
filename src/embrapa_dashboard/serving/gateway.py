@@ -42,7 +42,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import BadRequest, NotFound
 from google.cloud import bigquery
 
 from embrapa_dashboard.config import get_credentials, get_settings
@@ -874,7 +874,7 @@ def fetch_produto_catalog(banco: str | None = None):
     where = "where banco = @banco" if banco else ""
     sql = f"""
         select codigo_produto, banco, agrupamento, descricao_produto,
-               ciclo_de_vida, agrupamento_id
+               ciclo_de_vida, agrupamento_id, sidra_tabela
         from (
           select *, row_number() over (
             partition by codigo_produto, banco order by edited_at desc, change_id desc
@@ -884,7 +884,18 @@ def fetch_produto_catalog(banco: str | None = None):
         where _rn = 1 and active
     """
     params = [bigquery.ScalarQueryParameter("banco", "STRING", banco)] if banco else []
-    return run_query(sql, params)
+    try:
+        return run_query(sql, params)
+    except BadRequest:
+        # An older produto_catalog_log predates a column the SELECT names (sidra_tabela /
+        # agrupamento_id were added late). The writer self-heals via ALTER on every write, but a
+        # read on a not-yet-written table would 500. Self-heal here (idempotent) + retry once,
+        # so viewing the Cadastro never fails on a stale schema. Deferred import breaks the
+        # curation→gateway cycle.
+        from embrapa_dashboard.serving.curation import ensure_produto_catalog_log_table
+
+        ensure_produto_catalog_log_table(settings)
+        return run_query(sql, params)
 
 
 @cache.memoize(timeout=DEFAULT_CLASSIFICATION_TTL)

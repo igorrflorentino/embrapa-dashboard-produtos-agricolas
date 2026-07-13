@@ -19,6 +19,7 @@ function stubGlobals(prodData) {
   window.EmptyCard = ({ children }) => <div className="empty-card">{children}</div>;
   window.NotApplicableNote = ({ note }) =>
     note ? <div className="na-note">{note.basket || note.states || ''}</div> : null;
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.KpiCardSpark = ({ label, value }) => (
     <div className="kpi">
       <span className="kpi-label">{label}</span>

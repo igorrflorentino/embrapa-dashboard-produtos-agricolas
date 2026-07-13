@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import json
 import logging
 import subprocess
@@ -964,6 +965,18 @@ def mark_orphans_cmd() -> None:
     )
 
 
+def _operator_identity() -> str:
+    """Best-effort OS login name for the purge audit row, so the terminal 'purged'
+    lifecycle event names a real operator instead of an anonymous default. Namespaced
+    (parallel to the ``system:`` auto-mark author and the IAP editor emails); falls back
+    to ``operator:unknown`` when the environment exposes no username."""
+    try:
+        user = getpass.getuser()
+    except Exception:  # getpass.getuser raises when no username can be resolved
+        user = ""
+    return f"operator:{user}" if user else "operator:unknown"
+
+
 @app.command("purge-orphan")
 def purge_orphan_cmd(
     banco: str = typer.Option(..., help="Source token / banco (pevs, comex, comtrade, pam, ppm)"),
@@ -978,7 +991,9 @@ def purge_orphan_cmd(
         "--force",
         help="Print the DELETEs even without a fresh Gold backup (NOT recommended).",
     ),
-    author: str = typer.Option("operator", help="Who is purging (for the audit row)."),
+    author: str | None = typer.Option(
+        None, help="Who is purging (for the audit row). Defaults to the OS login user."
+    ),
 ) -> None:
     """HUMAN-GATED purge of a Descontinuado orphan's Gold data. By default only PRINTS the
     backup-gated plan (the scoped DELETEs to run yourself — the project hands destructive
@@ -992,14 +1007,15 @@ def purge_orphan_cmd(
     )
 
     if mark_purged:
+        operator = author or _operator_identity()
         try:
-            res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=author))
+            res = _with_webapp_context(lambda: _mark_purged(banco, code, edited_by=operator))
         except ValueError as exc:
             # A not-Descontinuado / re-added code raises — surface it cleanly, not a traceback.
             console.print(f"[red]✗[/red] {exc}")
             raise typer.Exit(1) from exc
         verb = "already recorded" if res.get("deduped") else "recorded"
-        console.print(f"[green]✓[/green] purge {verb}: {banco}:{code} → purged (by {author})")
+        console.print(f"[green]✓[/green] purge {verb}: {banco}:{code} → purged (by {operator})")
         return
 
     try:
@@ -1049,13 +1065,16 @@ def purge_orphan_cmd(
 def editors_add(
     email: str = typer.Option(..., help="Email to authorize as a catalog editor."),
     resource: str = typer.Option("produto_catalog", help="Catalog resource id."),
-    added_by: str = typer.Option("cli", help="Who is granting (audit)."),
+    added_by: str | None = typer.Option(
+        None, help="Who is granting (audit). Defaults to the OS login user."
+    ),
 ) -> None:
     """Authorize an editor of the Curadoria catalog. Requires the `webapi` extra."""
     from embrapa_dashboard.serving.curation import add_catalog_editor
 
-    e = _with_webapp_context(lambda: add_catalog_editor(resource, email, added_by=added_by))
-    console.print(f"[green]✓[/green] editor authorized: {e} on {resource}")
+    granter = added_by or _operator_identity()
+    e = _with_webapp_context(lambda: add_catalog_editor(resource, email, added_by=granter))
+    console.print(f"[green]✓[/green] editor authorized: {e} on {resource} (by {granter})")
 
 
 @editors_app.command("remove")
@@ -1073,13 +1092,16 @@ def editors_remove(
 @attribute_editors_app.command("add")
 def attribute_editors_add(
     email: str = typer.Option(..., help="Email to authorize as an attribute editor."),
-    added_by: str = typer.Option("cli", help="Who is granting (audit)."),
+    added_by: str | None = typer.Option(
+        None, help="Who is granting (audit). Defaults to the OS login user."
+    ),
 ) -> None:
     """Authorize an attribute editor (Engenharia de atributos). Requires the `webapi` extra."""
     from embrapa_dashboard.serving.research_inputs import add_attribute_editor
 
-    e = _with_webapp_context(lambda: add_attribute_editor(email, added_by=added_by))
-    console.print(f"[green]✓[/green] attribute editor authorized: {e}")
+    granter = added_by or _operator_identity()
+    e = _with_webapp_context(lambda: add_attribute_editor(email, added_by=granter))
+    console.print(f"[green]✓[/green] attribute editor authorized: {e} (by {granter})")
 
 
 @attribute_editors_app.command("remove")

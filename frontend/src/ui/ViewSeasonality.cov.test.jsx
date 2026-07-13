@@ -28,6 +28,7 @@ function stubGlobals(data) {
   window.autoScaleNum = autoScaleNum;
   window.MONTH_LABELS = MONTH_LABELS;
   window.NotApplicableNote = ({ note }) => (note ? <div className="na">{note}</div> : null);
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh">
       <span className="sh-ov">{overline}</span>

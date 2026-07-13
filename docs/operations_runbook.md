@@ -78,6 +78,64 @@ matched case-insensitively, and the table **auto-creates on the first catalog wr
 (`routes._ensure_catalog_editors_table` → `serving.curation.ensure_catalog_editors_table`,
 idempotent; the prod web SA `sa-web-dashboard-prod` already has WRITER on `research_inputs`).
 
+## Curadoria orphan lifecycle: `mark-orphans` and `purge-orphan`
+
+When a commodity is removed from the live Curadoria catalog, its already-ingested Gold
+data does **not** vanish — it lingers as an *orphan*. The lifecycle that resolves this is
+deliberately split: **detection + marking is automatic and NON-destructive; the actual
+delete is human-gated and backup-first.** Both commands require the `webapi` extra
+(`uv run --extra webapi embrapa …`) and append to the append-only
+`research_inputs.catalog_lifecycle_log`.
+
+### `mark-orphans` — auto-mark orphans Descontinuado (safe, idempotent)
+
+```bash
+uv run --extra webapi embrapa mark-orphans
+```
+
+Detects orphans (a catalog removal that left Gold data behind — not every uncataloged Gold
+code) and appends a `descontinuado` lifecycle event carrying a deletion warning. It
+**never deletes data**, is **idempotent** (re-running is a no-op), and its author is the
+reserved SYSTEM identity `system:orphan-detector`. Run it on the ops cadence — e.g. right
+after the daily `dbt build`, on the same boundary the catalog diff is computed.
+
+### `purge-orphan` — human-gated, backup-first Gold delete
+
+```bash
+# 1. Print the scoped DELETE plan (backup-gated; nothing is deleted):
+uv run --extra webapi embrapa purge-orphan --banco pevs --code 3405
+
+# 2. After you have run the printed DELETEs yourself, record the terminal event:
+uv run --extra webapi embrapa purge-orphan --banco pevs --code 3405 --mark-purged
+```
+
+`purge-orphan` **never deletes anything itself** — by default it only **prints** the
+scoped `DELETE` statements for you to run manually (the repo's destructive-command hooks
+block `bq rm` / `DROP` for automation anyway; see *Destructive-command safety hooks*
+below). Two guards:
+
+- **Backup-first hard gate.** Without a fresh Gold snapshot the DELETEs are **not even
+  printed** — run `make dbt-build-prod-with-backup` first. `--force` overrides the gate
+  and prints them anyway with a warning (NOT recommended: no restore point).
+- **Descontinuado-only.** Only a code currently marked Descontinuado (by `mark-orphans`)
+  can be purged; a re-added or never-marked code is refused.
+
+`--mark-purged` appends the terminal `purged` audit event **after** you have run the
+DELETEs (who/when — it does not delete data). It is idempotent per descontinuado
+generation. `--author` stamps who purged; it defaults to the OS login user
+(`operator:<user>`) so the audit row names a real operator — pass
+`--author you@embrapa.br` to record a specific identity.
+
+> **Permanence caveat.** Gold is rebuilt from Bronze by dbt, so the DELETEs alone are
+> temporary. For a purge to survive the next build you must ALSO: (1) delete the matching
+> Bronze rows; (2) rebuild the affected Silver models with `--full-refresh`
+> (`silver_ibge_pevs` / `silver_comtrade_flows` are incremental and otherwise retain the
+> rows); (3) drop the product from the ingestion scope (`config.py` or the catalog).
+> Otherwise the data returns on the next `dbt build` while the lifecycle stays `purged` —
+> a silent divergence. The command prints this reminder after the plan.
+
+Spec: [`PLANS/curadoria_catalogo.md`](../PLANS/curadoria_catalogo.md).
+
 ## Q1 quality outlier/problemático detection (enable / revert)
 
 `data_quality_flag` carries the 4 implied-price tiers (`OUTLIER_*` / `PROBLEMATIC_*`) only when the

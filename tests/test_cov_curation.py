@@ -76,6 +76,16 @@ def test_validate_catalog_edit_rejects_non_numeric_code():
         curation._validate_catalog_edit("44O3", "un_comtrade", None)  # letter O
 
 
+def test_validate_catalog_edit_rejects_overlong_code():
+    from embrapa_dashboard.serving import curation
+
+    # A pathologically long code is capped before storage (real codes are <=8 digits).
+    with pytest.raises(ValueError, match="excede"):
+        curation._validate_catalog_edit("1" * (curation.MAX_CODE_LEN + 1), "un_comtrade", None)
+    # A normal all-digit code still passes the length + numeric guards.
+    curation._validate_catalog_edit("1" * curation.MAX_CODE_LEN, "un_comtrade", None)
+
+
 # ── _validate_sidra_tabela: PPM herd/animal discriminator ─────────────────────
 
 
@@ -214,6 +224,27 @@ def test_record_produto_catalog_rejects_overlong_descricao(monkeypatch):
 # ── record_produto_catalog: change_id dedup short-circuit (lines 257-260) ───
 
 
+def test_record_produto_catalog_rejects_overlong_agrupamento_id(monkeypatch):
+    """agrupamento_id is user-writable (a client may send it, winning over the _slug default),
+    so it is length-capped like its siblings — a pathologically long value is rejected."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import MAX_STAGE_LEN
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    with pytest.raises(ValueError, match="agrupamento_id excede"):
+        curation.record_produto_catalog(
+            "4403",
+            "un_comtrade",
+            _HEADERS,
+            agrupamento="Madeira",
+            agrupamento_id="a" * (MAX_STAGE_LEN + 1),
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
 def test_record_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     pytest.importorskip("flask_caching")
     from embrapa_dashboard.serving import curation
@@ -244,6 +275,66 @@ def test_record_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     # so query() was never called for an insert.
     insert_calls = [c for c in client.query.call_args_list if "insert into" in c.args[0].lower()]
     assert insert_calls == []
+
+
+def test_record_produto_catalog_change_id_conflict_different_key(monkeypatch):
+    """Reusing a change_id whose STORED row is a different (codigo_produto, banco) → 409, so the
+    caller can't silently receive an unrelated prior product's row."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
+    monkeypatch.setattr(
+        curation,
+        "_row_for_change_id",
+        lambda *a, **k: {"codigo_produto": "9999", "banco": "un_comtrade", "active": True},
+    )
+    with pytest.raises(ChangeIdConflictError):
+        curation.record_produto_catalog(
+            "4403",
+            "un_comtrade",
+            _HEADERS,
+            agrupamento="Madeira",
+            change_id="reused",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
+def test_record_produto_catalog_same_key_different_attr_no_conflict(monkeypatch):
+    """A stable change_id whose stored row shares the KEY but differs only on a mutable attribute
+    (agrupamento) stays a benign no-op — protects seed_catalog_from_env's idempotent re-seed."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_is_active_entry", lambda *a, **k: False)
+    monkeypatch.setattr(curation, "_check_code_status", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
+    stored = {
+        "codigo_produto": "4403",
+        "banco": "un_comtrade",
+        "active": True,
+        "agrupamento": "Madeira Antiga",
+        "deduped": True,
+    }
+    monkeypatch.setattr(curation, "_row_for_change_id", lambda *a, **k: stored)
+    rec = curation.record_produto_catalog(
+        "4403",
+        "un_comtrade",
+        _HEADERS,
+        agrupamento="Madeira Nova",  # differs, but same key ⇒ no conflict
+        change_id="seed-key",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert rec is stored  # returns the STORED row, not the retried agrupamento
 
 
 # ── record_produto_catalog: cache invalidation on save (line 291) ───────────
@@ -306,6 +397,32 @@ def test_remove_produto_catalog_dedupes_on_seen_change_id(monkeypatch):
     # The dedup path echoes the codigo as the prefix and never inserts a tombstone.
     insert_calls = [c for c in client.query.call_args_list if "insert into" in c.args[0].lower()]
     assert insert_calls == []
+
+
+def test_remove_produto_catalog_change_id_conflict_active_flip(monkeypatch):
+    """A record's change_id (its stored row is active=True) reused for a REMOVE → 409, not a
+    silent replay that echoes the active row as if it were a tombstone."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import curation
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
+    monkeypatch.setattr(
+        curation,
+        "_row_for_change_id",
+        lambda *a, **k: {"codigo_produto": "4403", "banco": "un_comtrade", "active": True},
+    )
+    with pytest.raises(ChangeIdConflictError):
+        curation.remove_produto_catalog(
+            "4403",
+            "un_comtrade",
+            _HEADERS,
+            change_id="reused",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
 
 
 # ── remove_produto_catalog: cache invalidation on tombstone (line 374) ──────

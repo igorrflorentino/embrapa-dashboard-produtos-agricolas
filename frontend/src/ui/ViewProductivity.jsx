@@ -51,6 +51,8 @@ function ViewProductivity({ summary, conventions, database }) {
           its own crop (selector below), so the basket cannot narrow it — the data
           layer withholds it and surfaces WHY here instead of ignoring it silently. */}
       <window.NotApplicableNote note={data.notApplicable} />
+      {/* Distinct error state when /api/productivity FAILED (not "0% CAGR / sem histórico"). */}
+      <window.LoadErrorNote error={data.loadError} />
 
       {/* Crop selector */}
       <div className="pp-selector">

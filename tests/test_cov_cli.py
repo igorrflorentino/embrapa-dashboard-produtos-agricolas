@@ -397,6 +397,32 @@ def test_purge_orphan_mark_purged_dedup_verb(monkeypatch: pytest.MonkeyPatch) ->
     assert "already recorded" in result.output
 
 
+def test_purge_orphan_mark_purged_default_author_is_os_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without --author the audit row names the real OS operator (operator:<user>), not the old
+    anonymous 'operator' default — so the only destructive lifecycle op has a real audit trail."""
+    from embrapa_dashboard.serving import catalog_lifecycle
+
+    _bypass_webapp_context(monkeypatch)
+    monkeypatch.setattr(cli.getpass, "getuser", lambda: "jdoe")
+    captured: dict = {}
+
+    def fake_mark_purged(banco: str, code: str, *, edited_by: str) -> dict:
+        captured.update(edited_by=edited_by)
+        return {"deduped": False}
+
+    monkeypatch.setattr(catalog_lifecycle, "mark_purged", fake_mark_purged)
+
+    result = runner.invoke(
+        cli.app, ["purge-orphan", "--banco", "pevs", "--code", "3405", "--mark-purged"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["edited_by"] == "operator:jdoe"
+    assert "by operator:jdoe" in result.output
+
+
 # ─── _with_webapp_context helper (lines 920-929) ────────────────────────────────
 def test_with_webapp_context_happy_path_runs_fn_in_context(
     monkeypatch: pytest.MonkeyPatch,
@@ -487,6 +513,25 @@ def test_attribute_editors_add_authorizes(monkeypatch: pytest.MonkeyPatch) -> No
     result = runner.invoke(cli.app, ["attribute-editors", "add", "--email", "bob@x.br"])
     assert result.exit_code == 0, result.output
     assert "attribute editor authorized" in result.output
+
+
+def test_editors_add_default_author_is_os_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without --added-by, granting a catalog editor (a privileged authz change) records the
+    real OS operator (operator:<user>) — not the old anonymous 'cli' default."""
+    from embrapa_dashboard.serving import curation
+
+    _bypass_webapp_context(monkeypatch)
+    monkeypatch.setattr(cli.getpass, "getuser", lambda: "jdoe")
+    seen: dict = {}
+    monkeypatch.setattr(
+        curation,
+        "add_catalog_editor",
+        lambda resource, email, added_by: seen.update(added_by=added_by) or email.strip().lower(),
+    )
+    result = runner.invoke(cli.app, ["editors", "add", "--email", "alice@embrapa.br"])
+    assert result.exit_code == 0, result.output
+    assert seen["added_by"] == "operator:jdoe"
+    assert "by operator:jdoe" in result.output
 
 
 def test_catalog_seed_from_env_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:

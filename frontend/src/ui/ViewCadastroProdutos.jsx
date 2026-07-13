@@ -1,14 +1,15 @@
 // ViewCadastroProdutos — the Curadoria (catalog) editor: what ENTERS and EXITS the
 // dashboard. Each commodity is registered by its EXACT source code (código+banco; no
 // prefixes), points at one AGRUPAMENTO (first-class registry — create/rename/delete +
-// inline move) and carries a Ciclo de Vida (in/out). The add form validates that the code
-// REALLY EXISTS in the source (autocomplete from the source's product list; a code that
-// doesn't exist is rejected). The catalog table also shows each commodity's current STATE
+// inline move) and carries a Ciclo de Vida (in/out). The add form autocompletes the code
+// from the source's product list and flags whether it already exists in Gold, but a code
+// that is not (yet) listed is ACCEPTED as *pendente de ingestão* (the catalog now drives
+// ingestion), not rejected. The catalog table also shows each commodity's current STATE
 // in the dashboard (linhas na Gold, período coberto, se tem dados). Writes go through
 // /api/catalog/* (append-only, IAP-attributed; removal is a non-destructive tombstone).
 //
-// Authorization is enforced server-side (403); a 400 = bad key / a code that doesn't exist
-// / duplicate or non-empty group. We surface both honestly rather than hiding the failure.
+// Authorization is enforced server-side (403); a 400 = bad key / invalid banco or ciclo /
+// missing PPM tag / duplicate or non-empty group. We surface both honestly rather than hiding the failure.
 
 const { useState: useCcState, useEffect: useCcEffect, useMemo: useCcMemo, useRef: useCcRef } = React;
 
@@ -41,10 +42,15 @@ const _CC_PPM_TABELAS = [
   { v: '3939', label: 'Rebanho (efetivo)' },
   { v: '74', label: 'Produção animal' },
 ];
+const _CC_PPM_LABEL = Object.fromEntries(_CC_PPM_TABELAS.map((t) => [t.v, t.label]));
 const _CC_EMPTY_DRAFT = {
   codigo_produto: '', banco: 'comex', agrupamento_id: '',
   descricao_produto: '', ciclo_de_vida: _CC_CICLO[0].v, sidra_tabela: '',
 };
+// A catalog write reaches the researcher-facing charts/filters only on the NEXT dbt build (+ the
+// serving marts' cache TTL) — never instantly. Appended to save/rename toasts so the researcher
+// isn't surprised the change doesn't show up in the dashboard right away (mirrors the hide notice).
+const _CC_LATENCIA = 'A mudança vale na próxima atualização (pode levar alguns minutos).';
 
 function _ccCicloShort(v) {
   const hit = _CC_CICLO.find((c) => c.v === v);
@@ -57,11 +63,11 @@ const _ccInt = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
 // instead of unmounting/remounting the whole subtree. When `value` matches no known group
 // (a stray / unassigned entry, or the empty add-form draft) it shows an explicit empty
 // option instead of silently defaulting to whatever group sorts first.
-function CcGroupSelect({ value, onChange, placeholder, groups, busy }) {
+function CcGroupSelect({ value, onChange, placeholder, groups, busy, ariaLabel }) {
   const known = groups.some((g) => g.group_id === value);
   const empty = placeholder || (known ? null : 'Sem agrupamento — reatribua…');
   return (
-    <select value={known ? value : ''} disabled={busy}
+    <select value={known ? value : ''} disabled={busy} aria-label={ariaLabel}
             onChange={(ev) => onChange(ev.target.value)} className="cc-group-select">
       {empty != null && <option value="">{empty}</option>}
       {groups.map((g) => <option key={g.group_id} value={g.group_id}>{g.group_name}</option>)}
@@ -69,17 +75,87 @@ function CcGroupSelect({ value, onChange, placeholder, groups, busy }) {
   );
 }
 
+// Accessible in-app confirmation — replaces the browser's inaccessible window.confirm/prompt
+// with the same modal chrome as the citation/feedback dialogs (cite-backdrop/cite-modal/…),
+// so it's announced (role=dialog + aria-modal), Esc-dismissable and design-system-consistent.
+// `spec` = null (closed) or { title, body?, confirmLabel?, danger?, input?, onConfirm }. When
+// `input` is present the modal shows a text field (rename) whose trimmed value flows to onConfirm.
+function CcConfirmModal({ spec, onClose }) {
+  const [value, setValue] = useCcState('');
+  // Seed the input (rename) whenever a new spec opens.
+  useCcEffect(() => { setValue(spec && spec.input ? (spec.input.value || '') : ''); }, [spec]);
+  // Esc closes (mirrors the citation/feedback modals).
+  useCcEffect(() => {
+    if (!spec) return undefined;
+    const onKey = (ev) => { if (ev.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spec, onClose]);
+  if (!spec) return null;
+  const submit = () => {
+    if (spec.input) {
+      const v = value.trim();
+      if (!v) return; // require a non-empty value (mirrors the old window.prompt guard)
+      spec.onConfirm(v);
+    } else {
+      spec.onConfirm();
+    }
+    onClose();
+  };
+  return (
+    <div className="cite-backdrop" onClick={onClose}>
+      <div className="cite-modal" onClick={(ev) => ev.stopPropagation()}
+           role="dialog" aria-modal="true" aria-labelledby="cc-confirm-title">
+        <header className="cite-head">
+          <div>
+            <div className="overline">Cadastro de produtos</div>
+            <h2 id="cc-confirm-title">{spec.title}</h2>
+            {spec.body && <p className="caption">{spec.body}</p>}
+          </div>
+          <button className="fm-close" onClick={onClose} aria-label="Fechar">
+            <window.Icon name="close" size={18}/>
+          </button>
+        </header>
+        <div className="cite-body">
+          {spec.input && (
+            <label className="fb-label">
+              {spec.input.label}
+              <input id="cc-confirm-input" type="text" value={value} autoFocus
+                     style={{ display: 'block', width: '100%', marginTop: 4 }}
+                     onChange={(ev) => setValue(ev.target.value)}
+                     onKeyDown={(ev) => { if (ev.key === 'Enter') submit(); }} />
+            </label>
+          )}
+          <div className="cite-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+            <button type="button" className="btn-primary" onClick={submit}
+                    style={spec.danger ? { background: 'var(--err, #b71c1c)', borderColor: 'var(--err, #b71c1c)' } : undefined}>
+              {spec.confirmLabel || 'Confirmar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ViewCadastroProdutos() {
   const [data, setData] = useCcState({ entries: [], groups: [], loading: true, error: null, canEdit: true });
   const [statusMap, setStatusMap] = useCcState({}); // "banco:code" -> {n_rows, year_start, year_end, has_data}
+  const [statusErr, setStatusErr] = useCcState(false); // the (cheap, lazy) Gold-state read FAILED — distinct from "sem dados"
   const [status, setStatus] = useCcState(null); // { kind: 'ok' | 'err', msg }
   const [busy, setBusy] = useCcState(false);
   const [draft, setDraft] = useCcState({ ..._CC_EMPTY_DRAFT });
   const [showAdd, setShowAdd] = useCcState(false);
   const [orphans, setOrphans] = useCcState([]);
+  const [orphansErr, setOrphansErr] = useCcState(false); // the orphans (Descontinuados) read FAILED — distinct from "no orphans"
+  // In-app confirmation dialog (replaces window.confirm/prompt with accessible modal chrome).
+  // null = closed; otherwise { title, body?, confirmLabel?, danger?, input?, onConfirm } — see
+  // CcConfirmModal. `input` present ⇒ a rename-style text field whose value flows to onConfirm.
+  const [pendingConfirm, setPendingConfirm] = useCcState(null);
   const [newGroup, setNewGroup] = useCcState('');
-  // The source's REAL codes for the add form's banco (autocomplete + existence check).
-  const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false });
+  // The source's REAL codes for the add form's banco (autocomplete + advisory "já existe" hint).
+  const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false, error: false });
 
   // Idempotency keys, one STABLE change_id per in-flight logical operation (keyed by the
   // entity it touches). Reused across a retry so a double-click / timeout-then-retry dedupes
@@ -93,9 +169,11 @@ function ViewCadastroProdutos() {
 
   // Server-authoritative edit permission (from /api/catalog/entries' can_edit). The UI
   // merely REFLECTS it — the POST handlers still 403 on a stale true, so this only ever
-  // hides controls, never widens access. `locked` = a write is in flight OR not allowed.
+  // hides controls, never widens access. `locked` = a write is in flight, editing isn't
+  // allowed, OR permission isn't known yet (still loading) — controls stay disabled until
+  // can_edit resolves, so a non-editor never sees briefly-enabled controls.
   const canEdit = data.canEdit !== false;
-  const locked = busy || !canEdit;
+  const locked = busy || !canEdit || data.loading;
 
   const load = () => {
     setData((d) => ({ ...d, loading: true, error: null }));
@@ -106,23 +184,30 @@ function ViewCadastroProdutos() {
       // to needlessly reassign them all. Surface the real error instead.
       fetch('/api/catalog/groups').then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status} (agrupamentos)`)))),
     ])
+      // NOTE: /api/catalog/entries also returns `by_agrupamento` (a server-side per-Agrupamento
+      // rollup). The UI intentionally IGNORES it and derives grouping client-side from the
+      // first-class /api/catalog/groups registry (groupsSorted/membersOf below). Kept server-side
+      // (harmless, tested — serializers.serialize_catalog_worklist) rather than removed.
       .then(([e, g]) => setData({ entries: e.entries || [], groups: g.groups || [], loading: false, error: null, canEdit: e.can_edit !== false }))
       .catch((err) => setData({ entries: [], groups: [], loading: false, error: String(err.message || err), canEdit: true }));
-    // Orphans (removed from the catalog, Gold data lingering) — shown as Descontinuados.
+    // Orphans (removed from the catalog, Gold data lingering) — shown as Descontinuados. A
+    // failure is surfaced (orphansErr) rather than rendered as an empty list, which would
+    // silently HIDE the whole Descontinuados section (gated on orphans.length > 0).
     fetch('/api/catalog/orphans')
-      .then((r) => (r.ok ? r.json() : { orphans: [] }))
-      .then((d) => setOrphans(d.orphans || []))
-      .catch(() => setOrphans([]));
-    // Per-commodity Gold state (linhas + período) — a separate, cheap lazy read.
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { setOrphans(d.orphans || []); setOrphansErr(false); })
+      .catch(() => { setOrphans([]); setOrphansErr(true); });
+    // Per-commodity Gold state (linhas + período) — a separate, cheap lazy read. A failure is
+    // surfaced (statusErr) rather than rendered as an empty map, which reads like perpetual "…".
     fetch('/api/catalog/status')
-      .then((r) => (r.ok ? r.json() : { status: {} }))
-      .then((d) => setStatusMap(d.status || {}))
-      .catch(() => setStatusMap({}));
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { setStatusMap(d.status || {}); setStatusErr(false); })
+      .catch(() => { setStatusMap({}); setStatusErr(true); });
   };
   useCcEffect(load, []);
 
   // Fetch the source's real codes whenever the add form is open on a banco (backs the
-  // <datalist> autocomplete + the "código existe?" check). Skip if already loaded.
+  // <datalist> autocomplete + the advisory "código já existe na Gold?" hint). Skip if already loaded.
   useCcEffect(() => {
     if (!showAdd || !draft.banco) return;
     if (srcCodes.banco === draft.banco) return;
@@ -131,11 +216,13 @@ function ViewCadastroProdutos() {
     // stale response — otherwise an out-of-order reply could overwrite the newer banco's codes,
     // stranding the hint at "verificando…" with an empty autocomplete.
     let cancelled = false;
-    setSrcCodes({ banco: target, codes: [], loading: true });
+    setSrcCodes({ banco: target, codes: [], loading: true, error: false });
     fetch('/api/catalog/source-codes?banco=' + encodeURIComponent(target))
-      .then((r) => (r.ok ? r.json() : { codes: [] }))
-      .then((d) => { if (!cancelled) setSrcCodes({ banco: target, codes: d.codes || [], loading: false }); })
-      .catch(() => { if (!cancelled) setSrcCodes({ banco: target, codes: [], loading: false }); });
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { if (!cancelled) setSrcCodes({ banco: target, codes: d.codes || [], loading: false, error: false }); })
+      // A load failure is surfaced (error: true) rather than masquerading as "0 códigos" — the
+      // add-form hint then says the codes couldn't be verified instead of "ainda não ingerido".
+      .catch(() => { if (!cancelled) setSrcCodes({ banco: target, codes: [], loading: false, error: true }); });
     return () => { cancelled = true; };
   }, [showAdd, draft.banco]);
 
@@ -176,7 +263,7 @@ function ViewCadastroProdutos() {
     const key = `save:${entry.banco}:${entry.codigo_produto}`;
     return run(
       () => post('/api/catalog/entry', { ...entry, change_id: cidFor(key) }),
-      `Produto ${entry.codigo_produto} salvo.`,
+      `Produto ${entry.codigo_produto} salvo. ${_CC_LATENCIA}`,
       key,
     );
   };
@@ -184,18 +271,30 @@ function ViewCadastroProdutos() {
   // Change a single product's Ciclo de Vida. HIDING (indisponível) pulls it from EVERY
   // researcher chart/filter, so confirm + explain the consequence + the update latency first.
   const changeCiclo = (e, ciclo) => {
-    if (ciclo === _CC_CICLO_OCULTO && !window.confirm(
-      `Ocultar ${e.codigo_produto}? Ele deixará de aparecer em TODOS os gráficos e filtros do ` +
-      `dashboard para os pesquisadores. A mudança vale na próxima atualização (pode levar alguns minutos).`
-    )) return;
+    if (ciclo === _CC_CICLO_OCULTO) {
+      setPendingConfirm({
+        title: `Ocultar ${e.codigo_produto}?`,
+        body: `Ele deixará de aparecer em TODOS os gráficos e filtros do dashboard para os ` +
+          `pesquisadores. A mudança vale na próxima atualização (pode levar alguns minutos).`,
+        confirmLabel: 'Ocultar', danger: true,
+        onConfirm: () => saveEntry({ ...e, ciclo_de_vida: ciclo }),
+      });
+      return;
+    }
     saveEntry({ ...e, ciclo_de_vida: ciclo });
   };
 
   const removeEntry = (e) => {
-    if (!window.confirm(`Remover ${e.codigo_produto} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro? Os dados já baixados ficam órfãos (não são apagados automaticamente).`)) return;
-    const key = `rm:${e.banco}:${e.codigo_produto}`;
-    run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco, change_id: cidFor(key) }),
-      `Produto ${e.codigo_produto} marcado como descontinuado.`, key);
+    setPendingConfirm({
+      title: `Remover ${e.codigo_produto} (${_CC_BANCO_LABEL[e.banco] || e.banco}) do cadastro?`,
+      body: 'Os dados já baixados ficam órfãos (não são apagados automaticamente).',
+      confirmLabel: 'Remover', danger: true,
+      onConfirm: () => {
+        const key = `rm:${e.banco}:${e.codigo_produto}`;
+        run(() => post('/api/catalog/entry/remove', { codigo_produto: e.codigo_produto, banco: e.banco, change_id: cidFor(key) }),
+          `Produto ${e.codigo_produto} marcado como descontinuado.`, key);
+      },
+    });
   };
 
   // Move a commodity to a DIFFERENT agrupamento (membership change) — re-upserts with the
@@ -217,41 +316,60 @@ function ViewCadastroProdutos() {
       `Agrupamento "${name}" criado.`, key).then((ok) => { if (ok) setNewGroup(''); });
   };
   const renameGroup = (g) => {
-    const name = window.prompt(`Renomear o agrupamento "${g.group_name}":`, g.group_name);
-    if (name == null) return;
-    const trimmed = name.trim();
-    if (!trimmed || trimmed === g.group_name) return;
-    const key = `grp:${g.group_id}`;
-    run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed, change_id: cidFor(key) }),
-      `Agrupamento renomeado para "${trimmed}".`, key);
+    setPendingConfirm({
+      title: `Renomear o agrupamento "${g.group_name}"`,
+      input: { label: 'Novo nome do agrupamento', value: g.group_name },
+      confirmLabel: 'Renomear',
+      onConfirm: (name) => {
+        const trimmed = name.trim();
+        if (!trimmed || trimmed === g.group_name) return;
+        const key = `grp:${g.group_id}`;
+        run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed, change_id: cidFor(key) }),
+          `Agrupamento renomeado para "${trimmed}". ${_CC_LATENCIA}`, key);
+      },
+    });
   };
   const deleteGroup = (g) => {
     if (g.n_members > 0) return; // the button is disabled; guard anyway
-    if (!window.confirm(`Excluir o agrupamento vazio "${g.group_name}"?`)) return;
-    const key = `grp-del:${g.group_id}`;
-    run(() => post('/api/catalog/group/remove', { group_id: g.group_id, change_id: cidFor(key) }),
-      `Agrupamento "${g.group_name}" excluído.`, key);
+    setPendingConfirm({
+      title: `Excluir o agrupamento vazio "${g.group_name}"?`,
+      confirmLabel: 'Excluir', danger: true,
+      onConfirm: () => {
+        const key = `grp-del:${g.group_id}`;
+        run(() => post('/api/catalog/group/remove', { group_id: g.group_id, change_id: cidFor(key) }),
+          `Agrupamento "${g.group_name}" excluído.`, key);
+      },
+    });
   };
 
   // Per-Agrupamento lifecycle (the lead's edit grain): set Ciclo de Vida for every member.
   const setCicloForGroup = (g, ciclo) => {
     const members = data.entries.filter((e) => e.agrupamento_id === g.group_id);
-    if (ciclo === _CC_CICLO_OCULTO && !window.confirm(
-      `Ocultar TODOS os ${members.length} produto(s) de "${g.group_name}"? Eles deixarão de ` +
-      `aparecer em qualquer gráfico ou filtro do dashboard para os pesquisadores. Vale na próxima atualização.`
-    )) return;
-    const keys = members.map((m) => `save:${m.banco}:${m.codigo_produto}`);
-    run(async () => {
-      let done = 0;
-      try {
-        for (const m of members) {
-          await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo, change_id: cidFor(`save:${m.banco}:${m.codigo_produto}`) });
-          done += 1;
+    const apply = () => {
+      const keys = members.map((m) => `save:${m.banco}:${m.codigo_produto}`);
+      run(async () => {
+        let done = 0;
+        try {
+          for (const m of members) {
+            await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo, change_id: cidFor(`save:${m.banco}:${m.codigo_produto}`) });
+            done += 1;
+          }
+        } catch (e) {
+          throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
         }
-      } catch (e) {
-        throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
-      }
-    }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`, keys);
+      }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`, keys);
+    };
+    if (ciclo === _CC_CICLO_OCULTO) {
+      setPendingConfirm({
+        title: `Ocultar TODOS os ${members.length} produto(s) de "${g.group_name}"?`,
+        body: 'Eles deixarão de aparecer em qualquer gráfico ou filtro do dashboard para os ' +
+          'pesquisadores. Vale na próxima atualização.',
+        confirmLabel: 'Ocultar', danger: true,
+        onConfirm: apply,
+      });
+      return;
+    }
+    apply();
   };
 
   // ── Add form: derived validation state ────────────────────────────────────────
@@ -261,6 +379,9 @@ function ViewCadastroProdutos() {
     return m;
   }, [srcCodes]);
   const codeLoadedForBanco = srcCodes.banco === draft.banco && !srcCodes.loading;
+  // The source-codes fetch for the current banco FAILED — distinct from "0 códigos" (empty but
+  // loaded); the hint says the code couldn't be verified instead of falsely "não ingerido".
+  const srcCodesErr = srcCodes.error && srcCodes.banco === draft.banco;
   // Only judge the code against the CURRENTLY-loaded banco's codes — otherwise, in the
   // paint right after a banco switch (before the codes reload), a code from the previous
   // banco could flash a false ✓ / enable Salvar.
@@ -297,6 +418,10 @@ function ViewCadastroProdutos() {
     }
   };
 
+  // Cancel the add form: close it AND discard the draft. Shared by the toolbar toggle and the
+  // card's "Cancelar" so the two behave identically (the toggle previously left the draft intact).
+  const cancelAdd = () => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); };
+
   // Registry groups, sorted; each rendered as a card with its members.
   const groupsSorted = [...data.groups].sort((a, b) => a.group_name.localeCompare(b.group_name, 'pt-BR'));
   const membersOf = (gid) => data.entries.filter((e) => e.agrupamento_id === gid);
@@ -322,21 +447,32 @@ function ViewCadastroProdutos() {
               <tr key={e.banco + '|' + e.codigo_produto}>
                 <td className="cc-cell-title">{_CC_BANCO_LABEL[e.banco] || e.banco}</td>
                 <td className="tnum" data-label="Código">{e.codigo_produto}</td>
-                <td data-label="Descrição">{e.descricao_fonte || <span className="dt-null">—</span>}</td>
-                <td className="num tnum" data-label="Linhas">{st ? _ccInt(st.n_rows) : '…'}</td>
+                <td data-label="Descrição">
+                  {e.descricao_fonte || <span className="dt-null">—</span>}
+                  {/* Round-trip the researcher's own annotation + the PPM SIDRA-table tag, so a
+                      saved descrição / tabela is VISIBLE on reload (not silently dropped). */}
+                  {e.descricao_produto && (
+                    <small className="pc-cap" style={{ display: 'block' }} title="Sua descrição">✎ {e.descricao_produto}</small>
+                  )}
+                  {e.banco === 'ppm' && e.sidra_tabela && (
+                    <small className="pc-cap" style={{ display: 'block' }}>{_CC_PPM_LABEL[e.sidra_tabela] || e.sidra_tabela}</small>
+                  )}
+                </td>
+                <td className="num tnum" data-label="Linhas">{st ? _ccInt(st.n_rows) : (statusErr ? '—' : '…')}</td>
                 <td className="tnum" data-label="Período">{st && st.year_start != null ? `${st.year_start}–${st.year_end}` : '—'}</td>
                 <td data-label="Dados">
-                  {!st ? <span className="dt-null">…</span>
+                  {!st ? <span className="dt-null">{statusErr ? '—' : '…'}</span>
                     : st.has_data ? <span className="cc-has-data" title="Tem dados na Gold">✓</span>
-                    : <span className="cc-no-data" title="Cadastrada, mas sem dados na Gold">sem dados</span>}
+                    : <span className="cc-no-data" title="Cadastrado, mas sem dados na Gold">sem dados</span>}
                 </td>
                 <td data-label="Agrupamento">
                   <CcGroupSelect value={e.agrupamento_id} onChange={(gid) => moveEntry(e, gid)}
-                                 groups={groupsSorted} busy={locked} />
+                                 groups={groupsSorted} busy={locked}
+                                 ariaLabel={`Agrupamento de ${e.codigo_produto}`} />
                 </td>
                 <td data-label="Ciclo de vida">
                   <select disabled={locked} value={e.ciclo_de_vida || ''}
-                          title={e.ciclo_de_vida || ''}
+                          title={e.ciclo_de_vida || ''} aria-label={`Ciclo de vida de ${e.codigo_produto}`}
                           onChange={(ev) => changeCiclo(e, ev.target.value)}>
                     {!_CC_CICLO.some((c) => c.v === e.ciclo_de_vida) && (
                       <option value={e.ciclo_de_vida || ''}>{_ccCicloShort(e.ciclo_de_vida)}</option>
@@ -346,7 +482,7 @@ function ViewCadastroProdutos() {
                 </td>
                 <td className="cc-cell-actions" data-label="Ações">
                   <button type="button" className="cc-remove" disabled={locked}
-                          title="Remover (marca como descontinuada)" aria-label={`Remover ${e.codigo_produto}`}
+                          title="Remover (marca como descontinuado)" aria-label={`Remover ${e.codigo_produto}`}
                           onClick={() => removeEntry(e)}
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--err, #b71c1c)' }}>
                     🗑
@@ -362,6 +498,7 @@ function ViewCadastroProdutos() {
 
   return (
     <>
+      <CcConfirmModal spec={pendingConfirm} onClose={() => setPendingConfirm(null)} />
       <div className="card subtle" style={{ marginBottom: 12 }}>
         <p className="caption" style={{ margin: 0 }}>
           Este é o <strong>cadastro de produtos</strong> — a fonte única de verdade do que entra
@@ -386,7 +523,7 @@ function ViewCadastroProdutos() {
       )}
 
       {status && (
-        <p className="caption" role="status"
+        <p className="caption" role={status.kind === 'err' ? 'alert' : 'status'}
            style={{ padding: '8px 10px', borderRadius: 6, marginBottom: 10,
                     background: status.kind === 'ok' ? 'var(--ok-bg, #e8f5e9)' : 'var(--err-bg, #fdecea)',
                     color: status.kind === 'ok' ? 'var(--ok, #1b7f3b)' : 'var(--err, #b71c1c)' }}>
@@ -394,14 +531,39 @@ function ViewCadastroProdutos() {
         </p>
       )}
 
+      {statusErr && !data.error && !data.loading && (
+        // ONLY the partial-failure case: the catalog itself loaded but the (separate, lazy)
+        // Gold-state read failed. Suppressed when the catalog itself failed/loading, so we never
+        // claim "o cadastro continua válido" next to the catalog's own "Erro ao carregar".
+        <p className="caption" role="status"
+           style={{ padding: '8px 10px', borderRadius: 6, marginBottom: 10,
+                    background: 'var(--warn-bg, #fff8e1)', color: 'var(--warn, #8a6d00)',
+                    border: '1px solid var(--warn, #b8860b)' }}>
+          Não foi possível carregar o estado dos produtos no Gold (linhas, período e “tem dados”).
+          O cadastro continua válido; recarregue a página para tentar de novo.
+        </p>
+      )}
+
+      {orphansErr && !data.loading && (
+        // The Descontinuados section is gated on orphans.length > 0, so a failed orphans read
+        // would silently hide it — surface the failure instead (there MAY be discontinued produtos).
+        <p className="caption" role="alert"
+           style={{ padding: '8px 10px', borderRadius: 6, marginBottom: 10,
+                    background: 'var(--warn-bg, #fff8e1)', color: 'var(--warn, #8a6d00)',
+                    border: '1px solid var(--warn, #b8860b)' }}>
+          Não foi possível carregar os produtos descontinuados (órfãos). Pode haver itens
+          aguardando remoção que não estão sendo exibidos; recarregue a página para tentar de novo.
+        </p>
+      )}
+
       {orphans.length > 0 && (
         <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--err, #b71c1c)' }}>
           <window.SectionHeader
             overline="Descontinuados"
-            title={`${orphans.length.toLocaleString('pt-BR')} descontinuada(s)`}
+            title={`${orphans.length.toLocaleString('pt-BR')} descontinuado(s)`}
           />
           <p className="caption" style={{ margin: '0 2px 8px' }}>
-            Removidas do cadastro, mas os dados já baixados continuam no Gold. Serão removidos
+            Removidos do cadastro, mas os dados já baixados continuam no Gold. Serão removidos
             por um operador (com backup), <strong>nunca automaticamente</strong>.
           </p>
           <div className="dt-wrap">
@@ -419,7 +581,7 @@ function ViewCadastroProdutos() {
                       <td>{o.agrupamento || '—'}</td>
                       <td>{_CC_BANCO_LABEL[o.banco] || o.banco}</td>
                       <td className="tnum">{o.codigo_produto}</td>
-                      <td className="caption">{purged ? 'Purgada — dados retornaram ao Gold' : 'Aguardando remoção'}</td>
+                      <td className="caption">{purged ? 'Purgado — dados retornaram ao Gold' : 'Aguardando remoção'}</td>
                       <td className="caption">{o.flagged_at ? String(o.flagged_at).slice(0, 10) : 'detectado agora'}</td>
                     </tr>
                   );
@@ -443,7 +605,8 @@ function ViewCadastroProdutos() {
             + Criar
           </button>
         </label>
-        <button type="button" className="seg-opt" onClick={() => setShowAdd((v) => !v)} disabled={locked}>
+        <button type="button" className="seg-opt" disabled={locked}
+                onClick={() => (showAdd ? cancelAdd() : setShowAdd(true))}>
           {showAdd ? 'Cancelar' : '+ Adicionar produto'}
         </button>
       </div>
@@ -483,7 +646,13 @@ function ViewCadastroProdutos() {
                   <option key={c.code} value={c.code}>{c.name}</option>
                 ))}
               </datalist>
-              {draft.codigo_produto ? (
+              {srcCodesErr ? (
+                // The source's code list failed to load — we can't verify the code, so say so
+                // instead of claiming "0 códigos" / "ainda não ingerido" (both misleading here).
+                <small className="cc-hint" style={{ color: 'var(--err, #b71c1c)' }}>
+                  Não foi possível carregar os códigos de {_CC_BANCO_LABEL[draft.banco]} para conferência.
+                </small>
+              ) : draft.codigo_produto ? (
                 codeMatch === true ? (
                   <small className="cc-hint cc-hint-ok">✓ {codeIndex.get(draft.codigo_produto) || 'código válido'}</small>
                 ) : codeLoadedForBanco ? (
@@ -499,7 +668,7 @@ function ViewCadastroProdutos() {
                 <small className="cc-hint">
                   {srcCodes.banco === draft.banco && !srcCodes.loading
                     ? `${srcCodes.codes.length.toLocaleString('pt-BR')} códigos reais nesta fonte`
-                    : ' '}
+                    : ' '}
                 </small>
               )}
             </label>
@@ -528,7 +697,7 @@ function ViewCadastroProdutos() {
             <button type="button" className="btn-primary" onClick={submitAdd} disabled={!canSubmit}>
               {busy ? 'Salvando…' : 'Salvar produto'}
             </button>
-            <button type="button" className="btn-secondary" onClick={() => { setShowAdd(false); setDraft({ ..._CC_EMPTY_DRAFT }); }} disabled={busy}>
+            <button type="button" className="btn-secondary" onClick={cancelAdd} disabled={busy}>
               Cancelar
             </button>
             {draft.banco === 'ppm' && !draft.sidra_tabela && draft.codigo_produto && (
@@ -584,7 +753,7 @@ function ViewCadastroProdutos() {
               <div className="cc-group-head" style={{ marginBottom: 8 }}>
                 <strong>Sem agrupamento registrado <small className="pc-cap">({strayEntries.length})</small></strong>
                 <p className="caption" style={{ margin: '4px 0 0' }}>
-                  Reatribua cada uma a um agrupamento existente na coluna “Agrupamento”.
+                  Reatribua cada um a um agrupamento existente na coluna “Agrupamento”.
                 </p>
               </div>
               {memberRows(strayEntries)}

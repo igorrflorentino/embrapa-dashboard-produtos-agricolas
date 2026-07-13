@@ -25,6 +25,9 @@ def _patch_common(monkeypatch, cg, current):
     """Stub the table-ensure + current-groups read + insert; return the captured inserts."""
     monkeypatch.setattr(cg, "ensure_agrupamento_log_table", lambda *a, **k: "grp")
     monkeypatch.setattr(cg, "_current_groups", lambda bq, t: dict(current))
+    # The dedup branch re-reads the stored row (read-after-write). Default it to None so the
+    # retry-dedup tests exercise the fallback-echo path; conflict-specific tests override it.
+    monkeypatch.setattr(cg, "_group_row_for_change_id", lambda *a, **k: None)
     inserted = []
     monkeypatch.setattr(
         cg,
@@ -356,6 +359,128 @@ def test_record_group_rename_rejects_duplicate_name(monkeypatch):
             "Castanha",
             _HEADERS,
             group_id="madeira",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
+def test_record_group_rejects_unsluggable_name_message(monkeypatch):
+    """A non-empty name that slugs to empty ('###') reports the real cause (not the internal
+    'group_id' term) — the reworded pt-BR message names the fix for the researcher."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    _patch_common(monkeypatch, cg, {})
+    with pytest.raises(ValueError, match="identificador válido"):
+        cg.record_group(
+            "###", _HEADERS, settings=_settings(), client=mock.Mock(), invalidate_cache=False
+        )
+
+
+def test_record_group_retry_returns_stored_row(monkeypatch):
+    """A retried CREATE (same change_id) returns the STORED row — not the retry's request body
+    or author — even if the retry arrives under a different IAP header."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    stored = {
+        "group_id": "madeira",
+        "group_name": "Madeira Original",
+        "active": True,
+        "edited_by": "orig@x",
+        "change_id": "k1",
+        "deduped": True,
+    }
+    monkeypatch.setattr(cg, "_group_row_for_change_id", lambda *a, **k: stored)
+    out = cg.record_group(
+        "Madeira",  # same slug, but the STORED name wins
+        {iap.IAP_EMAIL_HEADER: "accounts.google.com:someone-else@embrapa.br"},
+        change_id="k1",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert out["group_name"] == "Madeira Original"
+    assert out["edited_by"] == "orig@x"
+    assert out["deduped"] is True
+
+
+def test_delete_group_retry_returns_stored_name(monkeypatch):
+    """A retried delete returns the stored row's REAL name, not the group_id placeholder."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    _patch_common(monkeypatch, cg, {})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    stored = {
+        "group_id": "madeira",
+        "group_name": "Madeira",
+        "active": False,
+        "edited_by": "orig@x",
+        "change_id": "k1",
+        "deduped": True,
+    }
+    monkeypatch.setattr(cg, "_group_row_for_change_id", lambda *a, **k: stored)
+    out = cg.delete_group(
+        "madeira",
+        _HEADERS,
+        change_id="k1",
+        settings=_settings(),
+        client=mock.Mock(),
+        invalidate_cache=False,
+    )
+    assert out["group_name"] == "Madeira"  # NOT the 'madeira' id placeholder
+    assert out["active"] is False
+
+
+def test_record_group_change_id_conflict_raises(monkeypatch):
+    """Reusing a change_id whose stored row is a DIFFERENT group → ChangeIdConflictError (409)."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+
+    _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    stored = {
+        "group_id": "castanha",
+        "group_name": "Castanha",
+        "active": True,
+        "edited_by": "orig@x",
+        "change_id": "k1",
+        "deduped": True,
+    }
+    monkeypatch.setattr(cg, "_group_row_for_change_id", lambda *a, **k: stored)
+    with pytest.raises(ChangeIdConflictError):
+        cg.record_group(
+            "Madeira",
+            _HEADERS,
+            change_id="k1",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
+
+
+def test_delete_group_change_id_conflict_on_active_flip(monkeypatch):
+    """A record's change_id (stored active=True) reused for a delete → ChangeIdConflictError."""
+    from embrapa_dashboard.serving import agrupamentos as cg
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+
+    _patch_common(monkeypatch, cg, {"madeira": "Madeira"})
+    monkeypatch.setattr(cg, "_change_id_seen", lambda *a, **k: True)
+    stored = {
+        "group_id": "madeira",
+        "group_name": "Madeira",
+        "active": True,
+        "edited_by": "orig@x",
+        "change_id": "k1",
+        "deduped": True,
+    }
+    monkeypatch.setattr(cg, "_group_row_for_change_id", lambda *a, **k: stored)
+    with pytest.raises(ChangeIdConflictError):
+        cg.delete_group(
+            "madeira",
+            _HEADERS,
+            change_id="k1",
             settings=_settings(),
             client=mock.Mock(),
             invalidate_cache=False,

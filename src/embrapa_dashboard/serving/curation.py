@@ -20,11 +20,12 @@ Design (honouring the lead's decisions):
     becomes an orphan, handled non-destructively by the lifecycle, never auto-deleted).
   * **Composite key** ``(codigo_produto, banco)``: both required — a blank either
     breaks the key, so the writer REJECTS it (fail loud) rather than ignoring it.
-  * **Exact code only** (no prefixes): a NEW entry's ``codigo_produto`` must be a
-    REAL product code in the source's Gold — the writer validates existence against
-    ``gateway.fetch_source_code_stats`` (the Gold code universe, NOT the visibility-gated
-    serving mart) and REJECTS a code that doesn't exist (an update to an already-active
-    entry is exempt). ``gold_produto_agrupamento`` / the visibility gate
+  * **Exact code only** (no prefixes): a NEW entry's ``codigo_produto`` need NOT already
+    exist in the source's Gold — now that the catalog DRIVES ingestion
+    (``catalog_authoritative_ingestion``), a not-yet-ingested code is accepted as
+    *pendente de ingestão* (``_check_code_status`` only LOGS the pending state; the hard
+    guards are the numeric-format check in ``_validate_catalog_edit`` and the banco
+    allowlist). ``gold_produto_agrupamento`` / the visibility gate
     match on ``code = codigo_produto`` (equality, not ``LIKE``), so there is no
     prefix fan-out to double-count.
   * **Per-catalog allowlist** (``research_inputs.catalog_editors`` keyed by resource):
@@ -54,6 +55,7 @@ from embrapa_dashboard.serving.research_inputs import (
     _bq_client,
     _change_id_seen,
     _resolve_change_id,
+    ensure_no_change_id_conflict,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,7 +154,7 @@ def add_catalog_editor(
     table_fqn = ensure_catalog_editors_table(cfg, bq)
     email_norm = (email or "").strip().lower()
     if not email_norm:
-        raise ValueError("email é obrigatório.")
+        raise ValueError("email is required.")
     sql = (
         f"insert into `{table_fqn}` (resource, email, added_by, added_at) "
         "values (@resource, @email, @added_by, current_timestamp())"
@@ -210,6 +212,10 @@ CICLO_DE_VIDA_VISIVEL = "Fazer Ingestão e deixar disponível"
 CICLO_DE_VIDA_OCULTO = "Fazer Ingestão mas deixar indisponível"
 _CICLO_DE_VIDA_VALUES = frozenset({CICLO_DE_VIDA_VISIVEL, CICLO_DE_VIDA_OCULTO})
 
+# Source codes are numeric and short (NCM 8 digits, HS <=6, SIDRA <=~7); 32 is generous
+# headroom that still rejects a pathologically long value before it is stored.
+MAX_CODE_LEN = 32
+
 
 def _validate_catalog_edit(codigo_produto: str, banco: str, ciclo_de_vida: str | None) -> None:
     """The composite key (codigo_produto, banco) is required — a blank either breaks
@@ -220,6 +226,11 @@ def _validate_catalog_edit(codigo_produto: str, banco: str, ciclo_de_vida: str |
     route surfaces ``str(exc)`` on a 400)."""
     if not codigo_produto or not banco:
         raise ValueError("codigo_produto e banco são obrigatórios (a chave do catálogo).")
+    if len(codigo_produto) > MAX_CODE_LEN:
+        raise ValueError(
+            f"O código excede {MAX_CODE_LEN} caracteres — os códigos das fontes "
+            "(SIDRA, NCM, HS) têm no máximo 8 dígitos."
+        )
     if not re.fullmatch(r"[0-9]+", codigo_produto):
         raise ValueError(
             f"O código {codigo_produto!r} deve conter apenas dígitos — os códigos de "
@@ -409,6 +420,10 @@ def record_produto_catalog(
         raise ValueError("agrupamento é obrigatório (nomeia o produto e gera o agrupamento_id).")
     if len(agrupamento) > MAX_NOTE_LEN:
         raise ValueError(f"agrupamento excede {MAX_NOTE_LEN} caracteres.")
+    # agrupamento_id is user-writable (a client may send it directly, winning over the _slug
+    # default), so cap it too — a slug is short, MAX_STAGE_LEN is generous headroom.
+    if len(agrupamento_id) > MAX_STAGE_LEN:
+        raise ValueError(f"agrupamento_id excede {MAX_STAGE_LEN} caracteres.")
     if descricao_produto is not None and len(descricao_produto) > MAX_NOTE_LEN:
         raise ValueError(f"descricao_produto excede {MAX_NOTE_LEN} caracteres.")
 
@@ -439,6 +454,15 @@ def record_produto_catalog(
         )
         # Return the STORED row (read-after-write consistency), not the retried request body.
         stored = _row_for_change_id(bq, table_fqn, change_id)
+        # A change_id reused for a DIFFERENT (codigo_produto, banco) or a record/remove flip is
+        # not a safe replay → 409 (not the wrong prior row). An attribute-only divergence under
+        # the same key stays a benign no-op (seed_catalog_from_env relies on that).
+        ensure_no_change_id_conflict(
+            stored,
+            {"codigo_produto": codigo_produto, "banco": banco, "active": True},
+            ("codigo_produto", "banco", "active"),
+            entity="produto do catálogo",
+        )
         if stored is not None:
             return stored
         return _catalog_row(  # fallback: stored row vanished (shouldn't happen)
@@ -512,6 +536,14 @@ def remove_produto_catalog(
     ensure_produto_catalog_log_table(cfg, bq)
     if supplied and _change_id_seen(bq, table_fqn, change_id):
         stored = _row_for_change_id(bq, table_fqn, change_id)
+        # A reused change_id whose stored row has a different key / active state is not a safe
+        # replay → 409 instead of echoing an unrelated row (mirrors record_produto_catalog).
+        ensure_no_change_id_conflict(
+            stored,
+            {"codigo_produto": codigo_produto, "banco": banco, "active": False},
+            ("codigo_produto", "banco", "active"),
+            entity="produto do catálogo",
+        )
         if stored is not None:
             return stored
         return _catalog_row(  # fallback: stored row vanished (shouldn't happen)

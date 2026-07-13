@@ -427,7 +427,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
               <span className="meta-label">Banco</span>
               <span className="meta-val">
                 {prov.source} ·{' '}
-                <code title="Tabela Gold de referência do banco. Os gráficos do painel leem marts pré-agregados da camada Serving, derivados desta tabela Gold — veja a linhagem completa na perspectiva 'Estrutura de dados'.">
+                <code title="Tabela Gold de referência do banco. Os gráficos do painel leem tabelas pré-agregadas (camada Serving) derivadas desta tabela Gold — veja a linhagem completa na perspectiva 'Estrutura de dados'.">
                   {prov.table}
                 </code>
               </span>
@@ -444,7 +444,7 @@ function MainScreen({ filters, view = 'overview', database = 'ibge_pevs', infoPa
               <span className="meta-val tnum">{metaProv.lastCrop || '—'}</span>
             </div>
             <div className="meta-row">
-              <span className="meta-label">Refresh Gold</span>
+              <span className="meta-label">Atualização do Gold</span>
               <span className="meta-val tnum">{metaProv.refresh || '—'}</span>
             </div>
           </div>

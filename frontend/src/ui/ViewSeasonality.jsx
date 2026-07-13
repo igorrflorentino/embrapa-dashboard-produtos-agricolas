@@ -36,13 +36,18 @@ function ViewSeasonality({ summary, conventions, database }) {
     return (
       <>
         <window.NotApplicableNote note={data.notApplicable} />
-        <div className="card subtle">
-          <window.SectionHeader overline="Mapa de calor · mês × ano" title="Sem dados sazonais para esta seleção" />
-          <p className="caption" style={{ padding: '16px 4px' }}>
-            Não há série mensal disponível para o banco e os filtros atuais. Ajuste o período ou a
-            cesta de produtos, ou selecione um banco com granularidade mensal.
-          </p>
-        </div>
+        {/* A failed fetch also lands here (empty data) — show the honest error instead of
+            claiming "sem dados sazonais", which would be a false analytical statement. */}
+        <window.LoadErrorNote error={data.loadError} />
+        {!data.loadError && (
+          <div className="card subtle">
+            <window.SectionHeader overline="Mapa de calor · mês × ano" title="Sem dados sazonais para esta seleção" />
+            <p className="caption" style={{ padding: '16px 4px' }}>
+              Não há série mensal disponível para o banco e os filtros atuais. Ajuste o período ou a
+              cesta de produtos, ou selecione um banco com granularidade mensal.
+            </p>
+          </div>
+        )}
       </>
     );
   }

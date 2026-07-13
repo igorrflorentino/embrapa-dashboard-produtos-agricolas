@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_LEN = 5000
 MAX_URL_LEN = 4000
 MAX_UA_LEN = 1000
+# The client idempotency key doubles as the stored feedback_id; a 32-char uuid hex normally,
+# 128 is generous headroom that still caps a pathologically long value.
+MAX_CHANGE_ID_LEN = 128
 MAX_VIEW_LEN = 200
 MAX_BANCO_LEN = 100
 MAX_VERSION_LEN = 50
@@ -250,6 +253,10 @@ def record_feedback(
     # A client-supplied change_id is the IDEMPOTENCY KEY (it doubles as the feedback_id); a
     # retried submit reusing it is deduped below. Absent → a fresh uuid, which can't pre-exist.
     supplied_key = (change_id or "").strip()
+    if len(supplied_key) > MAX_CHANGE_ID_LEN:
+        raise FeedbackValidationError(
+            f"O identificador de alteração (change_id) excede {MAX_CHANGE_ID_LEN} caracteres."
+        )
     feedback_id = supplied_key or uuid.uuid4().hex
     bq = client or resolve_bq_client(cfg)
     table_fqn = sqlbuild.table_ref(cfg, "bq_research_inputs_dataset", cfg.bq_feedback_log_table)

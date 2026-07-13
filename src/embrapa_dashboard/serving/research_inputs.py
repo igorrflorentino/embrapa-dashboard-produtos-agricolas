@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 # bloating an immutable audit row, not a content restriction.
 MAX_STAGE_LEN = 200
 MAX_NOTE_LEN = 2000
+# A client idempotency key (change_id) is normally a 32-char uuid hex; 128 is generous
+# headroom that still caps a pathologically long value before it is stored as the audit key.
+MAX_CHANGE_ID_LEN = 128
 
 # The attribute editor ALLOWLIST — who may POST an edit (authorization, distinct from IAP
 # authentication). Console-managed: add/remove an attribute editor by INSERT/DELETE here, no
@@ -99,7 +102,7 @@ def add_attribute_editor(
     table_fqn = ensure_attribute_editors_table(cfg, bq)
     email_norm = (email or "").strip().lower()
     if not email_norm:
-        raise ValueError("email é obrigatório.")
+        raise ValueError("email is required.")
     sql = (
         f"insert into `{table_fqn}` (email, added_by, added_at) "
         "values (@email, @added_by, current_timestamp())"
@@ -179,6 +182,10 @@ def _resolve_change_id(change_id: str | None) -> tuple[str, bool]:
     IDEMPOTENCY KEY (a retried/double-clicked save reuses it); when absent we mint
     a fresh uuid (which can never pre-exist, so it needs no dedupe check)."""
     cleaned = (change_id or "").strip()
+    if len(cleaned) > MAX_CHANGE_ID_LEN:
+        raise ValueError(
+            f"O identificador de alteração (change_id) excede {MAX_CHANGE_ID_LEN} caracteres."
+        )
     return (cleaned, True) if cleaned else (uuid.uuid4().hex, False)
 
 
@@ -194,3 +201,30 @@ def _change_id_seen(bq: bigquery.Client, table_fqn: str, change_id: str) -> bool
     params = [bigquery.ScalarQueryParameter("change_id", "STRING", change_id)]
     job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     return any(True for _ in job.result())
+
+
+class ChangeIdConflictError(Exception):
+    """A client reused an idempotency ``change_id`` for a DIFFERENT logical write — the row
+    already stored under that change_id has a different natural key (or active state) than the
+    retried request, so replaying it would echo an UNRELATED prior row. The webapi maps this to
+    HTTP 409 Conflict (distinct from the ValueError->400 validation path) so the caller
+    regenerates the key instead of silently getting back the wrong row. An attribute-only
+    divergence under the SAME key is deliberately NOT a conflict — a stable-change_id re-seed
+    (``seed_catalog_from_env``) relies on that staying a benign idempotent no-op."""
+
+
+def ensure_no_change_id_conflict(
+    stored: dict | None, incoming: dict, fields: tuple[str, ...], *, entity: str
+) -> None:
+    """Guard an idempotent-retry replay: raise ``ChangeIdConflictError`` when the row already
+    stored under this change_id disagrees with the retried request on any natural-key ``field``
+    (never the mutable attributes — see the class docstring). ``stored is None`` (the row
+    vanished) is a no-op; the caller then echoes the request body. ``entity`` is a pt-BR label
+    for the message the SPA surfaces."""
+    if stored is None:
+        return
+    if any(stored.get(f) != incoming.get(f) for f in fields):
+        raise ChangeIdConflictError(
+            f"O change_id informado já foi usado para outro {entity}. "
+            "Gere uma nova alteração e tente novamente."
+        )

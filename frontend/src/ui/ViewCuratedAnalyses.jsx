@@ -49,6 +49,7 @@ function ViewValueAdded() {
 
   return (
     <>
+      <window.LoadErrorNote error={data.loadError} />
       <div className="pp-selector">
         <span className="pp-selector-label">Agrupamento</span>
         <div className="pp-chips">
@@ -77,9 +78,13 @@ function ViewValueAdded() {
         <window.SectionHeader overline="Valor exportado por nível · US$ bi" title="Quanto sai em cada nível de industrialização"
           action={<span className="caption">classificação da Curadoria</span>} />
         {data.nCodes < 1 ? (
-          <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            Nenhum código classificado incluído para esta seleção. Ajuste em <strong>Engenharia de atributos → Nível de industrialização</strong>.
-          </p>
+          // Suppress the "nenhum código classificado" claim on a settled fetch failure — the
+          // LoadErrorNote above already explains it (mirrors ViewMarketNature/ViewSeasonality).
+          !data.loadError && (
+            <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
+              Nenhum código classificado incluído para esta seleção. Ajuste em <strong>Engenharia de atributos → Nível de industrialização</strong>.
+            </p>
+          )
         ) : (
           <>
             <window.StackedArea series={areaSeries} valueKey="v" label="US$ bi" height={300} showLegend={false} />
@@ -146,15 +151,20 @@ function ViewMarketNature() {
     return (
       <>
         {selector}
-        <div className="card subtle">
-          <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
-            title="Sem finalidade econômica classificada para este recorte" />
-          <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
-            O COMTRADE deste recorte não tem operações cujo par <strong>regime aduaneiro × fluxo</strong>
-            {' '}esteja classificado como consumo ou processamento em <strong>Tipo de Mercado</strong>
-            (Engenharia de atributos). A maioria do comércio é reportada apenas no agregado, sem regime.
-          </p>
-        </div>
+        {/* A failed fetch also lands here (empty series) — show the error, not the
+            "sem finalidade classificada" claim (which would be a false statement). */}
+        <window.LoadErrorNote error={data.loadError} />
+        {!data.loadError && (
+          <div className="card subtle">
+            <window.SectionHeader overline="Valor por finalidade econômica · US$ bi"
+              title="Sem finalidade econômica classificada para este recorte" />
+            <p className="caption" style={{ padding: '24px 4px', textAlign: 'center' }}>
+              O COMTRADE deste recorte não tem operações cujo par <strong>regime aduaneiro × fluxo</strong>
+              {' '}esteja classificado como consumo ou processamento em <strong>Tipo de Mercado</strong>
+              (Engenharia de atributos). A maioria do comércio é reportada apenas no agregado, sem regime.
+            </p>
+          </div>
+        )}
       </>
     );
   }
