@@ -25,6 +25,7 @@ function stubProtoGlobals(flow) {
   window.bancoById = () => ({ scope: 'País', domain: 'Comércio' });
   window.flowData = () => flow;
   window.NotApplicableNote = () => null;
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SankeyChart = () => null;
   window.SectionHeader = () => null;
   window.KpiCardSpark = ({ label, value, sub }) => (

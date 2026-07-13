@@ -12,7 +12,7 @@
 // edit-driven + real via the "Tipo de Mercado" matrix, see window.marketNatureAnalysis below.)
 
 import { decorateUfRows } from './decorate';
-import { ensure, get } from './resource';
+import { ensure, errorOf, get } from './resource';
 
 const API = '/api';
 const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
@@ -231,6 +231,7 @@ window.crossSeries = function crossSeries(bancoId, metricId, opts = {}) {
     unit: '',
     family: (metricMeta && metricMeta.family) || '',
     preview: false, // real data, just loading — not a demo (no PreviewBanner)
+    loadError: errorOf(key), // a settled fetch failure → the view shows LoadErrorNote, not "no overlap"
     coverage: (metricMeta && metricMeta.years) || [0, 0],
     points: [],
   };
@@ -294,7 +295,9 @@ const crossAnalytic = (name, path, shell) =>
     const st = states && states.length ? states.join(',') : undefined;
     const key = `cross:${name}:${agrupamentoId || '*'}:${st ?? ''}`;
     ensure(key, () => `${API}/cross/${path}?${qs({ commodity: agrupamentoId, states: st })}`);
-    return get(key) || shell;
+    // A settled fetch failure carries loadError so the view shows LoadErrorNote instead
+    // of rendering the empty shell as a legitimate "nenhum dado" result.
+    return get(key) || { ...shell, loadError: errorOf(key) };
   };
 
 // Loading shells use preview:false — the data IS real, just not arrived yet (so
@@ -389,7 +392,7 @@ window.flowData = function flowData(bancoId, summary) {
   };
   return data
     ? { ...data, ...labels, notApplicable }
-    : { preview: false, unit: 'US$', ...labels, notApplicable, nodes: [], links: [] };
+    : { preview: false, unit: 'US$', ...labels, notApplicable, nodes: [], links: [], loadError: errorOf(key) };
 };
 window.partnerData = function partnerData(bancoId, summary, metric) {
   const codes = filterCodes(summary);
@@ -413,7 +416,7 @@ window.partnerData = function partnerData(bancoId, summary, metric) {
   const flowLabel = (window.bancoDim && window.bancoDim(bancoId, 'partner').label) || 'Parceiro';
   return data
     ? { ...data, flowLabel, notApplicable }
-    : { preview: false, flowLabel, unit: 'US$', notApplicable, partners: [] };
+    : { preview: false, flowLabel, unit: 'US$', notApplicable, partners: [], loadError: errorOf(key) };
 };
 // Per-product ranking WITHIN the selected UF(s) — the "Base de dados" per-UF
 // product breakdown (inverse of ViewProductProfile's "onde X é produzido"). The
@@ -429,7 +432,7 @@ window.productsByUf = function productsByUf(bancoId, summary, conv) {
   const correction = conv && conv.correction;
   const key = `pbu:${bancoId}:${filterSig(summary)}:${currency || ''}:${correction || ''}`;
   ensure(key, () => `${API}/products-by-uf?${qs({ banco: bancoId, codes, states, y0, y1, currency, correction })}`);
-  return get(key) || { products: [] };
+  return get(key) || { products: [], loadError: errorOf(key) };
 };
 window.monthlyData = function monthlyData(bancoId, summary) {
   const codes = filterCodes(summary);
@@ -445,6 +448,7 @@ window.monthlyData = function monthlyData(bancoId, summary) {
     ? { ...data }
     : {
         preview: false,
+        loadError: errorOf(key),
         unit: 'US$',
         weightUnit: 'mil t',
         years: [],
@@ -483,6 +487,7 @@ window.productivityData = function productivityData(bancoId, crop, summary) {
   if (!data) {
     return {
       preview: false,
+      loadError: errorOf(key),
       notApplicable,
       crop: { code: '', name: '' },
       crops: [],

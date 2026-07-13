@@ -855,7 +855,7 @@ def seed_page(
     is visible instead of looking like an empty reference table."""
     meta = next((s for s in gateway.seed_tables() if s["id"] == seed_id), None)
     if meta is None:
-        raise ValueError(f"seed {seed_id!r} is not a consultable reference table")
+        raise ValueError(f"{seed_id!r} não é uma tabela de referência consultável.")
     schema = gateway.fetch_seed_schema(seed_id)
     df = gateway.fetch_seed_rows(
         seed_id,

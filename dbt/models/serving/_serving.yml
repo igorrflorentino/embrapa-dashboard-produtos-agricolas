@@ -193,6 +193,14 @@ models:
         tests: [not_null]
       - name: market_nature
         description: "Tipo de mercado (consumo/processamento) — the current classification per (customs_code × flow), edit-driven via dim_flow_market_scd2 (LEFT JOIN, is_current; reverted from the comtrade_market_nature seed, v1.9.0). NULL where the pair is unclassified. Server-side market filter axis + the 'Finalidade econômica' analysis; reflects a matrix edit after the next dbt build."
+        tests:
+          # Pin the Tipo de Mercado vocabulary — the SAME literal set the SPA filter
+          # (_ALLOWED_MARKETS in webapi/routes.py) and the matrix UI (ENRICH_MARKETS) couple on.
+          # NULL passes (accepted_values ignores nulls): the column is NULL under the frozen
+          # default (enable_curation off) and carries a classification only when the feature is on.
+          - accepted_values:
+              arguments:
+                values: ["consumo", "processamento"]
       - name: cmd_code
         tests: [not_null]
 

@@ -89,6 +89,7 @@ function ViewExportCoef() {
   return (
     <>
       <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Coeficiente nacional" value={data.national.coefPct == null ? '—' : msPct(data.national.coefPct)} sub={`acumulado ${coefWindow} · do produzido vai p/ exportação`} />
@@ -152,6 +153,7 @@ function ViewMarketShare() {
   return (
     <>
       <CrossProductPicker value={product} onChange={setProduct} />
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Participação atual" value={msPct(last?.share)} sub={`${last?.y ?? '—'} · do mercado mundial`} />
@@ -217,6 +219,7 @@ function ViewPriceSpread() {
     <>
       <CrossProductPicker value={effProduct} onChange={setProduct} families={['mass']} />
       <window.UfScopePicker value={uf} onChange={setUf} />
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Preço FOB atual" value={'US$ ' + msNum(last?.fob, 2) + '/kg'} sub={`${last?.y ?? '—'} · no porto`} />
@@ -264,6 +267,7 @@ function ViewMirror() {
   return (
     <>
       <CrossProductPicker value={product} onChange={setProduct} />
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Divergência média" value={msPct(avgDisc)} sub="entre MDIC e Comtrade" />

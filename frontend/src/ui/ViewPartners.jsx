@@ -58,6 +58,8 @@ function ViewPartners({ summary, conventions, database }) {
     <>
       {/* Honest note when the origin-UF filter cannot apply (country-origin banco). */}
       <window.NotApplicableNote note={data.notApplicable} />
+      {/* Distinct error state when the /api/partners fetch FAILED (not "0 parceiros"). */}
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label={`Maior ${data.flowLabel}`} value={top?.name || '—'} sub={fmtMetric(top)} />

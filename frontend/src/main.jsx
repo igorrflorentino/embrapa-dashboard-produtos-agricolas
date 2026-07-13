@@ -167,6 +167,19 @@ function readStateFromURL() {
   // (bancoById falls back internally), so pin it to the default when it isn't a real banco.
   let database = q.get('b') || 'ibge_pevs';
   if (window.bancoById && !window.bancoById(database)) database = 'ibge_pevs';
+  // Clamp the server-side trade filters (flow/customs/market) to the banco's OFFERED options,
+  // mirroring the ?cur/?v/?b clamps: a stale/hand-edited URL carrying a value this banco doesn't
+  // offer must not be sent to the API (a 400) nor paint a phantom filter chip. absent (null) =
+  // all. (reporters/partners are country codes validated server-side against a universe that
+  // loads asynchronously, so they can't be whitelisted here at parse time.)
+  const _clampToOpts = (val, helper) => {
+    if (val == null || !helper) return val; // absent, or helper not loaded → leave as-is
+    const opts = helper(database);
+    return opts && opts.some((o) => o.value === val) ? val : null;
+  };
+  summary.flow = _clampToOpts(summary.flow, window.flowOptionsFor);
+  summary.customs = _clampToOpts(summary.customs, window.customsOptionsFor);
+  summary.market = _clampToOpts(summary.market, window.marketOptionsFor);
   // Validate ?ip (info page): an unknown value renders the generic "Saúde do sistema" header
   // over an "em preparação" body. Only the known info pages are routable; else no info page.
   const _INFO_PAGES = new Set(['about', 'referencias', 'cadastro_produtos', 'health']);

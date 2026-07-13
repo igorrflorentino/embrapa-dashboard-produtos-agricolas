@@ -58,7 +58,9 @@ def _validate_column(column: str, allowed: frozenset[str], kind: str) -> str:
     an allowlist — not escaping — is what keeps each one injection-safe.
     """
     if column not in allowed:
-        raise ValueError(f"{kind} {column!r} is not allowed; choose one of {sorted(allowed)}")
+        raise ValueError(
+            f"Coluna {column!r} não permitida; use uma de: {', '.join(sorted(allowed))}."
+        )
     return column
 
 
@@ -1400,7 +1402,7 @@ def _raw_filter_predicate(
         return
     sqlop = _RAW_FILTER_OPS.get(op)
     if sqlop is None:
-        raise ValueError(f"filter operator {op!r} is not allowed")
+        raise ValueError(f"Operador de filtro {op!r} inválido.")
     ptype = _bq_param_type(columns_types[col])
     # A STRING-typed bind compares against CAST(col AS STRING) so a DATE/TIMESTAMP column
     # (which binds as STRING) does not raise a BigQuery type mismatch; numeric/bool direct.

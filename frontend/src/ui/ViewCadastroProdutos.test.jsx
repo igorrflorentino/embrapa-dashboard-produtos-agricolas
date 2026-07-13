@@ -1,9 +1,10 @@
 // ViewCadastroProdutos.test.jsx — render + write coverage for the Curadoria editor.
 // Each commodity is registered by its EXACT source code (código+banco; no prefixes). The
 // add form fetches the source's REAL codes (/api/catalog/source-codes) for autocomplete +
-// a client-side existence check (the Salvar button stays DISABLED until the code exists AND
-// an agrupamento is chosen). The catalog table shows each commodity's Gold STATE
-// (/api/catalog/status → linhas, período, tem-dados). Agrupamentos are a FIRST-CLASS
+// an advisory "já existe na Gold?" hint; a not-yet-listed code is ACCEPTED as pendente de
+// ingestão (Salvar needs only a non-empty code + a chosen agrupamento, plus the PPM tag when
+// applicable — it does NOT gate on the code existing). The catalog table shows each commodity's
+// Gold STATE (/api/catalog/status → linhas, período, tem-dados). Agrupamentos are a FIRST-CLASS
 // registry: entries via /api/catalog/entry, groups via /api/catalog/group — all mocked.
 // Uses the GLOBAL React (main.jsx sets window.React).
 
@@ -57,7 +58,9 @@ function mockFetch(opts = {}) {
   const {
     entries = ENTRIES, groups = GROUPS, orphans = { orphans: [], total: 0 },
     status = STATUS, sourceCodes = SOURCE_CODES,
+    failStatus = false, failSourceCodes = false, failOrphans = false,
   } = opts;
+  const notOk = { ok: false, status: 500, json: () => Promise.resolve({}), text: () => Promise.resolve('') };
   global.fetch = vi.fn((url, init) => {
     if (init && init.method === 'POST') {
       postBody = JSON.parse(init.body);
@@ -65,6 +68,10 @@ function mockFetch(opts = {}) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
     }
     const u = String(url);
+    // Force a specific read to fail (ok:false) so the error-state branches are exercised.
+    if (failStatus && u.includes('/api/catalog/status')) return Promise.resolve(notOk);
+    if (failSourceCodes && u.includes('/api/catalog/source-codes')) return Promise.resolve(notOk);
+    if (failOrphans && u.includes('/api/catalog/orphans')) return Promise.resolve(notOk);
     const body = u.includes('/api/catalog/orphans')
       ? orphans
       : u.includes('/api/catalog/groups')
@@ -84,6 +91,7 @@ beforeEach(async () => {
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh"><span>{overline}</span><span>{title}</span>{action}</div>
   );
+  window.Icon = ({ name }) => <span data-icon={name} />; // used by the CcConfirmModal close button
   postBody = null;
   postUrl = null;
   mockFetch();
@@ -93,7 +101,7 @@ beforeEach(async () => {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-// Open the add form, wait for the source-codes to load (so the existence check is armed).
+// Open the add form, wait for the source-codes to load (so the advisory "já existe" hint is armed).
 async function openAddForm(container, getByText) {
   fireEvent.click(getByText('+ Adicionar produto'));
   const codeInput = () => container.querySelector('input[list="cc-code-options"]');
@@ -144,10 +152,10 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     const { container, getByText } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
     const codeInput = await openAddForm(container, getByText);
-    // Type a code the source really has (0801 ∈ SOURCE_CODES) — the existence check passes.
+    // Type a code the source really has (0801 ∈ SOURCE_CODES) — the "já existe" hint shows ✓.
     fireEvent.change(codeInput, { target: { value: '0801' } });
     fireEvent.change(container.querySelector('.cc-add-card .cc-group-select'), { target: { value: 'castanha' } });
-    // The Salvar button un-disables once the code is validated + a group is chosen.
+    // The Salvar button un-disables once a code is present + a group is chosen.
     const saveBtn = getByText('Salvar produto');
     await waitFor(() => expect(saveBtn.disabled).toBe(false));
     fireEvent.click(saveBtn);
@@ -232,15 +240,92 @@ describe('ViewCadastroProdutos — the Curadoria catalog editor', () => {
     expect(postBody.agrupamento).toBe('Castanha');
   });
 
-  it('removes a commodity via the tombstone endpoint (after confirm)', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('removes a commodity via the tombstone endpoint (after confirming in the accessible modal)', async () => {
     const { container } = render(<ViewCadastroProdutos />);
     await waitFor(() => expect(container.querySelector('.cc-remove')).toBeTruthy());
     fireEvent.click(container.querySelector('.cc-remove'));
+    // The native window.confirm is gone — an accessible in-app modal (role=dialog) opens; the
+    // POST fires only once the user clicks the modal's confirm button, not on the row click.
+    await waitFor(() => expect(container.querySelector('.cite-modal[role="dialog"]')).toBeTruthy());
+    expect(postBody).toBeNull(); // nothing sent until confirmed
+    fireEvent.click(container.querySelector('.cite-modal .btn-primary'));
     await waitFor(() => expect(postBody).toBeTruthy());
     expect(postUrl).toContain('/api/catalog/entry/remove');
     expect(postBody.codigo_produto).toBe('4403');
-    confirmSpy.mockRestore();
+  });
+
+  it('renames an agrupamento via the modal text input (no native prompt)', async () => {
+    const { container } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    // Groups sort alphabetically (Castanha before Madeira); target the Madeira card's Renomear.
+    const madeiraCard = [...container.querySelectorAll('.card')].find((c) => {
+      const h = c.querySelector('.cc-group-head strong');
+      return h && h.textContent.includes('Madeira');
+    });
+    const renameBtn = [...madeiraCard.querySelectorAll('button')].find((b) => b.textContent.includes('Renomear'));
+    fireEvent.click(renameBtn);
+    await waitFor(() => expect(container.querySelector('#cc-confirm-input')).toBeTruthy());
+    fireEvent.change(container.querySelector('#cc-confirm-input'), { target: { value: 'Madeira Nova' } });
+    fireEvent.click(container.querySelector('.cite-modal .btn-primary'));
+    await waitFor(() => expect(postBody).toBeTruthy());
+    expect(postUrl).toContain('/api/catalog/group');
+    expect(postBody.group_name).toBe('Madeira Nova');
+    expect(postBody.group_id).toBe('madeira');
+  });
+
+  it('deletes an empty agrupamento via the modal confirm (no native confirm)', async () => {
+    const { container } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    // Castanha is the empty group (n_members:0) → its "🗑 Excluir" is enabled.
+    const castanhaCard = [...container.querySelectorAll('.card')].find((c) => {
+      const h = c.querySelector('.cc-group-head strong');
+      return h && h.textContent.includes('Castanha');
+    });
+    const delBtn = [...castanhaCard.querySelectorAll('button')].find((b) => b.textContent.includes('Excluir'));
+    fireEvent.click(delBtn);
+    await waitFor(() => expect(container.querySelector('.cite-modal[role="dialog"]')).toBeTruthy());
+    expect(postBody).toBeNull(); // nothing sent until confirmed
+    fireEvent.click(container.querySelector('.cite-modal .btn-primary'));
+    await waitFor(() => expect(postBody).toBeTruthy());
+    expect(postUrl).toContain('/api/catalog/group/remove');
+    expect(postBody.group_id).toBe('castanha');
+  });
+
+  it('surfaces a Gold-state (status) fetch failure as a distinct banner + "—" cells (not silent "…")', async () => {
+    mockFetch({ failStatus: true });
+    const { container } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    // The catalog itself loaded (entries ok); only the lazy status read failed → the warn banner shows.
+    await waitFor(() => expect(container.textContent).toContain('Não foi possível carregar o estado dos produtos no Gold'));
+    // The Linhas cell shows '—' (unknown, explained by the banner), not the perpetual-loading '…'.
+    const linhasCell = container.querySelector('.dt-table td[data-label="Linhas"]');
+    expect(linhasCell.textContent).toBe('—');
+  });
+
+  it('surfaces a source-codes fetch failure in the add form (not a false "0 códigos")', async () => {
+    mockFetch({ failSourceCodes: true });
+    const { container, getByText } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    fireEvent.click(getByText('+ Adicionar produto'));
+    await waitFor(() => expect(container.textContent).toContain('Não foi possível carregar os códigos'));
+  });
+
+  it('does NOT show the Gold-state banner when the catalog itself failed to load', async () => {
+    // A total outage: entries + status both fail. The banner must stay hidden so we never claim
+    // "o cadastro continua válido" next to the catalog's own "Erro ao carregar".
+    global.fetch = vi.fn(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}), text: () => Promise.resolve('') }));
+    const { container } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.textContent).toContain('Erro ao carregar'));
+    expect(container.textContent).not.toContain('O cadastro continua válido');
+  });
+
+  it('surfaces an orphans (Descontinuados) fetch failure instead of silently hiding the section', async () => {
+    // The Descontinuados section is gated on orphans.length > 0, so a failed orphans read would
+    // otherwise vanish silently — there may be discontinued produtos not shown.
+    mockFetch({ failOrphans: true });
+    const { container } = render(<ViewCadastroProdutos />);
+    await waitFor(() => expect(container.querySelector('.dt-table')).toBeTruthy());
+    await waitFor(() => expect(container.textContent).toContain('Não foi possível carregar os produtos descontinuados'));
   });
 
   it('surfaces orphans as Descontinuados with the human-only deletion warning', async () => {

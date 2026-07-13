@@ -19,10 +19,10 @@
 -- total, per source.
 
 -- PPM is the source MOST exposed to a future crosswalk fan-out: serving_ppm_annual
--- LEFT JOINs a hand-rolled prefix-LIKE ppm_xwalk, where two ppm prefixes matching one
--- product_code would duplicate rows. Its stock rows carry NULL val_yearfx_usd, but SUM
--- skips NULLs identically on both sides (as for PEVS/PAM pre-1994), so the comparison
--- stays exact (DBT-1).
+-- LEFT JOINs a hand-rolled exact-code ppm_xwalk against dim_produto_catalog, where a
+-- duplicate (source='ppm', product_code) catalog row would duplicate rows. Its stock rows
+-- carry NULL val_yearfx_usd, but SUM skips NULLs identically on both sides (as for
+-- PEVS/PAM pre-1994), so the comparison stays exact (DBT-1).
 -- serving_comex_seasonality is also a value rollup of gold_comex_flows (it just keeps
 -- reference_month + a 1:1 dim_date LEFT JOIN, which dim_date.date_month's unique test
 -- keeps fan-out-free), so reconcile it too — making the conservation guarantee explicit

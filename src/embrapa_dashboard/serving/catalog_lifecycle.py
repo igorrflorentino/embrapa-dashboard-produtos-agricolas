@@ -243,23 +243,23 @@ def _backup_status(settings: Settings) -> tuple[bool, str]:
         )
         runs = doctor._list_backup_runs(client, settings)
         if not runs:
-            return False, "nenhum snapshot do Gold — rode `make dbt-build-prod-with-backup` antes."
+            return False, "no Gold snapshot — run `make dbt-build-prod-with-backup` first."
         latest, _ = doctor._latest_complete_run(client, settings, runs)
         if latest is None:
             return (
                 False,
-                "nenhum snapshot COMPLETO do Gold (todos parciais) — rode um backup antes.",
+                "no COMPLETE Gold snapshot (all partial) — run a backup first.",
             )
         age_days = (datetime.now(UTC) - latest).total_seconds() / 86400
         if age_days > settings.backup_staleness_days:
             return (
                 False,
-                f"snapshot mais recente tem {age_days:.0f}d "
-                f"(> {settings.backup_staleness_days}d) — rode um backup fresco antes.",
+                f"latest snapshot is {age_days:.0f}d old "
+                f"(> {settings.backup_staleness_days}d) — run a fresh backup first.",
             )
-        return True, f"snapshot completo do Gold em {latest.strftime('%Y-%m-%d %H:%M UTC')}"
+        return True, f"complete Gold snapshot at {latest.strftime('%Y-%m-%d %H:%M UTC')}"
     except Exception as exc:  # pragma: no cover - GCS unreachable / perms
-        return False, f"não foi possível verificar o backup: {exc}"
+        return False, f"could not verify the backup: {exc}"
 
 
 def _refuse_if_re_added(cfg: Settings, banco: str, code: str) -> None:
@@ -351,8 +351,8 @@ def mark_purged(
         # (never-marked → gen falls back to '0') would falsely lock the purge plan out while
         # Gold data still lingers, and auto_mark_orphans would not re-mark it.
         raise ValueError(
-            f"{banco}:{code} não está marcada como Descontinuada — recuse registrar a purga "
-            "(só órfãos detectados + marcados podem ser purgados)."
+            f"{banco}:{code} is not marked Descontinuado — refuse to record the purge "
+            "(only orphans that were detected + marked may be purged)."
         )
     # Marked Descontinuado — but the code may have been RE-ADDED (active) to the catalog (the
     # append-only lifecycle log still reads 'descontinuado'). Refuse to stamp a terminal

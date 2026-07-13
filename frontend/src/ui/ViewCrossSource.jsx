@@ -53,6 +53,9 @@ function ViewCrossSource({ value, onChange }) {
 
   const units = [...new Set(seriesResults.map(s => s.unit))];
   const families = [...new Set(seriesResults.map(s => s.family))];
+  // Any selected series whose /api/cross/series fetch FAILED (settled error) → surface it
+  // instead of plotting an empty line as legitimate "sem sobreposição".
+  const anyLoadError = seriesResults.some((s) => s.loadError);
 
   // ── Toggle a (banco, metric) ref in/out of the selection ──────────────
   const toggleRef = (b, m) => {
@@ -120,6 +123,7 @@ function ViewCrossSource({ value, onChange }) {
 
   return (
     <>
+      <window.LoadErrorNote error={anyLoadError} />
       {/* KPI strip */}
       <div className="kpi-row">
         <window.KpiCardSpark label="Séries comparadas" value={`${items.length} / ${CS_MAX}`}
@@ -194,12 +198,12 @@ function ViewCrossSource({ value, onChange }) {
             <div className="xs-controls">
               <window.UfScopePicker value={uf} onChange={setUf} />
               <div className="xs-years">
-                <select className="xs-select" value={effY0}
+                <select className="xs-select" value={effY0} aria-label="Ano inicial"
                   onChange={(e) => set({ y0: Math.min(Number(e.target.value), effY1) })}>
                   {yearOpts.filter(y => y <= effY1).map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
                 <span className="xs-years-sep">→</span>
-                <select className="xs-select" value={effY1}
+                <select className="xs-select" value={effY1} aria-label="Ano final"
                   onChange={(e) => set({ y1: Math.max(Number(e.target.value), effY0) })}>
                   {yearOpts.filter(y => y >= effY0).map(y => <option key={y} value={y}>{y}</option>)}
                 </select>

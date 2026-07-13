@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.16.0] - 2026-07-12
+
+**Remediação da rodada seguinte da auditoria da Curadoria + varredura sistêmica dos mesmos
+padrões de defeito no projeto inteiro.** Duas frentes: (1) correção dos 27 achados menores
+confirmados que restavam da auditoria da Curadoria/Cadastro; (2) varredura de 12 classes de
+defeito por todo o projeto (backend, frontend, dbt) com verificação adversarial, corrigindo
+27 recorrências confirmadas + itens de menor confiança. Sem mudança de contrato de API que
+quebre clientes; a mudança de `dbt` é aditiva (testes + descrições) e num `view`.
+
+### Fixed
+- **Honestidade de dados — falha de fetch exibida como "sem dados" em ~10 telas** (regra dura
+  do projeto: nunca afirmar um valor sobre dado que não carregou). Raiz sistêmica na camada de
+  dados: `data/resource.js` ganhou `errorOf()` e `data/producers.js` propaga `loadError` nos
+  shells (flow/partner/monthly/productivity/cross-source/cross-analytics/products-by-uf); novo
+  `LoadErrorNote` (acessível, `role="alert"`, pt-BR) ligado em Fluxos, Parceiros, Sazonalidade,
+  Produtividade, Cruzamento de fontes, Multi-fonte (4 sub-análises), Análises curadas (2) e
+  Geografia — além do read de órfãos do Cadastro. Uma falha de `/api/*` agora mostra erro
+  honesto em vez de "US$ 0 / 0 rotas / sem dados".
+- **Idioma (regra pt-BR ↔ inglês)**: mensagens de erro que o pesquisador vê passaram a pt-BR
+  (validação de campo obrigatório e autorização nas rotas do catálogo/atributos; erros de
+  filtro em `serving/sql.py`; `seam.seed_page`); strings só-operador/CLI passaram a inglês.
+- **Trilha de auditoria anônima**: `embrapa editors add` / `attribute-editors add` (concessões
+  de permissão) e `purge-orphan --mark-purged` agora registram o operador real do SO
+  (`operator:<usuário>`) em vez do default anônimo.
+- **Idempotência (`change_id`)**: os writers de atributo (FROZEN) passaram a devolver a linha
+  ARMAZENADA no dedup e a sinalizar conflito (HTTP 409) quando um `change_id` é reusado com
+  chave diferente (espelha `curation`/`agrupamentos`); `change_id` agora tem limite de tamanho.
+- **Limites de tamanho ausentes** em campos graváveis pelo usuário (`agrupamento_id`,
+  `change_id` do feedback e dos writers, `source`/`code`/`customs_code`/`flow_code`).
+- **Leitura resiliente do catálogo**: `gateway.fetch_produto_catalog` faz self-heal do schema
+  (coluna `sidra_tabela`) e retry ao ler uma tabela antiga, em vez de dar 500 no Cadastro.
+- **Acessibilidade**: `aria-label` em selects de filtro/ano sem nome acessível (Cruzamento,
+  Base de dados, Referências, Cadeia, Curadoria, FilterMenu) e `role="alert"` em banners de erro.
+- **Vocabulário/nomenclatura**: "commodity(s)" como sinônimo do assunto → "produto(s)" (×6 em
+  `registries.py`); jargão "marts"/"Refresh" removido do hero (`MainScreen`); "seeds" →
+  "valores de referência" (Referências).
+- **Validação de parâmetros de URL** (`main.jsx`): `flow`/`customs`/`market` deep-linked são
+  validados contra as opções do banco (espelha `?cur`/`?v`/`?b`).
+- **`dbt`**: `accepted_values` no vocabulário `ciclo_de_vida` (gate F7) e em
+  `serving_comtrade_annual.market_nature`; teste `unit_test` de latest-wins em
+  `dim_produto_catalog`; `sidra_tabela` documentada em `_sources.yml`.
+
 ## [1.15.0] - 2026-07-11
 
 **Auditoria da Curadoria/Cadastro de produtos + varredura dos mesmos padrões no resto do

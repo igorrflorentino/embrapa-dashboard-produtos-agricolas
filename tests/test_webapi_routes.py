@@ -1659,6 +1659,53 @@ def test_catalog_entry_upsert_nonexistent_code_is_400(monkeypatch):
     assert "não existe" in resp.get_json()["error"]
 
 
+def test_catalog_entry_upsert_coerces_numeric_json_fields(monkeypatch):
+    """A client sending the string fields as JSON NUMBERS (codes/sidra_tabela/change_id are
+    numeric) must not 500 on .strip()/len() in the writer — they are coerced to str first."""
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+    captured = {}
+    monkeypatch.setattr(
+        seam, "record_catalog_entry", lambda body: captured.update(body) or {"ok": True}
+    )
+    resp = client.post(
+        "/api/catalog/entry",
+        json={
+            "codigo_produto": 4403,
+            "banco": "ppm",
+            "agrupamento": "Bovino",
+            "sidra_tabela": 3939,
+            "descricao_produto": 123,
+            "change_id": 999,
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["codigo_produto"] == "4403"
+    assert captured["sidra_tabela"] == "3939"
+    assert captured["descricao_produto"] == "123"
+    assert captured["change_id"] == "999"
+
+
+def test_catalog_group_upsert_409_on_change_id_conflict(monkeypatch):
+    """A ChangeIdConflictError from the writer → HTTP 409 (distinct from ValueError→400), with
+    the pt-BR reason forwarded so the client regenerates the change_id."""
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+    from embrapa_dashboard.webapi import seam
+
+    client = _client(monkeypatch, dev_author="researcher@embrapa.br")
+    monkeypatch.setattr(seam, "catalog_editor_emails", lambda resource=None: set())
+
+    def raise_conflict(body):
+        raise ChangeIdConflictError("O change_id informado já foi usado para outro agrupamento.")
+
+    monkeypatch.setattr(seam, "record_group", raise_conflict)
+    resp = client.post("/api/catalog/group", json={"group_name": "Castanha", "change_id": "dup"})
+    assert resp.status_code == 409
+    assert "change_id" in resp.get_json()["error"]
+
+
 def test_catalog_entry_remove_threads_to_seam(monkeypatch):
     """POST /api/catalog/entry/remove appends a tombstone via the seam writer."""
     from embrapa_dashboard.webapi import seam

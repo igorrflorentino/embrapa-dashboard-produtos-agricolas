@@ -339,7 +339,9 @@ function ViewGeography({ families, conventions, summary, database }) {
           .filter(r => (r[valueKey] || 0) > 0)
           .sort((a, b) => b[valueKey] - a[valueKey])
           .slice(0, 20);
-        if (!rows.length) return null;
+        // A failed /api/products-by-uf fetch leaves products:[] → rows empty; surface the error
+        // instead of silently rendering nothing (would read as "este estado não tem produtos").
+        if (!rows.length) return pbu.loadError ? <window.LoadErrorNote error={pbu.loadError} /> : null;
         const scaled = window.scaleSeries(rows, Math.max(...rows.map(r => r[valueKey] || 0)), conv, valueKey, unit);
         return (
           <div className="card">

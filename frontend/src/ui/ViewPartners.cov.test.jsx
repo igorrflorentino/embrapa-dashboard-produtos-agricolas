@@ -24,6 +24,7 @@ function stubGlobals(byMetric) {
   window.bancoById = () => ({ scope: 'País', domain: 'Comércio exterior' });
   window.fmtPct = (x) => `${Math.round((x || 0) * 100)}%`;
   window.NotApplicableNote = ({ note }) => (note ? <div className="na">{note}</div> : null);
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh">
       <span className="sh-ov">{overline}</span>
@@ -133,6 +134,16 @@ describe('ViewPartners — smoke + metric-toggle branches', () => {
     expect(container.querySelector('.ptn-legend')).toBeFalsy();
     // 3 partners in the weight ranking.
     expect(container.querySelectorAll('.ptn-row').length).toBe(3);
+  });
+
+  it('shows a LoadErrorNote when the partnerData fetch failed (not a false "0 parceiros")', () => {
+    stubGlobals(BY_METRIC);
+    // A settled fetch failure surfaces loadError on the shell (resource.errorOf → producers).
+    window.partnerData = () => ({ partners: [], flowLabel: 'Parceiro', unit: 'US$', loadError: 'HTTP 500' });
+    const { container } = render(
+      <ViewPartners summary={{}} conventions={{}} database="mdic_comex" />
+    );
+    expect(container.querySelector('.load-err')).toBeTruthy();
   });
 
   it('switching to Preço médio shows the non-additive faixa-de-preço range KPI', () => {

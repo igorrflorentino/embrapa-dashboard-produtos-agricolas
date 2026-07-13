@@ -29,7 +29,7 @@ function ViewChainBalance({ view }) {
         <window.CrossProductPicker value={product} onChange={setProduct} />
         <div className="ch-year">
           <span className="pp-selector-label">Ano</span>
-          <select className="xs-select" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+          <select className="xs-select" value={year} aria-label="Ano" onChange={(e) => setYear(Number(e.target.value))}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>

@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 // ── shared widget/formatter stubs ─────────────────────────────────────────────
 function stubWidgets() {
   window.Icon = ({ name }) => <i data-icon={name} />;
+  window.LoadErrorNote = ({ error }) => (error ? <div className="load-err">{error}</div> : null);
   window.SectionHeader = ({ overline, title, action }) => (
     <div className="sh">
       <span className="sh-overline">{overline}</span>

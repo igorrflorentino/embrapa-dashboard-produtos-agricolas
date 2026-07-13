@@ -90,6 +90,7 @@ function EnrichmentCodeRow(c, nested) {
       <td className="cur-cell-desc" data-label="Descrição">{c.desc}{todo && <span className="cur-todo-pill">a classificar</span>}</td>
       <td className="cur-cell-level" data-label="Nível de industrialização">
         <select className={'xs-select cur-level' + (todo ? ' cur-level-empty' : '')} value={c.level || ''}
+                aria-label={`Nível de industrialização de ${c.code}`}
                 title={c.level ? window.enrichment.levelDesc(c.level) : 'Selecione o nível de industrialização'}
                 onChange={(e) => window.enrichment.setCode(c.id, { level: e.target.value })}>
           <option value="">— a classificar —</option>
@@ -345,6 +346,7 @@ function ViewEnrichmentMarketNature() {
                     return (
                       <td key={f.id} className="cur-c">
                         <select className={'cur-cell ' + (v ? 'mk-' + v : 'cur-cell-empty')} value={v || ''}
+                                aria-label={`Tipo de mercado (${r.label || r.id} × ${f.label || f.id})`}
                                 onChange={(e) => window.enrichment.setPair(r.id, f.id, e.target.value || null)}>
                           <option value="">—</option>
                           {window.ENRICH_MARKETS.map(m => <option key={m.id} value={m.id}>{m.short}</option>)}

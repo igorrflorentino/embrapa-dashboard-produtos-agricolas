@@ -344,7 +344,7 @@ def test_purge_plan_backup_no_runs(monkeypatch):
 
     plan = catalog_lifecycle.purge_plan("pevs", "1234", settings=_settings())
     assert plan["backup_ok"] is False
-    assert "nenhum snapshot" in plan["backup_msg"]
+    assert "no Gold snapshot" in plan["backup_msg"]
 
 
 def test_purge_plan_backup_only_partial(monkeypatch):
@@ -372,7 +372,7 @@ def test_purge_plan_backup_only_partial(monkeypatch):
 
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is False
-    assert "COMPLETO" in plan["backup_msg"]
+    assert "COMPLETE" in plan["backup_msg"]
 
 
 def test_purge_plan_backup_stale(monkeypatch):
@@ -401,7 +401,7 @@ def test_purge_plan_backup_stale(monkeypatch):
 
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is False
-    assert "backup fresco" in plan["backup_msg"]
+    assert "fresh backup" in plan["backup_msg"]
 
 
 def test_purge_plan_backup_gcs_unreachable(monkeypatch):
@@ -426,7 +426,7 @@ def test_purge_plan_backup_gcs_unreachable(monkeypatch):
 
     plan = catalog_lifecycle.purge_plan("comex", "20079926", settings=_settings())
     assert plan["backup_ok"] is False
-    assert "não foi possível verificar o backup" in plan["backup_msg"]
+    assert "could not verify the backup" in plan["backup_msg"]
 
 
 def test_mark_purged_refuses_when_not_descontinuado(monkeypatch):

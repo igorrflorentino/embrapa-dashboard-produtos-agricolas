@@ -24,6 +24,7 @@ from embrapa_dashboard.serving.curation import ensure_catalog_editors_table
 from embrapa_dashboard.serving.feedback import FeedbackValidationError, record_feedback
 from embrapa_dashboard.serving.iap import InvalidIapAssertionError
 from embrapa_dashboard.serving.research_inputs import (
+    ChangeIdConflictError,
     ensure_attribute_editors_table,
     ensure_banco_metadata_table,
 )
@@ -148,12 +149,21 @@ def _coerce_str_fields(body: dict, *keys: str) -> None:
 def _api_value_error(exc):
     """Client-input validation errors → HTTP 400 (not 500). The serving writers raise
     ValueError with a caller-facing reason (pt-BR for the catalog writers: a bad key, an
-    over-length field, an invalid ciclo/banco, a nonexistent code). Surface that reason
+    over-length field, an invalid ciclo/banco, a missing PPM sidra_tabela). Surface that reason
     verbatim so the user can self-correct — a generic "check the fields" hides WHY. ValueError
     here is always our own validation; an arbitrary internal fault is an Exception → the 500
     handler, never this path — so the message is safe to return."""
     logger.info("Invalid input on %s: %s", request.path, exc)
     return jsonify(error=str(exc) or "Dados inválidos."), 400
+
+
+@api.errorhandler(ChangeIdConflictError)
+def _api_change_id_conflict(exc):
+    """A reused idempotency change_id pointing at a DIFFERENT stored row → HTTP 409 Conflict
+    (distinct from the ValueError→400 validation path). Surface the pt-BR reason so the client
+    regenerates the change_id instead of silently receiving an unrelated prior row."""
+    logger.info("change_id conflict on %s: %s", request.path, exc)
+    return jsonify(error=str(exc) or "Conflito de idempotência (change_id)."), 409
 
 
 @api.errorhandler(Exception)
@@ -250,10 +260,15 @@ def _authorize_attribute_editor():
         # Open mode is trustworthy only if we could confirm the table (ensured=True);
         # a can't-create failure must fail CLOSED, not silently admit everyone.
         if not ensured:
-            return None, (jsonify(error="attribute editor allowlist is unavailable"), 503)
+            return None, (
+                jsonify(
+                    error="Lista de editores de atributos indisponível no momento. Tente novamente."
+                ),
+                503,
+            )
         return author, None  # genuine open mode
     if author.lower() not in allowed:
-        return None, (jsonify(error=f"{author} is not an authorized attribute editor"), 403)
+        return None, (jsonify(error="Você não tem autorização para editar atributos."), 403)
     return author, None
 
 
@@ -366,8 +381,8 @@ def catalog_entries():
 @api.get("/catalog/source-codes")
 def catalog_source_codes():
     """The source's REAL product codes (+ names) for one banco (?banco=) — backs the add
-    form's code autocomplete + the client-side existence check. Empty when the banco is
-    unknown / its products table isn't built."""
+    form's code autocomplete + the client-side "já existe na Gold?" advisory hint. Empty
+    when the banco is unknown / its products table isn't built."""
     return jsonify(seam.source_codes(request.args.get("banco") or ""))
 
 
@@ -384,16 +399,26 @@ def catalog_entry_upsert():
     """Upsert one commodity-catalog entry (the editable successor to the
     commodity_crosswalk seed). Author captured from the IAP header; 401/403 via the
     per-catalog editor allowlist. A bad key / over-length / invalid ciclo/banco /
-    nonexistent code → 400."""
+    missing PPM sidra_tabela → 400."""
     author, err = _authorize_catalog_editor(seam.PRODUTO_CATALOG_RESOURCE)
     if err:
         return err
     body = _json_object()
-    # Coerce the string fields to str so a numeric code sent as a JSON number
-    # (the codes ARE numeric) doesn't AttributeError on ``.strip()`` in the writer.
-    _coerce_str_fields(body, "codigo_produto", "banco", "agrupamento", "ciclo_de_vida")
+    # Coerce the string fields to str so a numeric value sent as a JSON number
+    # (the codes ARE numeric) doesn't AttributeError on ``.strip()`` / ``len()`` in the writer.
+    _coerce_str_fields(
+        body,
+        "codigo_produto",
+        "banco",
+        "agrupamento",
+        "agrupamento_id",
+        "descricao_produto",
+        "ciclo_de_vida",
+        "sidra_tabela",
+        "change_id",
+    )
     if not (body.get("codigo_produto") and body.get("banco")):
-        return jsonify(error="codigo_produto and banco are required"), 400
+        return jsonify(error="codigo_produto e banco são obrigatórios (a chave do catálogo)."), 400
     logger.info(
         "catalog upsert by %s: %s/%s", author, body.get("banco"), body.get("codigo_produto")
     )
@@ -409,9 +434,9 @@ def catalog_entry_remove():
     if err:
         return err
     body = _json_object()
-    _coerce_str_fields(body, "codigo_produto", "banco")
+    _coerce_str_fields(body, "codigo_produto", "banco", "change_id")
     if not (body.get("codigo_produto") and body.get("banco")):
-        return jsonify(error="codigo_produto and banco are required"), 400
+        return jsonify(error="codigo_produto e banco são obrigatórios (a chave do catálogo)."), 400
     logger.info(
         "catalog remove by %s: %s/%s", author, body.get("banco"), body.get("codigo_produto")
     )
@@ -442,9 +467,9 @@ def catalog_group_upsert():
     if err:
         return err
     body = _json_object()
-    _coerce_str_fields(body, "group_name", "group_id")
+    _coerce_str_fields(body, "group_name", "group_id", "change_id")
     if not body.get("group_name"):
-        return jsonify(error="group_name is required"), 400
+        return jsonify(error="O nome do agrupamento é obrigatório."), 400
     logger.info("catalog group upsert by %s: %s", author, body.get("group_name"))
     return jsonify(seam.record_group(body))
 
@@ -457,9 +482,9 @@ def catalog_group_remove():
     if err:
         return err
     body = _json_object()
-    _coerce_str_fields(body, "group_id")
+    _coerce_str_fields(body, "group_id", "change_id")
     if not body.get("group_id"):
-        return jsonify(error="group_id is required"), 400
+        return jsonify(error="group_id é obrigatório."), 400
     logger.info("catalog group remove by %s: %s", author, body.get("group_id"))
     return jsonify(seam.remove_group(body))
 
@@ -1014,7 +1039,7 @@ def curation_code_level():
     source, code, level = body.get("source"), body.get("code"), body.get("level")
     change_id = body.get("change_id")
     if not (source and code and level):
-        return jsonify(error="source, code and level are required"), 400
+        return jsonify(error="source, code e level são obrigatórios."), 400
     logger.info("curation write by %s: %s/%s → %s", author, source, code, level)
     return jsonify(seam.record_code_level(source, code, level, change_id))
 
@@ -1040,6 +1065,6 @@ def curation_flow_market():
     market = body.get("market") or ""
     change_id = body.get("change_id")
     if not (customs_code and flow_code):
-        return jsonify(error="customs_code and flow_code are required"), 400
+        return jsonify(error="customs_code e flow_code são obrigatórios."), 400
     logger.info("curation write by %s: %s×%s → %s", author, customs_code, flow_code, market)
     return jsonify(seam.record_flow_market(customs_code, flow_code, market, change_id))

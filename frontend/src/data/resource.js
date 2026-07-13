@@ -41,6 +41,18 @@ export function get(key) {
   return e && e.state === 'ready' ? e.data : null;
 }
 
+/** The error message for a key whose fetch has SETTLED into failure (errored AND
+ *  out of auto-retries), else null. This is the piece get() collapses to null: it
+ *  lets a producer surface `loadError` on its shell so a view distinguishes a real
+ *  fetch failure from "genuinely no data" (the no-invisible-filtering rule). Gated on
+ *  MAX_ATTEMPTS so a transient error mid-retry still reads as loading, not failure. */
+export function errorOf(key) {
+  const e = cache.get(key);
+  return e && e.state === 'error' && (e.attempts || 0) >= MAX_ATTEMPTS
+    ? e.error || 'load failed'
+    : null;
+}
+
 /** Kick off a fetch for key (idempotent — no-op if already pending/ready).
  *  urlFactory is a function so the URL is only built when actually fetching. It
  *  returns either a URL string (GET) or a `[url, init]` tuple (e.g. a POST whose

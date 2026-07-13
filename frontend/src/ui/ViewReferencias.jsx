@@ -157,7 +157,7 @@ function ViewReferencias() {
       {/* Seed picker — the consultable reference tables (shared across bancos) */}
       <div className="pp-selector">
         <span className="pp-selector-label">
-          Tabela de referência <small className="pc-cap">(seeds usados pelo pipeline)</small>
+          Tabela de referência <small className="pc-cap">(valores de referência usados pelo pipeline)</small>
         </span>
         <div className="pp-chips">
           {seeds.map((s) => (
@@ -215,15 +215,15 @@ function ViewReferencias() {
 
           {/* Filter builder (same contract as a Dados table) */}
           <div className="dt-filterbar">
-            <select value={draft.col} onChange={(e) => setDraft((d) => ({ ...d, col: e.target.value }))}>
+            <select aria-label="Coluna do filtro" value={draft.col} onChange={(e) => setDraft((d) => ({ ...d, col: e.target.value }))}>
               <option value="">coluna…</option>
               {cols.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
-            <select value={draft.op} onChange={(e) => setDraft((d) => ({ ...d, op: e.target.value }))}>
+            <select aria-label="Operador do filtro" value={draft.op} onChange={(e) => setDraft((d) => ({ ...d, op: e.target.value }))}>
               {_RF_OPS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
             {!_RF_VALUELESS.has(draft.op) && (
-              <input type="text" placeholder="valor" value={draft.val}
+              <input type="text" placeholder="valor" aria-label="Valor do filtro" value={draft.val}
                      onChange={(e) => setDraft((d) => ({ ...d, val: e.target.value }))}
                      onKeyDown={(e) => e.key === 'Enter' && addFilter()} />
             )}

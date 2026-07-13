@@ -262,7 +262,7 @@ def test_production_value_is_flow_only_when_measure_kind_present():
 
 def test_value_column_allowlist_blocks_injection():
     # An identifier can't be a bind param, so it must be allowlisted, not escaped.
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.production_overview(
             "p.serving.serving_pevs_annual",
             value_column="val_real_ipca_brl; drop table gold_pevs_production",
@@ -275,7 +275,7 @@ def test_filter_column_allowlist_blocks_injection():
     # from interpolating a user-derived column. Filter VALUES are always bound.
     conditions: list[str] = []
     params: list = []
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql._in_array(conditions, params, "product_code); drop table x; --", "p", ("3405",))
     # An allowed column still builds the bound IN-clause...
     sql._in_array(conditions, params, "product_code", "product_codes", ("3405",))
@@ -514,7 +514,7 @@ def test_products_by_uf_pevs_form_has_no_flow_and_validates_columns():
     )
     assert "flow = @flow" not in query.lower()
     assert "group by product_code" in query.lower()
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.products_by_uf(
             "p.serving.serving_pevs_annual",
             code_column="product_code); drop table x; --",
@@ -639,7 +639,7 @@ def test_trade_value_column_allowlist_blocks_injection():
     value (e.g. an injection attempt) must raise rather than reach the SQL."""
     import pytest
 
-    with pytest.raises(ValueError, match="value_column"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.trade_overview(
             "p.serving.serving_comex_annual",
             code_column="ncm_code",
@@ -869,14 +869,14 @@ def test_quality_by_source_no_filter_has_no_where():
 
 def test_dimension_column_allowlist_blocks_injection():
     # origin/dest/partner identifiers are interpolated, so they must be allowlisted.
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.trade_by_partner(
             "p.serving.serving_comex_annual",
             partner_code_column="country_code); drop table x; --",
             partner_name_column="country_name",
             code_column="ncm_code",
         )
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.trade_flows(
             "p.serving.serving_comex_annual",
             origin_code_column="state_acronym",
@@ -995,13 +995,13 @@ def test_product_timeseries_no_customs_market_adds_no_predicate():
 
 
 def test_product_columns_allowlist_blocks_injection():
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.products(
             "p.serving.serving_comex_annual",
             code_column="ncm_code); drop table x; --",
             name_column="ncm_description",
         )
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="não permitida"):
         sql.product_timeseries("p.serving.serving_pevs_annual", code_column="evil")
 
 
@@ -1243,6 +1243,8 @@ def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
     monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)  # already recorded
+    # The dedup branch re-reads the stored row (read-after-write); None → fallback echo path.
+    monkeypatch.setattr(curation, "_flow_market_row_for_change_id", lambda *a, **k: None)
     client = mock.Mock()
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
@@ -1260,6 +1262,34 @@ def test_record_flow_market_dedupes_on_repeated_change_id(monkeypatch):
     assert record["deduped"] is True
     # A duplicate change_id must NOT run the INSERT.
     assert "insert into" not in " ".join(str(c) for c in client.query.call_args_list).lower()
+
+
+def test_record_flow_market_change_id_conflict_raises(monkeypatch):
+    """A change_id reused for a DIFFERENT (customs_code, flow_code) → ChangeIdConflictError
+    (409) instead of echoing an unrelated prior row (C6 guard, FROZEN feature)."""
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import attribute_engineering as curation
+    from embrapa_dashboard.serving.research_inputs import ChangeIdConflictError
+
+    monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(curation, "_change_id_seen", lambda *a, **k: True)
+    monkeypatch.setattr(
+        curation,
+        "_flow_market_row_for_change_id",
+        lambda *a, **k: {"customs_code": "C99", "flow_code": "import", "market": "consumo"},
+    )
+    headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
+    with pytest.raises(ChangeIdConflictError):
+        curation.record_flow_market(
+            "C04",
+            "export",
+            "processamento",
+            headers,
+            change_id="dup-1",
+            settings=_settings(),
+            client=mock.Mock(),
+            invalidate_cache=False,
+        )
 
 
 def test_invalidate_flow_market_cache_is_best_effort(monkeypatch):
@@ -1345,6 +1375,8 @@ def test_record_code_industrialization_dedupes_on_repeated_change_id(monkeypatch
     from embrapa_dashboard.serving import attribute_engineering as curation
 
     monkeypatch.setattr(curation, "ensure_dataset", lambda *a, **k: None)
+    # The dedup branch re-reads the stored row (read-after-write); None → fallback echo path.
+    monkeypatch.setattr(curation, "_code_row_for_change_id", lambda *a, **k: None)
     client = _seen_client(exists=True)
     headers = {iap.IAP_EMAIL_HEADER: "accounts.google.com:alice@embrapa.br"}
 
@@ -2436,7 +2468,7 @@ def test_gateway_rejects_invalid_value_column(monkeypatch, fetch_name):
 
     with app.app_context():
         cache.clear()
-        with pytest.raises(ValueError, match="not allowed"):
+        with pytest.raises(ValueError, match="não permitida"):
             getattr(gateway, fetch_name)(value_column="evil; drop table gold")
 
 

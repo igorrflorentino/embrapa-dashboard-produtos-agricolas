@@ -199,7 +199,7 @@ function ViewDados({ database }) {
             title={`${(total || 0).toLocaleString('pt-BR')} linhas · ${cols.length} colunas`}
             action={
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                {exportErr && <span className="caption" style={{ color: 'var(--err, #b71c1c)' }}>{exportErr}</span>}
+                {exportErr && <span className="caption" role="alert" style={{ color: 'var(--err, #b71c1c)' }}>{exportErr}</span>}
                 <button type="button" className="seg-opt" onClick={exportCsv} disabled={!cols.length}>
                   Exportar CSV (até {_DT_EXPORT_CAP})
                 </button>
@@ -210,15 +210,15 @@ function ViewDados({ database }) {
 
           {/* Filter builder */}
           <div className="dt-filterbar">
-            <select value={draft.col} onChange={(e) => setDraft((d) => ({ ...d, col: e.target.value }))}>
+            <select aria-label="Coluna do filtro" value={draft.col} onChange={(e) => setDraft((d) => ({ ...d, col: e.target.value }))}>
               <option value="">coluna…</option>
               {cols.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
-            <select value={draft.op} onChange={(e) => setDraft((d) => ({ ...d, op: e.target.value }))}>
+            <select aria-label="Operador do filtro" value={draft.op} onChange={(e) => setDraft((d) => ({ ...d, op: e.target.value }))}>
               {_DT_OPS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
             {!_DT_VALUELESS.has(draft.op) && (
-              <input type="text" placeholder="valor" value={draft.val}
+              <input type="text" placeholder="valor" aria-label="Valor do filtro" value={draft.val}
                      onChange={(e) => setDraft((d) => ({ ...d, val: e.target.value }))}
                      onKeyDown={(e) => e.key === 'Enter' && addFilter()} />
             )}

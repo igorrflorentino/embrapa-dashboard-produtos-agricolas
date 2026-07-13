@@ -29,6 +29,7 @@ function ViewFlows({ summary, conventions, database }) {
           origin-UF filter on a country-origin banco like Comtrade). The data layer
           already withholds the param; this surfaces WHY the charts are unchanged. */}
       <window.NotApplicableNote note={data.notApplicable} />
+      <window.LoadErrorNote error={data.loadError} />
 
       <div className="kpi-row">
         <window.KpiCardSpark label="Fluxo total" value={fmt(totalOut)} sub={`${data.links.length} rotas mapeadas`} />
