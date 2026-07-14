@@ -112,14 +112,16 @@ def test_bronze_schema_shape() -> None:
 
 
 # ─── sync_raw (Phase 1) ──────────────────────────────────────────────────────
-def test_sync_raw_skips_past_year_already_archived(settings) -> None:
-    """A non-latest year whose raw exists is skipped — no API call."""
+def test_sync_raw_skips_settled_year_already_archived(settings) -> None:
+    """A SETTLED past year (older than the recent re-fetch window) whose raw exists is
+    skipped — no API call. 2020 is > 2 years before end_year 2023, so every reporter has
+    long since filed and there is nothing new to absorb (recent years re-fetch; see below)."""
     with (
         patch.object(pipeline, "raw_provenance", return_value={"source": "un-comtrade"}),
         patch.object(client, "fetch_chunk_adaptive") as fetch,
         patch.object(pipeline, "land_raw") as land,
     ):
-        changed = pipeline.sync_raw(settings, 2022, ["76"], storage_client=MagicMock())
+        changed = pipeline.sync_raw(settings, 2020, ["76"], storage_client=MagicMock())
     assert changed is False
     fetch.assert_not_called()
     land.assert_not_called()
@@ -222,18 +224,20 @@ def test_sync_raw_old_empty_sentinel_still_skips(settings) -> None:
     land.assert_not_called()
 
 
-def test_sync_raw_recent_real_data_still_skips(settings) -> None:
-    """A recent year whose raw is REAL data (no ``empty`` flag) still resume-skips — the
-    re-fetch only targets empty sentinels, so the delta optimization is preserved."""
+def test_sync_raw_recent_real_data_refetches(settings) -> None:
+    """A recent year whose raw already holds REAL data is RE-FETCHED — reporters file with
+    a ~1-2y lag, so an early fetch captured only some of the batch's reporters; the rest
+    (and any revision to the early ones) would be frozen out forever if a non-empty recent
+    raw resume-skipped. 2022 is within 2 years of end_year 2023, so it re-fetches."""
     with (
         patch.object(pipeline, "raw_provenance", return_value={"source": "un-comtrade"}),
-        patch.object(client, "fetch_chunk_adaptive") as fetch,
+        patch.object(client, "fetch_chunk_adaptive", return_value=_bronze_df()) as fetch,
         patch.object(pipeline, "land_raw") as land,
     ):
         changed = pipeline.sync_raw(settings, 2022, ["76"], storage_client=MagicMock())
-    assert changed is False
-    fetch.assert_not_called()
-    land.assert_not_called()
+    assert changed is True
+    fetch.assert_called_once()  # re-fetched despite existing real-data raw
+    land.assert_called_once()
 
 
 def test_sync_raw_fetches_and_lands_with_provenance(settings) -> None:

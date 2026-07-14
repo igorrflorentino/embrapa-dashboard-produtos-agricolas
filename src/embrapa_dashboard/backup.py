@@ -120,6 +120,12 @@ def run(settings: Settings) -> tuple[str, list[str]]:
     # partial/failed snapshot apart from a complete one.
     manifest = {
         "run_id": run_id,
+        # The SOURCE dataset — dev (dbt_dev_gold) and prod (gold) hold identically-named
+        # tables, so without this a dev-pointed .env snapshot is indistinguishable from a
+        # prod one and would satisfy doctor freshness AND the purge-orphan backup gate for a
+        # PROD purge (whose only rollback point would then be 7-day-TTL dev data). Doctor and
+        # the purge gate cross-check this against the dataset being operated on.
+        "dataset": settings.bq_gold_dataset,
         "table_count": len(table_fqns),
         "tables": [fqn.split(".")[-1] for fqn in table_fqns],
         "completed_at": datetime.now(UTC).isoformat(),

@@ -409,7 +409,7 @@ def test_check_backup_freshness_skips_incomplete_snapshot(settings: Settings) ->
         result = doctor._check_backup_freshness(settings)
     assert result.ok is True
     assert "3d ago" in result.detail  # measured from the complete one, not 1d
-    assert "skipped 1 newer incomplete" in result.detail
+    assert "skipped 1 newer" in result.detail
 
 
 def test_check_backup_freshness_fails_when_only_incomplete_snapshots(settings: Settings) -> None:

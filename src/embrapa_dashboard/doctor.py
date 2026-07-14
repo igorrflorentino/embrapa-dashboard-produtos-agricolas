@@ -8,6 +8,7 @@ of mid-run.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -658,19 +659,39 @@ def _list_backup_runs(client, settings: Settings) -> list[tuple[datetime, str]]:
     return runs
 
 
-def _latest_complete_run(client, settings: Settings, runs: list[tuple[datetime, str]]):
-    """Newest run carrying the ``_SUCCESS`` marker, and how many newer ones lacked it.
+def _snapshot_dataset(marker_blob) -> str | None:
+    """The Gold dataset a sealed run snapshotted, read from its ``_SUCCESS`` manifest body;
+    ``None`` if the body is unreadable or predates dataset recording (legacy snapshot)."""
+    try:
+        return json.loads(marker_blob.download_as_text()).get("dataset")
+    except Exception:
+        return None
 
-    Returns ``(latest_ts_or_None, incomplete_skipped)``. Partial/failed runs (no
-    marker) are skipped — a crashed half-backup must not satisfy freshness.
+
+def _latest_complete_run(client, settings: Settings, runs: list[tuple[datetime, str]]):
+    """Newest run that both carries the ``_SUCCESS`` marker AND snapshotted the dataset now
+    configured (``settings.bq_gold_dataset``), and how many newer runs were skipped.
+
+    Returns ``(latest_ts_or_None, skipped)``. Partial/failed runs (no marker) are skipped — a
+    crashed half-backup must not satisfy freshness. A COMPLETE run whose manifest records a
+    DIFFERENT dataset is also skipped: dev (dbt_dev_gold) and prod (gold) hold identically
+    named tables under one bucket prefix, so a dev-pointed-.env snapshot must never satisfy a
+    prod freshness/backup gate (nor vice-versa). A legacy manifest with no recorded dataset is
+    assumed to match (backward compatibility with snapshots taken before it was recorded).
     """
     bucket = client.bucket(settings.gcs_bucket)
-    incomplete_skipped = 0
+    skipped = 0
     for ts, prefix in sorted(runs, reverse=True):  # newest first
-        if bucket.blob(f"{prefix}{SUCCESS_MARKER}").exists():
-            return ts, incomplete_skipped
-        incomplete_skipped += 1
-    return None, incomplete_skipped
+        marker = bucket.blob(f"{prefix}{SUCCESS_MARKER}")
+        if not marker.exists():
+            skipped += 1
+            continue
+        snap_dataset = _snapshot_dataset(marker)
+        if snap_dataset is not None and snap_dataset != settings.bq_gold_dataset:
+            skipped += 1
+            continue
+        return ts, skipped
+    return None, skipped
 
 
 def _check_backup_freshness(settings: Settings) -> CheckResult:
@@ -709,12 +730,13 @@ def _check_backup_freshness(settings: Settings) -> CheckResult:
                 "Gold backup freshness",
                 False,
                 f"{len(runs)} snapshot(s) under gs://{settings.gcs_bucket}/{_BACKUP_PREFIX} "
-                f"but none has the {SUCCESS_MARKER} marker — all partial/failed "
+                f"but none is a COMPLETE snapshot of dataset {settings.bq_gold_dataset!r} "
+                f"(missing {SUCCESS_MARKER} marker, or a snapshot of a different dataset) "
                 "(run `make dbt-build-prod-with-backup`)",
             )
 
         skipped_note = (
-            f"; ⚠ skipped {incomplete_skipped} newer incomplete run(s)"
+            f"; ⚠ skipped {incomplete_skipped} newer run(s) (incomplete or other-dataset)"
             if incomplete_skipped
             else ""
         )

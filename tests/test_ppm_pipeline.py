@@ -20,6 +20,17 @@ from embrapa_dashboard.ibge import ppm_pipeline
 P = "embrapa_dashboard.ibge.ppm_pipeline"
 
 
+@pytest.fixture(autouse=True)
+def _all_products_present():
+    """Default: every configured product already has Bronze rows, so ``_delta_start_year`` takes
+    the normal delta path (the new-product full-backfill branch has its own test)."""
+    with patch(
+        f"{P}.bronze_products_present",
+        side_effect=lambda *a, **k: set(a[3]),
+    ):
+        yield
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(

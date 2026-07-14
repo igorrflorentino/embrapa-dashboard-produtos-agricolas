@@ -157,15 +157,27 @@ function ViewCadastroProdutos() {
   // The source's REAL codes for the add form's banco (autocomplete + advisory "já existe" hint).
   const [srcCodes, setSrcCodes] = useCcState({ banco: null, codes: [], loading: false, error: false });
 
-  // Idempotency keys, one STABLE change_id per in-flight logical operation (keyed by the
-  // entity it touches). Reused across a retry so a double-click / timeout-then-retry dedupes
-  // server-side; rotated on success so the NEXT edit of the same entity gets a fresh key.
+  // Idempotency keys, one STABLE change_id per in-flight logical operation. The key is scoped
+  // to the entity AND the payload (see _saveKey): a retry of the SAME edit reuses its key so a
+  // double-click / timeout-then-retry dedupes server-side, but a DIFFERENT later edit of the
+  // same entity gets a FRESH key. A key is rotated only on success (run's opKeys), so a FAILED
+  // op keeps its key for the resume. Scoping the key to the entity ALONE was a bug: after a
+  // partial-batch failure retained the key of an already-committed write, the researcher's next
+  // DIFFERENT edit of that entity reused the change_id and the server swallowed it as a benign
+  // duplicate (attribute-only divergence), silently discarding the edit under a success toast.
   const cidRef = useCcRef(new Map());
   const cidFor = (key) => {
     if (!cidRef.current.has(key)) cidRef.current.set(key, _ccUuid());
     return cidRef.current.get(key);
   };
   const cidDone = (key) => cidRef.current.delete(key);
+  // Idempotency key for a catalog-entry write: entity + a fingerprint of the MEANINGFUL fields
+  // the server records (agrupamento, ciclo de vida, descrição). Two edits that change different
+  // attributes of the same product therefore get distinct change_ids and both apply; re-issuing
+  // the identical edit reuses one and dedupes.
+  const _saveKey = (e) =>
+    `save:${e.banco}:${e.codigo_produto}:` +
+    JSON.stringify([e.agrupamento_id ?? null, e.ciclo_de_vida ?? null, e.descricao_produto ?? null]);
 
   // Server-authoritative edit permission (from /api/catalog/entries' can_edit). The UI
   // merely REFLECTS it — the POST handlers still 403 on a stale true, so this only ever
@@ -260,7 +272,7 @@ function ViewCadastroProdutos() {
   };
 
   const saveEntry = (entry) => {
-    const key = `save:${entry.banco}:${entry.codigo_produto}`;
+    const key = _saveKey(entry);
     return run(
       () => post('/api/catalog/entry', { ...entry, change_id: cidFor(key) }),
       `Produto ${entry.codigo_produto} salvo. ${_CC_LATENCIA}`,
@@ -323,7 +335,11 @@ function ViewCadastroProdutos() {
       onConfirm: (name) => {
         const trimmed = name.trim();
         if (!trimmed || trimmed === g.group_name) return;
-        const key = `grp:${g.group_id}`;
+        // Key on the target NAME, not just the group id: after a rename that committed but was
+        // reported as failed (so its key was retained), a SECOND rename to a DIFFERENT name must
+        // get a fresh change_id — else the server dedupes it and re-stamps the OLD name while the
+        // toast announces the new one.
+        const key = `grp:${g.group_id}:${trimmed}`;
         run(() => post('/api/catalog/group', { group_id: g.group_id, group_name: trimmed, change_id: cidFor(key) }),
           `Agrupamento renomeado para "${trimmed}". ${_CC_LATENCIA}`, key);
       },
@@ -346,18 +362,19 @@ function ViewCadastroProdutos() {
   const setCicloForGroup = (g, ciclo) => {
     const members = data.entries.filter((e) => e.agrupamento_id === g.group_id);
     const apply = () => {
-      const keys = members.map((m) => `save:${m.banco}:${m.codigo_produto}`);
+      const writes = members.map((m) => ({ ...m, ciclo_de_vida: ciclo }));
+      const keys = writes.map(_saveKey);
       run(async () => {
         let done = 0;
         try {
-          for (const m of members) {
-            await post('/api/catalog/entry', { ...m, ciclo_de_vida: ciclo, change_id: cidFor(`save:${m.banco}:${m.codigo_produto}`) });
+          for (const w of writes) {
+            await post('/api/catalog/entry', { ...w, change_id: cidFor(_saveKey(w)) });
             done += 1;
           }
         } catch (e) {
-          throw new Error(`${String(e.message || e)} — aplicado a ${done}/${members.length} antes da falha.`);
+          throw new Error(`${String(e.message || e)} — aplicado a ${done}/${writes.length} antes da falha.`);
         }
-      }, `Ciclo de vida de "${g.group_name}" atualizado (${members.length}).`, keys);
+      }, `Ciclo de vida de "${g.group_name}" atualizado (${writes.length}).`, keys);
     };
     if (ciclo === _CC_CICLO_OCULTO) {
       setPendingConfirm({

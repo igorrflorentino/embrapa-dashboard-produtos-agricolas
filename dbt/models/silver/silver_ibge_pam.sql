@@ -91,7 +91,7 @@ parsed as (
         variavel_codigo                                                             as variable_code,
         variavel                                                                    as variable_name,
         unidade_de_medida                                                           as unit_of_measure,
-        {{ safe_numeric('valor') }}                                                 as raw_numeric_value,
+        {{ safe_numeric('valor', dash_is_zero=true) }}                              as raw_numeric_value,
         ingestion_timestamp
     from deduplicated
 
@@ -132,7 +132,7 @@ select
     case when p.variable_code = '{{ var_quantity }}'
         then p.unit_of_measure end                          as unit_native,
     case when p.variable_code = '{{ var_quantity }}'
-        then coalesce(ufc.family, 'desconhecida') end       as family,
+        then coalesce(ufp.family, ufc.family, 'desconhecida') end as family,
     case when p.variable_code = '{{ var_quantity }}'
         then coalesce(ufp.base_unit, ufc.base_unit) end     as base_unit,
     case when p.variable_code = '{{ var_quantity }}'

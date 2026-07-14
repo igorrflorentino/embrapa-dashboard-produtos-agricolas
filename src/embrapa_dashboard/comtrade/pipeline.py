@@ -5,11 +5,13 @@ years), so — like IBGE — the fetched frame *is* the Bronze content; Phase 1
 archives it verbatim to the raw zone, Phase 2 stamps ingestion_timestamp and
 loads BigQuery. See ``PLANS/comtrade_flows.md``.
 
-Chunk = ``(year, reporter-batch)`` → one API call. Resumable: a past-year chunk
-whose raw already exists is skipped; the latest year is always re-fetched (UN
-Comtrade revises recent years). So a daily-quota interruption just leaves the
-un-archived chunks for the next run — no lost work, no duplication beyond what
-Silver dedupes.
+Chunk = ``(year, reporter-batch)`` → one API call. Resumable: a SETTLED past-year
+chunk whose raw already exists is skipped, but the recent window
+(``comtrade_recent_refetch_years`` back from ``comtrade_end_year``) is always
+re-fetched — UN Comtrade reporters file with a ~1-2y lag, so a recent year lands
+incomplete and its later reporter submissions/revisions must keep flowing in. So a
+daily-quota interruption just leaves the un-archived chunks for the next run — no
+lost work, no duplication beyond what Silver dedupes.
 
 A chunk's raw object is keyed by the *content* of its reporter batch (a stable
 hash of the sorted reporter codes), not by a positional index — see ``_basename``.
@@ -134,12 +136,14 @@ def sync_raw(
 ) -> bool:
     """Phase 1: fetch one (year, reporter-batch) chunk and archive it. Returns
     ``True`` if (re)fetched (incl. a past-year empty sentinel landed), ``False``
-    if skipped (past-year chunk already raw) or the latest year came back empty.
+    if skipped (a settled past-year chunk already raw) or the latest year came back empty.
 
-    The latest configured year is always re-fetched (Comtrade revises it);
-    ``force`` re-fetches everything. A *past*-year empty fetch lands an empty
-    sentinel raw object so the chunk resume-skips next run instead of re-billing
-    the daily quota (the latest year is re-fetched regardless, so no sentinel).
+    Every year within the recent window (``comtrade_recent_refetch_years`` back from
+    ``comtrade_end_year``) is re-fetched regardless of whether its raw already holds
+    data — reporters file with a lag, so a recent year is incomplete when first fetched
+    and its later submissions/revisions must keep flowing in. Only years older than that
+    window resume-skip. ``force`` re-fetches everything. A *past*-year empty fetch still
+    lands an empty sentinel so an older chunk resume-skips instead of re-billing quota.
     """
     basename = _basename(year, reporters)
     is_latest = year == settings.comtrade_end_year
@@ -152,17 +156,22 @@ def sync_raw(
             basename=basename,
         )
         if stored is not None:
-            # A RECENT year whose Bronze is an EMPTY sentinel may have been published by UN
-            # Comtrade since it was landed — re-fetch it (bounded to the recent window) so a
-            # newly-published year is picked up. Real data still resume-skips (delta), and an
-            # old empty sentinel (beyond the window, never coming) stays skipped.
+            # A RECENT year is re-fetched every run REGARDLESS of whether its raw is empty or
+            # already holds data: UN Comtrade reporters file with a ~1-2y lag, so a batch of 8
+            # reporters fetched early lands NON-empty with only 1-2 of them present, and the
+            # other reporters' later submissions (plus revisions of the early ones) would be
+            # frozen out forever if a non-empty raw resume-skipped. Gating the re-fetch on the
+            # empty sentinel was the bug: any single early reporter defeated it. Only years
+            # OLDER than the recent window (settled — every reporter has long since filed) still
+            # resume-skip. COMTRADE is excluded from `reconcile`, so this window is the ONLY
+            # path that absorbs late reporters/revisions — it must not be defeated by partial data.
             recent = year >= settings.comtrade_end_year - settings.comtrade_recent_refetch_years
-            is_empty_sentinel = str(stored.get("empty", "")).lower() == "true"
-            if not (recent and is_empty_sentinel):
-                logger.info("Comtrade %s: raw exists, skipping.", basename)
+            if not recent:
+                logger.info("Comtrade %s: raw exists (settled year), skipping.", basename)
                 return False
             logger.info(
-                "Comtrade %s: recent empty sentinel — re-fetching (may have been published).",
+                "Comtrade %s: recent year — re-fetching (late reporters / revisions may have "
+                "arrived since it was landed).",
                 basename,
             )
 

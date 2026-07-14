@@ -228,6 +228,12 @@ def raw_provenance(
 
 # Custom-metadata key stamped on a raw object once Bronze has been loaded from it.
 BRONZE_LOADED_KEY = "bronze_loaded_at"
+# Fingerprint of the FILTER a two-phase pipeline (COMEX) applied to the raw when it loaded
+# Bronze from it. Phase 2 filters the archived raw to a configured product set, so "loaded"
+# alone is ambiguous: a raw loaded under an OLD filter must re-run Phase 2 when the filter
+# changes (a new product added) to backfill the new product. Callers with no Phase-2 filter
+# omit it (the key stays absent, which reads as "no filter constraint").
+BRONZE_LOADED_FILTER_KEY = "bronze_loaded_filter"
 
 
 def mark_raw_bronze_loaded(
@@ -237,6 +243,7 @@ def mark_raw_bronze_loaded(
     source: str,
     dataset: str,
     basename: str,
+    filter_fingerprint: str | None = None,
 ) -> None:
     """Stamp an archived raw object as having been loaded into Bronze (Phase 2).
 
@@ -248,6 +255,10 @@ def mark_raw_bronze_loaded(
     loaded (see ``raw_bronze_loaded``). A re-extract rewrites the object's
     metadata wholesale, which clears this marker, so it always reflects whether
     *the current raw version* has been loaded.
+
+    ``filter_fingerprint`` records WHICH Phase-2 product filter loaded it (COMEX),
+    so a later filter change is detected and re-runs Phase 2 (see
+    ``raw_bronze_loaded_filter``); pipelines with no such filter leave it ``None``.
     """
     object_name = raw_object_name(settings, source, dataset, basename)
     blob = storage_client.bucket(settings.gcs_bucket).get_blob(object_name, timeout=GCS_TIMEOUT_S)
@@ -255,6 +266,8 @@ def mark_raw_bronze_loaded(
         return
     metadata = dict(blob.metadata or {})
     metadata[BRONZE_LOADED_KEY] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if filter_fingerprint is not None:
+        metadata[BRONZE_LOADED_FILTER_KEY] = filter_fingerprint
     blob.metadata = metadata
     blob.patch(timeout=GCS_TIMEOUT_S)
 
@@ -262,3 +275,9 @@ def mark_raw_bronze_loaded(
 def raw_bronze_loaded(stored: dict[str, str] | None) -> bool:
     """Whether raw provenance shows Bronze was loaded from this raw version."""
     return bool(stored and stored.get(BRONZE_LOADED_KEY))
+
+
+def raw_bronze_loaded_filter(stored: dict[str, str] | None) -> str | None:
+    """The product-filter fingerprint under which Bronze was loaded from this raw, or
+    ``None`` if unmarked (never loaded, or loaded before fingerprints were recorded)."""
+    return stored.get(BRONZE_LOADED_FILTER_KEY) if stored else None

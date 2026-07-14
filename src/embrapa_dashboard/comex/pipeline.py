@@ -16,6 +16,7 @@ skipped past years permanently once loaded).
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import os
 import tempfile
@@ -33,6 +34,7 @@ from embrapa_dashboard.core import (
     land_raw_file,
     mark_raw_bronze_loaded,
     raw_bronze_loaded,
+    raw_bronze_loaded_filter,
     raw_provenance,
     run_chunks,
 )
@@ -236,15 +238,40 @@ def has_raw(settings: Settings, flow: str, year: int, *, storage_client: storage
     )
 
 
+def _product_filter_fingerprint(settings: Settings) -> str:
+    """Stable hash of the configured COMEX product filter (NCM + chapter + heading codes).
+
+    Phase 2 filters the archived raw to THIS set, so the bronze-loaded marker records which
+    filter loaded a chunk. Without it, a historical raw whose ETag never changes stays marked
+    "loaded" under the OLD filter and resume-skips Phase 2 forever — so a newly-added NCM/
+    heading never backfills its history (only the current-year file, whose ETag churns, picks
+    it up). Keying on the sorted code union means adding/removing a product changes the
+    fingerprint, so ``needs_bronze`` re-runs Phase 2 (a cheap GCS read + in-memory re-filter,
+    no source re-download; Silver dedups the re-append) and the new product lands across all
+    years. Chapter/heading are prefix rules and NCM is exact — all three define the row set,
+    so all three enter the fingerprint.
+    """
+    codes = sorted(
+        set(settings.comex_ncm_map)
+        | set(settings.comex_chapter_map)
+        | set(settings.comex_heading_map)
+    )
+    return hashlib.sha256("\n".join(codes).encode()).hexdigest()[:16]
+
+
 def needs_bronze(
     settings: Settings, flow: str, year: int, *, extracted: bool, storage_client: storage.Client
 ) -> bool:
     """Whether Phase 2 must run for ``(flow, year)`` after Phase 1.
 
-    Always when Phase 1 (re)extracted. When the raw was unchanged, only if Bronze
-    has not yet been loaded from it — i.e. a prior run archived the raw then
-    aborted before the load. Without this check, the unchanged-raw skip would
-    leave that partition permanently absent from Bronze.
+    Always when Phase 1 (re)extracted. When the raw was unchanged, run Phase 2 if either
+    (a) Bronze has not yet been loaded from it — a prior run archived the raw then aborted
+    before the load — or (b) it was loaded under a DIFFERENT product filter than the one now
+    configured (a new NCM/heading was added), so the archived raw must be re-filtered to
+    backfill the new product across its history. A marker without a fingerprint (pre-this-
+    feature, or a chunk not re-marked since) re-runs once to establish it — cheap (a GCS read
+    + in-memory re-filter of the already-filtered raw, no source re-download) and Silver
+    dedups the re-append. Steady state: same filter → fingerprint matches → skip.
     """
     if extracted:
         return True
@@ -255,13 +282,18 @@ def needs_bronze(
         dataset=RAW_DATASET,
         basename=_basename(flow, year),
     )
-    return stored is not None and not raw_bronze_loaded(stored)
+    if stored is None:
+        return False
+    if not raw_bronze_loaded(stored):
+        return True
+    return raw_bronze_loaded_filter(stored) != _product_filter_fingerprint(settings)
 
 
 def mark_bronze_loaded(
     settings: Settings, flow: str, year: int, *, storage_client: storage.Client
 ) -> None:
-    """Stamp the ``(flow, year)`` raw object as loaded into Bronze (Phase 2 done).
+    """Stamp the ``(flow, year)`` raw object as loaded into Bronze (Phase 2 done), recording
+    the product-filter fingerprint that loaded it so a later filter change re-runs Phase 2.
 
     **Semantics: at-least-once, not exactly-once.** The marker is written *after*
     the Bronze load, so a crash in the window between the load and this stamp
@@ -275,6 +307,7 @@ def mark_bronze_loaded(
         source="comex",
         dataset=RAW_DATASET,
         basename=_basename(flow, year),
+        filter_fingerprint=_product_filter_fingerprint(settings),
     )
 
 

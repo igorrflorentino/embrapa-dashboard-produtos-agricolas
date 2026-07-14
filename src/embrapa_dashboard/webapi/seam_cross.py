@@ -218,10 +218,46 @@ def produto_catalog_with_family() -> dict:
     return out
 
 
+# A world-export year is "settled" once ~all UN reporters have filed. Reporters lag
+# ~1-2y, so the most recent year(s) carry far fewer reporters; dividing Brazil (a
+# complete declarant) by that partial world total inflates the "current" share and
+# fakes an upward tail / historic peak. A year counts as complete when its reporter
+# count is at least this fraction of the best-covered year — the share series and KPI
+# are capped at the latest such year (the COMTRADE analog of COMEX's partial-latest-year
+# guard, seam._latest_year_completeness).
+_WORLD_MIN_REPORTER_COVERAGE = 0.9
+
+
+def _world_latest_complete_year() -> int | None:
+    """The most recent world-export year whose reporter coverage is settled (>= the
+    coverage threshold of the best-covered year); None when the mart has no reporters
+    (then no clamp is applied — a safe no-op degrade to the raw common window).
+
+    Only the TRAILING partial years are trimmed: an older year with naturally lower
+    coverage (the world's trade data was thinner then) still sits at/below this year and
+    is kept — the clamp caps the upper bound, it does not filter the interior.
+    """
+    df = gateway.fetch_comtrade_reporters_per_year()
+    counts = (
+        {int(r.reference_year): int(r.n_reporters) for r in df.itertuples()}
+        if df is not None and not df.empty
+        else {}
+    )
+    if not counts:
+        return None
+    threshold = max(counts.values()) * _WORLD_MIN_REPORTER_COVERAGE
+    complete = [y for y, n in counts.items() if n >= threshold]
+    return max(complete) if complete else None
+
+
 def _market_share_series(comex_codes: tuple, comtrade_codes: tuple) -> list[dict]:
-    """Yearly BR-export ÷ world-export share (US$ bi) over the common-year window."""
+    """Yearly BR-export ÷ world-export share (US$ bi) over the common-year window,
+    capped at the latest world year with SETTLED reporter coverage — a partially
+    reported recent denominator would inflate the share and fake an upward tail."""
     br = seam_base._xyear("mdic_comex:exp_value", comex_codes)
     world = seam_base._xyear("un_comtrade:world_exp", comtrade_codes)
+    cap = _world_latest_complete_year()
+    years = [y for y in sorted(set(br) & set(world)) if cap is None or y <= cap]
     return [
         {
             "y": y,
@@ -229,15 +265,18 @@ def _market_share_series(comex_codes: tuple, comtrade_codes: tuple) -> list[dict
             "world": world[y] / 1e9,
             "share": (br[y] / world[y] * 100) if world[y] else 0,
         }
-        for y in sorted(set(br) & set(world))
+        for y in years
     ]
 
 
 def _market_share_latest(comex_codes: tuple, comtrade_codes: tuple) -> float | None:
-    """Latest common-year BR ÷ world share (%), or None when there is no overlap."""
+    """Latest SETTLED common-year BR ÷ world share (%), or None when there is no
+    overlap. Capped at the latest world year with complete reporter coverage so the
+    "current share" KPI isn't inflated by a partially reported recent denominator."""
     b = seam_base._xyear("mdic_comex:exp_value", comex_codes)
     w = seam_base._xyear("un_comtrade:world_exp", comtrade_codes)
-    common = sorted(set(b) & set(w))
+    cap = _world_latest_complete_year()
+    common = [y for y in sorted(set(b) & set(w)) if cap is None or y <= cap]
     if not common:
         return None
     ly = common[-1]

@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.17.0] - 2026-07-14
+
+**Auditoria enxuta de fluxos de dados e ciclo de vida — 12 achados confirmados corrigidos**
+(6 críticos de perda/deturpação de dado + 6 antipadrões latentes de config-drift; verificação
+adversarial por 2 lentes de refutação). Foco exclusivo em perda de dados / dado errado exibido
+ao pesquisador como correto, e desenhos que viram isso quando dado/config derivam.
+
+> ⚠️ **Requer rebuild do dbt Gold em prod** (a mudança de `safe_numeric` propaga Silver→Gold) —
+> não basta deploy de imagem. A retenção dos zeros publicados do IBGE **aumenta** a contagem de
+> linhas do Gold (linhas de zero exato antes descartadas passam a ser retidas). A correção de
+> ingestão do COMTRADE re-busca os 2 anos mais recentes a cada rodada.
+
+### Fixed
+- **COMTRADE congelava anos parcialmente publicados** — reporters entram com atraso de ~1-2 anos,
+  então um ano buscado cedo ficava com poucos reporters e o `sync_raw` fazia resume-skip para
+  sempre. Agora a janela recente é re-buscada integralmente (não só sentinelas vazias), absorvendo
+  reporters atrasados e revisões.
+- **`safe_numeric` apagava os zeros exatos do SIDRA** — `'-'` (zero medido, "não resultante de
+  arredondamento") era mapeado para NULL igual a `'...'` (indisponível), confundindo "produção
+  cessou/zero" com "não pesquisado" e descartando/marcando como ausente. Novo parâmetro
+  `dash_is_zero`: PEVS/PAM/PPM mapeiam `'-'`→0; BCB/COMEX/COMTRADE inalterados.
+- **Renomear agrupamento revertia movimentações e ressuscitava produtos removidos** —
+  `_active_member_rows` filtrava por `agrupamento_id` (atributo mutável) **antes** do dedup
+  latest-wins; agora deduplica o log completo e só então filtra pelo estado atual.
+- **Chave de idempotência engolia a próxima edição diferente** — a chave era por-entidade e
+  retida entre falhas, então uma segunda edição *diferente* do mesmo produto reusava o `change_id`
+  e era descartada em silêncio com toast de sucesso. Agora a chave inclui uma impressão do payload.
+- **Adaptadores de comércio ignoravam os filtros server-side** — sazonalidade, Sankey (COMTRADE)
+  e ranking de parceiros não recebiam flow/regime/tipo-de-mercado que o `/snapshot` já honra,
+  exibindo totais de todos os fluxos sob um filtro ativo. Fiados agora ponta a ponta.
+- **"Brasil no mercado mundial" dividia por denominador mundial parcial** — o último ano comum
+  podia ter uma fração dos reporters, inflando a "participação atual". Série e KPI capados no
+  último ano com cobertura de reporters assentada (≥90% do máximo).
+- **Backfill de produto novo (IBGE/PAM/PPM)** — a janela delta era por-tabela; um produto novo
+  recebia só a sobreposição recente. Agora um código sem linhas no Bronze força janela completa.
+- **Marcador de carga do COMEX ganhou impressão do filtro** — uma mudança no conjunto de produtos
+  re-roda a Fase 2 sobre os arquivos históricos (antes um NCM novo nunca fazia backfill).
+- **Série BCB fria vazia agora falha alto no delta** (código com typo/descontinuado deixava de
+  entrar em silêncio, com colunas Gold NULL).
+- **PAM/PPM `family`** passou a consultar o override de unidade por-produto (`ufp.family`),
+  alinhado a PEVS/COMEX.
+- **Guard anti-dupla-contagem do COMTRADE (`sum_flows`)** aplicado a `product_timeseries` e ao
+  ranking de parceiros (soma X+M, não X+M+RX+RM).
+- **`backup-gold` registra e verifica o dataset de origem** — um snapshot de dev não satisfaz
+  mais o gate de frescor do doctor nem o gate de backup do `purge-orphan` para prod.
+
+---
+
 ## [1.16.0] - 2026-07-12
 
 **Remediação da rodada seguinte da auditoria da Curadoria + varredura sistêmica dos mesmos

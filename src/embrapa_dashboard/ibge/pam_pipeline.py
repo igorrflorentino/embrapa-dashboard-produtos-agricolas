@@ -33,6 +33,7 @@ from embrapa_dashboard import observability
 from embrapa_dashboard.config import Settings
 from embrapa_dashboard.core import land_raw, list_raw, read_raw
 from embrapa_dashboard.gcp.bigquery import (
+    bronze_products_present,
     ensure_dataset,
     latest_reference_year,
     load_dataframe,
@@ -206,6 +207,27 @@ def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Setting
     )
     last_year = latest_reference_year(bq_client, table_fqn)
     if last_year is None:
+        return settings
+    # A newly-added crop has NO Bronze rows, so the table-global delta window would start it
+    # at last_year - overlap and silently truncate its history. If any resolved code is absent
+    # from Bronze, fetch the FULL configured window so it backfills (existing crops re-fetch
+    # their full window that one run — self-heals to delta next run). Precedes the "already
+    # current" skip so a crop added when Bronze is at end_year still backfills.
+    resolved = catalog_resolver.resolve_product_codes(
+        settings, "pam", env_fallback=settings.pam_product_codes_list, bq_client=bq_client
+    )
+    present = bronze_products_present(
+        bq_client, table_fqn, "produto_das_lavouras_temporarias_e_permanentes_codigo", resolved
+    )
+    missing = sorted(set(resolved) - present)
+    if missing:
+        logger.info(
+            "PAM delta: product(s) %s absent from Bronze — full-window backfill (%s-%d) "
+            "so their history is not truncated to the delta overlap.",
+            ",".join(missing),
+            settings.pam_start_year,
+            settings.pam_end_year,
+        )
         return settings
     if last_year >= settings.pam_end_year:
         logger.info(

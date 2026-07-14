@@ -356,6 +356,17 @@ def fetch_comex_months_per_year():
 
 
 @cache.memoize()
+def fetch_comtrade_reporters_per_year():
+    """Distinct exporting reporters present per year in the COMTRADE annual mart (backs
+    the world-panel completeness clamp for market share — reporters file with a ~1-2y
+    lag, so the most recent world years are under-reported). Cheap aggregate, cached."""
+    settings = get_settings()
+    table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
+    sql, params = sqlbuild.reporters_present_per_year(table)
+    return run_query(sql, params)
+
+
+@cache.memoize()
 def fetch_comex_overview(
     year_start: int | None = None,
     year_end: int | None = None,
@@ -521,13 +532,16 @@ def fetch_comex_partners(
     year_end: int | None = None,
     ncm_codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    flow: str | None = None,
     rank_by: str = "value",
 ):
     """COMEX partner (country) ranking with export/import split (backs partnerData).
 
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``); empty =
     no UF filter. COMTRADE has no origin-UF column, so its partner reader omits it.
-    ``rank_by`` ∈ {value, weight, price} picks the server-side ORDER BY dimension.
+    ``flow`` narrows the ranking to one direction (export/import); ``None`` sums both
+    (COMEX has no overlapping sub-flow, so no ``sum_flows`` guard is needed). ``rank_by``
+    ∈ {value, weight, price} picks the server-side ORDER BY dimension.
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comex_annual")
@@ -540,6 +554,7 @@ def fetch_comex_partners(
         year_end=year_end,
         codes=tuple(ncm_codes),
         uf_codes=tuple(uf_codes),
+        flow=flow,
         rank_by=rank_by,
     )
     return run_query(sql, params)
@@ -550,6 +565,9 @@ def fetch_comtrade_partners(
     year_start: int | None = None,
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
+    flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     rank_by: str = "value",
     reporters: Sequence[str] = (),
     partners: Sequence[str] = (),
@@ -557,9 +575,13 @@ def fetch_comtrade_partners(
 ):
     """COMTRADE partner ranking with export/import split (backs partnerData).
 
-    ``rank_by`` ∈ {value, weight, price} picks the server-side ORDER BY dimension.
-    ``reporters``/``partners`` (ISO-A3) narrow the ranking by country; ``pin_reporter``
-    keeps the Brazil pin by default (see :func:`_resolve_reporter_pin`).
+    ``flow`` narrows the ranking to one direction; ``None`` sums only the primary
+    totals (``COMTRADE_TOTAL_FLOWS``) so the ranking metrics never double-count the
+    re-export/re-import subsets. ``customs`` (regime aduaneiro) / ``market`` (tipo de
+    mercado) narrow to one procedure / purpose (None = every one). ``rank_by`` ∈
+    {value, weight, price} picks the server-side ORDER BY dimension. ``reporters``/
+    ``partners`` (ISO-A3) narrow the ranking by country; ``pin_reporter`` keeps the
+    Brazil pin by default (see :func:`_resolve_reporter_pin`).
     """
     settings = get_settings()
     table = sqlbuild.table_ref(settings, "bq_serving_dataset", "serving_comtrade_annual")
@@ -571,6 +593,10 @@ def fetch_comtrade_partners(
         year_start=year_start,
         year_end=year_end,
         codes=tuple(cmd_codes),
+        flow=flow,
+        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
+        customs=customs,
+        market=market,
         reporter_column="reporter_iso_a3",
         reporter_value=_resolve_reporter_pin(settings, pin_reporter, reporters),
         reporters=tuple(reporters),
@@ -650,12 +676,17 @@ def fetch_comtrade_flows(
     year_end: int | None = None,
     cmd_codes: Sequence[str] = (),
     flow: str | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     reporters: Sequence[str] = (),
     partners: Sequence[str] = (),
     pin_reporter: str | None = _REPORTER_PIN_DEFAULT,
 ):
     """COMTRADE reporter->partner links (backs flowData for COMTRADE).
 
+    ``flow`` narrows the Sankey to one direction; ``None`` sums only export/import
+    (re-export/re-import are subsets → no double-count). ``customs`` (regime aduaneiro)
+    / ``market`` (tipo de mercado) narrow to one procedure / purpose (None = every one).
     ``reporters``/``partners`` (ISO-A3) narrow the Sankey by country; ``pin_reporter``
     keeps Brazil's own links by default (see :func:`_resolve_reporter_pin`).
     """
@@ -672,12 +703,14 @@ def fetch_comtrade_flows(
         year_end=year_end,
         codes=tuple(cmd_codes),
         flow=flow,
+        # "All flows" sums only export/import (re-export/re-import are subsets → no double-count).
+        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
+        customs=customs,
+        market=market,
         reporter_column="reporter_iso_a3",
         reporter_value=_resolve_reporter_pin(settings, pin_reporter, reporters),
         reporters=tuple(reporters),
         partners=tuple(partners),
-        # "All flows" sums only export/import (re-export/re-import are subsets → no double-count).
-        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS,
     )
     return run_query(sql, params)
 
@@ -1140,6 +1173,10 @@ def fetch_product_timeseries(
         codes=tuple(codes),
         uf_codes=tuple(uf_codes),
         flow=flow,
+        # COMTRADE "all flows" (flow=None) must sum ONLY export/import — re-export/re-import
+        # are subsets (X ⊇ RX, M ⊇ RM), so adding them double-counts. COMEX/production have
+        # no overlapping sub-flow, so they leave sum_flows None (flow=None sums every flow).
+        sum_flows=sqlbuild.COMTRADE_TOTAL_FLOWS if is_comtrade else None,
         customs=customs,
         market=market,
         reporter_column=reporter_column,

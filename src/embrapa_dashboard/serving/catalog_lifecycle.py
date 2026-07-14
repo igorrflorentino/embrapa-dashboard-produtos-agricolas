@@ -227,9 +227,12 @@ _PURGE_TARGETS = {
 
 
 def _backup_status(settings: Settings) -> tuple[bool, str]:
-    """Is there a COMPLETE Gold snapshot newer than BACKUP_STALENESS_DAYS? Reuses the
-    doctor's backup-freshness logic — the purge MUST NOT proceed without a fresh
-    rollback point (the project's backup-first posture)."""
+    """Is there a COMPLETE Gold snapshot OF THE DATASET BEING PURGED, newer than
+    BACKUP_STALENESS_DAYS? Reuses the doctor's backup-freshness logic — the purge MUST NOT
+    proceed without a fresh rollback point (the project's backup-first posture). Because
+    ``_latest_complete_run`` now matches the snapshot's recorded dataset against
+    ``settings.bq_gold_dataset``, a dev-dataset snapshot can no longer satisfy a prod purge
+    gate (the exact dev/prod .env drift the runbook warns about)."""
     from datetime import UTC, datetime
 
     from google.cloud import storage
@@ -257,7 +260,11 @@ def _backup_status(settings: Settings) -> tuple[bool, str]:
                 f"latest snapshot is {age_days:.0f}d old "
                 f"(> {settings.backup_staleness_days}d) — run a fresh backup first.",
             )
-        return True, f"complete Gold snapshot at {latest.strftime('%Y-%m-%d %H:%M UTC')}"
+        return (
+            True,
+            f"complete Gold snapshot of {settings.bq_gold_dataset!r} at "
+            f"{latest.strftime('%Y-%m-%d %H:%M UTC')}",
+        )
     except Exception as exc:  # pragma: no cover - GCS unreachable / perms
         return False, f"could not verify the backup: {exc}"
 

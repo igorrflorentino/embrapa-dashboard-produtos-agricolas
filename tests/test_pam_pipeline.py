@@ -17,6 +17,17 @@ from embrapa_dashboard.config import Settings
 from embrapa_dashboard.ibge import pam_pipeline
 
 
+@pytest.fixture(autouse=True)
+def _all_products_present():
+    """Default: every configured crop already has Bronze rows, so ``_delta_start_year`` takes
+    the normal delta path (the new-product full-backfill branch has its own test)."""
+    with patch(
+        "embrapa_dashboard.ibge.pam_pipeline.bronze_products_present",
+        side_effect=lambda *a, **k: set(a[3]),
+    ):
+        yield
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(

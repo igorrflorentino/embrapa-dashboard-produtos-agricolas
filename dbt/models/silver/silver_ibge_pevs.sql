@@ -96,7 +96,7 @@ parsed as (
         variavel_codigo                                                             as variable_code,
         variavel                                                                    as variable_name,
         unidade_de_medida                                                           as unit_of_measure,
-        {{ safe_numeric('valor') }}                                                 as raw_numeric_value,
+        {{ safe_numeric('valor', dash_is_zero=true) }}                              as raw_numeric_value,
         ingestion_timestamp
     from deduplicated
 
