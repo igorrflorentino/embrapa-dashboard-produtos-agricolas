@@ -58,7 +58,7 @@ deduplicated as (
     where b.variavel_codigo in ({{ "'" ~ kept_variables | join("','") ~ "'" }})
       and b.nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by b.ano, b.municipio_codigo, b.produto_das_lavouras_temporarias_e_permanentes_codigo, b.variavel_codigo, b.unidade_de_medida
+        partition by b.ano, b.municipio_codigo, b.produto_das_lavouras_temporarias_e_permanentes_codigo, b.variavel_codigo, lower(trim(b.unidade_de_medida))
         order by b.ingestion_timestamp desc
     ) = 1
 
@@ -72,7 +72,7 @@ with deduplicated as (
     where variavel_codigo in ({{ "'" ~ kept_variables | join("','") ~ "'" }})
       and nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by ano, municipio_codigo, produto_das_lavouras_temporarias_e_permanentes_codigo, variavel_codigo, unidade_de_medida
+        partition by ano, municipio_codigo, produto_das_lavouras_temporarias_e_permanentes_codigo, variavel_codigo, lower(trim(unidade_de_medida))
         order by ingestion_timestamp desc
     ) = 1
 

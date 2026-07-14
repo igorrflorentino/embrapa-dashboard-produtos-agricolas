@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.17.1] - 2026-07-14
+
+**Hardenings defensivos opcionais dos 2 achados latentes restantes da auditoria de fluxos de
+dados (L7/L8), após verificação adversarial.** Ambos os achados foram avaliados como não-ativos
+(precondição jamais observada em toda a história ingerida; L7 ainda protegido pelos testes de
+conservação Silver→Gold; L8 lido pelo gráfico via `qty_base`, unit-safe). Estas são blindagens
+preventivas — nenhuma corrige um bug atual. Mudança **somente dbt**, sem alteração de runtime;
+entra em vigor no próximo build de prod agendado (sem redeploy da webapi).
+
+### Changed
+- **Chave de dedup do IBGE Silver normalizada** (`silver_ibge_{pevs,pam,ppm}.sql`): o `partition
+  by` do `qualify` passa a usar `lower(trim(unidade_de_medida))` — a MESMA normalização que os
+  joins de seed já aplicam. Sem isso, um re-rótulo cosmético (caixa/espaço) da unidade de uma
+  célula já ingerida colocaria a linha revisada numa partição diferente da obsoleta, ambas
+  sobrevivendo ao latest-wins, e o pivô `max()` do Gold as colapsaria por magnitude, não recência.
+  No-op nos dados atuais (uma unidade por célula).
+
+### Added
+- **Teste defensivo `assert_comex_single_stat_unit_per_ncm`** (WARN): alerta se um NCM do COMEX
+  algum dia reportar sob mais de uma unidade estatística nativa (uma reclassificação do MDIC entre
+  unidades da MESMA família — ex. QUILOGRAMA↔TONELADA — que a `serving_comex_annual` misturaria sob
+  um único rótulo). Converte o ponto-cego silencioso num aviso de build no primeiro sinal.
+
+---
+
 ## [1.17.0] - 2026-07-14
 
 **Auditoria enxuta de fluxos de dados e ciclo de vida — 12 achados confirmados corrigidos**
