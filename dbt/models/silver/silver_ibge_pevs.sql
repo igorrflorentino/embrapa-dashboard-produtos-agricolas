@@ -56,8 +56,14 @@ deduplicated as (
               '{{ var("ibge_variable_value") }}'
           )
       and b.nivel_territorial = 'Município'
+    -- NORMALIZE the unit in the dedup key with lower(trim(...)) — the SAME normalization the
+    -- unit_family_conversions / historical_currency_factors joins already apply. Without it, a
+    -- cosmetic source RE-LABEL (case/whitespace) of an already-ingested cell would land the
+    -- revised row in a DIFFERENT partition from the stale one, so BOTH survive latest-wins and
+    -- Gold's max() pivot collapses them by magnitude, not recency. Never observed in the ingested
+    -- history and guarded downstream by assert_pevs_conserved_silver_to_gold, so this is defensive.
     qualify row_number() over (
-        partition by b.ano, b.municipio_codigo, b.tipo_de_produto_extrativo_codigo, b.variavel_codigo, b.unidade_de_medida
+        partition by b.ano, b.municipio_codigo, b.tipo_de_produto_extrativo_codigo, b.variavel_codigo, lower(trim(b.unidade_de_medida))
         order by b.ingestion_timestamp desc
     ) = 1
 
@@ -74,7 +80,7 @@ with deduplicated as (
           )
       and nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by ano, municipio_codigo, tipo_de_produto_extrativo_codigo, variavel_codigo, unidade_de_medida
+        partition by ano, municipio_codigo, tipo_de_produto_extrativo_codigo, variavel_codigo, lower(trim(unidade_de_medida))
         order by ingestion_timestamp desc
     ) = 1
 

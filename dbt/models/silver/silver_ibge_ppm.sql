@@ -70,7 +70,7 @@ herd_dedup as (
     where b.variavel_codigo = '{{ var_herd }}'
       and b.nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by b.ano, b.municipio_codigo, b.tipo_de_rebanho_codigo, b.variavel_codigo, b.unidade_de_medida
+        partition by b.ano, b.municipio_codigo, b.tipo_de_rebanho_codigo, b.variavel_codigo, lower(trim(b.unidade_de_medida))
         order by b.ingestion_timestamp desc
     ) = 1
 
@@ -84,7 +84,7 @@ animal_dedup as (
     where b.variavel_codigo in ('{{ var_animal_qty }}', '{{ var_value }}')
       and b.nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by b.ano, b.municipio_codigo, b.tipo_de_produto_de_origem_animal_codigo, b.variavel_codigo, b.unidade_de_medida
+        partition by b.ano, b.municipio_codigo, b.tipo_de_produto_de_origem_animal_codigo, b.variavel_codigo, lower(trim(b.unidade_de_medida))
         order by b.ingestion_timestamp desc
     ) = 1
 
@@ -97,7 +97,7 @@ with herd_dedup as (
     where variavel_codigo = '{{ var_herd }}'
       and nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by ano, municipio_codigo, tipo_de_rebanho_codigo, variavel_codigo, unidade_de_medida
+        partition by ano, municipio_codigo, tipo_de_rebanho_codigo, variavel_codigo, lower(trim(unidade_de_medida))
         order by ingestion_timestamp desc
     ) = 1
 
@@ -110,7 +110,7 @@ animal_dedup as (
     where variavel_codigo in ('{{ var_animal_qty }}', '{{ var_value }}')
       and nivel_territorial = 'Município'
     qualify row_number() over (
-        partition by ano, municipio_codigo, tipo_de_produto_de_origem_animal_codigo, variavel_codigo, unidade_de_medida
+        partition by ano, municipio_codigo, tipo_de_produto_de_origem_animal_codigo, variavel_codigo, lower(trim(unidade_de_medida))
         order by ingestion_timestamp desc
     ) = 1
 
