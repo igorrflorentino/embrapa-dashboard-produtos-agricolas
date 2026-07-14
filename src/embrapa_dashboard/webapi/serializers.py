@@ -57,6 +57,8 @@ _FLAG_KEY = {
     # outlier tiers when the var is off). No Gold CASE emits them yet.
     "INFERRED_QUANTITY": "inferred_quantity",
     "INFERRED_VALUE": "inferred_value",
+    # PAM-only: planted < harvested area (a SIDRA source error). Emitted by gold_pam_production.
+    "AREA_INCONSISTENT": "area_inconsistent",
 }
 
 # data_quality_flag id → pt-BR display label (the end user reads the donut/legend).
@@ -80,6 +82,8 @@ _FLAG_LABEL_PT = {
     # Reserved tier for a future auto-fill pipeline (0 today).
     "INFERRED_QUANTITY": "Quantidade inferida",
     "INFERRED_VALUE": "Valor financeiro inferido",
+    # PAM-only: área plantada < área colhida (erro de fonte do SIDRA, agronomicamente impossível).
+    "AREA_INCONSISTENT": "Área inconsistente (plantada < colhida)",
 }
 
 

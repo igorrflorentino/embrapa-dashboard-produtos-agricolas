@@ -157,7 +157,7 @@ An 11-value taxonomy: **9 emitted + 2 reserved**. The first five are always emit
 | `PROBLEMATIC_VALUE` / `PROBLEMATIC_QUANTITY` | Valor / Quantidade problemática (provável erro) | implied price (value ÷ quantity) >100× or <1/100× the product median ⇒ likely typo |
 | `INFERRED_QUANTITY` / `INFERRED_VALUE` | Quantidade / Valor financeiro inferido | **reserved** — a blank value that a future auto-fill pipeline would impute; no rule emits it yet (always 0) |
 
-IBGE placeholders (`-`, `...`, `..`, `*`, `X`) are converted to `NULL` in Silver by the `safe_numeric` macro.
+IBGE "no-data" placeholders (`...`, `..`, `*`, `X`) are converted to `NULL` in Silver by the `safe_numeric` macro. SIDRA's `-` is **not** a placeholder — it is an exact measured zero ("dado numérico igual a zero não resultante de arredondamento"), so for IBGE `valor` it maps to `0` (via `dash_is_zero=true`), kept distinct from missing so "production went to zero" isn't conflated with "not surveyed".
 
 ## Final output — `gold.gold_pevs_production`
 

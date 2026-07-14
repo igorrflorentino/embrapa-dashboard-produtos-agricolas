@@ -20,6 +20,8 @@ const QTS_KEY = {
   // Reserved for a future auto-fill pipeline (0 today) — added deliberately so the
   // temporal stack resolves their series-key when a pipeline finally emits them.
   INFERRED_VALUE: 'inferred_value', INFERRED_QUANTITY: 'inferred_quantity',
+  // PAM-only: planted < harvested area (a SIDRA source error surfaced in-product).
+  AREA_INCONSISTENT: 'area_inconsistent',
 };
 
 function ViewQuality({ summary, database }) {

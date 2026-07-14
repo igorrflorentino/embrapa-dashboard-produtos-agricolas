@@ -147,15 +147,26 @@ select
     safe_divide(val_real_igpdi_brl, brl_per_eur_current)     as val_real_igpdi_eur,
 
     -- ── Quality + provenance ─────────────────────────────────────────────────
-    -- The flag measures qty+value completeness only. A PAM row admitted by the base
+    -- The base flag measures qty+value completeness only. A PAM row admitted by the base
     -- having-clause on AREA alone (area_planted/harvested present, qty_native AND
     -- val_raw both NULL) is therefore correctly 'INCOMPLETE' w.r.t. those two measures
     -- — the área data it does carry is preserved in area_planted_ha/area_harvested_ha,
     -- not lost (DBT-4: intentional; the OK/MISSING_*/INCOMPLETE taxonomy has no
     -- area-only slot, and an area-only row genuinely lacks both qty and value).
-    {{ data_quality_flag('qty_native', 'val_raw',
-         quality_qty_level('val_real_ipca_brl', 'qty_native'),
-         quality_val_level('val_real_ipca_brl', 'qty_native')) }} as data_quality_flag,
+    --
+    -- AREA_INCONSISTENT takes PRECEDENCE (PAM-only): a row whose reported planted area is
+    -- LESS than its harvested area is an agronomic impossibility (you cannot harvest more land
+    -- than you plant) — a SIDRA source error carried faithfully. It is now surfaced in-product
+    -- as its own quality flag (the Qualidade donut), not only in the build log
+    -- (assert_pam_area_planted_ge_harvested, WARN). It overrides only the completeness flag of
+    -- the (very few) affected rows — all of which are otherwise 'OK', so nothing is masked.
+    case
+        when area_planted_ha is not null and area_harvested_ha is not null
+             and area_planted_ha < area_harvested_ha then 'AREA_INCONSISTENT'
+        else {{ data_quality_flag('qty_native', 'val_raw',
+             quality_qty_level('val_real_ipca_brl', 'qty_native'),
+             quality_val_level('val_real_ipca_brl', 'qty_native')) }}
+    end as data_quality_flag,
     last_refresh
 
 from {% if var('enable_quality_outliers', false) -%}

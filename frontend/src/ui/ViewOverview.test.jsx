@@ -95,10 +95,10 @@ describe('ViewOverview — KPI strip + quality digest (H3 + P0 lock-in)', () => 
     const { container } = render(
       <ViewOverview families={['mass']} summary={{}} database="ibge_pevs" conventions={{}} />
     );
-    // "{qualityFlags.length} de {QUALITY_FLAGS.length} flags" → "2 de 11 flags". 11 = the 5
-    // base flags + the 4 outlier/problemático tiers + the 2 reserved inferred tiers (all in
-    // the registry whether or not the dbt var enable_quality_outliers / an auto-fill pipeline is on).
-    expect(container.textContent).toContain('de 11 flags');
+    // "{qualityFlags.length} de {QUALITY_FLAGS.length} flags" → "2 de 12 flags". 12 = the 5
+    // base flags + the 4 outlier/problemático tiers + the 2 reserved inferred tiers + the
+    // PAM-only AREA_INCONSISTENT (all in the registry regardless of the dbt var / pipeline state).
+    expect(container.textContent).toContain('de 12 flags');
     expect(container.textContent).not.toContain('de 6 flags'); // the old prototype count
   });
 
