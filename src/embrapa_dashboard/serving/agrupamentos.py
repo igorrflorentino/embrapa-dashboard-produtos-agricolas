@@ -99,15 +99,25 @@ def _current_groups(bq: bigquery.Client, table_fqn: str) -> dict[str, str]:
 def _active_member_rows(bq: bigquery.Client, catalog_fqn: str, group_id: str) -> list:
     """Current ACTIVE catalog entries whose agrupamento_id == group_id (the group's
     members), with the fields needed to re-upsert them on a rename. ``[]`` when the
-    catalog log doesn't exist yet."""
+    catalog log doesn't exist yet.
+
+    The ``agrupamento_id`` filter MUST be applied AFTER the latest-wins dedup, never
+    inside the windowed subquery: ``agrupamento_id`` is a MUTABLE attribute (a product
+    can be moved to another group, or removed via a tombstone whose agrupamento_id is
+    NULL), not part of the ``(codigo_produto, banco)`` partition key. Pre-filtering it
+    would rank only the rows that ever carried this group, so a stale row could win the
+    partition and report a product that has since been moved out or removed as a current
+    member — which a rename/delete would then silently re-stamp (reverting the move) or
+    resurrect (undoing the removal). Dedup the full log first, THEN filter by the current
+    state — the same pattern as ``_current_groups`` and ``gateway.fetch_agrupamentos``."""
     sql = f"""
         select codigo_produto, banco, descricao_produto, ciclo_de_vida
         from (
           select *, row_number() over (
             partition by codigo_produto, banco order by edited_at desc, change_id desc
           ) as _rn
-          from `{catalog_fqn}` where agrupamento_id = @group_id
-        ) where _rn = 1 and active
+          from `{catalog_fqn}`
+        ) where _rn = 1 and active and agrupamento_id = @group_id
     """
     params = [bigquery.ScalarQueryParameter("group_id", "STRING", group_id)]
     try:

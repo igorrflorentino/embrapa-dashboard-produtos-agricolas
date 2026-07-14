@@ -675,8 +675,19 @@ def flow_data(banco_id: str, summary: dict | None = None) -> dict | None:
             year_start=y0, year_end=y1, ncm_codes=codes, flow="export", uf_codes=_states(summary)
         )
     else:
+        # The active flow / regime (customs) / tipo-de-mercado filters are server-side on
+        # the COMTRADE mart and must narrow the Sankey too — otherwise it shows all-flow /
+        # all-regime totals while the filter chips claim the view is scoped (the v1.10.11
+        # productTS no-op class). COMEX carries none of these dimensions (its Sankey is
+        # exports-only by direction; see above), so only the COMTRADE branch threads them.
         links = gateway.fetch_comtrade_flows(
-            year_start=y0, year_end=y1, cmd_codes=codes, **_country_reader_kwargs(summary)
+            year_start=y0,
+            year_end=y1,
+            cmd_codes=codes,
+            flow=_flow_from_summary(summary),
+            customs=_customs_from_summary(summary),
+            market=_market_from_summary(summary),
+            **_country_reader_kwargs(summary),
         )
     dims = banco.dimensions
     return {
@@ -704,14 +715,27 @@ def partner_data(
         return None
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
+    # The active flow / regime (customs) / tipo-de-mercado filters must reach the ranking:
+    # the server-side ORDER BY sums the metric over the returned rows, so an unfiltered
+    # ranking under an "Importação" (or a regime/market) selection ranks by the wrong,
+    # broader population while the chips claim it is scoped. COMEX has only ``flow`` (no
+    # regime/market column); COMTRADE carries all three.
     if banco_id == "mdic_comex":
         return gateway.fetch_comex_partners(
-            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary), rank_by=rank_by
+            year_start=y0,
+            year_end=y1,
+            ncm_codes=codes,
+            uf_codes=_states(summary),
+            flow=_flow_from_summary(summary),
+            rank_by=rank_by,
         )
     return gateway.fetch_comtrade_partners(
         year_start=y0,
         year_end=y1,
         cmd_codes=codes,
+        flow=_flow_from_summary(summary),
+        customs=_customs_from_summary(summary),
+        market=_market_from_summary(summary),
         rank_by=rank_by,
         **_country_reader_kwargs(summary),
     )
@@ -776,8 +800,16 @@ def monthly_data(banco_id: str, summary: dict | None = None) -> pd.DataFrame | N
     y0, y1 = _years_from_summary(summary)
     codes = _basket(summary)
     if banco_id == "mdic_comex":
+        # The active flow filter (export/import) is server-side on the seasonality mart
+        # (which keeps ``flow`` in its grain) and must narrow the seasonal profile — COMEX
+        # exports are ~40x imports, so an unfiltered heatmap under an "Importação" selection
+        # renders essentially the EXPORT profile while the chips say otherwise.
         return gateway.fetch_comex_seasonality(
-            year_start=y0, year_end=y1, ncm_codes=codes, uf_codes=_states(summary)
+            year_start=y0,
+            year_end=y1,
+            ncm_codes=codes,
+            uf_codes=_states(summary),
+            flow=_flow_from_summary(summary),
         )
     return None
 

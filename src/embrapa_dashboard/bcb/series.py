@@ -84,22 +84,35 @@ def extract(
 ) -> pd.DataFrame:
     """Fetch every configured series, tag it, and project the Bronze columns.
 
-    In delta mode an empty fetch means "nothing new" → returns an empty frame.
-    In full mode an empty fetch for ANY configured series is a real failure →
-    raises, naming every empty series (not just when all of them are empty).
+    An empty fetch fails loudly for any series being backfilled over its FULL window —
+    i.e. every series in full mode, and in delta mode any "cold" series with no prior
+    Bronze rows (this run IS its full-window backfill). Such a series comes back empty
+    only when its SGS code is typo'd or discontinued (the client maps a 404 to an empty
+    frame); silently skipping it would report success while it stays permanently absent
+    from Bronze (its Gold columns NULL with no error anywhere), so raise naming every
+    offender. A WARM series (prior data exists) returning empty in delta is the benign
+    "nothing new" case → it is skipped, not an error.
     """
     series_map = spec.series_map(settings)
     if not series_map:
         raise RuntimeError(f"{spec.config_env} is empty.")
 
     frames: list[pd.DataFrame] = []
-    empty_series: list[str] = []
+    cold_empty_series: list[str] = []
     for code, label in series_map.items():
-        start = (
-            settings.bcb_start_year
-            if full
-            else effective_start_year(spec, bq_client, table_fqn, code, settings.bcb_start_year)
-        )
+        # "Cold" = no prior Bronze rows, so this fetch spans the full backfill window
+        # (always in full mode; in delta only for a never-ingested series). An empty
+        # cold fetch is a misconfiguration, not "nothing new".
+        if full:
+            start, cold = settings.bcb_start_year, True
+        else:
+            last = latest_reference_date(bq_client, table_fqn, code)
+            cold = last is None
+            start = (
+                settings.bcb_start_year
+                if cold
+                else max(settings.bcb_start_year, spec.overlap_start_year(last))
+            )
         logger.info(
             "BCB %s %s: fetching %d-%d (%s)",
             spec.kind,
@@ -110,22 +123,21 @@ def extract(
         )
         df = fetch_series(code, start, settings.bcb_end_year)
         if df.empty:
-            empty_series.append(f"{code}:{label}")
+            if cold:
+                cold_empty_series.append(f"{code}:{label}")
             continue
         df = df.rename(columns={"data": "reference_date_str", "valor": "value_str"})
         df["series_code"] = code
         df[spec.label_column] = label
         frames.append(df[["series_code", spec.label_column, "reference_date_str", "value_str"]])
-    if full and empty_series:
-        # A full fetch asked for the entire configured window, so an empty
-        # series means a misconfigured (typo'd) or discontinued code — a bad
-        # code 404s and is mapped to empty by the client. Silently skipping it
-        # would report success while the series stays permanently absent from
-        # Bronze (its Gold columns NULL with no error anywhere), so fail loudly
-        # naming every offender — even when other series returned data.
+    if cold_empty_series:
+        # A full-window backfill (full mode, or a cold series in delta) that returns no
+        # data means a misconfigured (typo'd) or discontinued code — fail loudly naming
+        # every offender instead of reporting success while the series stays permanently
+        # absent from Bronze (its Gold columns NULL with no error anywhere).
         raise RuntimeError(
-            f"BCB returned no {spec.kind} data for series {', '.join(empty_series)} "
-            f"over the configured window {settings.bcb_start_year}-{settings.bcb_end_year}. "
+            f"BCB returned no {spec.kind} data for series {', '.join(cold_empty_series)} "
+            f"over the full backfill window {settings.bcb_start_year}-{settings.bcb_end_year}. "
             f"Check {spec.config_env} for typo'd or discontinued codes."
         )
     if not frames:

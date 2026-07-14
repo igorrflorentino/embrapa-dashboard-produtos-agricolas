@@ -41,6 +41,7 @@ from embrapa_dashboard import observability
 from embrapa_dashboard.config import Settings
 from embrapa_dashboard.core import land_raw, list_raw, read_raw
 from embrapa_dashboard.gcp.bigquery import (
+    bronze_products_present,
     ensure_dataset,
     latest_reference_year,
     load_dataframe,
@@ -247,15 +248,42 @@ def bronze_from_raw(
     return destination
 
 
+# Bronze product-code column per PPM table — herd (3939) vs animal production (74) live in
+# separate tables with distinct product dims. Used to spot a newly-added product needing a
+# full-history backfill (the delta window is table-global, not per-product).
+_PPM_PRODUCT_COLUMN = {
+    "herd": "tipo_de_rebanho_codigo",
+    "animal": "tipo_de_produto_de_origem_animal_codigo",
+}
+
+
 def _delta_start_year(settings: Settings, spec: _Spec, bq_client: bigquery.Client) -> int | None:
     """Effective re-fetch start for one table so a routine run re-fetches only the
     recent (still-revisable) years. Returns ``ppm_start_year`` when Bronze is cold
-    (full window), or ``None`` — a logged clean no-op — when Bronze is already at or
-    past ``ppm_end_year``. Clamped to never exceed ``ppm_end_year`` (no inverted window).
+    (full window) OR when a newly-added product is absent from Bronze (so its full history
+    backfills instead of being truncated to the delta overlap), or ``None`` — a logged clean
+    no-op — when Bronze is already at or past ``ppm_end_year``. Clamped to never exceed
+    ``ppm_end_year`` (no inverted window).
     """
     table_fqn = f"{settings.gcp_project_id}.{settings.bq_bronze_ppm_dataset}.{spec.bronze_table}"
     last_year = latest_reference_year(bq_client, table_fqn)
     if last_year is None:
+        return settings.ppm_start_year
+    # A newly-added product has NO Bronze rows, so the table-global delta window would start
+    # it at last_year - overlap and silently truncate its history. Backfill the full window
+    # for this table if any configured code is absent (self-heals to delta next run). Precedes
+    # the "already current" skip so a product added at end_year still backfills.
+    present = bronze_products_present(
+        bq_client, table_fqn, _PPM_PRODUCT_COLUMN[spec.key], spec.product_codes
+    )
+    missing = sorted(set(spec.product_codes) - present)
+    if missing:
+        logger.info(
+            "PPM delta (table %s): product(s) %s absent from Bronze — full-window backfill "
+            "so their history is not truncated to the delta overlap.",
+            spec.table_id,
+            ",".join(missing),
+        )
         return settings.ppm_start_year
     if last_year >= settings.ppm_end_year:
         logger.info(

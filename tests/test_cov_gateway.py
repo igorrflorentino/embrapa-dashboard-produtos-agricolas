@@ -79,6 +79,29 @@ def test_fetch_geo_municipio_mesh_reads_dim_geo_municipio(monkeypatch):
     assert "p.gold.dim_geo_municipio" in recorded["query"]
 
 
+def test_fetch_comtrade_reporters_per_year_counts_export_reporters(monkeypatch):
+    pytest.importorskip("flask_caching")
+    from embrapa_dashboard.serving import gateway
+
+    recorded = {}
+
+    def recorder(query, params, **kwargs):
+        recorded["query"] = query
+        return "REPORTERS"
+
+    monkeypatch.setattr(gateway, "run_query", recorder)
+    monkeypatch.setattr(gateway, "get_settings", lambda: _isolated_settings())
+    app, cache = _bind_simplecache()
+
+    with app.app_context():
+        cache.clear()
+        out = gateway.fetch_comtrade_reporters_per_year()
+
+    assert out == "REPORTERS"
+    assert "count(distinct reporter_iso_a3)" in recorded["query"]
+    assert "serving_comtrade_annual" in recorded["query"]
+
+
 # ── fetch_produto_catalog: latest-active row per (codigo, banco) (725-742) ───
 
 

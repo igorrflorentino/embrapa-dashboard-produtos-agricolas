@@ -650,8 +650,9 @@ def test_flow_data_comtrade_ignores_uf_filter(monkeypatch):
     recorded = {}
     cols = ["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
 
-    def fake_flows(year_start=None, year_end=None, cmd_codes=()):
+    def fake_flows(year_start=None, year_end=None, cmd_codes=(), **kwargs):
         recorded["called"] = True
+        recorded["kwargs"] = kwargs
         return pd.DataFrame(columns=cols)
 
     monkeypatch.setattr(seam.gateway, "fetch_comtrade_flows", fake_flows)
@@ -667,8 +668,10 @@ def test_partner_data_comex_threads_uf_filter(monkeypatch):
     seam = _seam()
     recorded = {}
 
-    def fake_partners(year_start=None, year_end=None, ncm_codes=(), uf_codes=(), rank_by="value"):
-        recorded.update(uf_codes=uf_codes, rank_by=rank_by)
+    def fake_partners(
+        year_start=None, year_end=None, ncm_codes=(), uf_codes=(), flow=None, rank_by="value"
+    ):
+        recorded.update(uf_codes=uf_codes, rank_by=rank_by, flow=flow)
         return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
 
     monkeypatch.setattr(seam.gateway, "fetch_comex_partners", fake_partners)
@@ -689,8 +692,9 @@ def test_partner_data_comtrade_ignores_uf_filter(monkeypatch):
     seam = _seam()
     recorded = {}
 
-    def fake_partners(year_start=None, year_end=None, cmd_codes=(), rank_by="value"):
+    def fake_partners(year_start=None, year_end=None, cmd_codes=(), rank_by="value", **kwargs):
         recorded["called"] = True
+        recorded["kwargs"] = kwargs
         return pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
 
     monkeypatch.setattr(seam.gateway, "fetch_comtrade_partners", fake_partners)
@@ -1787,6 +1791,8 @@ def test_market_share_happy_path_with_by_product(monkeypatch):
         return {2022: 2e9} if metric.startswith("mdic_comex") else {2022: 8e9}
 
     monkeypatch.setattr(_base(), "_xyear", fake_xyear)
+    # No world reporter-count query in this unit test → no completeness clamp.
+    monkeypatch.setattr(_cross(), "_world_latest_complete_year", lambda: None)
     out = seam.market_share("castanha")
     assert out["unit"] == "US$ bi"
     row = out["series"][0]
@@ -2239,3 +2245,80 @@ def test_monthly_data_threads_uf_to_seasonality_reader(monkeypatch):
     rec.clear()
     seam.monthly_data("mdic_comex", {})  # no UF → national
     assert rec["uf_codes"] == ()
+
+
+def test_trade_adapters_thread_flow_filter(monkeypatch):
+    """The active flow filter reaches the seasonality, Sankey and partner-ranking readers —
+    not just /snapshot. Otherwise an 'Importação' selection would render export-dominated
+    numbers (COMEX exports ~40x imports) while the filter chips claim the view is scoped."""
+    seam = _seam()
+    rec = {}
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comex_seasonality",
+        lambda **k: rec.update(m=k.get("flow")) or pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comtrade_flows",
+        lambda **k: (
+            rec.update(f=k.get("flow"), c=k.get("customs"), mk=k.get("market"))
+            or pd.DataFrame(
+                columns=["origin_code", "origin_name", "dest_code", "dest_name", "value_usd"]
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        seam.gateway,
+        "fetch_comtrade_partners",
+        lambda **k: (
+            rec.update(pf=k.get("flow"))
+            or pd.DataFrame(columns=["partner_code", "partner_name", "value_usd"])
+        ),
+    )
+    seam.monthly_data("mdic_comex", {"flow": "import"})
+    assert rec["m"] == "import"  # seasonality honours flow
+    seam.flow_data("un_comtrade", {"flow": "import", "customs": "C01", "market": "consumo"})
+    assert (rec["f"], rec["c"], rec["mk"]) == (
+        "import",
+        "C01",
+        "consumo",
+    )  # Sankey honours all three
+    seam.partner_data("un_comtrade", {"flow": "import"})
+    assert rec["pf"] == "import"  # partner ranking honours flow
+
+
+def test_country_reader_kwargs_encodes_world_list_and_partners():
+    seam = _seam()
+    assert seam._country_reader_kwargs(None) == {}
+    assert seam._country_reader_kwargs({}) == {}
+    # world sentinel → pin_reporter None (sum over ALL reporters, no Brazil pin)
+    world = {"reporters": seam._REPORTER_WORLD}
+    assert seam._country_reader_kwargs(world) == {"pin_reporter": None}
+    # explicit reporter list → IN-list
+    assert seam._country_reader_kwargs({"reporters": ["BRA", "USA"]}) == {
+        "reporters": ("BRA", "USA")
+    }
+    # partner list
+    assert seam._country_reader_kwargs({"partners": ["CHN"]}) == {"partners": ("CHN",)}
+
+
+def test_comtrade_countries_degrades_and_splits(monkeypatch):
+    from google.cloud.exceptions import NotFound
+
+    seam = _seam()
+
+    def _nf():
+        raise NotFound("mart not built")
+
+    # NotFound (mart absent) and empty df both degrade to the empty payload, not a 500.
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", _nf)
+    assert seam.comtrade_countries() == {"reporters": None, "partners": None}
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", lambda: pd.DataFrame())
+    assert seam.comtrade_countries() == {"reporters": None, "partners": None}
+    # happy path splits by the ``role`` column.
+    df = pd.DataFrame({"role": ["reporter", "partner"], "iso": ["BRA", "CHN"]})
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", lambda: df)
+    out = seam.comtrade_countries()
+    assert list(out["reporters"]["iso"]) == ["BRA"]
+    assert list(out["partners"]["iso"]) == ["CHN"]

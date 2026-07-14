@@ -211,9 +211,13 @@ def test_needs_bronze_always_true_when_extracted(settings) -> None:
     prov.assert_not_called()
 
 
-def test_needs_bronze_false_when_unchanged_and_already_loaded(settings) -> None:
+def test_needs_bronze_false_when_unchanged_and_loaded_under_current_filter(settings) -> None:
+    # Loaded under the CURRENT product filter (matching fingerprint) → steady-state skip.
+    fp = pipeline._product_filter_fingerprint(settings)
     with patch.object(
-        pipeline, "raw_provenance", return_value={"source_etag": "v1", "bronze_loaded_at": "2026"}
+        pipeline,
+        "raw_provenance",
+        return_value={"source_etag": "v1", "bronze_loaded_at": "2026", "bronze_loaded_filter": fp},
     ):
         assert not pipeline.needs_bronze(
             settings, "export", 2022, extracted=False, storage_client=MagicMock()
@@ -224,6 +228,36 @@ def test_needs_bronze_true_when_unchanged_but_never_loaded(settings) -> None:
     # Raw present (prior run archived it) but no bronze_loaded marker → a prior
     # run aborted before Phase 2. Must still load, not skip.
     with patch.object(pipeline, "raw_provenance", return_value={"source_etag": "v1"}):
+        assert pipeline.needs_bronze(
+            settings, "export", 2022, extracted=False, storage_client=MagicMock()
+        )
+
+
+def test_needs_bronze_true_when_product_filter_changed(settings) -> None:
+    # Loaded, but under a DIFFERENT (stale) product filter — a new NCM/heading was added
+    # since. The archived raw must re-run Phase 2 to backfill the new product's history,
+    # not resume-skip forever.
+    with patch.object(
+        pipeline,
+        "raw_provenance",
+        return_value={
+            "source_etag": "v1",
+            "bronze_loaded_at": "2026",
+            "bronze_loaded_filter": "stale-fingerprint",
+        },
+    ):
+        assert pipeline.needs_bronze(
+            settings, "export", 2022, extracted=False, storage_client=MagicMock()
+        )
+
+
+def test_needs_bronze_true_when_loaded_without_fingerprint(settings) -> None:
+    # A legacy marker (loaded before fingerprints were recorded) has no filter fingerprint —
+    # re-run Phase 2 once to establish it, so a later filter change is detectable on this
+    # historical chunk (whose ETag may never change) instead of freezing it out forever.
+    with patch.object(
+        pipeline, "raw_provenance", return_value={"source_etag": "v1", "bronze_loaded_at": "2026"}
+    ):
         assert pipeline.needs_bronze(
             settings, "export", 2022, extracted=False, storage_client=MagicMock()
         )

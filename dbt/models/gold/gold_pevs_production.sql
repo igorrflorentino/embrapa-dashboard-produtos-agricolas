@@ -37,7 +37,10 @@
 --                     wholesale + consumer + construction).
 --
 --  NULL semantics:
---    - placeholders (-, ..., *) in the source → NULL in the Silver layer;
+--    - "no data" sentinels (..., .., *, X) in the source → NULL in the Silver layer;
+--      SIDRA '-' is NOT one of them — it is an EXACT MEASURED ZERO (0.0), kept distinct
+--      from "não disponível" so a municipality-year-product that went to (or stayed at)
+--      zero production is retained here as 0, not dropped/hidden as missing;
 --    - missing currency factor for unit_of_measure → NULL val_raw → NULL all monetary;
 --    - missing IPCA / IGP-M / IGP-DI index for that year → NULL real_* columns;
 --    - missing FX rate for that year (e.g. EUR pre-1999) → NULL val_yearfx_FX.

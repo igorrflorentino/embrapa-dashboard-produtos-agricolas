@@ -348,6 +348,11 @@ unit_tests:
           - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0004", tipo_de_produto_extrativo: "4 - Contagem", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "milheiro",     valor: "2",    nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
           - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0005", tipo_de_produto_extrativo: "5 - Area", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "alqueire",     valor: "50",   nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
           - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "9999", tipo_de_produto_extrativo: "9 - Saca", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "saca",          valor: "10",   nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          # SIDRA '-' = "dado numérico igual a zero" (an EXACT measured zero) → 0.0 via
+          # dash_is_zero; '...' = "não disponível" → NULL. Pins that the two stay DISTINCT
+          # (the conflation bug mapped '-' to NULL, hiding real zeros as missing data).
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0006", tipo_de_produto_extrativo: "1 - Massa", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "Toneladas",     valor: "-",    nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
+          - {ano: "2020", municipio_codigo: "3500001", municipio: "Foo - SP", tipo_de_produto_extrativo_codigo: "0007", tipo_de_produto_extrativo: "1 - Massa", variavel_codigo: "144", variavel: "Quantidade", unidade_de_medida: "Toneladas",     valor: "...",  nivel_territorial: "Município", ingestion_timestamp: "2024-01-01 00:00:00"}
       - input: ref('historical_currency_factors')
         # One non-matching row just so the empty-join CTE has a known schema.
         rows:
@@ -372,6 +377,9 @@ unit_tests:
         - {product_code: "0004", unit_native: "milheiro",      family: "contagem", qty_base: 2000}
         - {product_code: "0005", unit_native: "alqueire",      family: "area",     qty_base: 121}
         - {product_code: "9999", unit_native: "saca",          family: "massa",    qty_base: 0.6}
+        # '-' → exact zero (qty_base 0), NOT dropped/NULL like the '...' row (qty_base NULL).
+        - {product_code: "0006", unit_native: "Toneladas",     family: "massa",    qty_base: 0}
+        - {product_code: "0007", unit_native: "Toneladas",     family: "massa",    qty_base: }
 
   # PPM is the multi-table, multi-unit-family source: this pins the headline risks
   # deterministically — the herd STOCK (Cabeças/contagem) vs animal FLOW union, the

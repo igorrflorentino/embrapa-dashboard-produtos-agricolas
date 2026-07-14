@@ -179,6 +179,28 @@ def test_extract_delta_keeps_going_when_one_series_is_empty(
     assert set(df["series_code"]) == codes - {empty_code}
 
 
+@pytest.mark.parametrize("spec, label, codes, labels", SPECS)
+def test_extract_delta_cold_series_empty_raises(spec, label, codes, labels, settings) -> None:
+    """A never-ingested (COLD) series returning empty in DELTA mode is a typo'd/discontinued
+    code, not 'nothing new' — this run is its full-window backfill, so it must fail loudly
+    (naming the offender) instead of silently leaving it permanently absent from Bronze."""
+    cold_code = sorted(codes)[0]
+
+    def latest(_bq, _tbl, code):
+        return None if code == cold_code else date(2025, 1, 1)
+
+    def fetch(code, start, end):
+        return pd.DataFrame() if code == cold_code else FAKE.copy()
+
+    bq = MagicMock()
+    with (
+        patch("embrapa_dashboard.bcb.series.latest_reference_date", side_effect=latest),
+        patch("embrapa_dashboard.bcb.series.fetch_series", side_effect=fetch),
+        pytest.raises(RuntimeError, match=cold_code),
+    ):
+        bcb_series.extract(spec, settings, bq, "proj.ds.tbl", full=False)
+
+
 def test_extract_empty_series_config_raises(settings) -> None:
     settings.bcb_inflation_series = "  "
     bq = MagicMock()

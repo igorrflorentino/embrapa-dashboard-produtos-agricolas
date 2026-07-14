@@ -12,6 +12,18 @@ from embrapa_dashboard.config import Settings
 from embrapa_dashboard.ibge import pipeline as ibge_pipeline
 
 
+@pytest.fixture(autouse=True)
+def _all_products_present():
+    """Default: every configured product already has Bronze rows, so ``_delta_start_year``
+    takes the normal delta path. The new-product full-backfill branch (a code absent from
+    Bronze) is exercised by its own test, which overrides this."""
+    with patch(
+        "embrapa_dashboard.ibge.pipeline.bronze_products_present",
+        side_effect=lambda *a, **k: set(a[3]),
+    ):
+        yield
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
@@ -244,6 +256,35 @@ def test_run_delta_rewinds_start_to_recent_years(
 
     # overlap default = 1 → start = 2023 − 1 = 2022, NOT the configured 1986.
     assert fetch.call_args.kwargs["start_year"] == 2022
+    assert fetch.call_args.kwargs["end_year"] == 2024
+
+
+def test_run_delta_full_window_when_new_product_absent_from_bronze(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """A configured product with NO Bronze rows (newly added) forces the FULL configured
+    window so its whole history backfills, instead of the ~2y delta overlap that would
+    silently truncate its series to the recent years."""
+    settings.ibge_start_year = 1986
+    settings.ibge_end_year = 2024
+    with (
+        patch("embrapa_dashboard.ibge.pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pipeline.latest_reference_year", return_value=2023),
+        # The configured code(s) resolve, but NONE is present in Bronze (all "missing").
+        patch("embrapa_dashboard.ibge.pipeline.bronze_products_present", return_value=set()),
+        patch("embrapa_dashboard.ibge.pipeline.land_raw"),
+        patch("embrapa_dashboard.ibge.pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pipeline.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
+        ibge_pipeline.run(settings)
+
+    # Full window (1986), not the delta overlap (2022), because a new product needs its history.
+    assert fetch.call_args.kwargs["start_year"] == 1986
     assert fetch.call_args.kwargs["end_year"] == 2024
 
 

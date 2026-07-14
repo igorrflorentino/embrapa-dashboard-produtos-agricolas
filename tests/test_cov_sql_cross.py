@@ -112,6 +112,7 @@ def test_market_share_latest_none_when_no_common_year(monkeypatch):
         return {2001: 1e9} if metric == "mdic_comex:exp_value" else {2002: 2e9}
 
     monkeypatch.setattr(base, "_xyear", fake_xyear)
+    monkeypatch.setattr(seam_cross, "_world_latest_complete_year", lambda: None)
     assert seam_cross._market_share_latest(("08012100",), ("080121",)) is None
 
 
@@ -123,8 +124,29 @@ def test_market_share_latest_value_when_years_overlap(monkeypatch):
         return {2010: 1e9} if metric == "mdic_comex:exp_value" else {2010: 4e9}
 
     monkeypatch.setattr(base, "_xyear", fake_xyear)
+    monkeypatch.setattr(seam_cross, "_world_latest_complete_year", lambda: None)
     # Latest common year 2010: 1e9 / 4e9 * 100 = 25%.
     assert seam_cross._market_share_latest(("a",), ("b",)) == pytest.approx(25.0)
+
+
+# ── seam_cross._world_latest_complete_year — reporter-coverage clamp ────────────
+
+
+def test_world_latest_complete_year_clamps_to_settled_year(monkeypatch):
+    seam_cross = _cross()
+    # 2023 fully reported (163), 2024/2025 still filling (136/72). Threshold = 90% of 163 =
+    # 146.7, so only 2023 is "settled" → the share window caps there, not at partial 2025.
+    df = pd.DataFrame({"reference_year": [2023, 2024, 2025], "n_reporters": [163, 136, 72]})
+    monkeypatch.setattr(seam_cross.gateway, "fetch_comtrade_reporters_per_year", lambda: df)
+    assert seam_cross._world_latest_complete_year() == 2023
+
+
+def test_world_latest_complete_year_none_when_no_reporters(monkeypatch):
+    seam_cross = _cross()
+    monkeypatch.setattr(
+        seam_cross.gateway, "fetch_comtrade_reporters_per_year", lambda: pd.DataFrame()
+    )
+    assert seam_cross._world_latest_complete_year() is None
 
 
 # ── seam_cross._gate_price_by_year — {} when the PEVS timeseries is empty (line 380) ─

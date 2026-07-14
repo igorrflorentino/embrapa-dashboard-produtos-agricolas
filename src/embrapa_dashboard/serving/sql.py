@@ -632,6 +632,30 @@ def months_present_per_year(table: str) -> tuple[str, list]:
     return sql, []
 
 
+def reporters_present_per_year(table: str) -> tuple[str, list]:
+    """Distinct exporting ``reporter_iso_a3`` count per ``reference_year`` from the
+    COMTRADE annual mart (backs the world-panel completeness signal for market share).
+
+    UN Comtrade reporters file with a ~1-2y lag, so the most recent year(s) of the
+    world export panel carry far fewer reporters than fully-settled years — dividing
+    Brazil (a complete declarant) by that partial world total inflates the "current"
+    share and fakes an upward tail / historic peak. The seam turns this (year ->
+    reporters) map into the latest COMPLETE world year and clamps the share series/KPI
+    to it. Cheap year aggregate, cached. ``flow`` is the constant literal the mart
+    stores for exports (never user input).
+    """
+    sql = f"""
+        select
+            reference_year,
+            count(distinct reporter_iso_a3) as n_reporters
+        from `{table}`
+        where flow = 'export'
+        group by reference_year
+        order by reference_year
+    """
+    return sql, []
+
+
 def current_code_industrialization(table: str) -> tuple[str, list]:
     """Live current industrialization level per (source, code) from
     ``dim_code_industrialization_scd2``.
@@ -861,6 +885,10 @@ def trade_by_partner(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
+    flow: str | None = None,
+    sum_flows: tuple[str, ...] | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     reporter_column: str | None = None,
     reporter_value: str | None = None,
     reporters: Sequence[str] = (),
@@ -871,6 +899,14 @@ def trade_by_partner(
 
     COMEX: partner = country_*; COMTRADE: partner = partner_*. The World partner is
     already dropped upstream (Silver), so no extra filter is needed for COMTRADE.
+
+    ``flow`` narrows to one direction (export/import) so the server-side ranking is by
+    that flow; ``None`` + ``sum_flows`` sums only the primary totals
+    (:data:`COMTRADE_TOTAL_FLOWS`) so the ranking metrics (value_usd / total_weight_kg /
+    price) never double-count the re-export/re-import SUBSETS (X ⊇ RX, M ⊇ RM). ``customs``
+    (regime aduaneiro) and ``market`` (tipo de mercado) narrow the COMTRADE mart to one
+    procedure / purpose; only ``un_comtrade`` carries them, so COMEX passes ``None`` for
+    all four and its query stays byte-identical to before these were threaded.
 
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
     COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
@@ -901,6 +937,9 @@ def trade_by_partner(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
+    _flow(conditions, params, flow, sum_flows=sum_flows)
+    _customs(conditions, params, customs)
+    _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)
     _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
     _in_array(conditions, params, "partner_iso_a3", "partners", partners)
@@ -933,17 +972,25 @@ def trade_flows(
     year_end: int | None = None,
     codes: Sequence[str] = (),
     flow: str | None = None,
+    sum_flows: tuple[str, ...] | None = None,
+    customs: str | None = None,
+    market: str | None = None,
     uf_codes: Sequence[str] = (),
     reporter_column: str | None = None,
     reporter_value: str | None = None,
     reporters: Sequence[str] = (),
     partners: Sequence[str] = (),
-    sum_flows: tuple[str, ...] | None = None,
 ) -> tuple[str, list]:
     """Origin->destination links for the Sankey (backs flowData).
 
     COMEX: origin = UF (state), dest = country. COMTRADE: origin = reporter,
     dest = partner. ``value_usd`` is raw ``val_yearfx_usd``.
+
+    ``flow`` narrows to one direction; ``None`` + ``sum_flows`` sums only the primary
+    totals (:data:`COMTRADE_TOTAL_FLOWS`) so the Sankey links never double-count the
+    re-export/re-import SUBSETS. ``customs`` (regime aduaneiro) and ``market`` (tipo de
+    mercado) narrow the COMTRADE mart to one procedure / purpose; only ``un_comtrade``
+    carries them, so COMEX passes ``None`` and its query stays byte-identical.
 
     ``uf_codes`` optionally narrows to the origin UFs (``state_acronym``) — only the
     COMEX mart carries that column, so the COMTRADE caller leaves it empty (its
@@ -971,6 +1018,8 @@ def trade_flows(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _flow(conditions, params, flow, sum_flows=sum_flows)
+    _customs(conditions, params, customs)
+    _market_nature(conditions, params, market)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
     _reporter(conditions, params, reporter_column, reporter_value)
     _in_array(conditions, params, "reporter_iso_a3", "reporters", reporters)
@@ -1180,6 +1229,7 @@ def product_timeseries(
     codes: Sequence[str] = (),
     uf_codes: Sequence[str] = (),
     flow: str | None = None,
+    sum_flows: tuple[str, ...] | None = None,
     customs: str | None = None,
     market: str | None = None,
     reporter_column: str | None = None,
@@ -1206,7 +1256,10 @@ def product_timeseries(
     ``flow`` optionally narrows to one trade direction (export/import) — only the
     trade marts carry a ``flow`` column, so callers pass it ONLY for trade sources
     (the seam's trade branch); production marts always receive ``None``, leaving the
-    predicate absent. ``None`` sums every flow (the historical default).
+    predicate absent. ``None`` + ``sum_flows`` sums ONLY those flows (for COMTRADE the
+    primary totals :data:`COMTRADE_TOTAL_FLOWS`, so the re-export/re-import SUBSETS are
+    not double-counted in an "all flows" total); ``None`` + no ``sum_flows`` sums every
+    flow (the historical default; COMEX has no overlapping sub-flow so it passes None).
 
     ``customs`` (regime aduaneiro) and ``market`` (tipo de mercado) optionally narrow
     to one customs procedure / economic purpose — ONLY the COMTRADE mart carries
@@ -1227,7 +1280,7 @@ def product_timeseries(
     _year_bounds(conditions, params, year_start, year_end)
     _in_array(conditions, params, code_column, "codes", codes)
     _in_array(conditions, params, "state_acronym", "uf_codes", uf_codes)
-    _flow(conditions, params, flow)
+    _flow(conditions, params, flow, sum_flows=sum_flows)
     _customs(conditions, params, customs)
     _market_nature(conditions, params, market)
     _reporter(conditions, params, reporter_column, reporter_value)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date
 
 import pandas as pd
@@ -75,6 +76,39 @@ def latest_reference_year(
         return None
     row = next(iter(result), None)
     return int(row.max_year) if row and row.max_year is not None else None
+
+
+def bronze_products_present(
+    client: bigquery.Client,
+    table_fqn: str,
+    product_column: str,
+    codes: Sequence[str],
+) -> set[str]:
+    """Which of ``codes`` already have at least one row in an IBGE Bronze table.
+
+    ``product_column`` is the Bronze code column (a fixed schema identifier per source,
+    never user input, so the f-string is safe). Used to detect a NEWLY-added product (a
+    resolved code absent here) so a delta run backfills its FULL history instead of the
+    recent overlap window only — the table-global max year would otherwise anchor the new
+    product at ~last_year - overlap and silently truncate its series. Returns an empty set
+    if the table doesn't exist (a cold table is handled by the caller's own None branch).
+    """
+    codes = list(dict.fromkeys(str(c) for c in codes))
+    if not codes:
+        return set()
+    sql = f"""
+        select distinct {product_column} as code
+        from `{table_fqn}`
+        where {product_column} in unnest(@codes)
+    """
+    params = [bigquery.ArrayQueryParameter("codes", "STRING", codes)]
+    try:
+        result = client.query(
+            sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+        ).result(timeout=JOB_TIMEOUT_S)
+    except NotFound:
+        return set()
+    return {str(row.code) for row in result if row.code is not None}
 
 
 def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> None:

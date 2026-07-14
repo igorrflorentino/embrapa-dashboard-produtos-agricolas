@@ -20,6 +20,17 @@ from embrapa_dashboard.ibge import ppm_pipeline
 P = "embrapa_dashboard.ibge.ppm_pipeline"
 
 
+@pytest.fixture(autouse=True)
+def _all_products_present():
+    """Default: every configured product already has Bronze rows, so ``_delta_start_year`` takes
+    the normal delta path (the new-product full-backfill branch has its own test)."""
+    with patch(
+        f"{P}.bronze_products_present",
+        side_effect=lambda *a, **k: set(a[3]),
+    ):
+        yield
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
@@ -170,6 +181,32 @@ def test_run_delta_rewinds_start_to_recent_years(
     # overlap default = 1 → start = 2023 − 1 = 2022 for BOTH tables, not 2010.
     for call in fetch.call_args_list:
         assert call.kwargs["start_year"] == 2022
+
+
+def test_run_delta_full_window_when_new_product_absent_from_bronze(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """A configured product with NO Bronze rows in its table forces the FULL window so its
+    history backfills instead of being truncated to the delta overlap."""
+    settings.ppm_start_year = 2010
+    settings.ppm_end_year = 2024
+    with (
+        patch(f"{P}.fetch_sidra_dataframe") as fetch,
+        patch(f"{P}.storage.Client"),
+        patch(f"{P}.bigquery.Client"),
+        patch(f"{P}.ensure_dataset"),
+        patch(f"{P}.latest_reference_year", return_value=2023),
+        patch(f"{P}.bronze_products_present", return_value=set()),
+        patch(f"{P}.land_raw"),
+        patch(f"{P}.read_raw") as read_raw,
+        patch(f"{P}.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        read_raw.return_value = sidra_df.astype(str)
+        ppm_pipeline.run(settings)
+
+    for call in fetch.call_args_list:
+        assert call.kwargs["start_year"] == 2010  # full window, not the 2022 delta
         assert call.kwargs["end_year"] == 2024
 
 

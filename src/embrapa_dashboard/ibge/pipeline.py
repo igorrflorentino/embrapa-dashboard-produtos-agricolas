@@ -23,6 +23,7 @@ from embrapa_dashboard import observability
 from embrapa_dashboard.config import Settings
 from embrapa_dashboard.core import land_raw, list_raw, raw_provenance, read_raw
 from embrapa_dashboard.gcp.bigquery import (
+    bronze_products_present,
     ensure_dataset,
     latest_reference_year,
     load_dataframe,
@@ -230,6 +231,29 @@ def _delta_start_year(settings: Settings, bq_client: bigquery.Client) -> Setting
     )
     last_year = latest_reference_year(bq_client, table_fqn)
     if last_year is None:
+        return settings
+    # A newly-added product has NO Bronze rows, so the table-global delta window would
+    # start it at last_year - overlap and silently truncate its history. If any resolved
+    # code is absent from Bronze, fetch the FULL configured window so it backfills; the
+    # existing products just re-fetch their full window that one run — a one-time cost that
+    # self-heals (once the new product is in Bronze it is no longer new, and the next run
+    # returns to the delta window). This precedes the "already current" skip below so a new
+    # product added when Bronze is at end_year still backfills instead of being skipped.
+    resolved = catalog_resolver.resolve_product_codes(
+        settings, "pevs", env_fallback=settings.product_codes, bq_client=bq_client
+    )
+    present = bronze_products_present(
+        bq_client, table_fqn, "tipo_de_produto_extrativo_codigo", resolved
+    )
+    missing = sorted(set(resolved) - present)
+    if missing:
+        logger.info(
+            "IBGE delta: product(s) %s absent from Bronze — full-window backfill (%s-%d) "
+            "so their history is not truncated to the delta overlap.",
+            ",".join(missing),
+            settings.ibge_start_year,
+            settings.ibge_end_year,
+        )
         return settings
     if last_year >= settings.ibge_end_year:
         # Bronze already holds the latest configured year — nothing newer to

@@ -11,6 +11,7 @@ from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 
 from embrapa_dashboard.gcp.bigquery import (
+    bronze_products_present,
     ensure_dataset,
     latest_reference_date,
     latest_reference_year,
@@ -134,3 +135,29 @@ def test_latest_reference_year_returns_none_on_empty_table() -> None:
     client.query.return_value = query_job
 
     assert latest_reference_year(client, "proj.dataset.tbl") is None
+
+
+def test_bronze_products_present_returns_matched_codes() -> None:
+    """Returns exactly the configured codes that have >=1 Bronze row (the query filters
+    the product column to the codes), used to detect a newly-added product for backfill."""
+    client = MagicMock()
+    rows = [MagicMock(code="3405"), MagicMock(code="3406")]
+    query_job = MagicMock()
+    query_job.result.return_value = iter(rows)
+    client.query.return_value = query_job
+
+    out = bronze_products_present(client, "proj.ds.tbl", "prod_col", ["3405", "3406", "9999"])
+    assert out == {"3405", "3406"}  # 9999 absent → "missing" → forces full-window backfill
+    assert "prod_col in unnest(@codes)" in client.query.call_args.args[0]
+
+
+def test_bronze_products_present_empty_codes_skips_query() -> None:
+    client = MagicMock()
+    assert bronze_products_present(client, "proj.ds.tbl", "prod_col", []) == set()
+    client.query.assert_not_called()
+
+
+def test_bronze_products_present_returns_empty_when_table_missing() -> None:
+    client = MagicMock()
+    client.query.side_effect = NotFound("table missing")
+    assert bronze_products_present(client, "proj.ds.tbl", "prod_col", ["3405"]) == set()

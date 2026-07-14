@@ -400,13 +400,14 @@ class Settings(BaseSettings):
     # floors reference_year at var('comtrade_min_year', 2000) — keep the two in sync.
     comtrade_start_year: int = Field(default=2000)
     comtrade_end_year: int = Field(default_factory=_current_year)
-    # How many recent years (below comtrade_end_year) whose Bronze is an EMPTY sentinel
-    # get RE-FETCHED on a plain nightly run. UN Comtrade publishes an annual year with a
-    # ~1-2y lag, so a recent year fetched before it was published lands an empty sentinel;
-    # without this, that sentinel makes the chunk resume-skip forever and the year is never
-    # ingested once UN publishes it (COMTRADE is also excluded from `reconcile`). The
-    # re-fetch is bounded to empty sentinels within this window — real data still
-    # resume-skips (delta), and older empty years (never coming) stay skipped. 0 disables.
+    # How many recent years (at/below comtrade_end_year) get RE-FETCHED on every run so
+    # late reporter submissions and revisions are absorbed. UN Comtrade reporters file an
+    # annual year with a ~1-2y lag, so a year fetched early lands with only a few of its
+    # reporters present (a NON-empty but incomplete raw); without re-fetching that year the
+    # other reporters' later submissions — and any revision to the early ones — are frozen
+    # out forever (COMTRADE is also excluded from `reconcile`, so this window is the ONLY
+    # convergence path). The re-fetch covers real AND empty raws within the window; older
+    # years beyond it are settled and resume-skip. Set ≥ the true publication lag; 0 disables.
     comtrade_recent_refetch_years: int = Field(default=2)
 
     # ─── Cold-storage backup ──────────────────────────────────────────────────
