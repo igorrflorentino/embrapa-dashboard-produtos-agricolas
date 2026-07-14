@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/pt-BR/
 
 ---
 
+## [1.18.0] - 2026-07-14
+
+**Anomalia agronômica do PAM promovida a flag de qualidade in-product + correção de docs.**
+Seguindo a auditoria de fluxos de dados (v1.17.0), a inconsistência "área plantada < área
+colhida" — antes visível só no log do build (`assert_pam_area_planted_ge_harvested`, WARN) —
+agora aparece como uma flag própria na janela de Qualidade, para o pesquisador ver que o dado
+é um erro da fonte (SIDRA), não um erro do pipeline.
+
+### Added
+- **Flag `AREA_INCONSISTENT`** (só PAM): um registro cujo `area_planted_ha < area_harvested_ha`
+  (agronomicamente impossível) recebe essa flag no `gold_pam_production`, com **precedência**
+  sobre a flag de completude (todas as linhas afetadas eram `OK`, então nada é mascarado). Fiada
+  ponta a ponta: `data_quality_flag` (Gold) → `serving_quality_by_source` (contagem genérica) →
+  serializer (`_FLAG_KEY` + label pt-BR `_FLAG_LABEL_PT`) → registro `QUALITY_FLAGS` + `QTS_KEY`
+  do frontend (donut, série temporal e legenda "O que significa cada flag?"). Erros de fonte
+  continuam **carregados fielmente** (regra do projeto: marcar anomalias, nunca substituir).
+
+### Fixed
+- **Docs desatualizadas sobre a semântica do SIDRA `-`** (após a mudança `dash_is_zero` da
+  v1.17.0): README, ARCHITECTURE e `docs/adding_a_data_source.md` diziam que `-` → NULL; agora
+  esclarecem que os placeholders de "sem dado" (`...`, `..`, `*`, `X`) → NULL, mas o `-` do SIDRA
+  é um **zero exato medido** → `0` para o IBGE (mantido distinto de ausente).
+
+---
+
 ## [1.17.1] - 2026-07-14
 
 **Hardenings defensivos opcionais dos 2 achados latentes restantes da auditoria de fluxos de

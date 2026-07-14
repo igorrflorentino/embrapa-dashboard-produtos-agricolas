@@ -407,6 +407,7 @@ def test_quality_ts_pivots_to_per_year_shares():
         "problematic_value",
         "inferred_quantity",
         "inferred_value",
+        "area_inconsistent",  # PAM-only (planted < harvested area)
     }
     assert out[1]["ok"] == 0.5 and out[1]["incomplete"] == 0.3 and out[1]["missing_weight"] == 0.2
 

@@ -155,9 +155,12 @@ models:
       - name: data_quality_flag
         tests:
           - not_null
+          # AREA_INCONSISTENT is PAM-only (planted < harvested area — a SIDRA source error,
+          # surfaced in-product rather than only in the WARN test). Other sources carry no area,
+          # so it never appears there.
           - accepted_values:
               arguments:
-                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE"]
+                values: ["OK", "MISSING_VALUE", "MISSING_QUANTITY", "INCOMPLETE", "OUTLIER_QUANTITY", "PROBLEMATIC_QUANTITY", "OUTLIER_VALUE", "PROBLEMATIC_VALUE", "INFERRED_QUANTITY", "INFERRED_VALUE", "AREA_INCONSISTENT"]
 
   - name: gold_ppm_production
     description: |

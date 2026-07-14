@@ -179,7 +179,7 @@ embrapa-dashboard-commodities/
 │   │       └── serving_quality_by_source.sql
 │   ├── macros/
 │   │   ├── generate_schema_name.sql  # Dev/prod schema separation
-│   │   ├── safe_numeric.sql          # Safe conversion (IBGE placeholders → NULL)
+│   │   ├── safe_numeric.sql          # Safe conversion (no-data placeholders → NULL; SIDRA '-' exact-zero → 0)
 │   │   ├── data_quality_flag.sql     # OK/MISSING_VALUE/etc. flag
 │   │   ├── state_dimensions.sql      # Region/UF lookup
 │   │   └── apply_dev_ttl.sql         # Dev table auto-expiration (7 days)

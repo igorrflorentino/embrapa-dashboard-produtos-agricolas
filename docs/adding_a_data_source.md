@@ -187,7 +187,7 @@ Location: `dbt/models/silver/silver_<source>_<table>.sql`.
 Copy [`silver_ibge_pevs.sql`](../dbt/models/silver/silver_ibge_pevs.sql) as the template. Pattern:
 
 1. **Dedup** via `qualify row_number() over (partition by <natural_key> order by ingestion_timestamp desc) = 1`.
-2. **Typing** with [`safe_numeric()`](../dbt/macros/safe_numeric.sql) for STRING → NUMERIC columns with placeholders (`-`, `...`, `..`, `*`, `X`) → NULL.
+2. **Typing** with [`safe_numeric()`](../dbt/macros/safe_numeric.sql) for STRING → NUMERIC columns: the "no-data" placeholders (`...`, `..`, `*`, `X`) → NULL. For IBGE `valor` pass `dash_is_zero=true` so SIDRA's exact-zero `-` maps to `0` (kept distinct from missing); other sources leave the default (`-` → NULL).
 3. **Enrichment** with source-specific seeds and CTEs.
 
 Add tests in `dbt/models/silver/_silver.yml` following the same pattern as the existing ones — `unique_combination_of_columns`, `not_null`, `accepted_values` for closed domains.

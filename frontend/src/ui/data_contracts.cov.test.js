@@ -30,7 +30,7 @@ describe('data.js — registries', () => {
     expect(window.UF_DATA).toHaveLength(27); // 27 UFs
     expect(window.UF_DATA.every((u) => u.uf && u.region && Number.isInteger(u.col))).toBe(true);
     // the 11-value taxonomy (5 base + 4 outlier/problemático + 2 reserved inferred tiers)
-    expect(window.QUALITY_FLAGS).toHaveLength(11);
+    expect(window.QUALITY_FLAGS).toHaveLength(12); // 11 shared + AREA_INCONSISTENT (PAM-only)
     expect(window.QUALITY_FLAGS.find((f) => f.id === 'OK').label).toBe('Normais');
     // every flag now carries a plain-pt-BR legend description
     expect(window.QUALITY_FLAGS.every((f) => typeof f.desc === 'string' && f.desc.length > 0)).toBe(true);
