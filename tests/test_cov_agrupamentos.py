@@ -21,6 +21,22 @@ def _settings() -> Settings:
     return Settings(gcp_project_id="test-project")
 
 
+def test_record_group_rejects_overlong_name():
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    with pytest.raises(ValueError, match="excede"):
+        cg.record_group(
+            "x" * (cg.MAX_NOTE_LEN + 1), _HEADERS, settings=_settings(), client=mock.MagicMock()
+        )
+
+
+def test_delete_group_requires_group_id():
+    from embrapa_dashboard.serving import agrupamentos as cg
+
+    with pytest.raises(ValueError, match="group_id"):
+        cg.delete_group("  ", _HEADERS, settings=_settings(), client=mock.MagicMock())
+
+
 def _patch_common(monkeypatch, cg, current):
     """Stub the table-ensure + current-groups read + insert; return the captured inserts."""
     monkeypatch.setattr(cg, "ensure_agrupamento_log_table", lambda *a, **k: "grp")

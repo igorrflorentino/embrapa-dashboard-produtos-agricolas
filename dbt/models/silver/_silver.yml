@@ -377,9 +377,9 @@ unit_tests:
         - {product_code: "0004", unit_native: "milheiro",      family: "contagem", qty_base: 2000}
         - {product_code: "0005", unit_native: "alqueire",      family: "area",     qty_base: 121}
         - {product_code: "9999", unit_native: "saca",          family: "massa",    qty_base: 0.6}
-        # '-' → exact zero (qty_native 0, qty_base 0), NOT dropped/NULL like the '...' row.
-        - {product_code: "0006", unit_native: "Toneladas",     family: "massa",    qty_native: 0,  qty_base: 0}
-        - {product_code: "0007", unit_native: "Toneladas",     family: "massa",    qty_native: ,   qty_base: }
+        # '-' → exact zero (qty_base 0), NOT dropped/NULL like the '...' row (qty_base NULL).
+        - {product_code: "0006", unit_native: "Toneladas",     family: "massa",    qty_base: 0}
+        - {product_code: "0007", unit_native: "Toneladas",     family: "massa",    qty_base: }
 
   # PPM is the multi-table, multi-unit-family source: this pins the headline risks
   # deterministically — the herd STOCK (Cabeças/contagem) vs animal FLOW union, the

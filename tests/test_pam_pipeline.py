@@ -180,6 +180,31 @@ def test_run_delta_rewinds_start_to_recent_years(
     assert fetch.call_args.kwargs["end_year"] == 2024
 
 
+def test_run_delta_full_window_when_new_crop_absent_from_bronze(
+    settings: Settings, sidra_df: pd.DataFrame
+) -> None:
+    """A configured crop with NO Bronze rows forces the FULL window so its history backfills."""
+    settings.pam_start_year = 2010
+    settings.pam_end_year = 2024
+    with (
+        patch("embrapa_dashboard.ibge.pam_pipeline.fetch_sidra_dataframe") as fetch,
+        patch("embrapa_dashboard.ibge.pam_pipeline.storage.Client"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.bigquery.Client"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.ensure_dataset"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.latest_reference_year", return_value=2023),
+        patch("embrapa_dashboard.ibge.pam_pipeline.bronze_products_present", return_value=set()),
+        patch("embrapa_dashboard.ibge.pam_pipeline.land_raw"),
+        patch("embrapa_dashboard.ibge.pam_pipeline.read_raw") as read_raw,
+        patch("embrapa_dashboard.ibge.pam_pipeline.load_dataframe"),
+    ):
+        fetch.return_value = sidra_df
+        _patch_phase2_df(read_raw, sidra_df)
+        pam_pipeline.run(settings)
+
+    assert fetch.call_args.kwargs["start_year"] == 2010  # full window, not the 2022 delta
+    assert fetch.call_args.kwargs["end_year"] == 2024
+
+
 def test_run_full_bypasses_delta(settings: Settings, sidra_df: pd.DataFrame) -> None:
     settings.pam_start_year = 2010
     settings.pam_end_year = 2024

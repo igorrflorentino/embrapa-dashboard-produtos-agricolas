@@ -2286,3 +2286,39 @@ def test_trade_adapters_thread_flow_filter(monkeypatch):
     )  # Sankey honours all three
     seam.partner_data("un_comtrade", {"flow": "import"})
     assert rec["pf"] == "import"  # partner ranking honours flow
+
+
+def test_country_reader_kwargs_encodes_world_list_and_partners():
+    seam = _seam()
+    assert seam._country_reader_kwargs(None) == {}
+    assert seam._country_reader_kwargs({}) == {}
+    # world sentinel → pin_reporter None (sum over ALL reporters, no Brazil pin)
+    world = {"reporters": seam._REPORTER_WORLD}
+    assert seam._country_reader_kwargs(world) == {"pin_reporter": None}
+    # explicit reporter list → IN-list
+    assert seam._country_reader_kwargs({"reporters": ["BRA", "USA"]}) == {
+        "reporters": ("BRA", "USA")
+    }
+    # partner list
+    assert seam._country_reader_kwargs({"partners": ["CHN"]}) == {"partners": ("CHN",)}
+
+
+def test_comtrade_countries_degrades_and_splits(monkeypatch):
+    from google.cloud.exceptions import NotFound
+
+    seam = _seam()
+
+    def _nf():
+        raise NotFound("mart not built")
+
+    # NotFound (mart absent) and empty df both degrade to the empty payload, not a 500.
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", _nf)
+    assert seam.comtrade_countries() == {"reporters": None, "partners": None}
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", lambda: pd.DataFrame())
+    assert seam.comtrade_countries() == {"reporters": None, "partners": None}
+    # happy path splits by the ``role`` column.
+    df = pd.DataFrame({"role": ["reporter", "partner"], "iso": ["BRA", "CHN"]})
+    monkeypatch.setattr(seam.gateway, "fetch_comtrade_countries", lambda: df)
+    out = seam.comtrade_countries()
+    assert list(out["reporters"]["iso"]) == ["BRA"]
+    assert list(out["partners"]["iso"]) == ["CHN"]

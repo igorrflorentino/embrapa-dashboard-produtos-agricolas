@@ -412,6 +412,35 @@ def test_check_backup_freshness_skips_incomplete_snapshot(settings: Settings) ->
     assert "skipped 1 newer" in result.detail
 
 
+def test_latest_complete_run_skips_snapshot_of_different_dataset(settings: Settings) -> None:
+    """A COMPLETE snapshot whose manifest records a DIFFERENT dataset (e.g. a dev-pointed .env
+    snapshotting dbt_dev_gold) must NOT satisfy a gate for settings.bq_gold_dataset — the newest
+    matching-dataset run wins instead, and the mismatch counts as skipped."""
+    import json as _json
+
+    now = datetime.now(UTC)
+    newer = (now - timedelta(days=1)).strftime("%Y%m%dT%H%M%SZ")
+    older = (now - timedelta(days=3)).strftime("%Y%m%dT%H%M%SZ")
+    runs = [
+        (datetime.strptime(newer, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC), f"backups/run={newer}/"),
+        (datetime.strptime(older, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC), f"backups/run={older}/"),
+    ]
+    other = settings.bq_gold_dataset + "_other"  # guaranteed != the configured dataset
+
+    def _blob(name: str) -> MagicMock:
+        blob = MagicMock()
+        blob.exists.return_value = True
+        dataset = other if newer in name else settings.bq_gold_dataset
+        blob.download_as_text.return_value = _json.dumps({"dataset": dataset})
+        return blob
+
+    client = MagicMock()
+    client.bucket.return_value.blob.side_effect = _blob
+    latest, skipped = doctor._latest_complete_run(client, settings, runs)
+    assert latest == runs[1][0]  # the older run OF THE CONFIGURED dataset, not the newer dev one
+    assert skipped == 1  # the newer, other-dataset snapshot was skipped
+
+
 def test_check_backup_freshness_fails_when_only_incomplete_snapshots(settings: Settings) -> None:
     """Run prefixes exist but none carries the _SUCCESS marker → hard fail.
 
